@@ -1,8 +1,6 @@
 import time
 import asyncio
 import os
-from http.server import BaseHTTPRequestHandler, HTTPServer
-import threading
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
@@ -16,18 +14,21 @@ DELETE_DELAY_TIME = 540  # 9 minutes in seconds
 
 user_click_tracker = {}
 
-# --- MINI WEB SERVER TO BIND RENDER PORT ---
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/plain")
-        self.end_headers()
-        self.wfile.write(b"Bot is alive")
+# --- CLEAN PYTHON 3.14 HEALTH CHECK LOOP ---
+async def handle_root_request(reader, writer):
+    """Responds to Render's background system ping checks cleanly."""
+    response = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 12\r\n\r\nBot is alive"
+    writer.write(response)
+    await writer.drain()
+    writer.close()
+    await writer.wait_closed()
 
-def run_health_server():
+async def run_health_server():
+    """Starts an asynchronous network socket to keep Render online."""
     port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
-    server.serve_forever()
+    server = await asyncio.start_server(handle_root_request, "0.0.0.0", port)
+    async with server:
+        await server.serve_forever()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
@@ -151,12 +152,13 @@ async def handle_button_clicks(update: Update, context: ContextTypes.DEFAULT_TYP
             except Exception as e:
                 await query.message.reply_text(f"❌ **Error fetching file bundle.** Details: {e}")
 
+async def post_init_callback(application: Application) -> None:
+    """Spawns the health checker server inside the main async event loop context."""
+    asyncio.create_task(run_health_server())
+
 def main() -> None:
-    # Start the dummy web server on a background thread to keep Render happy
-    threading.Thread(target=run_health_server, daemon=True).start()
-    
-    print("Initializing Fixed Render Auto-Delete CPA Bot Server...")
-    app = Application.builder().token(BOT_TOKEN).build()
+    print("Initializing Python 3.14 Optimized Auto-Delete CPA Bot Server...")
+    app = Application.builder().token(BOT_TOKEN).post_init(post_init_callback).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_button_clicks))
     app.run_polling()
