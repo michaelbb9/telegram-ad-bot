@@ -14,7 +14,7 @@ DELETE_DELAY_TIME = 540  # 9 minutes in seconds
 
 user_click_tracker = {}
 
-# --- CLEAN PYTHON 3.14 HEALTH CHECK LOOP ---
+# --- HEALTH CHECK SERVER FOR RENDER ---
 async def handle_root_request(reader, writer):
     """Responds to Render's background system ping checks cleanly."""
     response = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 12\r\n\r\nBot is alive"
@@ -36,11 +36,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     
     if not args:
         await update.message.reply_text(
-            "👋 **Welcome!** Please click a specific video link from the main channel to unlock content."
+            "👋 **Welcome!** Please click a specific video link from the main channel to unlock content.",
+            parse_mode="Markdown"
         )
         return
     
-    video_code = args if isinstance(args, list) and len(args) > 0 else (args if isinstance(args, str) else "")
+    # FIXED: Safely extract the string from context.args list
+    video_code = args[0] if isinstance(args, list) and len(args) > 0 else ""
     
     if video_code.startswith("vid"):
         clean_code = video_code.replace("vid", "")
@@ -91,7 +93,6 @@ async def auto_delete_task(context: ContextTypes.DEFAULT_TYPE) -> None:
     job = context.job
     chat_id = job.chat_id
     message_ids_to_delete = job.data
-    await asyncio.sleep(DELETE_DELAY_TIME)
     for msg_id in message_ids_to_delete:
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
@@ -147,7 +148,9 @@ async def handle_button_clicks(update: Update, context: ContextTypes.DEFAULT_TYP
                     text="⏳ **Safety Alert:** These videos will automatically delete from this chat box in **9 minutes** for security reasons. Watch them now!"
                 )
                 forwarded_message_ids.append(warning_msg.message_id)
-                context.job_queue.run_once(auto_delete_task, when=0, data=forwarded_message_ids, chat_id=user_id)
+                
+                # FIXED: Use job_queue delay directly instead of blocking inside sleep
+                context.job_queue.run_once(auto_delete_task, when=DELETE_DELAY_TIME, data=forwarded_message_ids, chat_id=user_id)
                     
             except Exception as e:
                 await query.message.reply_text(f"❌ **Error fetching file bundle.** Details: {e}")
@@ -157,7 +160,7 @@ async def post_init_callback(application: Application) -> None:
     asyncio.create_task(run_health_server())
 
 def main() -> None:
-    print("Initializing Python 3.14 Optimized Auto-Delete CPA Bot Server...")
+    print("Initializing Optimized Telegram Bot Server...")
     app = Application.builder().token(BOT_TOKEN).post_init(post_init_callback).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(handle_button_clicks))
