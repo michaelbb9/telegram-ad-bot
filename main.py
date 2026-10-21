@@ -2,6 +2,8 @@ import time
 import json
 import os
 import asyncio
+import threading
+from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
@@ -16,6 +18,18 @@ DELETE_DELAY_TIME = 540  # 9 minutes
 REQUIRED_WAIT_SECONDS = 20
 
 TOKEN_FILE = "/home/Michaelbbc/mysite/tokens.json"
+
+# --- TINY WEB SERVER FOR RENDER FREE TIER ---
+web_app = Flask(__name__)
+
+@web_app.route('/')
+def health_check():
+    return "Bot is alive and running!", 200
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 10000))
+    web_app.run(host="0.0.0.0", port=port)
+# --------------------------------------------
 
 def load_tokens():
     if not os.path.exists(TOKEN_FILE):
@@ -92,7 +106,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "👇 *Watch the short tutorial video above if you're stuck!*"
     )
 
-    # Send tutorial video from your private vault with your buttons attached
     try:
         await context.bot.copy_message(
             chat_id=user_id,
@@ -103,7 +116,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             reply_markup=reply_markup
         )
     except Exception as e:
-        # Fallback text message if copy fails
         await update.message.reply_text(
             text=caption_text,
             reply_markup=reply_markup,
@@ -111,10 +123,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Secure Admin /stats command handler"""
     user_id = update.message.from_user.id
     
-    # Strictly lock down to your admin ID
     if user_id != ADMIN_ID:
         return
 
@@ -193,10 +203,13 @@ async def auto_delete_task(context: ContextTypes.DEFAULT_TYPE) -> None:
             pass
 
 def main() -> None:
-    print("Bot is starting up with your secure session architecture and tutorial video...")
+    # Start the tiny web server in a background thread so Render's free tier stays happy
+    server_thread = threading.Thread(target=run_web_server, daemon=True)
+    server_thread.start()
+
+    print("Bot is starting up with your secure session architecture and background web server...")
     app = Application.builder().token(BOT_TOKEN).build()
     
-    # Handlers registered here
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CallbackQueryHandler(handle_buttons))
