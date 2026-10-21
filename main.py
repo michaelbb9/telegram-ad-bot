@@ -19,17 +19,13 @@ REQUIRED_WAIT_SECONDS = 20
 
 TOKEN_FILE = "/home/Michaelbbc/mysite/tokens.json"
 
-# --- TINY WEB SERVER FOR RENDER FREE TIER ---
+# --- TINY WEB SERVER FOR RENDER ---
 web_app = Flask(__name__)
 
 @web_app.route('/')
 def health_check():
     return "Bot is alive and running!", 200
-
-def run_web_server():
-    port = int(os.environ.get("PORT", 10000))
-    web_app.run(host="0.0.0.0", port=port)
-# --------------------------------------------
+# ----------------------------------
 
 def load_tokens():
     if not os.path.exists(TOKEN_FILE):
@@ -78,7 +74,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     bridge_link = f"{WEB_BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
 
-    # Register session in your tokens.json file
     tokens = load_tokens()
     tokens[str(user_id)] = {
         "user_id": int(user_id),
@@ -202,19 +197,31 @@ async def auto_delete_task(context: ContextTypes.DEFAULT_TYPE) -> None:
         except Exception:
             pass
 
-def main() -> None:
-    # Start the tiny web server in a background thread so Render's free tier stays happy
-    server_thread = threading.Thread(target=run_web_server, daemon=True)
-    server_thread.start()
+def run_telegram_bot():
+    """Runs the Telegram bot in a dedicated event loop thread"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
-    print("Bot is starting up with your secure session architecture and background web server...")
-    app = Application.builder().token(BOT_TOKEN).build()
-    
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("stats", stats))
-    app.add_handler(CallbackQueryHandler(handle_buttons))
-    
-    app.run_polling()
+    async def start_bot():
+        app = Application.builder().token(BOT_TOKEN).build()
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(CommandHandler("stats", stats))
+        app.add_handler(CallbackQueryHandler(handle_buttons))
+        
+        await app.initialize()
+        await app.start()
+        await app.updater.start_polling()
+        
+        # Keep the bot thread running
+        await asyncio.Event().wait()
+
+    loop.run_until_complete(start_bot())
 
 if __name__ == "__main__":
-    main()
+    print("Starting Telegram bot background thread...")
+    bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
+    bot_thread.start()
+
+    print("Starting Flask web server on main thread...")
+    port = int(os.environ.get("PORT", 10000))
+    web_app.run(host="0.0.0.0", port=port)
