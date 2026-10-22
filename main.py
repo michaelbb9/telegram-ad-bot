@@ -16,13 +16,14 @@ logger = logging.getLogger(__name__)
 
 # --- CONFIGURATION ---
 TOKEN = os.getenv("TELEGRAM_TOKEN")
-WEB_BRIDGE_URL = os.getenv("WEB_BRIDGE_URL", "https://your-pythonanywhere-username.pythonanywhere.com") # Your PythonAnywhere bridge URL
-PUBLIC_CHANNEL_URL = "@booksaufio"  # Your public channel username
-DETECTED_CHANNEL_ID = int(os.getenv("DETECTED_CHANNEL_ID", "-1001234567890"))  # Private source channel ID
+WEB_BRIDGE_URL = os.getenv("WEB_BRIDGE_URL", "https://your-pythonanywhere-username.pythonanywhere.com")
+PUBLIC_CHANNEL_URL = "@booksaufio"  # Public channel to verify membership
+DETECTED_CHANNEL_ID = -1004347828512  # Private storage channel ID
+TUTORIAL_MSG_ID = 108  # Tutorial video message ID from private channel
 
 DELETE_DELAY_TIME = 540  # 9 minutes in seconds
 
-# --- FLASK APP FOR RENDER (KEEPS WEB SERVICE ALIVE & HEALTHY) ---
+# --- FLASK APP FOR RENDER (KEEPS WEB SERVICE ALIVE) ---
 app = Flask(__name__)
 
 @app.route("/")
@@ -33,7 +34,7 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-# --- TOKEN STORAGE HELPERS (SYNCED WITH PYTHONANYWHERE BRIDGE) ---
+# --- TOKEN STORAGE HELPERS (SYNCED WITH PYTHONANYWHERE BACKEND) ---
 def load_tokens():
     try:
         response = requests.get(f"{WEB_BRIDGE_URL}/get_tokens", timeout=5)
@@ -69,7 +70,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("❌ Invalid link format.")
         return
 
-    # Save token state via bridge
+    # Save initial token state
     tokens = load_tokens()
     tokens[str(user_id)] = {
         "msg_start": msg_start,
@@ -78,23 +79,30 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     }
     save_tokens(tokens)
 
-    # Generate unique bridge link for this user
+    # Generate unique bridge page link for this user
     bridge_link = f"{WEB_BRIDGE_URL}/bridge?user_id={user_id}"
 
     keyboard = [
-        [InlineKeyboardButton("🔗 1. Watch Sponsor Ad / Verify", url=bridge_link)],
+        [InlineKeyboardButton("🔒 Open Link & Watch Timer", url=bridge_link)],
         [InlineKeyboardButton("📢 Join Public Channel", url=f"https://t.me/{PUBLIC_CHANNEL_URL.lstrip('@')}")],
         [InlineKeyboardButton("💜 Check & Get Files", callback_data="verify_user")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(
-        "🎬 **Video Bundle Access Steps:**\n\n"
-        "1. Click the button above to complete the sponsor verification.\n"
-        "2. Make sure you have joined our public channel.\n"
-        "3. Click **'Check & Get Files'** to receive your videos!",
-        reply_markup=reply_markup
-    )
+    # Copy the tutorial video (Message 108) with caption & interactive buttons attached
+    try:
+        await context.bot.copy_message(
+            chat_id=user_id,
+            from_chat_id=DETECTED_CHANNEL_ID,
+            message_id=TUTORIAL_MSG_ID,
+            reply_markup=reply_markup
+        )
+    except Exception as e:
+        logger.error(f"Failed to copy tutorial video: {e}")
+        await update.message.reply_text(
+            "👇 **CONTENT LOCKED** 👇\n\nTo unlock and receive your video bundle, please complete the steps below:",
+            reply_markup=reply_markup
+        )
 
 # --- COMMAND: /stats (Admin Dashboard) ---
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -118,7 +126,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_id = query.from_user.id
 
     if query.data == "verify_user":
-        # --- 1. MANDATORY CHANNEL JOIN CHECK ---
+        # 1. MANDATORY PUBLIC CHANNEL CHECK
         try:
             member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_URL, user_id=user_id)
             if member.status not in ["creator", "administrator", "member"]:
@@ -135,7 +143,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
             return
 
-        # --- 2. SPONSOR TIMER / VERIFICATION CHECK ---
+        # 2. SPONSOR TIMER VERIFICATION CHECK
         tokens = load_tokens()
         user_str = str(user_id)
 
@@ -149,7 +157,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.answer("❌ You haven't finished viewing the sponsor page yet! Stay on the sponsor page until the timer completes.", show_alert=True)
             return
 
-        # --- 3. RELEASE CONTENT ---
+        # 3. RELEASE CONTENT (IF BOTH CHECKS PASS)
         msg_start = token_data["msg_start"]
         msg_end = token_data["msg_end"]
 
@@ -176,6 +184,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
             forwarded_message_ids.append(warning_msg.message_id)
 
+            # Schedule 9-minute auto-delete
             context.job_queue.run_once(auto_delete_task, when=DELETE_DELAY_TIME, data=forwarded_message_ids, chat_id=user_id)
 
         except Exception as e:
@@ -209,11 +218,11 @@ def main():
         logger.error("No TELEGRAM_TOKEN found in environment variables!")
         return
 
-    # Start Flask web server in a background thread for Render
+    # Start background Flask server for Render health checks
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
 
-    # Build Telegram Application
+    # Build and start Telegram bot
     application = Application.builder().token(token).build()
 
     application.add_handler(CommandHandler("start", start))
@@ -223,6 +232,6 @@ def main():
     logger.info("Bot is starting polling...")
     application.run_polling()
 
-    
+
 if __name__ == "__main__":
     main()
