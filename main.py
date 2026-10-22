@@ -15,7 +15,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # --- CONFIGURATION ---
-TOKEN = os.getenv("TELEGRAM_TOKEN")
+TOKEN = os.getenv("TELEGRAM_TOKEN", "8863904451:AAE1DbPBkeB1SXyCLIzDNbxTfEZIYd_sjWI")
 WEB_BRIDGE_URL = os.getenv("WEB_BRIDGE_URL", "https://michaelbbc.pythonanywhere.com")
 PUBLIC_CHANNEL_URL = "@booksaufio"  # Public channel username for membership check
 DETECTED_CHANNEL_ID = -1004347828512  # Private storage / vault channel ID
@@ -109,7 +109,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "👇 *Watch the short tutorial video above if you're stuck!*"
     )
 
-    # Try copying tutorial video (Message ID 108) with caption & buttons attached
+    # Copy tutorial video (Message ID 108) with caption & buttons attached
     try:
         await context.bot.copy_message(
             chat_id=user_id,
@@ -120,12 +120,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             reply_markup=reply_markup
         )
     except Exception as e:
-        # This will log the precise Telegram error on Render dashboard logs
-        logger.error(f"🚨 EXACT COPY_MESSAGE ERROR FROM TELEGRAM: {e}")
-        
-        # Fallback text message if copy fails
+        logger.error(f"🚨 COPY_MESSAGE ERROR FROM TELEGRAM: {e}")
         await update.message.reply_text(
-            text=f"⚠️ [Debug Error: {e}]\n\n" + caption_text,
+            text=caption_text,
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
