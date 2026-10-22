@@ -19,7 +19,7 @@ TOKEN = os.getenv("TELEGRAM_TOKEN")
 WEB_BRIDGE_URL = os.getenv("WEB_BRIDGE_URL", "https://your-pythonanywhere-username.pythonanywhere.com")
 PUBLIC_CHANNEL_URL = "@booksaufio"  # Public channel to verify membership
 DETECTED_CHANNEL_ID = -1004347828512  # Private storage channel ID
-TUTORIAL_MSG_ID = 6248570946  # Updated tutorial video message ID from private channel
+TUTORIAL_MSG_ID = 108  # Real tutorial video message ID
 
 DELETE_DELAY_TIME = 540  # 9 minutes in seconds
 
@@ -89,7 +89,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # Copy the tutorial video with caption & interactive buttons attached
+    # Copy tutorial video (Message ID 108) with caption & interactive buttons attached
     try:
         await context.bot.copy_message(
             chat_id=user_id,
