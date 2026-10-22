@@ -19,7 +19,7 @@ TOKEN = os.getenv("TELEGRAM_TOKEN")
 WEB_BRIDGE_URL = os.getenv("WEB_BRIDGE_URL", "https://your-pythonanywhere-username.pythonanywhere.com")
 PUBLIC_CHANNEL_URL = "@booksaufio"  # Public channel to verify membership
 DETECTED_CHANNEL_ID = -1004347828512  # Private storage channel ID
-TUTORIAL_MSG_ID = 108  # Real tutorial video message ID
+TUTORIAL_MSG_ID = 108  # Tutorial video message ID
 
 DELETE_DELAY_TIME = 540  # 9 minutes in seconds
 
@@ -67,8 +67,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         msg_start = int(start_str)
         msg_end = int(end_str)
     except Exception:
-        await update.message.reply_text("❌ Invalid link format.")
-        return
+        # Single video link fallback (e.g. vid33)
+        try:
+            msg_num = int(param.replace("vid", ""))
+            msg_start = msg_num
+            msg_end = msg_num
+        except Exception:
+            await update.message.reply_text("❌ Invalid link format.")
+            return
 
     # Save initial token state
     tokens = load_tokens()
@@ -89,7 +95,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # Copy tutorial video (Message ID 108) with caption & interactive buttons attached
+    # 1. Try copying video with buttons attached
     try:
         await context.bot.copy_message(
             chat_id=user_id,
@@ -99,10 +105,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
     except Exception as e:
         logger.error(f"Failed to copy tutorial video: {e}")
-        await update.message.reply_text(
-            "👇 **CONTENT LOCKED** 👇\n\nTo unlock and receive your video bundle, please complete the steps below:",
-            reply_markup=reply_markup
-        )
+        # 2. Fallback: Forward video directly first, then send buttons below it
+        try:
+            await context.bot.forward_message(
+                chat_id=user_id,
+                from_chat_id=DETECTED_CHANNEL_ID,
+                message_id=TUTORIAL_MSG_ID
+            )
+            await update.message.reply_text(
+                "👇 **CONTENT LOCKED** 👇\n\nTo unlock and receive your video bundle, please complete the steps below:",
+                reply_markup=reply_markup
+            )
+        except Exception as forward_err:
+            logger.error(f"Failed to forward tutorial video: {forward_err}")
+            await update.message.reply_text(
+                "👇 **CONTENT LOCKED** 👇\n\nTo unlock and receive your video bundle, please complete the steps below:",
+                reply_markup=reply_markup
+            )
 
 # --- COMMAND: /stats (Admin Dashboard) ---
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
