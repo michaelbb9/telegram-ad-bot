@@ -1,149 +1,141 @@
-import time
-import json
 import os
+import json
 import asyncio
-import threading
+import logging
+import requests
 from flask import Flask
+import threading
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-BOT_TOKEN = "8863904451:AAE1DbPBkeB1SXyCLIzDNbxTfEZIYd_sjWI"
-ADMIN_ID = 6248570946  # Your secure personal Telegram ID
-DETECTED_CHANNEL_ID = -1004347828512
-PRIVATE_CHANNEL_ID = -1004347828512  # Vault/Tutorial channel
-TUTORIAL_MESSAGE_ID = 78             # Message ID for your tutorial video
-WEB_BRIDGE_URL = "https://michaelbbc.pythonanywhere.com/bridge"
-PUBLIC_CHANNEL_URL = "https://t.me/booksaufio"
-DELETE_DELAY_TIME = 540  # 9 minutes
-REQUIRED_WAIT_SECONDS = 20
+# Enable logging
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
-TOKEN_FILE = "/home/Michaelbbc/mysite/tokens.json"
+# --- CONFIGURATION ---
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+WEB_BRIDGE_URL = os.getenv("WEB_BRIDGE_URL", "https://your-pythonanywhere-username.pythonanywhere.com") # Your PythonAnywhere bridge URL
+PUBLIC_CHANNEL_URL = "@booksaufio"  # Your public channel username
+DETECTED_CHANNEL_ID = int(os.getenv("DETECTED_CHANNEL_ID", "-1001234567890"))  # Private source channel ID
 
-# --- TINY WEB SERVER FOR RENDER ---
-web_app = Flask(__name__)
+DELETE_DELAY_TIME = 540  # 9 minutes in seconds
 
-@web_app.route('/')
+# --- FLASK APP FOR RENDER (KEEPS WEB SERVICE ALIVE & HEALTHY) ---
+app = Flask(__name__)
+
+@app.route("/")
 def health_check():
     return "Bot is alive and running!", 200
-# ----------------------------------
 
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
+
+# --- TOKEN STORAGE HELPERS (SYNCED WITH PYTHONANYWHERE BRIDGE) ---
 def load_tokens():
-    if not os.path.exists(TOKEN_FILE):
-        return {}
     try:
-        with open(TOKEN_FILE, "r") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+        response = requests.get(f"{WEB_BRIDGE_URL}/get_tokens", timeout=5)
+        if response.status_code == 200:
+            return response.json()
+    except Exception as e:
+        logger.error(f"Error loading tokens from bridge: {e}")
+    return {}
 
 def save_tokens(tokens):
     try:
-        with open(TOKEN_FILE, "w") as f:
-            json.dump(tokens, f)
+        requests.post(f"{WEB_BRIDGE_URL}/save_tokens", json=tokens, timeout=5)
     except Exception as e:
-        print(f"Error saving tokens: {e}")
+        logger.error(f"Error saving tokens to bridge: {e}")
 
+# --- COMMAND: /start ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.message.from_user.id
+    user_id = update.effective_user.id
     args = context.args
 
     if not args:
-        await update.message.reply_text("👋 Welcome! Please click a video link from the main channel.")
+        await update.message.reply_text(
+            "Welcome! Please use a valid video link from our channel to get started."
+        )
         return
 
-    video_code = args[0]
-    if video_code.startswith("vid"):
-        clean_code = video_code.replace("vid", "")
-        if "to" in clean_code:
-            try:
-                parts = clean_code.split("to")
-                msg_start, msg_end = int(parts[0]), int(parts[1])
-            except (ValueError, IndexError):
-                await update.message.reply_text("❌ Invalid bundle format.")
-                return
-        else:
-            try:
-                msg_start = int(clean_code)
-                msg_end = msg_start
-            except ValueError:
-                await update.message.reply_text("❌ Invalid video number.")
-                return
-    else:
-        await update.message.reply_text("❌ Unknown link parameter layout.")
+    param = args[0]  # e.g., vid10to15
+    try:
+        start_str, end_str = param.replace("vid", "").split("to")
+        msg_start = int(start_str)
+        msg_end = int(end_str)
+    except Exception:
+        await update.message.reply_text("❌ Invalid link format.")
         return
 
-    bridge_link = f"{WEB_BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
-
+    # Save token state via bridge
     tokens = load_tokens()
     tokens[str(user_id)] = {
-        "user_id": int(user_id),
-        "msg_start": int(msg_start),
-        "msg_end": int(msg_end),
-        "clicked_ad": False,
-        "verified": False,
-        "expires": time.time() + 600
+        "msg_start": msg_start,
+        "msg_end": msg_end,
+        "verified": False
     }
     save_tokens(tokens)
 
+    # Generate unique bridge link for this user
+    bridge_link = f"{WEB_BRIDGE_URL}/bridge?user_id={user_id}"
+
     keyboard = [
-        [InlineKeyboardButton("🔓 Open Link & Watch Timer", url=bridge_link)],
-        [InlineKeyboardButton("📢 Join Public Channel", url=PUBLIC_CHANNEL_URL)],
+        [InlineKeyboardButton("🔗 1. Watch Sponsor Ad / Verify", url=bridge_link)],
+        [InlineKeyboardButton("📢 Join Public Channel", url=f"https://t.me/{PUBLIC_CHANNEL_URL.lstrip('@')}")],
         [InlineKeyboardButton("💜 Check & Get Files", callback_data="verify_user")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    caption_text = (
-        "👇 **CONTENT LOCKED** 👇\n\n"
-        "⚠️ **Browser Tip:** *For the smoothest experience and accurate timer tracking, please tap the three dots (⋮) and select **'Open in browser' (Chrome/Safari)** instead of using Telegram's built-in view!*\n\n"
-        "To unlock and receive your video bundle:\n"
-        "1️⃣ Click **Open Link & Watch Timer**, then click the **Open Sponsor Page** button.\n"
-        "2️⃣ Stay on the sponsor page for the full countdown, close the window, and come back here to click **Check & Get Files**!\n\n"
-        "👇 *Watch the short tutorial video above if you're stuck!*"
+    await update.message.reply_text(
+        "🎬 **Video Bundle Access Steps:**\n\n"
+        "1. Click the button above to complete the sponsor verification.\n"
+        "2. Make sure you have joined our public channel.\n"
+        "3. Click **'Check & Get Files'** to receive your videos!",
+        reply_markup=reply_markup
     )
 
-    try:
-        await context.bot.copy_message(
-            chat_id=user_id,
-            from_chat_id=PRIVATE_CHANNEL_ID,
-            message_id=TUTORIAL_MESSAGE_ID,
-            caption=caption_text,
-            parse_mode="Markdown",
-            reply_markup=reply_markup
-        )
-    except Exception as e:
-        await update.message.reply_text(
-            text=caption_text,
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
-        )
-
+# --- COMMAND: /stats (Admin Dashboard) ---
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.message.from_user.id
-    
-    if user_id != ADMIN_ID:
-        return
-
     tokens = load_tokens()
+    
     total_sessions = len(tokens)
-    clicked_ad = sum(1 for data in tokens.values() if data.get("clicked_ad", False))
-    completed_timer = sum(1 for data in tokens.values() if data.get("verified", False))
-    pending_users = total_sessions - completed_timer
+    verified_sessions = sum(1 for data in tokens.values() if data.get("verified"))
+    pending_sessions = total_sessions - verified_sessions
 
-    report = (
-        "📊 **ADMIN LIVE STATS** 📊\n\n"
-        f"👥 **Total Bot Sessions:** {total_sessions}\n"
-        f"🖱️ **Clicked Ad:** {clicked_ad}\n"
-        f"✅ **Completed Verification:** {completed_timer}\n"
-        f"⏳ **Currently Pending:** {pending_users}\n"
+    await update.message.reply_text(
+        f"📊 **Bot Live Statistics Summary**\n\n"
+        f"• Total Active Sessions: `{total_sessions}`\n"
+        f"• Verified Users Ready: `{verified_sessions}`\n"
+        f"• Pending/Unverified: `{pending_sessions}`\n\n"
+        f"🟢 **System Status:** Online & Operational"
     )
 
-    await update.message.reply_text(report, parse_mode="Markdown")
-
+# --- BUTTON HANDLER (CHANNEL CHECK + VERIFICATION + FILE DELIVERY) ---
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     user_id = query.from_user.id
 
     if query.data == "verify_user":
+        # --- 1. MANDATORY CHANNEL JOIN CHECK ---
+        try:
+            member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_URL, user_id=user_id)
+            if member.status not in ["creator", "administrator", "member"]:
+                await query.answer(
+                    "❌ You must join our public channel first! Click '📢 Join Public Channel' below, join, and try again.",
+                    show_alert=True
+                )
+                return
+        except Exception as e:
+            logger.error(f"Channel check error: {e}")
+            await query.answer(
+                "⚠️ Please make sure you have joined the public channel before proceeding!",
+                show_alert=True
+            )
+            return
+
+        # --- 2. SPONSOR TIMER / VERIFICATION CHECK ---
         tokens = load_tokens()
         user_str = str(user_id)
 
@@ -157,6 +149,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.answer("❌ You haven't finished viewing the sponsor page yet! Stay on the sponsor page until the timer completes.", show_alert=True)
             return
 
+        # --- 3. RELEASE CONTENT ---
         msg_start = token_data["msg_start"]
         msg_end = token_data["msg_end"]
 
@@ -188,40 +181,48 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except Exception as e:
             await query.message.reply_text(f"❌ Error fetching file bundle: {e}")
 
+# --- AUTO-DELETE TASK ---
 async def auto_delete_task(context: ContextTypes.DEFAULT_TYPE) -> None:
     job = context.job
+    message_ids = job.data
     chat_id = job.chat_id
-    for msg_id in job.data:
+
+    for msg_id in message_ids:
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
-        except Exception:
-            pass
+            await asyncio.sleep(0.1)
+        except Exception as e:
+            logger.error(f"Failed to delete message {msg_id}: {e}")
 
-def run_telegram_bot():
-    """Runs the Telegram bot in a dedicated event loop thread"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    try:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="🗑️ **Security Notice:** Your previous video bundle has been automatically deleted."
+        )
+    except Exception:
+        pass
 
-    async def start_bot():
-        app = Application.builder().token(BOT_TOKEN).build()
-        app.add_handler(CommandHandler("start", start))
-        app.add_handler(CommandHandler("stats", stats))
-        app.add_handler(CallbackQueryHandler(handle_buttons))
-        
-        await app.initialize()
-        await app.start()
-        await app.updater.start_polling()
-        
-        # Keep the bot thread running
-        await asyncio.Event().wait()
+# --- MAIN ENTRY POINT ---
+def main():
+    token = os.getenv("TELEGRAM_TOKEN")
+    if not token:
+        logger.error("No TELEGRAM_TOKEN found in environment variables!")
+        return
 
-    loop.run_until_complete(start_bot())
+    # Start Flask web server in a background thread for Render
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
 
+    # Build Telegram Application
+    application = Application.builder().token(token).build()
+
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("stats", stats))
+    application.add_handler(CallbackQueryHandler(handle_buttons))
+
+    logger.info("Bot is starting polling...")
+    application.run_polling()
+
+    
 if __name__ == "__main__":
-    print("Starting Telegram bot background thread...")
-    bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
-    bot_thread.start()
-
-    print("Starting Flask web server on main thread...")
-    port = int(os.environ.get("PORT", 10000))
-    web_app.run(host="0.0.0.0", port=port)
+    main()
