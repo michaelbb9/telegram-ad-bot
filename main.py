@@ -80,8 +80,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("❌ Unknown link parameter layout.")
         return
 
-    # Generate unique bridge link for this user
-    bridge_link = f"{WEB_BRIDGE_URL}/bridge?user_id={user_id}"
+    # Generate unique bridge link for PythonAnywhere backend
+    bridge_link = f"{WEB_BRIDGE_URL}/bridge?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
 
     # Register session in your token bridge
     tokens = load_tokens()
@@ -94,7 +94,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     save_tokens(tokens)
 
     keyboard = [
-        [InlineKeyboardButton("🔒 Open Link & Watch Timer", url=bridge_link)],
+        [InlineKeyboardButton("🔓 Open Link & Watch Timer", url=bridge_link)],
         [InlineKeyboardButton("📢 Join Public Channel", url=f"https://t.me/{PUBLIC_CHANNEL_URL.lstrip('@')}")],
         [InlineKeyboardButton("💜 Check & Get Files", callback_data="verify_user")]
     ]
