@@ -16,10 +16,10 @@ logger = logging.getLogger(__name__)
 
 # --- CONFIGURATION ---
 TOKEN = os.getenv("TELEGRAM_TOKEN")
-WEB_BRIDGE_URL = os.getenv("WEB_BRIDGE_URL", "https://your-pythonanywhere-username.pythonanywhere.com")
-PUBLIC_CHANNEL_URL = "@booksaufio"  # Public channel to verify membership
-DETECTED_CHANNEL_ID = -1004347828512  # Private storage channel ID
-TUTORIAL_MSG_ID = 108  # Tutorial video message ID
+WEB_BRIDGE_URL = os.getenv("WEB_BRIDGE_URL", "https://michaelbbc.pythonanywhere.com")
+PUBLIC_CHANNEL_URL = "@booksaufio"  # Public channel username for membership check
+DETECTED_CHANNEL_ID = -1004347828512  # Private storage / vault channel ID
+TUTORIAL_MESSAGE_ID = 108  # Your working tutorial video message ID
 
 DELETE_DELAY_TIME = 540  # 9 minutes in seconds
 
@@ -34,7 +34,7 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-# --- TOKEN STORAGE HELPERS (SYNCED WITH PYTHONANYWHERE BACKEND) ---
+# --- TOKEN STORAGE HELPERS (SYNCED WITH PYTHONANYWHERE BRIDGE) ---
 def load_tokens():
     try:
         response = requests.get(f"{WEB_BRIDGE_URL}/get_tokens", timeout=5)
@@ -56,72 +56,77 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     args = context.args
 
     if not args:
-        await update.message.reply_text(
-            "Welcome! Please use a valid video link from our channel to get started."
-        )
+        await update.message.reply_text("👋 Welcome! Please click a video link from the main channel.")
         return
 
-    param = args[0]  # e.g., vid10to15
-    try:
-        start_str, end_str = param.replace("vid", "").split("to")
-        msg_start = int(start_str)
-        msg_end = int(end_str)
-    except Exception:
-        # Single video link fallback (e.g. vid33)
-        try:
-            msg_num = int(param.replace("vid", ""))
-            msg_start = msg_num
-            msg_end = msg_num
-        except Exception:
-            await update.message.reply_text("❌ Invalid link format.")
-            return
+    video_code = args[0]
+    if video_code.startswith("vid"):
+        clean_code = video_code.replace("vid", "")
+        if "to" in clean_code:
+            try:
+                parts = clean_code.split("to")
+                msg_start, msg_end = int(parts[0]), int(parts[1])
+            except (ValueError, IndexError):
+                await update.message.reply_text("❌ Invalid bundle format.")
+                return
+        else:
+            try:
+                msg_start = int(clean_code)
+                msg_end = msg_start
+            except ValueError:
+                await update.message.reply_text("❌ Invalid video number.")
+                return
+    else:
+        await update.message.reply_text("❌ Unknown link parameter layout.")
+        return
 
-    # Save initial token state
+    # Generate unique bridge link for this user
+    bridge_link = f"{WEB_BRIDGE_URL}/bridge?user_id={user_id}"
+
+    # Register session in your token bridge
     tokens = load_tokens()
     tokens[str(user_id)] = {
-        "msg_start": msg_start,
-        "msg_end": msg_end,
+        "user_id": int(user_id),
+        "msg_start": int(msg_start),
+        "msg_end": int(msg_end),
         "verified": False
     }
     save_tokens(tokens)
 
-    # Generate unique bridge page link for this user
-    bridge_link = f"{WEB_BRIDGE_URL}/bridge?user_id={user_id}"
-
     keyboard = [
-        [InlineKeyboardButton("🔒 Open Link & Watch Timer", url=bridge_link)],
+        [InlineKeyboardButton("🔓 Open Link & Watch Timer", url=bridge_link)],
         [InlineKeyboardButton("📢 Join Public Channel", url=f"https://t.me/{PUBLIC_CHANNEL_URL.lstrip('@')}")],
         [InlineKeyboardButton("💜 Check & Get Files", callback_data="verify_user")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # 1. Try copying video with buttons attached
+    caption_text = (
+        "👇 **CONTENT LOCKED** 👇\n\n"
+        "⚠️ **Browser Tip:** *For the smoothest experience and accurate timer tracking, please tap the three dots (⋮) and select **'Open in browser' (Chrome/Safari)** instead of using Telegram's built-in view!*\n\n"
+        "To unlock and receive your video bundle:\n"
+        "1️⃣ Click **Open Link & Watch Timer**, then click the **Open Sponsor Page** button.\n"
+        "2️⃣ Stay on the sponsor page for the full countdown, close the window, and come back here to click **Check & Get Files**!\n\n"
+        "👇 *Watch the short tutorial video above if you're stuck!*"
+    )
+
+    # Send tutorial video from your private vault with your caption & buttons attached (just like your old script)
     try:
         await context.bot.copy_message(
             chat_id=user_id,
             from_chat_id=DETECTED_CHANNEL_ID,
-            message_id=TUTORIAL_MSG_ID,
+            message_id=TUTORIAL_MESSAGE_ID,
+            caption=caption_text,
+            parse_mode="Markdown",
             reply_markup=reply_markup
         )
     except Exception as e:
-        logger.error(f"Failed to copy tutorial video: {e}")
-        # 2. Fallback: Forward video directly first, then send buttons below it
-        try:
-            await context.bot.forward_message(
-                chat_id=user_id,
-                from_chat_id=DETECTED_CHANNEL_ID,
-                message_id=TUTORIAL_MSG_ID
-            )
-            await update.message.reply_text(
-                "👇 **CONTENT LOCKED** 👇\n\nTo unlock and receive your video bundle, please complete the steps below:",
-                reply_markup=reply_markup
-            )
-        except Exception as forward_err:
-            logger.error(f"Failed to forward tutorial video: {forward_err}")
-            await update.message.reply_text(
-                "👇 **CONTENT LOCKED** 👇\n\nTo unlock and receive your video bundle, please complete the steps below:",
-                reply_markup=reply_markup
-            )
+        logger.error(f"Failed to copy tutorial message: {e}")
+        # Fallback text message if copy fails
+        await update.message.reply_text(
+            text=caption_text,
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
 
 # --- COMMAND: /stats (Admin Dashboard) ---
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -145,7 +150,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_id = query.from_user.id
 
     if query.data == "verify_user":
-        # 1. MANDATORY PUBLIC CHANNEL CHECK
+        # 1. MANDATORY PUBLIC CHANNEL JOIN CHECK
         try:
             member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_URL, user_id=user_id)
             if member.status not in ["creator", "administrator", "member"]:
@@ -212,15 +217,12 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 # --- AUTO-DELETE TASK ---
 async def auto_delete_task(context: ContextTypes.DEFAULT_TYPE) -> None:
     job = context.job
-    message_ids = job.data
     chat_id = job.chat_id
-
-    for msg_id in message_ids:
+    for msg_id in job.data:
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
-            await asyncio.sleep(0.1)
-        except Exception as e:
-            logger.error(f"Failed to delete message {msg_id}: {e}")
+        except Exception:
+            pass
 
     try:
         await context.bot.send_message(
@@ -231,26 +233,21 @@ async def auto_delete_task(context: ContextTypes.DEFAULT_TYPE) -> None:
         pass
 
 # --- MAIN ENTRY POINT ---
-def main():
-    token = os.getenv("TELEGRAM_TOKEN")
-    if not token:
-        logger.error("No TELEGRAM_TOKEN found in environment variables!")
-        return
-
+def main() -> None:
+    token = os.getenv("TELEGRAM_TOKEN", "8863904451:AAE1DbPBkeB1SXyCLIzDNbxTfEZIYd_sjWI")
+    
     # Start background Flask server for Render health checks
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
 
-    # Build and start Telegram bot
+    print("Bot is starting up with your secure session architecture and tutorial video...")
     application = Application.builder().token(token).build()
-
+    
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("stats", stats))
     application.add_handler(CallbackQueryHandler(handle_buttons))
-
-    logger.info("Bot is starting polling...")
+    
     application.run_polling()
-
 
 if __name__ == "__main__":
     main()
