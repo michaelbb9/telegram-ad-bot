@@ -1,10 +1,11 @@
-import os
+import time
 import json
+import os
 import asyncio
-import logging
-import requests
-from flask import Flask
 import threading
+import requests
+import logging
+from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
@@ -14,30 +15,29 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- CONFIGURATION ---
-TOKEN = os.getenv("TELEGRAM_TOKEN", "8863904451:AAE1DbPBkeB1SXyCLIzDNbxTfEZIYd_sjWI")
-WEB_BRIDGE_URL = os.getenv("WEB_BRIDGE_URL", "https://michaelbbc.pythonanywhere.com")
-PUBLIC_CHANNEL_URL = "@booksaufio"  # Public channel username for membership check
-DETECTED_CHANNEL_ID = -1004347828512  # Private storage / vault channel ID
-TUTORIAL_MESSAGE_ID = 108  # Your tutorial video message ID
+BOT_TOKEN = os.getenv("TELEGRAM_TOKEN", "8863904451:AAE1DbPBkeB1SXyCLIzDNbxTfEZIYd_sjWI")
+ADMIN_ID = 6248570946  # Your secure personal Telegram ID
+DETECTED_CHANNEL_ID = -1004347828512
+PRIVATE_CHANNEL_ID = -1004347828512  # Vault/Tutorial channel
+TUTORIAL_MESSAGE_ID = 108             # Your working tutorial video message ID
+WEB_BASE_URL = "https://michaelbbc.pythonanywhere.com"
+BRIDGE_URL = f"{WEB_BASE_URL}/bridge"
+PUBLIC_CHANNEL_URL = "https://t.me/booksaufio"
+PUBLIC_CHANNEL_USERNAME = "@booksaufio"  # Used for API channel membership checks
+DELETE_DELAY_TIME = 540  # 9 minutes
 
-DELETE_DELAY_TIME = 540  # 9 minutes in seconds
+# --- TINY WEB SERVER FOR RENDER ---
+web_app = Flask(__name__)
 
-# --- FLASK APP FOR RENDER (KEEPS WEB SERVICE ALIVE) ---
-app = Flask(__name__)
-
-@app.route("/")
+@web_app.route('/')
 def health_check():
     return "Bot is alive and running!", 200
+# ----------------------------------
 
-def run_flask():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
-
-# --- TOKEN STORAGE HELPERS (SYNCED WITH PYTHONANYWHERE BRIDGE) ---
+# TOKEN SYNC WITH PYTHONANYWHERE BRIDGE BACKEND
 def load_tokens():
     try:
-        response = requests.get(f"{WEB_BRIDGE_URL}/get_tokens", timeout=5)
+        response = requests.get(f"{WEB_BASE_URL}/get_tokens", timeout=5)
         if response.status_code == 200:
             return response.json()
     except Exception as e:
@@ -46,13 +46,12 @@ def load_tokens():
 
 def save_tokens(tokens):
     try:
-        requests.post(f"{WEB_BRIDGE_URL}/save_tokens", json=tokens, timeout=5)
+        requests.post(f"{WEB_BASE_URL}/save_tokens", json=tokens, timeout=5)
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
-# --- COMMAND: /start ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.effective_user.id
+    user_id = update.message.from_user.id
     args = context.args
 
     if not args:
@@ -80,22 +79,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("❌ Unknown link parameter layout.")
         return
 
-    # Generate unique bridge link for PythonAnywhere backend
-    bridge_link = f"{WEB_BRIDGE_URL}/bridge?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
+    # Correct parameter structure matching your Flask bridge (user, start_msg, end_msg)
+    bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
 
-    # Register session in your token bridge
     tokens = load_tokens()
     tokens[str(user_id)] = {
         "user_id": int(user_id),
         "msg_start": int(msg_start),
         "msg_end": int(msg_end),
-        "verified": False
+        "clicked_ad": False,
+        "verified": False,
+        "expires": time.time() + 600
     }
     save_tokens(tokens)
 
     keyboard = [
         [InlineKeyboardButton("🔓 Open Link & Watch Timer", url=bridge_link)],
-        [InlineKeyboardButton("📢 Join Public Channel", url=f"https://t.me/{PUBLIC_CHANNEL_URL.lstrip('@')}")],
+        [InlineKeyboardButton("📢 Join Public Channel", url=PUBLIC_CHANNEL_URL)],
         [InlineKeyboardButton("💜 Check & Get Files", callback_data="verify_user")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -109,41 +109,45 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "👇 *Watch the short tutorial video above if you're stuck!*"
     )
 
-    # Copy tutorial video (Message ID 108) with caption & buttons attached
     try:
         await context.bot.copy_message(
             chat_id=user_id,
-            from_chat_id=DETECTED_CHANNEL_ID,
+            from_chat_id=PRIVATE_CHANNEL_ID,
             message_id=TUTORIAL_MESSAGE_ID,
             caption=caption_text,
             parse_mode="Markdown",
             reply_markup=reply_markup
         )
     except Exception as e:
-        logger.error(f"🚨 COPY_MESSAGE ERROR FROM TELEGRAM: {e}")
+        logger.error(f"Copy message error: {e}")
         await update.message.reply_text(
             text=caption_text,
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
 
-# --- COMMAND: /stats (Admin Dashboard) ---
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    tokens = load_tokens()
+    user_id = update.message.from_user.id
     
-    total_sessions = len(tokens)
-    verified_sessions = sum(1 for data in tokens.values() if data.get("verified"))
-    pending_sessions = total_sessions - verified_sessions
+    if user_id != ADMIN_ID:
+        return
 
-    await update.message.reply_text(
-        f"📊 **Bot Live Statistics Summary**\n\n"
-        f"• Total Active Sessions: `{total_sessions}`\n"
-        f"• Verified Users Ready: `{verified_sessions}`\n"
-        f"• Pending/Unverified: `{pending_sessions}`\n\n"
-        f"🟢 **System Status:** Online & Operational"
+    tokens = load_tokens()
+    total_sessions = len(tokens)
+    clicked_ad = sum(1 for data in tokens.values() if data.get("clicked_ad", False))
+    completed_timer = sum(1 for data in tokens.values() if data.get("verified", False))
+    pending_users = total_sessions - completed_timer
+
+    report = (
+        "📊 **ADMIN LIVE STATS** 📊\n\n"
+        f"👥 **Total Bot Sessions:** {total_sessions}\n"
+        f"🖱️ **Clicked Ad:** {clicked_ad}\n"
+        f"✅ **Completed Verification:** {completed_timer}\n"
+        f"⏳ **Currently Pending:** {pending_users}\n"
     )
 
-# --- BUTTON HANDLER (CHANNEL CHECK + VERIFICATION + FILE DELIVERY) ---
+    await update.message.reply_text(report, parse_mode="Markdown")
+
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     user_id = query.from_user.id
@@ -151,10 +155,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if query.data == "verify_user":
         # 1. MANDATORY PUBLIC CHANNEL JOIN CHECK
         try:
-            member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_URL, user_id=user_id)
+            member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_USERNAME, user_id=user_id)
             if member.status not in ["creator", "administrator", "member"]:
                 await query.answer(
-                    "❌ You must join our public channel first! Click '📢 Join Public Channel' below, join, and try again.",
+                    "❌ You must join our public channel first! Click '📢 Join Public Channel' above, join, and try again.",
                     show_alert=True
                 )
                 return
@@ -180,7 +184,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.answer("❌ You haven't finished viewing the sponsor page yet! Stay on the sponsor page until the timer completes.", show_alert=True)
             return
 
-        # 3. RELEASE CONTENT (IF BOTH CHECKS PASS)
         msg_start = token_data["msg_start"]
         msg_end = token_data["msg_end"]
 
@@ -207,13 +210,11 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
             forwarded_message_ids.append(warning_msg.message_id)
 
-            # Schedule 9-minute auto-delete
             context.job_queue.run_once(auto_delete_task, when=DELETE_DELAY_TIME, data=forwarded_message_ids, chat_id=user_id)
 
         except Exception as e:
             await query.message.reply_text(f"❌ Error fetching file bundle: {e}")
 
-# --- AUTO-DELETE TASK ---
 async def auto_delete_task(context: ContextTypes.DEFAULT_TYPE) -> None:
     job = context.job
     chat_id = job.chat_id
@@ -223,30 +224,31 @@ async def auto_delete_task(context: ContextTypes.DEFAULT_TYPE) -> None:
         except Exception:
             pass
 
-    try:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text="🗑️ **Security Notice:** Your previous video bundle has been automatically deleted."
-        )
-    except Exception:
-        pass
+def run_telegram_bot():
+    """Runs the Telegram bot in a dedicated event loop thread"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
-# --- MAIN ENTRY POINT ---
-def main() -> None:
-    token = os.getenv("TELEGRAM_TOKEN", "8863904451:AAE1DbPBkeB1SXyCLIzDNbxTfEZIYd_sjWI")
-    
-    # Start background Flask server for Render health checks
-    flask_thread = threading.Thread(target=run_flask, daemon=True)
-    flask_thread.start()
+    async def start_bot():
+        app = Application.builder().token(BOT_TOKEN).build()
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(CommandHandler("stats", stats))
+        app.add_handler(CallbackQueryHandler(handle_buttons))
+        
+        await app.initialize()
+        await app.start()
+        await app.updater.start_polling()
+        
+        # Keep the bot thread running
+        await asyncio.Event().wait()
 
-    print("Bot is starting up with your secure session architecture and tutorial video...")
-    application = Application.builder().token(token).build()
-    
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("stats", stats))
-    application.add_handler(CallbackQueryHandler(handle_buttons))
-    
-    application.run_polling()
+    loop.run_until_complete(start_bot())
 
 if __name__ == "__main__":
-    main()
+    print("Starting Telegram bot background thread...")
+    bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
+    bot_thread.start()
+
+    print("Starting Flask web server on main thread...")
+    port = int(os.environ.get("PORT", 10000))
+    web_app.run(host="0.0.0.0", port=port)
