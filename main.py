@@ -19,7 +19,7 @@ TOKEN = os.getenv("TELEGRAM_TOKEN")
 WEB_BRIDGE_URL = os.getenv("WEB_BRIDGE_URL", "https://michaelbbc.pythonanywhere.com")
 PUBLIC_CHANNEL_URL = "@booksaufio"  # Public channel username for membership check
 DETECTED_CHANNEL_ID = -1004347828512  # Private storage / vault channel ID
-TUTORIAL_MESSAGE_ID = 108  # Your working tutorial video message ID
+TUTORIAL_MESSAGE_ID = 108  # Your tutorial video message ID
 
 DELETE_DELAY_TIME = 540  # 9 minutes in seconds
 
@@ -94,7 +94,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     save_tokens(tokens)
 
     keyboard = [
-        [InlineKeyboardButton("🔓 Open Link & Watch Timer", url=bridge_link)],
+        [InlineKeyboardButton("🔒 Open Link & Watch Timer", url=bridge_link)],
         [InlineKeyboardButton("📢 Join Public Channel", url=f"https://t.me/{PUBLIC_CHANNEL_URL.lstrip('@')}")],
         [InlineKeyboardButton("💜 Check & Get Files", callback_data="verify_user")]
     ]
@@ -109,7 +109,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "👇 *Watch the short tutorial video above if you're stuck!*"
     )
 
-    # Send tutorial video from your private vault with your caption & buttons attached (just like your old script)
+    # Try copying tutorial video (Message ID 108) with caption & buttons attached
     try:
         await context.bot.copy_message(
             chat_id=user_id,
@@ -120,10 +120,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             reply_markup=reply_markup
         )
     except Exception as e:
-        logger.error(f"Failed to copy tutorial message: {e}")
+        # This will log the precise Telegram error on Render dashboard logs
+        logger.error(f"🚨 EXACT COPY_MESSAGE ERROR FROM TELEGRAM: {e}")
+        
         # Fallback text message if copy fails
         await update.message.reply_text(
-            text=caption_text,
+            text=f"⚠️ [Debug Error: {e}]\n\n" + caption_text,
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
