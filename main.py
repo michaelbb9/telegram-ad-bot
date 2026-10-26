@@ -52,9 +52,9 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
-# --- YT-DLP DOWNLOAD HELPER (Browser Impersonation Enabled for TikTok) ---
+# --- YT-DLP DOWNLOAD HELPER (Cleaned for Render without Assertion Errors) ---
 def download_video_ytdlp(url: str) -> str:
-    """Downloads video using yt-dlp with browser impersonation to bypass TikTok WAF blocks."""
+    """Downloads video using yt-dlp with standard headers to prevent assertion errors on Render."""
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
@@ -64,7 +64,9 @@ def download_video_ytdlp(url: str) -> str:
         'max_filesize': 50 * 1024 * 1024,  # 50MB limit for Telegram bots
         'noplaylist': True,
         'quiet': True,
-        'impersonate': 'chrome',  # Spoofs browser signature to bypass anti-bot checks
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        },
     }
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
