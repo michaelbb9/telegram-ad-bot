@@ -419,7 +419,7 @@ def run_telegram_bot():
         app.add_handler(CallbackQueryHandler(handle_buttons))
         
         await app.initialize()
-        app.start()
+        await app.start()  # <--- Fixed with proper await!
         await app.updater.start_polling()
         
         await asyncio.Event().wait()
