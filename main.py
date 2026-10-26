@@ -52,9 +52,9 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
-# --- YT-DLP DOWNLOAD HELPER (Cleaned for Render without Assertion Errors) ---
+# --- YT-DLP DOWNLOAD HELPER (Cleaned & Impersonation Removed) ---
 def download_video_ytdlp(url: str) -> str:
-    """Downloads video using yt-dlp with standard headers to prevent assertion errors on Render."""
+    """Downloads video using yt-dlp with standard headers to prevent any impersonation errors on Render."""
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
