@@ -60,21 +60,26 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
-# --- YT-DLP DOWNLOAD HELPER (Flexible Format Sorting & FFmpeg) ---
+# --- YT-DLP DOWNLOAD HELPER (With YouTube Player Client Emulation) ---
 def download_video_ytdlp(url: str):
-    """Downloads video using yt-dlp with flexible format sorting to prevent unavailable format errors."""
+    """Downloads video using yt-dlp with YouTube client emulation to bypass format restriction blocks."""
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
     ydl_opts = {
         'format': 'best/bestvideo+bestaudio',
-        'format_sort': ['res:720', 'ext:mp4'],  # Gracefully prioritizes up to 720p and MP4 formatting
+        'format_sort': ['res:720', 'ext:mp4'],
         'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
         'max_filesize': 50 * 1024 * 1024,  # 50MB limit for Telegram bots
         'noplaylist': True,
         'quiet': True,
         'merge_output_format': 'mp4',
         'ffmpeg_location': ffmpeg_path,
+        'extractor-args': {
+            'youtube': {
+                'player_client': ['android', 'web']  # Emulates clients to bypass cloud signature blocks
+            }
+        }
     }
     
     # Automatically attach cookies.txt if available for authenticated YouTube/Twitter scraping
