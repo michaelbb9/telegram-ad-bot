@@ -60,14 +60,15 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
-# --- YT-DLP DOWNLOAD HELPER (With Permitted FFmpeg & Cookies) ---
+# --- YT-DLP DOWNLOAD HELPER (Flexible Format Sorting & FFmpeg) ---
 def download_video_ytdlp(url: str):
-    """Downloads video using yt-dlp, utilizing the permitted ffmpeg binary and cookies."""
+    """Downloads video using yt-dlp with flexible format sorting to prevent unavailable format errors."""
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
     ydl_opts = {
-        'format': 'bestvideo[height<=720]+bestaudio/best[height<=720]/best',
+        'format': 'best/bestvideo+bestaudio',
+        'format_sort': ['res:720', 'ext:mp4'],  # Gracefully prioritizes up to 720p and MP4 formatting
         'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
         'max_filesize': 50 * 1024 * 1024,  # 50MB limit for Telegram bots
         'noplaylist': True,
