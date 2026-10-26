@@ -60,9 +60,9 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
-# --- YT-DLP DOWNLOAD HELPER (Selective Cookie Application) ---
+# --- YT-DLP DOWNLOAD HELPER (Browser Impersonation & Selective Cookies) ---
 def download_video_ytdlp(url: str):
-    """Downloads video using yt-dlp, applying cookies only to YouTube and Twitter/X."""
+    """Downloads media using yt-dlp with browser impersonation to bypass TikTok/platform WAF blocks."""
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
@@ -75,10 +75,10 @@ def download_video_ytdlp(url: str):
         'quiet': True,
         'merge_output_format': 'mp4',
         'ffmpeg_location': ffmpeg_path,
+        'impersonate': 'chrome',  # Spoofs a real browser signature to bypass TikTok bot blocks
     }
     
     # ONLY attach cookies if the link belongs to YouTube or Twitter/X
-    # This prevents TikTok, Instagram, and Facebook from breaking due to foreign cookies[span_1](start_span)[span_1](end_span)!
     domain_lower = url.lower()
     if any(d in domain_lower for d in ["twitter.com", "x.com", "youtube.com", "youtu.be"]):
         if os.path.exists("cookies.txt"):
@@ -419,7 +419,7 @@ def run_telegram_bot():
         app.add_handler(CallbackQueryHandler(handle_buttons))
         
         await app.initialize()
-        await app.start()
+        app.start()
         await app.updater.start_polling()
         
         await asyncio.Event().wait()
