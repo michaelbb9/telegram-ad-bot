@@ -52,9 +52,9 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
-# --- YT-DLP DOWNLOAD HELPER (Enhanced YouTube Client Bypass) ---
+# --- YT-DLP DOWNLOAD HELPER (With TV/iOS Embedded Client Bypass) ---
 def download_video_ytdlp(url: str) -> str:
-    """Downloads video using yt-dlp with specific client arguments to bypass YouTube bot detection on cloud servers."""
+    """Downloads video using yt-dlp with tv_embedded and ios clients to bypass YouTube bot detection."""
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
@@ -66,7 +66,7 @@ def download_video_ytdlp(url: str) -> str:
         'quiet': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['mweb', 'android']
+                'player_client': ['tv_embedded', 'ios', 'android']
             }
         },
         'http_headers': {
