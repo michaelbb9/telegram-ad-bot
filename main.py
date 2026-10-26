@@ -52,9 +52,9 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
-# --- YT-DLP DOWNLOAD HELPER (With Cookie Authentication) ---
-def download_video_ytdlp(url: str) -> str:
-    """Downloads video using yt-dlp, utilizing cookies.txt if available for authenticated downloads."""
+# --- YT-DLP DOWNLOAD HELPER (With Cookies & Quality Extraction) ---
+def download_video_ytdlp(url: str):
+    """Downloads video using yt-dlp, returning filepath, resolution, and file size."""
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
@@ -66,14 +66,25 @@ def download_video_ytdlp(url: str) -> str:
         'quiet': True,
     }
     
-    # Automatically attach cookies.txt if you uploaded it to the repository
+    # Automatically attach cookies.txt if available for authenticated platform scraping
     if os.path.exists("cookies.txt"):
         ydl_opts['cookiefile'] = "cookies.txt"
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
         filename = ydl.prepare_filename(info)
-        return filename
+        
+        # Extract quality/resolution and file size metrics
+        height = info.get('height', 'Unknown')
+        resolution = f"{height}p" if isinstance(height, int) else "HD/SD"
+        
+        try:
+            file_size_bytes = os.path.getsize(filename)
+            size_str = f"{file_size_bytes / (1024 * 1024):.1f}MB"
+        except Exception:
+            size_str = "Unknown size"
+            
+        return filename, resolution, size_str
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
@@ -82,8 +93,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not args:
         await update.message.reply_text(
             "👋 **Welcome to the Media Downloader & Vault Bot!**\n\n"
-            "📥 **Send me any video link** from TikTok, YouTube, Instagram, X (Twitter), or Facebook, and I will download it for you instantly!\n\n"
-            "🎁 You get **4 free downloads every day**."
+            "📥 **What I can do:**\n"
+            "I allow you to download media files directly from supported platforms and unlock exclusive content vaults!\n\n"
+            "🌐 **Supported Platforms for Downloading:**\n"
+            "• **TikTok** (Videos & Slides)\n"
+            "• **YouTube** (Videos & Shorts)\n"
+            "• **X (Twitter)** (Public, Sensitive, & Authenticated Posts)\n"
+            "• **Instagram** (Reels & Posts)\n"
+            "• **Facebook** (Videos & Reels)\n\n"
+            "🎁 **Allowance & Refills:**\n"
+            "You get **4 free downloads every day**. When you run out, you can instantly refill your balance by completing a quick 20-second bridge page timer!"
         )
         return
 
@@ -188,14 +207,29 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         status_msg = await update.message.reply_text(f"📥 **Downloading video...** ({display_left} free downloads remaining for today)")
         
         try:
-            file_path = download_video_ytdlp(url)
+            file_path, resolution, size_str = download_video_ytdlp(url)
             if file_path and os.path.exists(file_path):
                 with open(file_path, 'rb') as video_file:
-                    await context.bot.send_video(
+                    sent_video = await context.bot.send_video(
                         chat_id=user_id,
                         video=video_file,
-                        caption="✨ Here is your downloaded video!"
+                        caption=(
+                            "✨ **Download Successful!**\n"
+                            f"📐 **Quality:** {resolution}\n"
+                            f"📦 **Size:** {size_str}"
+                        ),
+                        parse_mode="Markdown"
                     )
+                
+                warning_msg = await context.bot.send_message(
+                    chat_id=user_id,
+                    text="⏳ **Safety Alert:** This downloaded video will automatically delete in **9 minutes** for security reasons. Watch or save it now!"
+                )
+                
+                # Schedule auto-delete for both the video and the warning notification
+                messages_to_delete = [sent_video.message_id, warning_msg.message_id]
+                context.job_queue.run_once(auto_delete_task, when=DELETE_DELAY_TIME, data=messages_to_delete, chat_id=user_id)
+
                 os.remove(file_path)
                 await context.bot.delete_message(chat_id=user_id, message_id=status_msg.message_id)
             else:
