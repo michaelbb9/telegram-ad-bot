@@ -198,15 +198,16 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 await context.bot.edit_message_text(
                     chat_id=user_id,
                     message_id=status_msg.message_id,
-                    text="❌ Failed to download video. The link might be private, geo-restricted, or unsupported."
+                    text="❌ Failed to download video. File path not found."
                 )
         except Exception as e:
-            logger.error(f"Download error: {e}")
+            logger.error(f"Download error details: {e}", exc_info=True)
+            error_text = f"{type(e).__name__}: {str(e)}" if str(e) else type(e).__name__
             try:
                 await context.bot.edit_message_text(
                     chat_id=user_id,
                     message_id=status_msg.message_id,
-                    text=f"❌ Download error: {str(e)}"
+                    text=f"❌ Download error: {error_text}"
                 )
             except Exception:
                 pass
