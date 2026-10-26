@@ -5,10 +5,14 @@ import asyncio
 import threading
 import requests
 import logging
+import imageio_ffmpeg
 import yt_dlp
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
+
+# --- INJECT FFMPEG FOR RENDER CLOUD ENVIRONMENT ---
+os.environ["PATH"] += os.pathsep + os.path.dirname(imageio_ffmpeg.get_ffmpeg_exe())
 
 # Enable logging
 logging.basicConfig(
@@ -52,18 +56,19 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
-# --- YT-DLP DOWNLOAD HELPER (Flexible Format Selector & Cookies) ---
+# --- YT-DLP DOWNLOAD HELPER (With FFmpeg Merging & Cookies) ---
 def download_video_ytdlp(url: str):
-    """Downloads video using yt-dlp with a flexible format selector for environments without ffmpeg."""
+    """Downloads video using yt-dlp, merging video/audio streams via bundled ffmpeg up to 720p."""
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
     ydl_opts = {
-        'format': 'best[height<=720]/best',  # Flexible fallback prevents format errors when ffmpeg is absent
+        'format': 'bestvideo[height<=720]+bestaudio/best[height<=720]/best',
         'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
         'max_filesize': 50 * 1024 * 1024,  # 50MB limit for Telegram bots
         'noplaylist': True,
         'quiet': True,
+        'merge_output_format': 'mp4',  # Ensures final delivered file is universal MP4
     }
     
     # Automatically attach cookies.txt if available for authenticated YouTube/Twitter scraping
