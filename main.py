@@ -60,9 +60,9 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
-# --- YT-DLP DOWNLOAD HELPER (With Cookies & Quality Extraction) ---
+# --- YT-DLP DOWNLOAD HELPER (Selective Cookie Application) ---
 def download_video_ytdlp(url: str):
-    """Downloads video using yt-dlp with cookies and metadata extraction."""
+    """Downloads video using yt-dlp, applying cookies only to YouTube and Twitter/X."""
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
@@ -77,9 +77,12 @@ def download_video_ytdlp(url: str):
         'ffmpeg_location': ffmpeg_path,
     }
     
-    # Automatically attach cookies.txt if available for authenticated platform scraping
-    if os.path.exists("cookies.txt"):
-        ydl_opts['cookiefile'] = "cookies.txt"
+    # ONLY attach cookies if the link belongs to YouTube or Twitter/X
+    # This prevents TikTok, Instagram, and Facebook from breaking due to foreign cookies[span_1](start_span)[span_1](end_span)!
+    domain_lower = url.lower()
+    if any(d in domain_lower for d in ["twitter.com", "x.com", "youtube.com", "youtu.be"]):
+        if os.path.exists("cookies.txt"):
+            ydl_opts['cookiefile'] = "cookies.txt"
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
