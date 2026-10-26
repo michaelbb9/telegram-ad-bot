@@ -52,9 +52,9 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
-# --- YT-DLP DOWNLOAD HELPER (Using Legacy Twitter API Endpoint) ---
+# --- YT-DLP DOWNLOAD HELPER (With Cookie Authentication) ---
 def download_video_ytdlp(url: str) -> str:
-    """Downloads video using yt-dlp with legacy Twitter extractor argument."""
+    """Downloads video using yt-dlp, utilizing cookies.txt if available for authenticated downloads."""
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
@@ -64,15 +64,11 @@ def download_video_ytdlp(url: str) -> str:
         'max_filesize': 50 * 1024 * 1024,  # 50MB limit for Telegram bots
         'noplaylist': True,
         'quiet': True,
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        },
-        'extractor_args': {
-            'twitter': {
-                'api': ['legacy']  # Uses Twitter's legacy endpoint to resolve restricted post structures
-            }
-        }
     }
+    
+    # Automatically attach cookies.txt if you uploaded it to the repository
+    if os.path.exists("cookies.txt"):
+        ydl_opts['cookiefile'] = "cookies.txt"
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
