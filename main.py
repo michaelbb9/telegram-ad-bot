@@ -52,21 +52,21 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
-# --- YT-DLP DOWNLOAD HELPER (With Cookies & Quality Extraction) ---
+# --- YT-DLP DOWNLOAD HELPER (Flexible Format Selector & Cookies) ---
 def download_video_ytdlp(url: str):
-    """Downloads video using yt-dlp, returning filepath, resolution, and file size."""
+    """Downloads video using yt-dlp with a flexible format selector for environments without ffmpeg."""
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
     ydl_opts = {
-        'format': 'best[height<=720][ext=mp4]/best[ext=mp4]/best',
+        'format': 'best[height<=720]/best',  # Flexible fallback prevents format errors when ffmpeg is absent
         'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
         'max_filesize': 50 * 1024 * 1024,  # 50MB limit for Telegram bots
         'noplaylist': True,
         'quiet': True,
     }
     
-    # Automatically attach cookies.txt if available for authenticated platform scraping
+    # Automatically attach cookies.txt if available for authenticated YouTube/Twitter scraping
     if os.path.exists("cookies.txt"):
         ydl_opts['cookiefile'] = "cookies.txt"
     
@@ -226,7 +226,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                     text="⏳ **Safety Alert:** This downloaded video will automatically delete in **9 minutes** for security reasons. Watch or save it now!"
                 )
                 
-                # Schedule auto-delete for both the video and the warning notification
                 messages_to_delete = [sent_video.message_id, warning_msg.message_id]
                 context.job_queue.run_once(auto_delete_task, when=DELETE_DELAY_TIME, data=messages_to_delete, chat_id=user_id)
 
@@ -250,7 +249,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             except Exception:
                 pass
     else:
-        # Limit reached -> Provide bridge link to refill 4 downloads
         bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
         
         tokens = load_tokens()
@@ -310,7 +308,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_id = query.from_user.id
 
     if query.data == "verify_user":
-        # 1. MANDATORY PUBLIC CHANNEL JOIN CHECK
         try:
             member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_USERNAME, user_id=user_id)
             if member.status not in ["creator", "administrator", "member"]:
@@ -327,7 +324,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
             return
 
-        # 2. SPONSOR TIMER VERIFICATION CHECK
         tokens = load_tokens()
         user_str = str(user_id)
 
@@ -349,12 +345,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         await query.answer("✅ Verification Successful!", show_alert=False)
 
-        # CASE A: Media Downloader Refill (msg_start == 0)
         if msg_start == 0:
             await query.message.reply_text("✅ **Verification Successful!** Your 4 free downloads have been refilled for today. Send your video link now!")
             return
 
-        # CASE B: Vault Bundle Delivery (msg_start > 0)
         await query.message.reply_text("✅ **Verification Successful!** Fetching your video bundle packet from the vault now...")
 
         forwarded_message_ids = []
