@@ -52,9 +52,9 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
-# --- YT-DLP DOWNLOAD HELPER ---
+# --- YT-DLP DOWNLOAD HELPER (With X/Twitter API Fallback Header Fix) ---
 def download_video_ytdlp(url: str) -> str:
-    """Downloads video using yt-dlp with standard headers and client configurations."""
+    """Downloads video using yt-dlp with custom headers to fetch Twitter/X restricted media."""
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
@@ -65,8 +65,15 @@ def download_video_ytdlp(url: str) -> str:
         'noplaylist': True,
         'quiet': True,
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
         },
+        'extractor_args': {
+            'twitter': {
+                'api': 'syndication'  # Uses Twitter's public embed syndication endpoint to bypass guest login blocks
+            }
+        }
     }
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -207,7 +214,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             logger.error(f"Download error details: {e}", exc_info=True)
             error_str = str(e)
             
-            # User-friendly message for missing videos or restricted tweets
             if "No video could be found in this tweet" in error_str:
                 friendly_msg = "❌ No downloadable video found in this tweet. Make sure the post contains a public native video."
             else:
