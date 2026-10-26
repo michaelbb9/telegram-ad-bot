@@ -11,6 +11,13 @@ from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
+# --- FIX FFMPEG EXECUTION PERMISSIONS FOR RENDER ---
+ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+try:
+    os.chmod(ffmpeg_path, 0o755)  # Grants execution rights to the ffmpeg binary
+except Exception as e:
+    logging.error(f"Could not set ffmpeg permissions: {e}")
+
 # Enable logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -53,9 +60,9 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
-# --- YT-DLP DOWNLOAD HELPER (Explicit FFmpeg Location & Cookies) ---
+# --- YT-DLP DOWNLOAD HELPER (With Permitted FFmpeg & Cookies) ---
 def download_video_ytdlp(url: str):
-    """Downloads video using yt-dlp, explicitly linking imageio-ffmpeg for stream merging."""
+    """Downloads video using yt-dlp, utilizing the permitted ffmpeg binary and cookies."""
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
@@ -66,7 +73,7 @@ def download_video_ytdlp(url: str):
         'noplaylist': True,
         'quiet': True,
         'merge_output_format': 'mp4',
-        'ffmpeg_location': imageio_ffmpeg.get_ffmpeg_exe(),  # Explicitly points to bundled ffmpeg
+        'ffmpeg_location': ffmpeg_path,
     }
     
     # Automatically attach cookies.txt if available for authenticated YouTube/Twitter scraping
