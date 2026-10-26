@@ -5,9 +5,10 @@ import asyncio
 import threading
 import requests
 import logging
+import yt_dlp
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 # Enable logging
 logging.basicConfig(
@@ -51,12 +52,35 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
+# --- YT-DLP DOWNLOAD HELPER ---
+def download_video_ytdlp(url: str) -> str:
+    """Downloads video using yt-dlp and returns the local file path."""
+    output_dir = "downloads"
+    os.makedirs(output_dir, exist_ok=True)
+    
+    ydl_opts = {
+        'format': 'best[ext=mp4]/best',
+        'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
+        'max_filesize': 50 * 1024 * 1024,  # 50MB limit for Telegram bots
+        'noplaylist': True,
+        'quiet': True,
+    }
+    
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        filename = ydl.prepare_filename(info)
+        return filename
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
     args = context.args
 
     if not args:
-        await update.message.reply_text("👋 Welcome! Please click a video link from the main channel.")
+        await update.message.reply_text(
+            "👋 **Welcome to the Media Downloader & Vault Bot!**\n\n"
+            "📥 **Send me any video link** from TikTok, YouTube, Instagram, X (Twitter), or Facebook, and I will download it for you instantly!\n\n"
+            "🎁 You get **4 free downloads every day**."
+        )
         return
 
     video_code = args[0]
@@ -80,7 +104,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("❌ Unknown link parameter layout.")
         return
 
-    # Correct parameter structure matching your Flask bridge (user, start_msg, end_msg)
     bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
 
     tokens = load_tokens()
@@ -123,6 +146,99 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.error(f"Copy message error: {e}")
         await update.message.reply_text(
             text=caption_text,
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+
+# --- MEDIA LINK LISTENER HANDLER ---
+async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    text = update.message.text
+    user_id = update.message.from_user.id
+    
+    supported_domains = ["youtube.com", "youtu.be", "tiktok.com", "twitter.com", "x.com", "facebook.com", "fb.watch", "instagram.com"]
+    if not any(domain in text.lower() for domain in supported_domains):
+        return
+
+    words = text.split()
+    url = next((word for word in words if any(d in word.lower() for d in supported_domains)), None)
+    
+    if not url:
+        return
+
+    # Check download allowance with PythonAnywhere backend
+    try:
+        response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id}, timeout=5)
+        if response.status_code == 200:
+            res_data = response.json()
+        else:
+            await update.message.reply_text("❌ Server connection error. Please try again later.")
+            return
+    except Exception as e:
+        logger.error(f"Error checking download limit: {e}")
+        await update.message.reply_text("❌ Error connecting to authorization server.")
+        return
+
+    if res_data.get("status") == "allowed":
+        remaining = res_data.get("left", 0)
+        status_msg = await update.message.reply_text(f"📥 **Downloading video...** ({remaining} free downloads remaining for today)")
+        
+        try:
+            file_path = download_video_ytdlp(url)
+            if file_path and os.path.exists(file_path):
+                with open(file_path, 'rb') as video_file:
+                    await context.bot.send_video(
+                        chat_id=user_id,
+                        video=video_file,
+                        caption="✨ Here is your downloaded video!"
+                    )
+                os.remove(file_path)
+                await context.bot.delete_message(chat_id=user_id, message_id=status_msg.message_id)
+            else:
+                await context.bot.edit_message_text(
+                    chat_id=user_id,
+                    message_id=status_msg.message_id,
+                    text="❌ Failed to download video. The link might be private, geo-restricted, or unsupported."
+                )
+        except Exception as e:
+            logger.error(f"Download error: {e}")
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=user_id,
+                    message_id=status_msg.message_id,
+                    text="❌ Download error: File may exceed Telegram's 50MB limit or format is unsupported."
+                )
+            except Exception:
+                pass
+    else:
+        # Limit reached -> Provide bridge link to refill 4 downloads
+        bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
+        
+        tokens = load_tokens()
+        tokens[str(user_id)] = {
+            "user_id": int(user_id),
+            "msg_start": 0,
+            "msg_end": 0,
+            "clicked_ad": False,
+            "verified": False,
+            "expires": time.time() + 600
+        }
+        save_tokens(tokens)
+
+        keyboard = [
+            [InlineKeyboardButton("🔓 Open Link & Refill 4 Downloads", url=bridge_link)],
+            [InlineKeyboardButton("📢 Join Public Channel", url=PUBLIC_CHANNEL_URL)],
+            [InlineKeyboardButton("💜 Check & Refill Balance", callback_data="verify_user")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            text=(
+                "⚠️ **Daily Download Limit Reached!**\n\n"
+                "You have used your 4 free downloads for today.\n\n"
+                "🔓 **Want 4 more downloads immediately?**\n"
+                "1️⃣ Click **Open Link & Refill 4 Downloads**, then click **Open Sponsor Page**.\n"
+                "2️⃣ Stay on the sponsor page for 20 seconds, close it, and come back to click **Check & Refill Balance**!"
+            ),
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -176,7 +292,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         user_str = str(user_id)
 
         if user_str not in tokens:
-            await query.answer("❌ Session expired or not started. Please click the video link again.", show_alert=True)
+            await query.answer("❌ Session expired or not started. Please try again.", show_alert=True)
             return
 
         token_data = tokens[user_str]
@@ -185,13 +301,20 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.answer("❌ You haven't finished viewing the sponsor page yet! Stay on the sponsor page until the timer completes.", show_alert=True)
             return
 
-        msg_start = token_data["msg_start"]
-        msg_end = token_data["msg_end"]
+        msg_start = token_data.get("msg_start", 0)
+        msg_end = token_data.get("msg_end", 0)
 
         del tokens[user_str]
         save_tokens(tokens)
 
         await query.answer("✅ Verification Successful!", show_alert=False)
+
+        # CASE A: Media Downloader Refill (msg_start == 0)
+        if msg_start == 0:
+            await query.message.reply_text("✅ **Verification Successful!** Your 4 free downloads have been refilled for today. Send your video link now!")
+            return
+
+        # CASE B: Vault Bundle Delivery (msg_start > 0)
         await query.message.reply_text("✅ **Verification Successful!** Fetching your video bundle packet from the vault now...")
 
         forwarded_message_ids = []
@@ -234,13 +357,13 @@ def run_telegram_bot():
         app = Application.builder().token(BOT_TOKEN).build()
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CommandHandler("stats", stats))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
         app.add_handler(CallbackQueryHandler(handle_buttons))
         
         await app.initialize()
         await app.start()
         await app.updater.start_polling()
         
-        # Keep the bot thread running
         await asyncio.Event().wait()
 
     loop.run_until_complete(start_bot())
