@@ -60,9 +60,9 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
-# --- YT-DLP DOWNLOAD HELPER (With YouTube Player Client Emulation) ---
+# --- YT-DLP DOWNLOAD HELPER (With Cookies & Quality Extraction) ---
 def download_video_ytdlp(url: str):
-    """Downloads video using yt-dlp with YouTube client emulation to bypass format restriction blocks."""
+    """Downloads video using yt-dlp with cookies and metadata extraction."""
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
@@ -75,14 +75,9 @@ def download_video_ytdlp(url: str):
         'quiet': True,
         'merge_output_format': 'mp4',
         'ffmpeg_location': ffmpeg_path,
-        'extractor-args': {
-            'youtube': {
-                'player_client': ['android', 'web']  # Emulates clients to bypass cloud signature blocks
-            }
-        }
     }
     
-    # Automatically attach cookies.txt if available for authenticated YouTube/Twitter scraping
+    # Automatically attach cookies.txt if available for authenticated platform scraping
     if os.path.exists("cookies.txt"):
         ydl_opts['cookiefile'] = "cookies.txt"
     
@@ -110,15 +105,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(
             "👋 **Welcome to the Media Downloader & Vault Bot!**\n\n"
             "📥 **What I can do:**\n"
-            "I allow you to download media files directly from supported platforms and unlock exclusive content vaults!\n\n"
+            "I allow you to download media files directly from supported platforms AND unlock exclusive content vaults!\n\n"
+            "💬 **How to Download:**\n"
+            "• Simply **share or paste any media link** directly into this chat to download it instantly!\n\n"
             "🌐 **Supported Platforms for Downloading:**\n"
             "• **TikTok** (Videos & Slides)\n"
-            "• **YouTube** (Videos & Shorts)\n"
+            "• ❌ ~~YouTube~~ *(Temporarily paused / Maintenance)*\n"
             "• **X (Twitter)** (Public, Sensitive, & Authenticated Posts)\n"
             "• **Instagram** (Reels & Posts)\n"
             "• **Facebook** (Videos & Reels)\n\n"
+            "📦 **Exclusive Content Vaults:**\n"
+            "• Tap vault links to unlock premium curated video bundles and media packs from our private channels.\n\n"
             "🎁 **Allowance & Refills:**\n"
-            "You get **4 free downloads every day**. When you run out, you can instantly refill your balance by completing a quick 20-second bridge page timer!"
+            "• You get **4 free downloads every day**.\n"
+            "• When you run out, instantly refill your balance by completing a quick 20-second bridge page timer!"
         )
         return
 
@@ -194,7 +194,12 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     text = update.message.text
     user_id = update.message.from_user.id
     
-    supported_domains = ["youtube.com", "youtu.be", "tiktok.com", "twitter.com", "x.com", "facebook.com", "fb.watch", "instagram.com"]
+    # Check if user sent a YouTube link while paused
+    if "youtube.com" in text.lower() or "youtu.be" in text.lower():
+        await update.message.reply_text("❌ **YouTube downloads are temporarily paused for maintenance.** Please share links from TikTok, X (Twitter), Instagram, or Facebook instead!")
+        return
+
+    supported_domains = ["tiktok.com", "twitter.com", "x.com", "facebook.com", "fb.watch", "instagram.com"]
     if not any(domain in text.lower() for domain in supported_domains):
         return
 
