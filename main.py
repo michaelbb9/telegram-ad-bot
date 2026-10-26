@@ -52,9 +52,9 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
-# --- YT-DLP DOWNLOAD HELPER (With Safari Client YouTube Bypass) ---
+# --- YT-DLP DOWNLOAD HELPER ---
 def download_video_ytdlp(url: str) -> str:
-    """Downloads video using yt-dlp with web_safari client to bypass YouTube datacenter blocks."""
+    """Downloads video using yt-dlp with standard headers and client configurations."""
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
@@ -64,11 +64,6 @@ def download_video_ytdlp(url: str) -> str:
         'max_filesize': 50 * 1024 * 1024,  # 50MB limit for Telegram bots
         'noplaylist': True,
         'quiet': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['web_safari', 'ios', 'android']
-            }
-        },
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         },
