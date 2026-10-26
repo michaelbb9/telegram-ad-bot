@@ -52,9 +52,9 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
-# --- YT-DLP DOWNLOAD HELPER (Corrected Twitter List Parameter) ---
+# --- YT-DLP DOWNLOAD HELPER (Using Legacy Twitter API Endpoint) ---
 def download_video_ytdlp(url: str) -> str:
-    """Downloads video using yt-dlp with properly formatted extractor arguments."""
+    """Downloads video using yt-dlp with legacy Twitter extractor argument."""
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
@@ -69,7 +69,7 @@ def download_video_ytdlp(url: str) -> str:
         },
         'extractor_args': {
             'twitter': {
-                'api': ['syndication']  # Passed as a list to satisfy yt-dlp requirements
+                'api': ['legacy']  # Uses Twitter's legacy endpoint to resolve restricted post structures
             }
         }
     }
