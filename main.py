@@ -52,14 +52,14 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
-# --- YT-DLP DOWNLOAD HELPER ---
+# --- YT-DLP DOWNLOAD HELPER (Fixed for Render without ffmpeg) ---
 def download_video_ytdlp(url: str) -> str:
-    """Downloads video using yt-dlp and returns the local file path."""
+    """Downloads video using yt-dlp and returns the local file path without needing ffmpeg."""
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
     ydl_opts = {
-        'format': 'best[ext=mp4]/best',
+        'format': 'best[height<=720][ext=mp4]/best[ext=mp4]/best',  # Forces single-file MP4 to avoid ffmpeg merging errors
         'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
         'max_filesize': 50 * 1024 * 1024,  # 50MB limit for Telegram bots
         'noplaylist': True,
