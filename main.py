@@ -52,9 +52,9 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
-# --- YT-DLP DOWNLOAD HELPER (With X/Twitter API Fallback Header Fix) ---
+# --- YT-DLP DOWNLOAD HELPER ---
 def download_video_ytdlp(url: str) -> str:
-    """Downloads video using yt-dlp with custom headers to fetch Twitter/X restricted media."""
+    """Downloads video using yt-dlp with standard headers and client configurations."""
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
@@ -71,7 +71,7 @@ def download_video_ytdlp(url: str) -> str:
         },
         'extractor_args': {
             'twitter': {
-                'api': 'syndication'  # Uses Twitter's public embed syndication endpoint to bypass guest login blocks
+                'api': 'syndication'
             }
         }
     }
@@ -212,18 +212,12 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 )
         except Exception as e:
             logger.error(f"Download error details: {e}", exc_info=True)
-            error_str = str(e)
-            
-            if "No video could be found in this tweet" in error_str:
-                friendly_msg = "❌ No downloadable video found in this tweet. Make sure the post contains a public native video."
-            else:
-                friendly_msg = f"❌ Download error: {type(e).__name__}"
-
+            error_msg = str(e) if str(e) else type(e).__name__
             try:
                 await context.bot.edit_message_text(
                     chat_id=user_id,
                     message_id=status_msg.message_id,
-                    text=friendly_msg
+                    text=f"❌ Download error: {error_msg}"
                 )
             except Exception:
                 pass
