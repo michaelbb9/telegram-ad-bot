@@ -1,0 +1,19 @@
+# Netscape HTTP Cookie File
+# https://curl.haxx.se/rfc/cookie_spec.html
+# This is a generated file! Do not edit.
+
+.x.com	TRUE	/	TRUE	1827603670	guest_id_marketing	v1%3A179304339318206478
+.x.com	TRUE	/	TRUE	1827603670	guest_id_ads	v1%3A179304339318206478
+.x.com	TRUE	/	TRUE	1793052392	gt	2114803386780373356
+.x.com	TRUE	/	TRUE	1827603392	guest_id	v1%3A179304339318206478
+x.com	FALSE	/	FALSE	1827603658	__cuid	1a180024-35f2-404f-a86a-d2e498a201dd
+.x.com	TRUE	/	FALSE	1827603658	__cuid	1a180024-35f2-404f-a86a-d2e498a201dd
+.x.com	TRUE	/	TRUE	1793648198	external_referer	padhuUp37zjgzgv1mFWxJ12Ozwit7owX|0|8e8t2xd8A2w%3D
+x.com	FALSE	/	TRUE	1808595440	g_state	{"i_l":0,"i_ll":1793043426686,"i_e":{"enable_itp_optimization":24},"i_et":1793043426686}
+.x.com	TRUE	/	TRUE	1824579670	twid	u%3D1691894371879358464
+.x.com	TRUE	/	TRUE	1824579445	auth_token	004cbd359da5e9f33c6c88e5e3c2b7d8f2e4d119
+x.com	FALSE	/	FALSE	0	lang	en
+.x.com	TRUE	/	TRUE	1827603446	ct0	a2ba267d55dd4fe28b6c3c20cd4a9e86d5e481611c8e320217205c60e3017a7b7b4efcb681543ceb3b4d13cd9beb466bd08c951c2d877f33bedcdc64e4afb5194e8c33ce32398e62a339868d4007597a
+.x.com	TRUE	/	TRUE	1793045253	__cf_bm	caGIyr7a3rEqM25_3Z3vEWx5we.kpG6WwTWIbF4J5NI-1793043453.317032-1.0.1.1-Bn1xixIl_TdJJG0hK8IE91u5.oQr.ipsjRQEj1wrGcxnQUmVfZSxYm3aO4hcv5kdBEe9bZobuM.Y9jpQsYQgU9NcmdEiuxF5NQkvym5RTM8Ja8ZgTxquPakwxFHfmDDd
+.x.com	TRUE	/	TRUE	1824579457	personalization_id	"v1_yXsK+CfZFviOCbXRfGNK6g=="
+.x.com	TRUE	/	TRUE	1824579453	cf_clearance	OtW09Kk.1Xa_ZHZXeJyoxpfzImUpTg_WERSX5NRwYeE-1793043453-1.2.1.1-97d_72xZGb9jvxIFDDjPLyCK8lG7e5uhcwihzuia3mQUrDtJ1b9bMyGdJTAUCPAPig9k1veo5PamB6QfsCYH2l.QVgIxh33QzlOogAB4zz2kVRUj1foqaXaz4j7zs1.yQDk_hAHkmxGS3EIehPwM9w0xQ8tRfwGjUIg8QR..7OdHAhkXYOxAv2U25EnOJ_IpN774HxgMHbPdQcQmcAdoEXepJJouEqPZpQonAxHg4gQvFTGsjSsdKy7TDfTbtNOAUzb4g2VRGZJUwAowVnJsUbzBFQh2vMJ_ccPr_Z9rhA7KXazuzg.p497V.lKhsrqCvJxc48J0Wq6ZkyHC86VYlEGF6SK_bMNvuoKiODQIT.c
