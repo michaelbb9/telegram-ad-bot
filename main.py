@@ -52,9 +52,9 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
-# --- YT-DLP DOWNLOAD HELPER (Cleaned & Impersonation Removed) ---
+# --- YT-DLP DOWNLOAD HELPER (With YouTube Android Client Bypass) ---
 def download_video_ytdlp(url: str) -> str:
-    """Downloads video using yt-dlp with standard headers to prevent any impersonation errors on Render."""
+    """Downloads video using yt-dlp with client workarounds to bypass YouTube bot blocks."""
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
@@ -64,6 +64,11 @@ def download_video_ytdlp(url: str) -> str:
         'max_filesize': 50 * 1024 * 1024,  # 50MB limit for Telegram bots
         'noplaylist': True,
         'quiet': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web']
+            }
+        },
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         },
@@ -168,7 +173,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if not url:
         return
 
-    # Check download allowance with PythonAnywhere backend
+    # Check download allowance with PythonAnywhere backend (Admin bypass active)
     try:
         response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id}, timeout=5)
         if response.status_code == 200:
@@ -183,7 +188,8 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     if res_data.get("status") == "allowed":
         remaining = res_data.get("left", 0)
-        status_msg = await update.message.reply_text(f"📥 **Downloading video...** ({remaining} free downloads remaining for today)")
+        display_left = "∞ (Admin)" if remaining > 500 else str(remaining)
+        status_msg = await update.message.reply_text(f"📥 **Downloading video...** ({display_left} free downloads remaining for today)")
         
         try:
             file_path = download_video_ytdlp(url)
@@ -377,6 +383,6 @@ if __name__ == "__main__":
     bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
     bot_thread.start()
 
-    print("Starting Flask web server on main thread...")
+    print("Testing Flask web server on main thread...")
     port = int(os.environ.get("PORT", 10000))
     web_app.run(host="0.0.0.0", port=port)
