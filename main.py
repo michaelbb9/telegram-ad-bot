@@ -205,7 +205,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 await context.bot.edit_message_text(
                     chat_id=user_id,
                     message_id=status_msg.message_id,
-                    text="❌ Download error: File may exceed Telegram's 50MB limit or format is unsupported."
+                    text=f"❌ Download error: {str(e)}"
                 )
             except Exception:
                 pass
