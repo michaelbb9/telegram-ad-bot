@@ -205,12 +205,19 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 )
         except Exception as e:
             logger.error(f"Download error details: {e}", exc_info=True)
-            error_text = f"{type(e).__name__}: {str(e)}" if str(e) else type(e).__name__
+            error_str = str(e)
+            
+            # User-friendly message for missing videos or restricted tweets
+            if "No video could be found in this tweet" in error_str:
+                friendly_msg = "❌ No downloadable video found in this tweet. Make sure the post contains a public native video."
+            else:
+                friendly_msg = f"❌ Download error: {type(e).__name__}"
+
             try:
                 await context.bot.edit_message_text(
                     chat_id=user_id,
                     message_id=status_msg.message_id,
-                    text=f"❌ Download error: {error_text}"
+                    text=friendly_msg
                 )
             except Exception:
                 pass
