@@ -252,7 +252,6 @@ async def process_url_batch(bot, user_id, chat_id, urls):
             break
 
         if res_data.get("status") != "allowed":
-            # Limit reached
             bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
             tokens = load_tokens()
             tokens[str(user_id)] = {
@@ -329,7 +328,7 @@ async def process_url_batch(bot, user_id, chat_id, urls):
                 pass
             fail_count += 1
 
-        await asyncio.sleep(1.5)  # Short pause between batch items to prevent flooding
+        await asyncio.sleep(1.5)
 
     try:
         await bot.delete_message(chat_id=chat_id, message_id=batch_notice.message_id)
@@ -347,20 +346,17 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
 
-    # Extract all valid HTTP/HTTPS URLs from jumbled text
     extracted_urls = re.findall(r'https?://[^\s]+', text)
     
     if not extracted_urls:
         return
 
     if len(extracted_urls) == 1:
-        # Single link flow
         url = extracted_urls[0]
         if "youtube.com" in url.lower() or "youtu.be" in url.lower():
             await update.message.reply_text("❌ **YouTube downloads are temporarily paused for maintenance.** Please share links from other supported websites instead!")
             return
 
-        # Check allowance
         try:
             response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id}, timeout=5)
             if response.status_code == 200:
@@ -447,7 +443,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 parse_mode="Markdown"
             )
     else:
-        # Multiple links batch flow
         asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, extracted_urls))
 
 # --- .TXT FILE UPLOAD BATCH HANDLER ---
@@ -456,7 +451,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
 
-    if not document.file_name.endswith('.txt'):
+    if not document.file_name or not document.file_name.endswith('.txt'):
         await update.message.reply_text("❌ Please upload a valid `.txt` file containing your links.")
         return
 
@@ -577,7 +572,7 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CommandHandler("stats", stats))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
-        app.add_handler(MessageHandler(filters.Document.FILE, handle_document))
+        app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
         app.add_handler(CallbackQueryHandler(handle_buttons))
         
         await app.initialize()
