@@ -6,6 +6,7 @@ import threading
 import requests
 import logging
 import re
+import tempfile
 import imageio_ffmpeg
 import yt_dlp
 from flask import Flask
@@ -379,7 +380,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
 
-    # Check if user is in the process of changing/linking their channel
     linking_states = load_linking_states()
     if linking_states.get(str(user_id)) == "waiting_for_channel":
         if update.message.forward_from_chat and update.message.forward_from_chat.type == "channel":
@@ -388,7 +388,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             user_channels[str(user_id)] = f_chat.id
             save_user_channels(user_channels)
 
-            # Clear waiting state
             del linking_states[str(user_id)]
             save_linking_states(linking_states)
 
@@ -408,7 +407,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             await update.message.reply_text("❌ That wasn't a forwarded message from a channel. Please open your private channel, tap share on any post, and **forward it here**.")
             return
 
-    # Check if user forwarded a message from a channel normally
     if update.message.forward_from_chat and update.message.forward_from_chat.type == "channel":
         f_chat = update.message.forward_from_chat
         user_channels = load_user_channels()
@@ -717,9 +715,21 @@ def run_telegram_bot():
     loop.run_until_complete(start_bot())
 
 if __name__ == "__main__":
-    print("Starting Telegram bot background thread...")
-    bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
-    bot_thread.start()
+    # --- EXCLUSIVE PROCESS LOCK TO PREVENT MULTI-WORKER CONFLICTS ---
+    LOCK_FILE = os.path.join(tempfile.gettempdir(), "telegram_bot_running.lock")
+    is_primary_worker = False
+    try:
+        os.open(LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_RDWR)
+        is_primary_worker = True
+    except OSError:
+        pass
+
+    if is_primary_worker:
+        print("Starting Telegram bot background thread (Primary Worker)...")
+        bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
+        bot_thread.start()
+    else:
+        print("Secondary worker detected. Skipping duplicate Telegram bot thread.")
 
     print("Testing Flask web server on main thread...")
     port = int(os.environ.get("PORT", 10000))
