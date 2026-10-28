@@ -5,6 +5,7 @@ import asyncio
 import threading
 import requests
 import logging
+import re
 import imageio_ffmpeg
 import yt_dlp
 from flask import Flask
@@ -133,14 +134,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(
             "👋 **Welcome to the Media Downloader & Vault Bot!**\n\n"
             "📥 **What I can do:**\n"
-            "I allow you to download media files directly from **several different websites** AND unlock exclusive content vaults!\n\n"
+            "I allow you to download media files from **several different websites**, process **batch multi-link text/files**, AND unlock exclusive content vaults!\n\n"
             "💬 **How to Download:**\n"
-            "• Simply **share or paste any media link** directly into this chat to download it instantly!\n\n"
+            "• **Single Link:** Paste any link directly into chat.\n"
+            "• **Batch Links:** Paste jumbled text containing multiple links OR upload a `.txt` file packed with links to download them all at once!\n\n"
             "🌐 **Supported Sites & Platforms:**\n"
             "• **Multiple Websites** (TikTok, X/Twitter, Instagram, Facebook, and thousands of other video & media sites!)\n"
             "• ❌ ~~YouTube~~ *(Temporarily paused / Maintenance)*\n\n"
             "⚡ **Dynamic Quality & Size Notice:**\n"
-            "• The bot automatically grabs the **highest possible quality** (up to 4K/1080p). If the file is too large, it gracefully reduces quality down to 720p and 480p.\n"
+            "• Automatically grabs the **highest possible quality** (up to 4K/1080p), stepping down to 720p/480p if needed.\n"
             "• If a video exceeds **50MB** even at 480p, it will notify you that Telegram won't allow it.\n\n"
             "📦 **Exclusive Content Vaults:**\n"
             "• Tap vault links to unlock premium curated video bundles and media packs from our private channels.\n\n"
@@ -217,118 +219,261 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             parse_mode="Markdown"
         )
 
-# --- UNIVERSAL MEDIA LINK LISTENER HANDLER ---
-async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    text = update.message.text
-    user_id = update.message.from_user.id
-    
-    # Check if user sent a YouTube link while paused
-    if "youtube.com" in text.lower() or "youtu.be" in text.lower():
-        await update.message.reply_text("❌ **YouTube downloads are temporarily paused for maintenance.** Please share links from other supported websites instead!")
+# --- CORE BATCH DOWNLOAD PROCESSOR ---
+async def process_url_batch(bot, user_id, chat_id, urls):
+    """Processes a list of extracted URLs sequentially with allowance checks and security timers."""
+    if not urls:
         return
 
-    # Extract any valid http/https URL from the message text
-    words = text.split()
-    url = next((word for word in words if word.startswith("http://") or word.startswith("https://")), None)
-    
-    if not url:
-        return
+    success_count = 0
+    fail_count = 0
 
-    # Check download allowance with PythonAnywhere backend (Admin bypass active)
-    try:
-        response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id}, timeout=5)
-        if response.status_code == 200:
-            res_data = response.json()
-        else:
-            await update.message.reply_text("❌ Server connection error. Please try again later.")
-            return
-    except Exception as e:
-        logger.error(f"Error checking download limit: {e}")
-        await update.message.reply_text("❌ Error connecting to authorization server.")
-        return
+    batch_notice = await bot.send_message(
+        chat_id=chat_id,
+        text=f"📦 **Batch Processing Started:** Found **{len(urls)} links**. Processing downloads sequentially..."
+    )
 
-    if res_data.get("status") == "allowed":
-        remaining = res_data.get("left", 0)
-        display_left = "∞ (Admin)" if remaining > 500 else str(remaining)
-        status_msg = await update.message.reply_text(f"📥 **Checking highest quality & downloading...** ({display_left} free downloads remaining for today)")
-        
+    for index, url in enumerate(urls, start=1):
+        domain_lower = url.lower()
+        if "youtube.com" in domain_lower or "youtu.be" in domain_lower:
+            await bot.send_message(chat_id=chat_id, text=f"❌ [{index}/{len(urls)}] Skipped YouTube link (under maintenance).")
+            continue
+
+        # Check allowance per link
+        try:
+            response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id}, timeout=5)
+            if response.status_code == 200:
+                res_data = response.json()
+            else:
+                await bot.send_message(chat_id=chat_id, text=f"❌ [{index}/{len(urls)}] Server error checking allowance.")
+                break
+        except Exception:
+            await bot.send_message(chat_id=chat_id, text=f"❌ [{index}/{len(urls)}] Connection error to server.")
+            break
+
+        if res_data.get("status") != "allowed":
+            # Limit reached
+            bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
+            tokens = load_tokens()
+            tokens[str(user_id)] = {
+                "user_id": int(user_id),
+                "msg_start": 0,
+                "msg_end": 0,
+                "clicked_ad": False,
+                "verified": False,
+                "expires": time.time() + 600
+            }
+            save_tokens(tokens)
+
+            keyboard = [
+                [InlineKeyboardButton("🔓 Open Link & Refill 4 Downloads", url=bridge_link)],
+                [InlineKeyboardButton("📢 Join Public Channel", url=PUBLIC_CHANNEL_URL)],
+                [InlineKeyboardButton("💜 Check & Refill Balance", callback_data="verify_user")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await bot.send_message(
+                chat_id=chat_id,
+                text=(
+                    f"⚠️ **Daily Download Limit Reached at link {index} of {len(urls)}!**\n\n"
+                    "You have used your 4 free downloads. Refill your balance to continue batch downloading!"
+                ),
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+            break
+
+        status_msg = await bot.send_message(
+            chat_id=chat_id,
+            text=f"📥 [{index}/{len(urls)}] Downloading media..."
+        )
+
         try:
             file_path, resolution, size_str = download_video_ytdlp(url)
             if file_path and os.path.exists(file_path):
                 with open(file_path, 'rb') as media_file:
-                    sent_media = await context.bot.send_video(
-                        chat_id=user_id,
+                    sent_media = await bot.send_video(
+                        chat_id=chat_id,
                         video=media_file,
                         caption=(
-                            "✨ **Download Successful!**\n"
+                            f"✨ **Batch Item {index}/{len(urls)} Successful!**\n"
                             f"📐 **Quality:** {resolution}\n"
                             f"📦 **Size:** {size_str}"
                         ),
                         parse_mode="Markdown"
                     )
                 
-                warning_msg = await context.bot.send_message(
-                    chat_id=user_id,
-                    text="⏳ **Safety Alert:** This downloaded file will automatically delete in **9 minutes** for security reasons. Watch or save it now!"
+                warning_msg = await bot.send_message(
+                    chat_id=chat_id,
+                    text=f"⏳ [{index}/{len(urls)}] Safety Alert: This file will automatically delete in **9 minutes**."
                 )
                 
                 messages_to_delete = [sent_media.message_id, warning_msg.message_id]
-                asyncio.create_task(schedule_deletion(context.bot, user_id, messages_to_delete, DELETE_DELAY_TIME))
+                asyncio.create_task(schedule_deletion(bot, chat_id, messages_to_delete, DELETE_DELAY_TIME))
 
                 os.remove(file_path)
-                await context.bot.delete_message(chat_id=user_id, message_id=status_msg.message_id)
+                await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+                success_count += 1
             else:
-                await context.bot.edit_message_text(
-                    chat_id=user_id,
-                    message_id=status_msg.message_id,
-                    text="❌ Failed to download media. File path not found."
-                )
+                await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}/{len(urls)}] Failed: File path not found.")
+                fail_count += 1
         except Exception as e:
-            logger.error(f"Download error details: {e}", exc_info=True)
+            logger.error(f"Batch download error for {url}: {e}", exc_info=True)
             if "FILE_TOO_LARGE" in str(e):
-                error_msg = "❌ The file is too large and Telegram won't allow it (exceeds the 50MB bot limit even at 480p)."
+                err_text = f"❌ [{index}/{len(urls)}] File too large (exceeds 50MB even at 480p)."
             else:
-                error_msg = str(e) if str(e) else type(e).__name__
+                err_text = f"❌ [{index}/{len(urls)}] Error: {type(e).__name__}"
             try:
-                await context.bot.edit_message_text(
-                    chat_id=user_id,
-                    message_id=status_msg.message_id,
-                    text=f"❌ Download error: {error_msg}"
-                )
+                await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=err_text)
             except Exception:
                 pass
+            fail_count += 1
+
+        await asyncio.sleep(1.5)  # Short pause between batch items to prevent flooding
+
+    try:
+        await bot.delete_message(chat_id=chat_id, message_id=batch_notice.message_id)
+    except Exception:
+        pass
+
+    await bot.send_message(
+        chat_id=chat_id,
+        text=f"🏁 **Batch Processing Complete!**\n✅ Successful: {success_count}\n❌ Failed/Skipped: {fail_count}"
+    )
+
+# --- UNIVERSAL MEDIA LINK & BATCH TEXT LISTENER HANDLER ---
+async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    text = update.message.text
+    user_id = update.message.from_user.id
+    chat_id = update.message.chat_id
+
+    # Extract all valid HTTP/HTTPS URLs from jumbled text
+    extracted_urls = re.findall(r'https?://[^\s]+', text)
+    
+    if not extracted_urls:
+        return
+
+    if len(extracted_urls) == 1:
+        # Single link flow
+        url = extracted_urls[0]
+        if "youtube.com" in url.lower() or "youtu.be" in url.lower():
+            await update.message.reply_text("❌ **YouTube downloads are temporarily paused for maintenance.** Please share links from other supported websites instead!")
+            return
+
+        # Check allowance
+        try:
+            response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id}, timeout=5)
+            if response.status_code == 200:
+                res_data = response.json()
+            else:
+                await update.message.reply_text("❌ Server connection error. Please try again later.")
+                return
+        except Exception as e:
+            logger.error(f"Error checking download limit: {e}")
+            await update.message.reply_text("❌ Error connecting to authorization server.")
+            return
+
+        if res_data.get("status") == "allowed":
+            remaining = res_data.get("left", 0)
+            display_left = "∞ (Admin)" if remaining > 500 else str(remaining)
+            status_msg = await update.message.reply_text(f"📥 **Downloading media...** ({display_left} free downloads remaining for today)")
+            
+            try:
+                file_path, resolution, size_str = download_video_ytdlp(url)
+                if file_path and os.path.exists(file_path):
+                    with open(file_path, 'rb') as media_file:
+                        sent_media = await context.bot.send_video(
+                            chat_id=chat_id,
+                            video=media_file,
+                            caption=(
+                                "✨ **Download Successful!**\n"
+                                f"📐 **Quality:** {resolution}\n"
+                                f"📦 **Size:** {size_str}"
+                            ),
+                            parse_mode="Markdown"
+                        )
+                    
+                    warning_msg = await context.bot.send_message(
+                        chat_id=chat_id,
+                        text="⏳ **Safety Alert:** This downloaded file will automatically delete in **9 minutes** for security reasons. Watch or save it now!"
+                    )
+                    
+                    messages_to_delete = [sent_media.message_id, warning_msg.message_id]
+                    asyncio.create_task(schedule_deletion(context.bot, chat_id, messages_to_delete, DELETE_DELAY_TIME))
+
+                    os.remove(file_path)
+                    await context.bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+                else:
+                    await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text="❌ Failed to download media. File path not found.")
+            except Exception as e:
+                logger.error(f"Download error details: {e}", exc_info=True)
+                if "FILE_TOO_LARGE" in str(e):
+                    error_msg = "❌ The file is too large and Telegram won't allow it (exceeds the 50MB bot limit even at 480p)."
+                else:
+                    error_msg = str(e) if str(e) else type(e).__name__
+                try:
+                    await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ Download error: {error_msg}")
+                except Exception:
+                    pass
+        else:
+            bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
+            tokens = load_tokens()
+            tokens[str(user_id)] = {
+                "user_id": int(user_id),
+                "msg_start": 0,
+                "msg_end": 0,
+                "clicked_ad": False,
+                "verified": False,
+                "expires": time.time() + 600
+            }
+            save_tokens(tokens)
+
+            keyboard = [
+                [InlineKeyboardButton("🔓 Open Link & Refill 4 Downloads", url=bridge_link)],
+                [InlineKeyboardButton("📢 Join Public Channel", url=PUBLIC_CHANNEL_URL)],
+                [InlineKeyboardButton("💜 Check & Refill Balance", callback_data="verify_user")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await update.message.reply_text(
+                text=(
+                    "⚠️ **Daily Download Limit Reached!**\n\n"
+                    "You have used your 4 free downloads for today.\n\n"
+                    "🔓 **Want 4 more downloads immediately?**\n"
+                    "1️⃣ Click **Open Link & Refill 4 Downloads**, then click **Open Sponsor Page**.\n"
+                    "2️⃣ Stay on the sponsor page for 20 seconds, close it, and come back to click **Check & Refill Balance**!"
+                ),
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
     else:
-        bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
-        
-        tokens = load_tokens()
-        tokens[str(user_id)] = {
-            "user_id": int(user_id),
-            "msg_start": 0,
-            "msg_end": 0,
-            "clicked_ad": False,
-            "verified": False,
-            "expires": time.time() + 600
-        }
-        save_tokens(tokens)
+        # Multiple links batch flow
+        asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, extracted_urls))
 
-        keyboard = [
-            [InlineKeyboardButton("🔓 Open Link & Refill 4 Downloads", url=bridge_link)],
-            [InlineKeyboardButton("📢 Join Public Channel", url=PUBLIC_CHANNEL_URL)],
-            [InlineKeyboardButton("💜 Check & Refill Balance", callback_data="verify_user")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+# --- .TXT FILE UPLOAD BATCH HANDLER ---
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    document = update.message.document
+    user_id = update.message.from_user.id
+    chat_id = update.message.chat_id
 
-        await update.message.reply_text(
-            text=(
-                "⚠️ **Daily Download Limit Reached!**\n\n"
-                "You have used your 4 free downloads for today.\n\n"
-                "🔓 **Want 4 more downloads immediately?**\n"
-                "1️⃣ Click **Open Link & Refill 4 Downloads**, then click **Open Sponsor Page**.\n"
-                "2️⃣ Stay on the sponsor page for 20 seconds, close it, and come back to click **Check & Refill Balance**!"
-            ),
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
-        )
+    if not document.file_name.endswith('.txt'):
+        await update.message.reply_text("❌ Please upload a valid `.txt` file containing your links.")
+        return
+
+    try:
+        file = await context.bot.get_file(document.file_id)
+        file_bytes = await file.download_as_bytearray()
+        file_text = file_bytes.decode('utf-8', errors='ignore')
+
+        extracted_urls = re.findall(r'https?://[^\s]+', file_text)
+        if not extracted_urls:
+            await update.message.reply_text("❌ No valid HTTP/HTTPS links found inside the uploaded `.txt` file.")
+            return
+
+        asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, extracted_urls))
+    except Exception as e:
+        logger.error(f"Error processing .txt file: {e}")
+        await update.message.reply_text("❌ Failed to read the uploaded text file.")
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
@@ -432,6 +577,7 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CommandHandler("stats", stats))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
+        app.add_handler(MessageHandler(filters.Document.FILE, handle_document))
         app.add_handler(CallbackQueryHandler(handle_buttons))
         
         await app.initialize()
