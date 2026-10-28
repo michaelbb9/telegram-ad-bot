@@ -70,44 +70,60 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
         except Exception:
             pass
 
-# --- YT-DLP DOWNLOAD HELPER (Universal Web Support & Selective Cookies) ---
+# --- YT-DLP DOWNLOAD HELPER (Dynamic Quality Fallback System) ---
 def download_video_ytdlp(url: str):
-    """Downloads media from several supported websites safely with selective cookie mapping."""
+    """
+    Tries downloading in highest possible quality first. 
+    Steps down to 720p, then 480p if too big. Raises error if 480p still exceeds 50MB.
+    """
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
-    ydl_opts = {
-        'format': 'best/bestvideo+bestaudio',
-        'format_sort': ['res:720', 'ext:mp4'],
-        'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
-        'max_filesize': 50 * 1024 * 1024,  # 50MB limit for Telegram bots
-        'noplaylist': True,
-        'quiet': True,
-        'merge_output_format': 'mp4',
-        'ffmpeg_location': ffmpeg_path,
-    }
+    # Quality tiers to try sequentially from highest to lowest
+    tiers = [
+        ("best", "Highest Quality (4K/1080p)"),
+        ("best[height<=720]", "720p HD"),
+        ("best[height<=480]", "480p")
+    ]
     
-    # ONLY attach cookies if the link belongs to YouTube or Twitter/X
-    domain_lower = url.lower()
-    if any(d in domain_lower for d in ["twitter.com", "x.com", "youtube.com", "youtu.be"]):
-        if os.path.exists("cookies.txt"):
-            ydl_opts['cookiefile'] = "cookies.txt"
-    
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        filename = ydl.prepare_filename(info)
-        
-        # Extract quality/resolution and file size metrics
-        height = info.get('height', 'Unknown')
-        resolution = f"{height}p" if isinstance(height, int) else "HD/SD"
-        
+    for fmt, tier_desc in tiers:
         try:
-            file_size_bytes = os.path.getsize(filename)
-            size_str = f"{file_size_bytes / (1024 * 1024):.1f}MB"
-        except Exception:
-            size_str = "Unknown size"
+            ydl_opts = {
+                'format': fmt,
+                'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
+                'max_filesize': 50 * 1024 * 1024,  # Strict 50MB limit cap for Telegram bots
+                'noplaylist': True,
+                'quiet': True,
+                'merge_output_format': 'mp4',
+                'ffmpeg_location': ffmpeg_path,
+            }
             
-        return filename, resolution, size_str
+            # ONLY attach cookies if the link belongs to YouTube or Twitter/X
+            domain_lower = url.lower()
+            if any(d in domain_lower for d in ["twitter.com", "x.com", "youtube.com", "youtu.be"]):
+                if os.path.exists("cookies.txt"):
+                    ydl_opts['cookiefile'] = "cookies.txt"
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                filename = ydl.prepare_filename(info)
+                
+                # Double-check actual file size on disk
+                file_size_bytes = os.path.getsize(filename)
+                if file_size_bytes > 50 * 1024 * 1024:
+                    os.remove(filename)
+                    continue  # Try next lower quality tier
+                
+                height = info.get('height', 'Unknown')
+                resolution = f"{height}p" if isinstance(height, int) else "HD/SD"
+                size_str = f"{file_size_bytes / (1024 * 1024):.1f}MB"
+                    
+                return filename, resolution, size_str
+        except Exception:
+            continue  # Fall back to next lower tier if this one fails or exceeds size
+            
+    # If all tiers (including 480p) failed or exceeded 50MB
+    raise ValueError("FILE_TOO_LARGE")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
@@ -123,6 +139,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "🌐 **Supported Sites & Platforms:**\n"
             "• **Multiple Websites** (TikTok, X/Twitter, Instagram, Facebook, and thousands of other video & media sites!)\n"
             "• ❌ ~~YouTube~~ *(Temporarily paused / Maintenance)*\n\n"
+            "⚡ **Dynamic Quality & Size Notice:**\n"
+            "• The bot automatically grabs the **highest possible quality** (up to 4K/1080p). If the file is too large, it gracefully reduces quality down to 720p and 480p.\n"
+            "• If a video exceeds **50MB** even at 480p, it will notify you that Telegram won't allow it.\n\n"
             "📦 **Exclusive Content Vaults:**\n"
             "• Tap vault links to unlock premium curated video bundles and media packs from our private channels.\n\n"
             "🎁 **Allowance & Refills:**\n"
@@ -231,7 +250,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if res_data.get("status") == "allowed":
         remaining = res_data.get("left", 0)
         display_left = "∞ (Admin)" if remaining > 500 else str(remaining)
-        status_msg = await update.message.reply_text(f"📥 **Downloading media from site...** ({display_left} free downloads remaining for today)")
+        status_msg = await update.message.reply_text(f"📥 **Checking highest quality & downloading...** ({display_left} free downloads remaining for today)")
         
         try:
             file_path, resolution, size_str = download_video_ytdlp(url)
@@ -266,7 +285,10 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 )
         except Exception as e:
             logger.error(f"Download error details: {e}", exc_info=True)
-            error_msg = str(e) if str(e) else type(e).__name__
+            if "FILE_TOO_LARGE" in str(e):
+                error_msg = "❌ The file is too large and Telegram won't allow it (exceeds the 50MB bot limit even at 480p)."
+            else:
+                error_msg = str(e) if str(e) else type(e).__name__
             try:
                 await context.bot.edit_message_text(
                     chat_id=user_id,
