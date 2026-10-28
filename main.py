@@ -70,9 +70,9 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
         except Exception:
             pass
 
-# --- YT-DLP DOWNLOAD HELPER (Selective Cookies & Clean Options) ---
+# --- YT-DLP DOWNLOAD HELPER (Universal Web Support & Selective Cookies) ---
 def download_video_ytdlp(url: str):
-    """Downloads media using yt-dlp safely with selective cookie mapping."""
+    """Downloads media from several supported websites safely with selective cookie mapping."""
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
@@ -117,15 +117,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(
             "👋 **Welcome to the Media Downloader & Vault Bot!**\n\n"
             "📥 **What I can do:**\n"
-            "I allow you to download media files directly from supported platforms AND unlock exclusive content vaults!\n\n"
+            "I allow you to download media files directly from **several different websites** AND unlock exclusive content vaults!\n\n"
             "💬 **How to Download:**\n"
             "• Simply **share or paste any media link** directly into this chat to download it instantly!\n\n"
-            "🌐 **Supported Platforms for Downloading:**\n"
-            "• **TikTok** (Videos & Slides)\n"
-            "• ❌ ~~YouTube~~ *(Temporarily paused / Maintenance)*\n"
-            "• **X (Twitter)** (Public, Sensitive, & Authenticated Posts)\n"
-            "• **Instagram** (Reels & Posts)\n"
-            "• **Facebook** (Videos & Reels)\n\n"
+            "🌐 **Supported Sites & Platforms:**\n"
+            "• **Multiple Websites** (TikTok, X/Twitter, Instagram, Facebook, and thousands of other video & media sites!)\n"
+            "• ❌ ~~YouTube~~ *(Temporarily paused / Maintenance)*\n\n"
             "📦 **Exclusive Content Vaults:**\n"
             "• Tap vault links to unlock premium curated video bundles and media packs from our private channels.\n\n"
             "🎁 **Allowance & Refills:**\n"
@@ -201,22 +198,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             parse_mode="Markdown"
         )
 
-# --- MEDIA LINK LISTENER HANDLER ---
+# --- UNIVERSAL MEDIA LINK LISTENER HANDLER ---
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text
     user_id = update.message.from_user.id
     
     # Check if user sent a YouTube link while paused
     if "youtube.com" in text.lower() or "youtu.be" in text.lower():
-        await update.message.reply_text("❌ **YouTube downloads are temporarily paused for maintenance.** Please share links from TikTok, X (Twitter), Instagram, or Facebook instead!")
+        await update.message.reply_text("❌ **YouTube downloads are temporarily paused for maintenance.** Please share links from other supported websites instead!")
         return
 
-    supported_domains = ["tiktok.com", "twitter.com", "x.com", "facebook.com", "fb.watch", "instagram.com"]
-    if not any(domain in text.lower() for domain in supported_domains):
-        return
-
+    # Extract any valid http/https URL from the message text
     words = text.split()
-    url = next((word for word in words if any(d in word.lower() for d in supported_domains)), None)
+    url = next((word for word in words if word.startswith("http://") or word.startswith("https://")), None)
     
     if not url:
         return
@@ -237,15 +231,15 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if res_data.get("status") == "allowed":
         remaining = res_data.get("left", 0)
         display_left = "∞ (Admin)" if remaining > 500 else str(remaining)
-        status_msg = await update.message.reply_text(f"📥 **Downloading video...** ({display_left} free downloads remaining for today)")
+        status_msg = await update.message.reply_text(f"📥 **Downloading media from site...** ({display_left} free downloads remaining for today)")
         
         try:
             file_path, resolution, size_str = download_video_ytdlp(url)
             if file_path and os.path.exists(file_path):
-                with open(file_path, 'rb') as video_file:
-                    sent_video = await context.bot.send_video(
+                with open(file_path, 'rb') as media_file:
+                    sent_media = await context.bot.send_video(
                         chat_id=user_id,
-                        video=video_file,
+                        video=media_file,
                         caption=(
                             "✨ **Download Successful!**\n"
                             f"📐 **Quality:** {resolution}\n"
@@ -256,10 +250,10 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 
                 warning_msg = await context.bot.send_message(
                     chat_id=user_id,
-                    text="⏳ **Safety Alert:** This downloaded video will automatically delete in **9 minutes** for security reasons. Watch or save it now!"
+                    text="⏳ **Safety Alert:** This downloaded file will automatically delete in **9 minutes** for security reasons. Watch or save it now!"
                 )
                 
-                messages_to_delete = [sent_video.message_id, warning_msg.message_id]
+                messages_to_delete = [sent_media.message_id, warning_msg.message_id]
                 asyncio.create_task(schedule_deletion(context.bot, user_id, messages_to_delete, DELETE_DELAY_TIME))
 
                 os.remove(file_path)
@@ -268,7 +262,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 await context.bot.edit_message_text(
                     chat_id=user_id,
                     message_id=status_msg.message_id,
-                    text="❌ Failed to download video. File path not found."
+                    text="❌ Failed to download media. File path not found."
                 )
         except Exception as e:
             logger.error(f"Download error details: {e}", exc_info=True)
