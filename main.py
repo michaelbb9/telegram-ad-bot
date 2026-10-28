@@ -60,9 +60,19 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
-# --- YT-DLP DOWNLOAD HELPER (Safe Options & Selective Cookies) ---
+# --- NATIVE AUTO-DELETE BACKGROUND TASK ---
+async def schedule_deletion(bot, chat_id, message_ids, delay):
+    """Waits for the specified delay and deletes messages securely."""
+    await asyncio.sleep(delay)
+    for msg_id in message_ids:
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=msg_id)
+        except Exception:
+            pass
+
+# --- YT-DLP DOWNLOAD HELPER (Selective Cookies & Clean Options) ---
 def download_video_ytdlp(url: str):
-    """Downloads media using yt-dlp safely without assertion errors."""
+    """Downloads media using yt-dlp safely with selective cookie mapping."""
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
@@ -250,7 +260,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 )
                 
                 messages_to_delete = [sent_video.message_id, warning_msg.message_id]
-                context.job_queue.run_once(auto_delete_task, when=DELETE_DELAY_TIME, data=messages_to_delete, chat_id=user_id)
+                asyncio.create_task(schedule_deletion(context.bot, user_id, messages_to_delete, DELETE_DELAY_TIME))
 
                 os.remove(file_path)
                 await context.bot.delete_message(chat_id=user_id, message_id=status_msg.message_id)
@@ -391,19 +401,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
             forwarded_message_ids.append(warning_msg.message_id)
 
-            context.job_queue.run_once(auto_delete_task, when=DELETE_DELAY_TIME, data=forwarded_message_ids, chat_id=user_id)
+            asyncio.create_task(schedule_deletion(context.bot, user_id, forwarded_message_ids, DELETE_DELAY_TIME))
 
         except Exception as e:
             await query.message.reply_text(f"❌ Error fetching file bundle: {e}")
-
-async def auto_delete_task(context: ContextTypes.DEFAULT_TYPE) -> None:
-    job = context.job
-    chat_id = job.chat_id
-    for msg_id in job.data:
-        try:
-            await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
-        except Exception:
-            pass
 
 def run_telegram_bot():
     """Runs the Telegram bot in a dedicated event loop thread"""
