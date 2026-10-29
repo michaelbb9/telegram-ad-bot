@@ -106,11 +106,14 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
         except Exception:
             pass
 
-# --- FIXED IMAGE SCRAPER ---
+# --- FIXED: MOBILE SAFARI SCRAPER FOR FACEBOOK/INSTAGRAM ---
 def scrape_html_images(url, cookiefile=None):
+    # Spoofing Mobile Safari to bypass Facebook/Instagram login walls
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
+        'Sec-Fetch-Mode': 'navigate',
     }
     
     cookies = None
@@ -124,26 +127,26 @@ def scrape_html_images(url, cookiefile=None):
             pass
 
     try:
-        res = requests.get(url, headers=headers, cookies=cookies, timeout=15)
+        # Follow redirects (like fb share links)
+        res = requests.get(url, headers=headers, cookies=cookies, timeout=15, allow_redirects=True)
         soup = BeautifulSoup(res.text, 'html.parser')
         
-        # Facebook & General OG Image
+        # 1. Look for Facebook/General Open Graph Image
         og_img = soup.find('meta', property='og:image')
         if og_img and og_img.get('content'):
             return og_img['content']
             
-        # Twitter Image
+        # 2. Look for Twitter Image
         tw_img = soup.find('meta', name='twitter:image')
         if tw_img and tw_img.get('content'):
             return tw_img['content']
             
-        # Fallback to generic image tags (skipping icons/logos)
-        imgs = soup.find_all('img')
-        for img in imgs:
+        # 3. Look for specific Facebook CDN images in the HTML
+        for img in soup.find_all('img'):
             src = img.get('src')
-            if src and src.startswith('http') and ('jpg' in src or 'jpeg' in src or 'png' in src):
-                if 'icon' not in src and 'logo' not in src and 'profile' not in src:
-                    return src
+            if src and ('scontent' in src or 'fbcdn' in src):
+                return src
+                
     except Exception as e:
         logger.error(f"HTML Scrape error: {e}")
     return None
@@ -225,12 +228,11 @@ def download_media_engine(url: str, download_type: str):
                     return [srt_path], "Subtitles (EN)", "Text File"
         raise ValueError("NO_SUBTITLES")
 
-    # --- 3. IMAGES (FIXED) ---
+    # --- 3. IMAGES ---
     elif download_type == 'images':
         img_url = scrape_html_images(url, cookiefile)
         if img_url:
             try:
-                # Download the image directly from the URL we found
                 img_data = requests.get(img_url, headers=http_headers, timeout=15).content
                 ext = 'jpg'
                 if '.png' in img_url: ext = 'png'
@@ -240,34 +242,12 @@ def download_media_engine(url: str, download_type: str):
                 with open(img_path, 'wb') as handler:
                     handler.write(img_data)
                 
-                # Check if it actually downloaded something
                 if os.path.getsize(img_path) > 1000:
                     size_mb = f"{os.path.getsize(img_path) / (1024 * 1024):.1f}MB"
                     return [img_path], "Image", size_mb
             except Exception as e:
                 logger.error(f"Direct image download error: {e}")
         
-        # If HTML scraping failed, try yt-dlp as a last resort
-        ydl_opts.update({
-            'format': 'best',
-            'outtmpl': os.path.join(output_dir, '%(id)s_%(autonumber)s.%(ext)s'),
-            'ignoreerrors': True,
-        })
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                image_paths = []
-                video_id = info.get('id', '')
-                for file in os.listdir(output_dir):
-                    if video_id in file and file.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
-                        image_paths.append(os.path.join(output_dir, file))
-                
-                if image_paths:
-                    total_size = sum(os.path.getsize(p) for p in image_paths) / (1024 * 1024)
-                    return image_paths, f"{len(image_paths)} Images", f"{total_size:.1f}MB"
-        except:
-            pass
-            
         raise ValueError("NO_IMAGES")
 
     # --- 4. VIDEO ---
@@ -317,6 +297,7 @@ def download_media_engine(url: str, download_type: str):
                 
         raise ValueError("FILE_TOO_LARGE")
 
+# (Rest of the code is exactly the same as your previous version)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
     args = context.args
