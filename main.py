@@ -39,259 +39,40 @@ PROXY_URL = None
 CHANNELS_FILE = "user_channels.json"
 LINKING_STATE_FILE = "linking_states.json"
 LANG_FILE = "user_languages.json"
+UPLOADS_FILE = "fan_uploads.json" # Tracks fan uploads for admin
 
 active_batch_sessions = {}
 pending_batch_payloads = {}
 paused_batches = {}
 pending_single_links = {}
 
-# --- TRANSLATIONS DICTIONARY ---
 LANGUAGES = {
     "en": {
-        "welcome": "🚀 **Welcome to the Ultimate Media Downloader & Vault Bot!** 🚀\n\nI am your all-in-one Swiss Army Knife. Here is everything I can do:\n\n🎬 **Video Downloader:** Paste any link for HD videos.\n🎵 **Audio / MP3 Extractor:** Turn any video into an MP3.\n🖼️ **Image / Gallery Saver:** Download photos.\n📝 **Subtitle Extractor:** Grab SRT files.\n📦 **Massive Batch Downloader:** Paste up to 100+ links. Choose Video, Audio, or Images!\n💎 **Exclusive Vaults:** Unlock premium curated video bundles.\n📤 **User Uploads:** Send me a video or file, and I'll forward it to the Admin!\n\n⚠️ **Rules & Limits:**\n• Telegram limits bots to 50MB per file.\n• You get 20 free batch downloads. After that, watch a 20-second sponsor timer to refill.\n\n👉 **Just paste a link to get started!**",
-        "btn_video": "🎬 Video (MP4)",
-        "btn_audio": "🎵 Audio (MP3)",
-        "btn_image": "🖼️ Images",
-        "btn_sub": "📝 Subtitles (SRT)",
+        "welcome": "🚀 **Welcome to the Ultimate Media Downloader & Vault Bot!** 🚀\n\nI am your all-in-one Swiss Army Knife. Here is everything I can do:\n\n🎬 **Video Downloader:** Paste any link for HD videos.\n🎵 **Audio / MP3 Extractor:** Turn any video into an MP3.\n🖼️ **Image / Gallery Saver:** Download photos.\n📝 **Subtitle Extractor:** Grab SRT files.\n📦 **Massive Batch Downloader:** Paste up to 100+ links. Choose Video, Audio, or Images!\n💎 **Exclusive Vaults:** Unlock premium curated video bundles.\n📤 **Uploads:** Send us files/images directly!\n\n⚠️ **Rules & Limits:**\n• Telegram limits bots to 50MB per file.\n• You get 20 free batch downloads. After that, watch a 20-second sponsor timer to refill.\n\n👉 **Just paste a link to get started!**",
+        "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Images", "btn_sub": "📝 Subtitles (SRT)",
         "ask_format": "👇 **What would you like to download?**",
         "fetching": "📥 **Fetching {}... Please wait.**",
         "error_generic": "❌ Failed to download. Link might be private, or site blocked the bot.",
-        "error_50mb": "❌ File exceeds Telegram's 50MB limit.",
-        "error_no_img": "❌ No images found at this link.",
-        "deletes_in_9": "⏳ **Auto-deletes in 9 minutes.**",
-        "images_received": "⏳ **{} Images received. Auto-deletes in 9 minutes.**",
-        "select_lang": "🌍 Please select your language:",
-        "lang_set": "✅ Language set to English!",
-        "batch_detected": "📦 **Batch Detected ({} links)**\nWhat format do you want?",
-        "batch_dest": "📦 **Where to send these files?**",
-        "btn_chat": "📥 Download in Chat",
-        "btn_chan": "📢 Forward to Private Channel",
-        "limit_reached": "⚠️ **Limit Reached!** Refill to continue.",
-        "refill_btn": "🔓 Open Link & Refill",
-        "join_btn": "📢 Join Public Channel",
-        "check_btn": "💜 Check Balance",
+        "error_50mb": "❌ File exceeds Telegram's 50MB limit.", "error_no_img": "❌ No images found at this link.",
+        "deletes_in_9": "⏳ **Auto-deletes in 9 minutes.**", "images_received": "⏳ **{} Images received. Auto-deletes in 9 minutes.**",
+        "select_lang": "🌍 Please select your language:", "lang_set": "✅ Language set to English!",
+        "batch_detected": "📦 **Batch Detected ({} links)**\nWhat format do you want?", "batch_dest": "📦 **Where to send these files?**",
+        "btn_chat": "📥 Download in Chat", "btn_chan": "📢 Forward to Private Channel",
+        "limit_reached": "⚠️ **Limit Reached!** Refill to continue.", "refill_btn": "🔓 Open Link & Refill",
+        "join_btn": "📢 Join Public Channel", "check_btn": "💜 Check Balance",
         "limit_batch": "⚠️ **Batch Limit Reached! (Stopped at link {} of {})**\n\nRefill to continue:",
         "batch_start": "📦 **Batch Processing Started:** Downloading {} **{} files**.\n\n⏳ *Processing...*",
         "batch_done": "🏁 **Batch Finished!**\n✅ Success: {}\n❌ Failed: {}\n\n📥 **{} files sent here.**",
         "batch_done_chan": "🏁 **Batch Finished!**\n✅ Success: {}\n❌ Failed: {}\n\n📢 **{} files forwarded!**",
-        "dl_video": "📥 Downloading video...",
-        "dl_audio": "📥 Extracting audio...",
-        "dl_image": "📥 Scraping images...",
-        "dl_sub": "📥 Fetching subtitles...",
-        "failed_50": "❌ Failed: File > 50MB.",
-        "failed_blocked": "❌ Failed: Site blocked bot or link private.",
-        "failed_generic": "❌ Download failed.",
-        "menu_lang": "🌍 Language",
-        "menu_stats": "📊 My Stats",
-        "menu_help": "📢 FAQ / Help",
-        "menu_join": "📢 Join Channel",
-        "menu_movies": "🍿 Watch Movies",
+        "dl_video": "📥 Downloading video...", "dl_audio": "📥 Extracting audio...", "dl_image": "📥 Scraping images...", "dl_sub": "📥 Fetching subtitles...",
+        "failed_50": "❌ Failed: File > 50MB.", "failed_blocked": "❌ Failed: Site blocked bot or link private.", "failed_generic": "❌ Download failed.",
+        "menu_lang": "🌍 Language", "menu_stats": "📊 My Stats", "menu_help": "📢 FAQ / Help", "menu_join": "📢 Join Channel",
+        "menu_uploads": "🍿 Fan Uploads", "menu_upload": "📤 Upload File",
+        "admin_upload_prompt": "📂 **Fan Uploads Inbox**\n\nHere is what your fans have sent you recently:",
+        "user_upload_prompt": "📤 **Upload File**\n\nSend me any video, image, or file. I will forward it directly to the Admin (anonymously if you wish!).\n\n⚠️ *Telegram limits files to 50MB.*",
+        "upload_success_user": "✅ **File Received!**\nYour upload has been anonymously sent to the Admin.",
+        "no_uploads": "📭 No fan uploads yet. When users send files, they will appear here.",
         "stats_msg": "📊 **Your Stats:**\n\n• Normal Downloads Left: {}\n• Batch Downloads Left: {}\n\n*Stats reset every 24 hours.*"
-    },
-    "es": {
-        "welcome": "🚀 **¡Bienvenido al Bot Definitivo de Descargas y Bóveda!** 🚀\n\nSoy tu navaja suiza. Esto es lo que puedo hacer:\n\n🎬 **Descargador de Video:** Pega cualquier enlace para HD.\n🎵 **Extractor de Audio:** Convierte videos a MP3.\n🖼️ **Guardador de Imágenes:** Descarga fotos.\n📝 **Extractor de Subtítulos:** Obtén SRT.\n📦 **Descargador Masivo:** Hasta 100+ enlaces. ¡Elige Video, Audio o Imágenes!\n💎 **Bóvedas Exclusivas:** Desbloquea paquetes premium.\n📤 **Subidas:** ¡Envíame un video y lo reenviaré al Admin!\n\n⚠️ **Límites:**\n• Telegram limita a 50MB por archivo.\n• Tienes 20 descargas gratis.\n\n👉 **¡Solo pega un enlace!**",
-        "btn_video": "🎬 Video (MP4)",
-        "btn_audio": "🎵 Audio (MP3)",
-        "btn_image": "🖼️ Imágenes",
-        "btn_sub": "📝 Subtítulos (SRT)",
-        "ask_format": "👇 **¿Qué te gustaría descargar?**",
-        "fetching": "📥 **Obteniendo {}...**",
-        "error_generic": "❌ Error al descargar.",
-        "error_50mb": "❌ Supera el límite de 50MB.",
-        "error_no_img": "❌ No hay imágenes.",
-        "deletes_in_9": "⏳ **Se elimina en 9 minutos.**",
-        "images_received": "⏳ **{} Imágenes. Se eliminan en 9 min.**",
-        "select_lang": "🌍 Selecciona idioma:",
-        "lang_set": "✅ ¡Idioma Español!",
-        "batch_detected": "📦 **Lote ({} enlaces)**\n¿Qué formato?",
-        "batch_dest": "📦 **¿A dónde enviarlos?**",
-        "btn_chat": "📥 En el Chat",
-        "btn_chan": "📢 Al Canal Privado",
-        "limit_reached": "⚠️ **¡Límite alcanzado!**",
-        "refill_btn": "🔓 Recargar",
-        "join_btn": "📢 Unirse al Canal",
-        "check_btn": "💜 Verificar",
-        "limit_batch": "⚠️ **Límite de lote ({} de {})**",
-        "batch_start": "📦 **Lote:** {} **{} archivos**.",
-        "batch_done": "🏁 **Lote Terminado**\n✅ Éxito: {}\n❌ Fallidos: {}\n📥 **{} aquí.**",
-        "batch_done_chan": "🏁 **Lote Terminado**\n✅ Éxito: {}\n❌ Fallidos: {}\n📢 **{} reenviados!**",
-        "dl_video": "📥 Descargando video...",
-        "dl_audio": "📥 Extrayendo audio...",
-        "dl_image": "📥 Buscando imágenes...",
-        "dl_sub": "📥 Obteniendo subtítulos...",
-        "failed_50": "❌ Fallido: > 50MB.",
-        "failed_blocked": "❌ Fallido: Bloqueado.",
-        "failed_generic": "❌ Fallido.",
-        "menu_lang": "🌍 Idioma",
-        "menu_stats": "📊 Mis Stats",
-        "menu_help": "📢 Ayuda",
-        "menu_join": "📢 Unirse",
-        "menu_movies": "🍿 Ver Películas",
-        "stats_msg": "📊 **Stats:**\n\n• Restantes: {}\n• Lotes: {}"
-    },
-    "fr": {
-        "welcome": "🚀 **Bienvenue sur le Bot Ultime de Téléchargement et Coffre-fort !** 🚀\n\n🎬 **Téléchargeur Vidéo :** Collez un lien pour la HD.\n🎵 **Extracteur Audio :** Transformez en MP3.\n🖼️ **Sauveur d'Images :** Téléchargez des photos.\n📝 **Sous-titres :** Obtenez SRT.\n📦 **Téléchargeur de Masse :** Choisissez Vidéo, Audio ou Images !\n💎 **Coffres-forts :** Packs premium.\n📤 **Envois :** Envoyez un fichier, je le transfère à l'Admin !\n\n👉 **Collez un lien pour commencer !**",
-        "btn_video": "🎬 Vidéo (MP4)",
-        "btn_audio": "🎵 Audio (MP3)",
-        "btn_image": "🖼️ Images",
-        "btn_sub": "📝 Sous-titres (SRT)",
-        "ask_format": "👇 **Que voulez-vous télécharger ?**",
-        "fetching": "📥 **Récupération {}...**",
-        "error_generic": "❌ Échec.",
-        "error_50mb": "❌ > 50MB.",
-        "error_no_img": "❌ Aucune image.",
-        "deletes_in_9": "⏳ **Suppression dans 9 min.**",
-        "images_received": "⏳ **{} Images. Suppression 9 min.**",
-        "select_lang": "🌍 Choisissez la langue :",
-        "lang_set": "✅ Français !",
-        "batch_detected": "📦 **Lot ({} liens)**\nQuel format ?",
-        "batch_dest": "📦 **Où envoyer ?**",
-        "btn_chat": "📥 Dans le Chat",
-        "btn_chan": "📢 Canal Privé",
-        "limit_reached": "⚠️ **Limite !**",
-        "refill_btn": "🔓 Recharger",
-        "join_btn": "📢 Rejoindre",
-        "check_btn": "💜 Vérifier",
-        "limit_batch": "⚠️ **Limite lot ({} sur {})**",
-        "batch_start": "📦 **Lot :** {} **{} fichiers**.",
-        "batch_done": "🏁 **Lot Terminé**\n✅ Succès : {}\n❌ Échecs : {}\n📥 **{} ici.**",
-        "batch_done_chan": "🏁 **Lot Terminé**\n✅ Succès : {}\n❌ Échecs : {}\n📢 **{} transférés !**",
-        "dl_video": "📥 Téléchargement...",
-        "dl_audio": "📥 Extraction...",
-        "dl_image": "📥 Images...",
-        "dl_sub": "📥 Sous-titres...",
-        "failed_50": "❌ Échec > 50MB.",
-        "failed_blocked": "❌ Échec : Bloqué.",
-        "failed_generic": "❌ Échec.",
-        "menu_lang": "🌍 Langue",
-        "menu_stats": "📊 Mes Stats",
-        "menu_help": "📢 Aide",
-        "menu_join": "📢 Rejoindre",
-        "menu_movies": "🍿 Films",
-        "stats_msg": "📊 **Stats :**\n\n• Restants : {}\n• Lots : {}"
-    },
-    "ar": {
-        "welcome": "🚀 **مرحبًا بك في بوت التحميل والخزنة الشامل!** 🚀\n\n🎬 **تحميل الفيديو:** الصق أي رابط.\n🎵 **استخراج الصوت:** تحويل إلى MP3.\n🖼️ **حفظ الصور:** تنزيل الصور.\n📝 **الترجمة:** احصل على SRT.\n📦 **تحميل دفعة:** اختر فيديو أو صوت أو صور!\n💎 **خزائن حصرية:** حزم مميزة.\n📤 **رفع الملفات:** أرسل لي ملفاً وسأرسله للمشرف!\n\n👉 **فقط الصق رابطاً للبدء!**",
-        "btn_video": "🎬 فيديو",
-        "btn_audio": "🎵 صوت",
-        "btn_image": "🖼️ صور",
-        "btn_sub": "📝 ترجمة",
-        "ask_format": "👇 **ماذا تريد؟**",
-        "fetching": "📥 **جاري جلب {}...**",
-        "error_generic": "❌ فشل التحميل.",
-        "error_50mb": "❌ > 50MB.",
-        "error_no_img": "❌ لا توجد صور.",
-        "deletes_in_9": "⏳ **حذف في 9 دقائق.**",
-        "images_received": "⏳ **{} صور. حذف في 9 دقائق.**",
-        "select_lang": "🌍 اختر لغتك:",
-        "lang_set": "✅ تم ضبط العربية!",
-        "batch_detected": "📦 **دفعة ({} روابط)**\nما التنسيق؟",
-        "batch_dest": "📦 **أين ترسل؟**",
-        "btn_chat": "📥 في الدردشة",
-        "btn_chan": "📢 القناة الخاصة",
-        "limit_reached": "⚠️ **تم الوصول للحد!**",
-        "refill_btn": "🔓 إعادة التعبئة",
-        "join_btn": "📢 انضم للقناة",
-        "check_btn": "💜 تحقق",
-        "limit_batch": "⚠️ **حد الدفعة ({} من {})**",
-        "batch_start": "📦 **دفعة:** {} **{} ملفات**.",
-        "batch_done": "🏁 **انتهت الدفعة**\n✅ نجاح: {}\n❌ فشل: {}\n📥 **{} هنا.**",
-        "batch_done_chan": "🏁 **انتهت الدفعة**\n✅ نجاح: {}\n❌ فشل: {}\n📢 **{} تم توجيهها!**",
-        "dl_video": "📥 جاري التحميل...",
-        "dl_audio": "📥 جاري الاستخراج...",
-        "dl_image": "📥 جاري جلب الصور...",
-        "dl_sub": "📥 جاري جلب الترجمة...",
-        "failed_50": "❌ فشل > 50MB.",
-        "failed_blocked": "❌ فشل: محظور.",
-        "failed_generic": "❌ فشل.",
-        "menu_lang": "🌍 اللغة",
-        "menu_stats": "📊 إحصائياتي",
-        "menu_help": "📢 مساعدة",
-        "menu_join": "📢 انضم",
-        "menu_movies": "🍿 مشاهدة الأفلام",
-        "stats_msg": "📊 **إحصائياتك:**\n\n• المتبقي: {}\n• الدفعات: {}"
-    },
-    "hi": {
-        "welcome": "🚀 **अल्टीमेट मीडिया डाउनलोडर और वॉल्ट बॉट में आपका स्वागत है!** 🚀\n\n🎬 **वीडियो डाउनलोडर:** कोई भी लिंक पेस्ट करें।\n🎵 **ऑडियो / MP3:** वीडियो को MP3 में बदलें।\n🖼️ **इमेज सेवर:** तस्वीरें डाउनलोड करें।\n📝 **सबटाइटल:** SRT प्राप्त करें।\n📦 **मैसिव बैच:** वीडियो, ऑडियो या इमेज चुनें!\n💎 **वॉल्ट:** प्रीमियम बंडल।\n📤 **अपलोड:** मुझे फाइल भेजें, मैं एडमिन को भेजूंगा!\n\n👉 **शुरू करने के लिए लिंक पेस्ट करें!**",
-        "btn_video": "🎬 वीडियो",
-        "btn_audio": "🎵 ऑडियो",
-        "btn_image": "🖼️ तस्वीरें",
-        "btn_sub": "📝 सबटाइटल",
-        "ask_format": "👇 **आप क्या चाहते हैं?**",
-        "fetching": "📥 **{} प्राप्त हो रहा है...**",
-        "error_generic": "❌ विफल।",
-        "error_50mb": "❌ > 50MB.",
-        "error_no_img": "❌ कोई तस्वीर नहीं।",
-        "deletes_in_9": "⏳ **9 मिनट में हटेगा।**",
-        "images_received": "⏳ **{} तस्वीरें। 9 मिनट में हटेंगी।**",
-        "select_lang": "🌍 भाषा चुनें:",
-        "lang_set": "✅ हिंदी सेट!",
-        "batch_detected": "📦 **बैच ({} लिंक)**\nकौन सा फॉर्मेट?",
-        "batch_dest": "📦 **कहाँ भेजें?**",
-        "btn_chat": "📥 चैट में",
-        "btn_chan": "📢 चैनल में",
-        "limit_reached": "⚠️ **सीमा समाप्त!**",
-        "refill_btn": "🔓 रिफिल",
-        "join_btn": "📢 जुड़ें",
-        "check_btn": "💜 जांचें",
-        "limit_batch": "⚠️ **सीमा ({} में से {})**",
-        "batch_start": "📦 **बैच:** {} **{} फाइलें**।",
-        "batch_done": "🏁 **समाप्त**\n✅ सफल: {}\n❌ विफल: {}\n📥 **{} भेजे गए।**",
-        "batch_done_chan": "🏁 **समाप्त**\n✅ सफल: {}\n❌ विफल: {}\n📢 **{} फॉरवर्ड!**",
-        "dl_video": "📥 वीडियो...",
-        "dl_audio": "📥 ऑडियो...",
-        "dl_image": "📥 तस्वीरें...",
-        "dl_sub": "📥 सबटाइटल...",
-        "failed_50": "❌ > 50MB.",
-        "failed_blocked": "❌ ब्लॉक।",
-        "failed_generic": "❌ विफल।",
-        "menu_lang": "🌍 भाषा",
-        "menu_stats": "📊 आंकड़े",
-        "menu_help": "📢 सहायता",
-        "menu_join": "📢 जुड़ें",
-        "menu_movies": "🍿 फिल्में",
-        "stats_msg": "📊 **आंकड़े:**\n\n• शेष: {}\n• बैच: {}"
-    },
-    "ru": {
-        "welcome": "🚀 **Добро пожаловать в Ultimate Media Downloader & Vault Bot!** 🚀\n\n🎬 **Видео:** Вставьте ссылку.\n🎵 **Аудио:** В MP3.\n🖼️ **Изображения:** Скачивайте фото.\n📝 **Субтитры:** SRT.\n📦 **Пакетная:** Выберите Видео, Аудио или Фото!\n💎 **Хранилища:** Премиум пакеты.\n📤 **Загрузка:** Отправьте файл, я перешлю Админу!\n\n👉 **Вставьте ссылку!**",
-        "btn_video": "🎬 Видео",
-        "btn_audio": "🎵 Аудио",
-        "btn_image": "🖼️ Фото",
-        "btn_sub": "📝 Субтитры",
-        "ask_format": "👇 **Что скачать?**",
-        "fetching": "📥 **Загрузка {}...**",
-        "error_generic": "❌ Ошибка.",
-        "error_50mb": "❌ > 50MB.",
-        "error_no_img": "❌ Нет фото.",
-        "deletes_in_9": "⏳ **Удаление через 9 мин.**",
-        "images_received": "⏳ **{} фото. Удаление через 9 мин.**",
-        "select_lang": "🌍 Язык:",
-        "lang_set": "✅ Русский!",
-        "batch_detected": "📦 **Пакет ({} ссылок)**\nФормат?",
-        "batch_dest": "📦 **Куда?**",
-        "btn_chat": "📥 В чат",
-        "btn_chan": "📢 В канал",
-        "limit_reached": "⚠️ **Лимит!**",
-        "refill_btn": "🔓 Пополнить",
-        "join_btn": "📢 Канал",
-        "check_btn": "💜 Проверить",
-        "limit_batch": "⚠️ **Лимит ({} из {})**",
-        "batch_start": "📦 **Пакет:** {} **{} файлов**.",
-        "batch_done": "🏁 **Готово**\n✅ Успешно: {}\n❌ Ошибок: {}\n📥 **{} здесь.**",
-        "batch_done_chan": "🏁 **Готово**\n✅ Успешно: {}\n❌ Ошибок: {}\n📢 **{} переслано!**",
-        "dl_video": "📥 Видео...",
-        "dl_audio": "📥 Аудио...",
-        "dl_image": "📥 Фото...",
-        "dl_sub": "📥 Субтитры...",
-        "failed_50": "❌ > 50MB.",
-        "failed_blocked": "❌ Блок.",
-        "failed_generic": "❌ Ошибка.",
-        "menu_lang": "🌍 Язык",
-        "menu_stats": "📊 Статы",
-        "menu_help": "📢 Помощь",
-        "menu_join": "📢 Канал",
-        "menu_movies": "🍿 Фильмы",
-        "stats_msg": "📊 **Статы:**\n\n• Осталось: {}\n• Пакеты: {}"
     }
 }
 
@@ -306,8 +87,7 @@ def load_json_file(filename):
         try:
             with open(filename, "r") as f:
                 return json.load(f)
-        except Exception:
-            pass
+        except Exception: pass
     return {}
 
 def save_json_file(filename, data):
@@ -324,44 +104,27 @@ def get_lang(user_id):
 def load_tokens():
     try:
         response = requests.get(f"{WEB_BASE_URL}/get_tokens", timeout=5)
-        if response.status_code == 200:
-            return response.json()
-    except Exception as e:
-        logger.error(f"Error loading tokens: {e}")
+        if response.status_code == 200: return response.json()
+    except Exception as e: logger.error(f"Error loading tokens: {e}")
     return {}
 
 def save_tokens(tokens):
-    try:
-        requests.post(f"{WEB_BASE_URL}/save_tokens", json=tokens, timeout=5)
-    except Exception as e:
-        logger.error(f"Error saving tokens: {e}")
+    try: requests.post(f"{WEB_BASE_URL}/save_tokens", json=tokens, timeout=5)
+    except Exception as e: logger.error(f"Error saving tokens: {e}")
 
-def load_user_channels():
-    return load_json_file(CHANNELS_FILE)
-
-def save_user_channels(channels):
-    save_json_file(CHANNELS_FILE, channels)
-
-def load_linking_states():
-    return load_json_file(LINKING_STATE_FILE)
-
-def save_linking_states(states):
-    save_json_file(LINKING_STATE_FILE, states)
+def load_user_channels(): return load_json_file(CHANNELS_FILE)
+def save_user_channels(channels): save_json_file(CHANNELS_FILE, channels)
+def load_linking_states(): return load_json_file(LINKING_STATE_FILE)
+def save_linking_states(states): save_json_file(LINKING_STATE_FILE, states)
 
 async def schedule_deletion(bot, chat_id, message_ids, delay):
     await asyncio.sleep(delay)
     for msg_id in message_ids:
-        try:
-            await bot.delete_message(chat_id=chat_id, message_id=msg_id)
-        except Exception:
-            pass
+        try: await bot.delete_message(chat_id=chat_id, message_id=msg_id)
+        except Exception: pass
 
 def scrape_html_images(url, cookiefile=None):
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-    }
+    headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1', 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'en-US,en;q=0.9'}
     cookies = None
     if cookiefile and os.path.exists(cookiefile):
         try:
@@ -370,22 +133,17 @@ def scrape_html_images(url, cookiefile=None):
             cj.load(ignore_discard=True, ignore_expires=True)
             cookies = {cookie.name: cookie.value for cookie in cj}
         except: pass
-
     try:
         res = requests.get(url, headers=headers, cookies=cookies, timeout=15, allow_redirects=True)
         soup = BeautifulSoup(res.text, 'html.parser')
         og_img = soup.find('meta', property='og:image')
-        if og_img and og_img.get('content'):
-            return og_img['content']
+        if og_img and og_img.get('content'): return og_img['content']
         tw_img = soup.find('meta', name='twitter:image')
-        if tw_img and tw_img.get('content'):
-            return tw_img['content']
+        if tw_img and tw_img.get('content'): return tw_img['content']
         for img in soup.find_all('img'):
             src = img.get('src')
-            if src and ('scontent' in src or 'fbcdn' in src):
-                return src
-    except Exception as e:
-        logger.error(f"HTML Scrape error: {e}")
+            if src and ('scontent' in src or 'fbcdn' in src): return src
+    except Exception as e: logger.error(f"HTML Scrape error: {e}")
     return None
 
 def download_media_engine(url: str, download_type: str):
@@ -393,7 +151,6 @@ def download_media_engine(url: str, download_type: str):
     os.makedirs(output_dir, exist_ok=True)
     url_lower = url.lower()
     http_headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Accept-Language': 'en-US,en;q=0.9'}
-
     cookiefile = None
     if "tiktok.com" in url_lower and os.path.exists("tiktok_cookies.txt"): cookiefile = "tiktok_cookies.txt"
     elif "twitter.com" in url_lower or "x.com" in url_lower: cookiefile = "twitter_cookies.txt" if os.path.exists("twitter_cookies.txt") else None
@@ -412,7 +169,6 @@ def download_media_engine(url: str, download_type: str):
             path = f"{base}.mp3"
             if os.path.exists(path): return [path], "Audio MP3", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("FILE_NOT_FOUND")
-
     elif download_type == 'subtitles':
         ydl_opts.update({'skip_download': True, 'writesubtitles': True, 'writeautomaticsub': True, 'subtitleslangs': ['en'], 'subtitlesformat': 'srt', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s')})
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -421,7 +177,6 @@ def download_media_engine(url: str, download_type: str):
             for ext in ['.en.srt', '.en.vtt']:
                 if os.path.exists(base+ext): return [base+ext], "Subtitles", "Text"
         raise ValueError("NO_SUBTITLES")
-
     elif download_type == 'images':
         img_url = scrape_html_images(url, cookiefile)
         if img_url:
@@ -431,7 +186,6 @@ def download_media_engine(url: str, download_type: str):
             with open(path, 'wb') as f: f.write(img_data)
             if os.path.getsize(path) > 1000: return [path], "Image", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("NO_IMAGES")
-
     else:
         for fmt in ["bestvideo+bestaudio/best", "best[height<=1080]", "best[height<=720]", "best[height<=480]", "best"]:
             try:
@@ -448,21 +202,19 @@ def download_media_engine(url: str, download_type: str):
                 continue
         raise ValueError("FILE_TOO_LARGE")
 
-
 def get_main_keyboard(lang_code, is_admin):
     t = LANGUAGES[lang_code]
     keyboard = [
         [KeyboardButton(t["menu_stats"]), KeyboardButton(t["menu_lang"])],
-        [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])]
+        [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])],
+        [KeyboardButton(t["menu_upload"])]
     ]
     if is_admin:
-        keyboard.append([KeyboardButton(t["menu_movies"])])
+        keyboard.append([KeyboardButton(t["menu_uploads"])])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.message.from_user.id
-    lang = get_lang(user_id)
-    
+    lang = get_lang(update.message.from_user.id)
     keyboard = [
         [InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"), InlineKeyboardButton("🇪🇸 Español", callback_data="lang_es")],
         [InlineKeyboardButton("🇫🇷 Français", callback_data="lang_fr"), InlineKeyboardButton("🇸🇦 العربية", callback_data="lang_ar")],
@@ -499,12 +251,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     tokens = load_tokens()
     tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": int(msg_start), "msg_end": int(msg_end), "clicked_ad": False, "verified": False, "expires": time.time() + 600}
     save_tokens(tokens)
-
-    keyboard = [
-        [InlineKeyboardButton("🔓 Open Link & Watch Timer", url=bridge_link)],
-        [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)],
-        [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]
-    ]
+    keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch Timer", url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     caption_text = "👇 **CONTENT LOCKED** 👇\n\nWatch the ad to unlock your files."
     try:
@@ -531,32 +278,25 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
         if "youtube.com" in url.lower() or "youtu.be" in url.lower():
             await bot.send_message(chat_id=chat_id, text=f"❌ [{index}/{len(urls)}] Skipped YouTube.")
             continue
-
         if consecutive_fails >= 3:
             cooldown_msg = await bot.send_message(chat_id=chat_id, text=f"⏳ **Site Rate Limit Detected.** Pausing for 60 seconds...")
             await asyncio.sleep(60)
             try: await cooldown_msg.delete()
             except: pass
             consecutive_fails = 0
-
         try:
             response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": True}, timeout=5)
             res_data = response.json() if response.status_code == 200 else {}
         except Exception:
             await bot.send_message(chat_id=chat_id, text=f"❌ [{index}/{len(urls)}] Connection error.")
             break
-
         if res_data.get("status") != "allowed":
             bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
             tokens = load_tokens()
             tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
             save_tokens(tokens)
             paused_batches[user_id] = {"urls": urls, "next_index": index - 1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
-            keyboard = [
-                [InlineKeyboardButton(t["refill_btn"], url=bridge_link)],
-                [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)],
-                [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]
-            ]
+            keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
             await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             break 
 
@@ -567,16 +307,12 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             file_paths, resolution, size_str = download_media_engine(url, download_type)
             if file_paths and os.path.exists(file_paths[0]):
                 file_path = file_paths[0]
-                
                 if download_type == 'audio':
-                    with open(file_path, 'rb') as f:
-                        sent_media = await bot.send_audio(chat_id=target_destination_id, audio=f, caption=f"🎵 **Item {index}/{len(urls)}**\n📦 Size: {size_str}")
+                    with open(file_path, 'rb') as f: sent_media = await bot.send_audio(chat_id=target_destination_id, audio=f, caption=f"🎵 **Item {index}/{len(urls)}**\n📦 Size: {size_str}")
                 elif download_type == 'images':
-                    with open(file_path, 'rb') as f:
-                        sent_media = await bot.send_photo(chat_id=target_destination_id, photo=f, caption=f"🖼️ **Item {index}/{len(urls)}**\n📦 Size: {size_str}")
+                    with open(file_path, 'rb') as f: sent_media = await bot.send_photo(chat_id=target_destination_id, photo=f, caption=f"🖼️ **Item {index}/{len(urls)}**\n📦 Size: {size_str}")
                 else:
-                    with open(file_path, 'rb') as f:
-                        sent_media = await bot.send_video(chat_id=target_destination_id, video=f, caption=f"✨ **Item {index}/{len(urls)}**\n📐 Quality: {resolution}\n📦 Size: {size_str}")
+                    with open(file_path, 'rb') as f: sent_media = await bot.send_video(chat_id=target_destination_id, video=f, caption=f"✨ **Item {index}/{len(urls)}**\n📐 Quality: {resolution}\n📦 Size: {size_str}")
                 
                 if target_destination_id == chat_id:
                     warning_msg = await bot.send_message(chat_id=target_destination_id, text=t["deletes_in_9"])
@@ -608,27 +344,29 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
         await bot.send_message(chat_id=chat_id, text=dest_text, parse_mode="Markdown")
 
 
-# --- NEW: Handle User File Uploads to Admin ---
 async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
     lang = get_lang(user_id)
     t = LANGUAGES[lang]
-    
-    # Don't allow the admin to trigger this when sending to vault
-    if user_id == ADMIN_ID:
-        return
 
-    # Forward the file to the Admin
-    await update.message.forward(chat_id=ADMIN_ID)
-    
-    # Notify Admin
-    await context.bot.send_message(
-        chat_id=ADMIN_ID, 
-        text=f"📥 **New Upload Received!**\nFrom: @{update.message.from_user.username} (ID: {user_id})"
-    )
-    
-    # Notify User
-    await update.message.reply_text("✅ **File received!** It has been sent to the Admin.")
+    if user_id == ADMIN_ID:
+        try:
+            await update.message.forward(chat_id=PRIVATE_CHANNEL_ID)
+            await update.message.reply_text("✅ File saved to your vault channel!")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Failed to save. Error: {e}")
+    else:
+        try:
+            uploads = load_json_file(UPLOADS_FILE)
+            upload_id = str(int(time.time()))
+            uploads[upload_id] = {"user_id": user_id, "msg_id": update.message.message_id}
+            save_json_file(UPLOADS_FILE, uploads)
+
+            await update.message.forward(chat_id=ADMIN_ID)
+            await context.bot.send_message(chat_id=ADMIN_ID, text=f"📥 **New Anonymous Upload**\nFrom ID: {user_id}\n\n*(Saved to your 🍿 Fan Uploads folder)*")
+            await update.message.reply_text(t["upload_success_user"])
+        except Exception:
+            await update.message.reply_text("❌ Failed to send file.")
 
 
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -638,7 +376,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     lang = get_lang(user_id)
     t = LANGUAGES[lang]
 
-    # Handle Menu Keyboard Buttons
     if text == t["menu_stats"]:
         tokens = load_tokens()
         profile = tokens.get(str(user_id), {})
@@ -660,8 +397,25 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await language_command(update, context)
         return
 
-    if text == t["menu_movies"] and user_id == ADMIN_ID:
-        await update.message.reply_text("🍿 **Your Movie Vault:**\nSend any video here, and I will save it to your private vault channel for you to watch later!", parse_mode="Markdown")
+    if text == t["menu_upload"]:
+        prompt = t["admin_upload_prompt"] if user_id == ADMIN_ID else t["user_upload_prompt"]
+        await update.message.reply_text(prompt, parse_mode="Markdown")
+        return
+
+    # --- ADMIN FAN UPLOADS FOLDER (NOW 20) ---
+    if text == t["menu_uploads"] and user_id == ADMIN_ID:
+        uploads = load_json_file(UPLOADS_FILE)
+        if not uploads:
+            await update.message.reply_text(t["no_uploads"])
+            return
+            
+        await update.message.reply_text(t["admin_upload_prompt"])
+        # Show last 20 uploads to Admin
+        for key, data in list(uploads.items())[-20:]:
+            try:
+                await context.bot.forward_message(chat_id=ADMIN_ID, from_chat_id=data["user_id"], message_id=data["msg_id"])
+            except Exception:
+                pass
         return
 
     if active_batch_sessions.get(user_id, False): return
@@ -729,7 +483,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     t = LANGUAGES[lang]
 
     if not document.file_name or not document.file_name.endswith('.txt'):
-        # If it's not a .txt file, treat it as an upload for the Admin
         await handle_user_upload(update, context)
         return
 
@@ -779,17 +532,16 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.message.delete()
         return
 
-    # --- BATCH FORMAT SELECTION ---
     if data.startswith("batchtype_"):
-        parts = data.split("_", 2)
-        dl_type, payload_key = parts[1], parts[2]
+        parts = data.split("_", 3) 
+        dl_type = parts[1] 
+        payload_key = parts[2] + "_" + parts[3]
         urls = pending_batch_payloads.pop(payload_key, None)
         if not urls:
             await query.answer("❌ Session expired.", show_alert=True)
             return
         
         await query.message.delete()
-        # Ask where to send
         keyboard = [
             [InlineKeyboardButton(t["btn_chat"], callback_data=f"dest_chat_{dl_type}_{payload_key}")],
             [InlineKeyboardButton(t["btn_chan"], callback_data=f"dest_chan_{dl_type}_{payload_key}")]
@@ -824,11 +576,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             tokens = load_tokens()
             tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
             save_tokens(tokens)
-            keyboard = [
-                [InlineKeyboardButton(t["refill_btn"], url=bridge_link)],
-                [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)],
-                [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]
-            ]
+            keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
             await context.bot.send_message(chat_id=chat_id, text=t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             return
 
@@ -845,20 +593,17 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 asyncio.create_task(schedule_deletion(context.bot, chat_id, [m.message_id for m in sent_media] + [warning_msg.message_id], DELETE_DELAY_TIME))
                 for p in file_paths: os.remove(p)
             elif dl_type == 'audio':
-                with open(file_paths[0], 'rb') as f:
-                    sent_media = await context.bot.send_audio(chat_id=chat_id, audio=f, title="Extracted Audio", caption=f"🎵 **Audio**\n📦 Size: {size_str}", parse_mode="Markdown")
+                with open(file_paths[0], 'rb') as f: sent_media = await context.bot.send_audio(chat_id=chat_id, audio=f, title="Extracted Audio", caption=f"🎵 **Audio**\n📦 Size: {size_str}", parse_mode="Markdown")
                 warning_msg = await context.bot.send_message(chat_id=chat_id, text=t["deletes_in_9"])
                 asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent_media.message_id, warning_msg.message_id], DELETE_DELAY_TIME))
                 os.remove(file_paths[0])
             elif dl_type == 'subtitles':
-                with open(file_paths[0], 'rb') as f:
-                    sent_media = await context.bot.send_document(chat_id=chat_id, document=f, caption=f"📝 **Subtitles**", parse_mode="Markdown")
+                with open(file_paths[0], 'rb') as f: sent_media = await context.bot.send_document(chat_id=chat_id, document=f, caption=f"📝 **Subtitles**", parse_mode="Markdown")
                 warning_msg = await context.bot.send_message(chat_id=chat_id, text=t["deletes_in_9"])
                 asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent_media.message_id, warning_msg.message_id], DELETE_DELAY_TIME))
                 os.remove(file_paths[0])
             else:
-                with open(file_paths[0], 'rb') as f:
-                    sent_media = await context.bot.send_video(chat_id=chat_id, video=f, caption=f"✨ **Video**\n📐 Quality: {resolution}\n📦 Size: {size_str}", parse_mode="Markdown")
+                with open(file_paths[0], 'rb') as f: sent_media = await context.bot.send_video(chat_id=chat_id, video=f, caption=f"✨ **Video**\n📐 Quality: {resolution}\n📦 Size: {size_str}", parse_mode="Markdown")
                 warning_msg = await context.bot.send_message(chat_id=chat_id, text=t["deletes_in_9"])
                 asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent_media.message_id, warning_msg.message_id], DELETE_DELAY_TIME))
                 os.remove(file_paths[0])
@@ -888,7 +633,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"]))
         return
 
-    # --- DESTINATION SELECTION ---
     if data.startswith("dest_chat_") or data.startswith("dest_chan_"):
         parts = data.split("_", 3)
         action_type, dl_type, payload_key = parts[1], parts[2], parts[3]
@@ -980,7 +724,6 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("stats", stats))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
-        # NEW: Catch any video/audio/photo upload sent directly to the bot
         app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE, handle_user_upload))
         app.add_handler(CallbackQueryHandler(handle_buttons))
         await app.initialize()
