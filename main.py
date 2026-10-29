@@ -98,22 +98,6 @@ def save_linking_states(states):
     except Exception as e:
         logger.error(f"Error saving linking states: {e}")
 
-# --- SMART URL EXTRACTOR (Handles raw domains, grabber text, & URLs) ---
-def extract_urls_from_text(text: str):
-    pattern = r'(?:https?://)?(?:www\.)?[a-zA-Z0-9][-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&//=]*)'
-    raw_matches = re.findall(pattern, text)
-    
-    normalized_urls = []
-    seen = set()
-    for match in raw_matches:
-        url = match.strip()
-        if not url.startswith(('http://', 'https://')):
-            url = 'https://' + url
-        if len(url) > 10 and '.' in url and url not in seen:
-            seen.add(url)
-            normalized_urls.append(url)
-    return normalized_urls
-
 # --- NATIVE AUTO-DELETE BACKGROUND TASK ---
 async def schedule_deletion(bot, chat_id, message_ids, delay):
     """Waits for the specified delay and deletes messages securely."""
@@ -128,7 +112,7 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
 def download_video_ytdlp(url: str):
     """
     Tries downloading in highest possible quality first. 
-    Steps down to 720p, then 480p if too big. Raises error if 480p still exceeds 50MB.
+    Steps down to 720p, then 480p if too big. Relies on post-download file size check on disk.
     """
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
@@ -144,7 +128,6 @@ def download_video_ytdlp(url: str):
             ydl_opts = {
                 'format': fmt,
                 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
-                'max_filesize': 50 * 1024 * 1024,  # Strict 50MB limit cap for Telegram bots
                 'noplaylist': True,
                 'quiet': True,
                 'merge_output_format': 'mp4',
@@ -160,16 +143,17 @@ def download_video_ytdlp(url: str):
                 info = ydl.extract_info(url, download=True)
                 filename = ydl.prepare_filename(info)
                 
-                file_size_bytes = os.path.getsize(filename)
-                if file_size_bytes > 50 * 1024 * 1024:
-                    os.remove(filename)
-                    continue
-                
-                height = info.get('height', 'Unknown')
-                resolution = f"{height}p" if isinstance(height, int) else "HD/SD"
-                size_str = f"{file_size_bytes / (1024 * 1024):.1f}MB"
+                if os.path.exists(filename):
+                    file_size_bytes = os.path.getsize(filename)
+                    if file_size_bytes > 50 * 1024 * 1024:
+                        os.remove(filename)
+                        continue
                     
-                return filename, resolution, size_str
+                    height = info.get('height', 'Unknown')
+                    resolution = f"{height}p" if isinstance(height, int) else "HD/SD"
+                    size_str = f"{file_size_bytes / (1024 * 1024):.1f}MB"
+                        
+                    return filename, resolution, size_str
         except Exception:
             continue
             
@@ -186,7 +170,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "I allow you to download media files from **several different websites**, process **batch multi-link text/files** straight to your private channel, AND unlock exclusive content vaults!\n\n"
             "💬 **How to Download:**\n"
             "• **Single Link:** Paste any link directly into chat.\n"
-            "• **Batch Links:** Paste jumbled text containing multiple links OR upload a `.txt` file packed with links to stream them directly into your linked private channel!\n\n"
+            "• **Batch Links:** Paste text containing multiple links OR upload a `.txt` file packed with links to stream them directly into your linked private channel!\n\n"
             "🌐 **Supported Sites & Platforms:**\n"
             "• **Multiple Websites** (TikTok, X/Twitter, Instagram, Facebook, and thousands of other video & media sites!)\n"
             "• ❌ ~~YouTube~~ *(Temporarily paused / Maintenance)*\n\n"
@@ -442,7 +426,8 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
         return
 
-    extracted_urls = extract_urls_from_text(text)
+    # Use robust reliable regex from original working script
+    extracted_urls = re.findall(r'https?://[^\s]+', text)
     
     if not extracted_urls:
         return
@@ -595,7 +580,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         file_bytes = await file.download_as_bytearray()
         file_text = file_bytes.decode('utf-8', errors='ignore')
 
-        extracted_urls = extract_urls_from_text(file_text)
+        extracted_urls = re.findall(r'https?://[^\s]+', file_text)
         if not extracted_urls:
             await update.message.reply_text("❌ No valid links found inside the uploaded `.txt` file.")
             return
