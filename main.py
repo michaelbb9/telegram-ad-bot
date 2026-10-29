@@ -546,12 +546,12 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.message.delete()
         return
 
-    # --- FIXED: BATCH FORMAT SELECTION (maxsplit prevents session expires) ---
+    # --- FIXED: BATCH FORMAT SELECTION (Uses .get() so it doesn't pop early) ---
     if data.startswith("batchtype_"):
         parts = data.split("_", 2) 
         dl_type = parts[1] 
         payload_key = parts[2]
-        urls = pending_batch_payloads.pop(payload_key, None)
+        urls = pending_batch_payloads.get(payload_key)  # FIX: Use .get() instead of .pop() here
         if not urls:
             await query.answer("❌ Session expired.", show_alert=True)
             return
