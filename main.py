@@ -145,7 +145,6 @@ def download_video_ytdlp(url: str):
             ydl_opts = {
                 'format': fmt,
                 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
-                'max_filesize': 50 * 1024 * 1024,  # Strict 50MB limit cap for Telegram bots
                 'noplaylist': True,
                 'quiet': True,
                 'merge_output_format': 'mp4',
@@ -161,17 +160,19 @@ def download_video_ytdlp(url: str):
                 info = ydl.extract_info(url, download=True)
                 filename = ydl.prepare_filename(info)
                 
-                file_size_bytes = os.path.getsize(filename)
-                if file_size_bytes > 50 * 1024 * 1024:
-                    os.remove(filename)
-                    continue
-                
-                height = info.get('height', 'Unknown')
-                resolution = f"{height}p" if isinstance(height, int) else "HD/SD"
-                size_str = f"{file_size_bytes / (1024 * 1024):.1f}MB"
+                if os.path.exists(filename):
+                    file_size_bytes = os.path.getsize(filename)
+                    if file_size_bytes > 50 * 1024 * 1024:
+                        os.remove(filename)
+                        continue
                     
-                return filename, resolution, size_str
-        except Exception:
+                    height = info.get('height', 'Unknown')
+                    resolution = f"{height}p" if isinstance(height, int) else "HD/SD"
+                    size_str = f"{file_size_bytes / (1024 * 1024):.1f}MB"
+                        
+                    return filename, resolution, size_str
+        except Exception as e:
+            logger.error(f"yt-dlp download tier error for {url}: {e}")
             continue
             
     raise ValueError("FILE_TOO_LARGE")
