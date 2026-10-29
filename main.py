@@ -229,6 +229,7 @@ def get_main_keyboard(lang_code, is_admin):
     if is_admin:
         keyboard.append([KeyboardButton(t["menu_uploads"])])
         keyboard.append([KeyboardButton("⚡ Create Flash Drop")])
+        keyboard.append([KeyboardButton("🚀 Finish & Broadcast Drop")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -398,22 +399,14 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
-    # --- TOP PRIORITY: COLLECT ITEMS FOR FLASH DROP ---
+    # --- TOP PRIORITY: SILENTLY COLLECT ITEMS FOR FLASH DROP ---
     states = load_json_file(DRIP_STATE_FILE)
     user_state = states.get(str(user_id))
 
     if user_state and isinstance(user_state, dict) and user_state.get("mode") == "collecting":
         user_state["items"].append({"chat_id": chat_id, "message_id": update.message.message_id})
         save_json_file(DRIP_STATE_FILE, states)
-        
-        keyboard = [[InlineKeyboardButton("🚀 Finish & Broadcast Drop", callback_data="finish_drop")]]
-        await update.message.reply_text(
-            f"📥 **Item added to Flash Drop bundle!** ({len(user_state['items'])} items added).\n\n"
-            f"Send more files/photos, or click below when you're done:",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
-        )
-        return
+        return  # SILENTLY COLLECT WITHOUT SPAMMING CHAT!
 
     if user_id == ADMIN_ID:
         try:
@@ -462,15 +455,40 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         states[str(user_id)] = {"mode": "collecting", "items": []}
         save_json_file(DRIP_STATE_FILE, states)
         
+        # Add the permanent finish button to the keyboard right away!
+        keyboard = [[KeyboardButton("🚀 Finish & Broadcast Drop")]]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
         await update.message.reply_text(
             "⚡ **Flash Drop Creator Mode Activated**\n\n"
-            "Now send **one or multiple files, photos, or videos** back-to-back.\n"
-            "When you are finished adding your items, click the 'Finish & Broadcast Drop' button!",
+            "Now send **one or multiple files, photos, or videos** back-to-back. They will be collected silently.\n"
+            "When you are finished, tap **🚀 Finish & Broadcast Drop** below!",
+            reply_markup=reply_markup,
             parse_mode="Markdown"
         )
         return
 
-    # --- TOP PRIORITY 2: CAPTURE DELETION TIME NUMBER ---
+    # --- TOP PRIORITY 2: ADMIN CLICKS PERMANENT FINISH BUTTON OR SENDS TIME ---
+    if text == "🚀 Finish & Broadcast Drop" and user_id == ADMIN_ID:
+        states = load_json_file(DRIP_STATE_FILE)
+        user_state = states.get(str(user_id))
+
+        if not user_state or not user_state.get("items"):
+            await update.message.reply_text("⚠️ You haven't added any items yet! Send files first.")
+            return
+
+        user_state["mode"] = "waiting_for_time"
+        save_json_file(DRIP_STATE_FILE, states)
+
+        await update.message.reply_text(
+            "⏱️ **Set Deletion Timer**\n\n"
+            "How many minutes should these dropped files stay before auto-deleting for users?\n"
+            "*(Type a number like `5`, `9`, `15`, etc.)*",
+            parse_mode="Markdown"
+        )
+        return
+
+    # --- TOP PRIORITY 3: CAPTURE DELETION TIME NUMBER ---
     states = load_json_file(DRIP_STATE_FILE)
     user_state = states.get(str(user_id))
 
@@ -535,11 +553,13 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             except Exception:
                 pass
 
+        # Restore normal admin keyboard after broadcast is complete
         await update.message.reply_text(
             f"✅ **Flash Drop Broadcast Complete!**\n\n"
             f"📬 Delivered to: **{success_broadcasts} users**\n"
             f"📦 Items in bundle: **{len(items_to_drop)}**\n"
             f"⏱️ Deletion Timer Set To: **{mins} minutes**",
+            reply_markup=get_main_keyboard(lang, True),
             parse_mode="Markdown"
         )
         return
@@ -548,15 +568,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if user_state and isinstance(user_state, dict) and user_state.get("mode") == "collecting":
         user_state["items"].append({"chat_id": chat_id, "message_id": update.message.message_id})
         save_json_file(DRIP_STATE_FILE, states)
-        
-        keyboard = [[InlineKeyboardButton("🚀 Finish & Broadcast Drop", callback_data="finish_drop")]]
-        await update.message.reply_text(
-            f"📥 **Text added to Flash Drop bundle!** ({len(user_state['items'])} items added).\n\n"
-            f"Send more files or click below when done:",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
-        )
-        return
+        return # Silently collect text as well
 
     if text == t["menu_stats"]:
         tokens = load_tokens()
@@ -710,29 +722,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     chat_id = query.message.chat_id
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
-
-    # --- BUTTON TO FINISH COLLECTING & ASK FOR DELETION TIME ---
-    if data == "finish_drop" and user_id == ADMIN_ID:
-        states = load_json_file(DRIP_STATE_FILE)
-        user_state = states.get(str(user_id))
-
-        if not user_state or not user_state.get("items"):
-            await query.answer("⚠️ No items added yet!", show_alert=True)
-            return
-
-        user_state["mode"] = "waiting_for_time"
-        save_json_file(DRIP_STATE_FILE, states)
-
-        await query.answer("Bundle saved!")
-        try: await query.message.delete()
-        except: pass
-
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text="⏱️ **Set Deletion Timer**\n\nHow many minutes should these dropped files stay before auto-deleting for users?\n*(Type a number like `5`, `9`, `15`, etc.)*",
-            parse_mode="Markdown"
-        )
-        return
 
     # --- AGE VERIFICATION FOR MULTI-FILE FLASH DROPS ---
     if data.startswith("age_yes_"):
