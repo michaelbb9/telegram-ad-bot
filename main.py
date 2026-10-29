@@ -99,7 +99,7 @@ def save_linking_states(states):
     except Exception as e:
         logger.error(f"Error saving linking states: {e}")
 
-# --- SMART URL EXTRACTOR (Handles raw domains, www. links, and grabber text) ---
+# --- SMART URL EXTRACTOR (Handles raw domains, grabber text, & URLs) ---
 def extract_urls_from_text(text: str):
     pattern = r'(?:https?://)?(?:www\.)?[a-zA-Z0-9][-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&//=]*)'
     raw_matches = re.findall(pattern, text)
@@ -125,11 +125,11 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
         except Exception:
             pass
 
-# --- YT-DLP DOWNLOAD HELPER (Dynamic Quality Fallback System) ---
+# --- YT-DLP DOWNLOAD HELPER (Dynamic Quality Fallback + TikTok Fix) ---
 def download_video_ytdlp(url: str):
     """
     Tries downloading in highest possible quality first. 
-    Steps down to 720p, then 480p if too big. Raises error if 480p still exceeds 50MB.
+    Steps down to 720p, then 480p if too big. Relies on post-download file size check.
     """
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
@@ -172,7 +172,7 @@ def download_video_ytdlp(url: str):
                         
                     return filename, resolution, size_str
         except Exception as e:
-            logger.error(f"yt-dlp download tier error for {url}: {e}")
+            logger.error(f"yt-dlp error for {url}: {e}")
             continue
             
     raise ValueError("FILE_TOO_LARGE")
