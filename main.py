@@ -468,15 +468,17 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     # --- TOP PRIORITY: FINISH & BROADCAST MULTI-FILE DROP ---
     if text == "🚀 Finish & Broadcast Drop" and user_id == ADMIN_ID:
+        items_to_drop = active_admin_drops.pop(user_id, [])
+        
         states = load_json_file(DRIP_STATE_FILE)
-        if str(user_id) not in states or not active_admin_drops.get(user_id):
+        if str(user_id) in states:
+            del states[str(user_id)]
+            save_json_file(DRIP_STATE_FILE, states)
+
+        if not items_to_drop:
             await update.message.reply_text("⚠️ You haven't added any items yet! Tap '⚡ Create Flash Drop' first.")
             return
 
-        del states[str(user_id)]
-        save_json_file(DRIP_STATE_FILE, states)
-
-        items_to_drop = active_admin_drops.pop(user_id, [])
         drop_id = str(int(time.time()))
         expires_at = time.time() + 480  # 8 minutes expiry
 
@@ -502,7 +504,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         keyboard = [[InlineKeyboardButton("🎁 Claim Flash Drop Now", url=claim_url)]]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        # Reassuring text explaining flash drops so users aren't scared
         broadcast_text = (
             "🚨 **EXCLUSIVE FLASH DROP UNLOCKED!** 🚨\n\n"
             "✨ *What is this?* This is a safe, surprise media bundle sent directly to your DM by the admin.\n"
@@ -716,7 +717,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.message.delete()
             sent_message_ids = []
             
-            # Deliver all items in the flash drop bundle safely to the user
             for item in drop["items"]:
                 fwd = await context.bot.copy_message(
                     chat_id=user_id,
@@ -730,7 +730,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             sent_message_ids.append(warn.message_id)
             asyncio.create_task(schedule_deletion(context.bot, user_id, sent_message_ids, DELETE_DELAY_TIME))
         except Exception as e:
-            await context.bot.send_message(chat_id=user_id, text=f"❌ Error delivering bundle: {e}")
+            await query.message.reply_text(f"❌ Error delivering bundle: {e}")
         return
 
     if data == "age_no":
