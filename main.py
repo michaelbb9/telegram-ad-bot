@@ -254,7 +254,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     arg_code = args[0]
 
-    # --- HANDLE 8-MINUTE FLASH DROP WITH AGE VERIFICATION ---
+    # --- HANDLE 8-MINUTE FLASH DROP CLAIM FROM DM BUTTON ---
     if arg_code.startswith("drip_"):
         drop_id = arg_code.replace("drip_", "")
         drip_data = load_json_file(DRIP_FILE)
@@ -400,7 +400,7 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
-    # --- TOP PRIORITY: CAPTURE CONTENT FOR FLASH DROP ---
+    # --- TOP PRIORITY: CAPTURE CONTENT FOR FLASH DROP & BROADCAST TO ALL USERS ---
     drip_states = load_json_file(DRIP_STATE_FILE)
     if str(user_id) in drip_states and drip_states[str(user_id)] == "waiting_for_drop_content":
         del drip_states[str(user_id)]
@@ -418,13 +418,39 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         save_json_file(DRIP_FILE, drop_data)
 
         bot_username = context.bot.username
-        deep_link = f"https://t.me/{bot_username}?start=drip_{drop_id}"
+        claim_url = f"https://t.me/{bot_username}?start=drip_{drop_id}"
+
+        # Gather all unique user IDs from languages / tokens to push notification to their DMs
+        all_users = set()
+        lang_data = load_json_file(LANG_FILE)
+        token_data = load_tokens()
+        for uid in lang_data.keys(): all_users.add(int(uid))
+        for uid in token_data.keys(): all_users.add(int(uid))
+
+        await update.message.reply_text(f"🚀 Broadcasting flash drop to **{len(all_users)} users** in their DMs...", parse_mode="Markdown")
+
+        success_broadcasts = 0
+        keyboard = [[InlineKeyboardButton("🎁 Claim Flash Drop", url=claim_url)]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        for uid in all_users:
+            if uid == ADMIN_ID: continue
+            try:
+                await context.bot.send_message(
+                    chat_id=uid,
+                    text="🚨 **NEW FLASH DROP UNLOCKED!** 🚨\n\nA secret drop is waiting for you in your DM. Click below to claim it before it expires in **8 minutes**!",
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+                success_broadcasts += 1
+                await asyncio.sleep(0.05) # Prevent flood limits
+            except Exception:
+                pass
 
         await update.message.reply_text(
-            f"✅ **Flash Drop Generated!**\n\n"
-            f"⏳ Valid for: **8 Minutes**\n\n"
-            f"🔗 **Your Exclusive Claim Link:**\n`{deep_link}`\n\n"
-            f"*(Copy and share this link anywhere you want. When users click it, the bot will deliver the content straight to their DMs after a quick 18+ check!)*",
+            f"✅ **Flash Drop Successfully Broadcasted!**\n\n"
+            f"📬 Sent to: **{success_broadcasts} users**\n"
+            f"⏳ Expires in: **8 Minutes**",
             parse_mode="Markdown"
         )
         return
@@ -477,12 +503,12 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         save_json_file(DRIP_STATE_FILE, states)
         await update.message.reply_text(
             "⚡ **Flash Drop Creator Mode**\n\n"
-            "Now, **send** or **forward** the content (video, photo, text, or file) you want to drop. I will generate your private 8-minute claim link right here in your DM!",
+            "Now, **send** or **forward** the content (video, photo, text, or file) you want to drop. I will instantly push it to all users' DMs with an 8-minute timer!",
             parse_mode="Markdown"
         )
         return
 
-    # --- TOP PRIORITY: CAPTURE TEXT CONTENT FOR FLASH DROP ---
+    # --- TOP PRIORITY: CAPTURE TEXT CONTENT FOR FLASH DROP & BROADCAST ---
     drip_states = load_json_file(DRIP_STATE_FILE)
     if str(user_id) in drip_states and drip_states[str(user_id)] == "waiting_for_drop_content":
         del drip_states[str(user_id)]
@@ -500,13 +526,38 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         save_json_file(DRIP_FILE, drop_data)
 
         bot_username = context.bot.username
-        deep_link = f"https://t.me/{bot_username}?start=drip_{drop_id}"
+        claim_url = f"https://t.me/{bot_username}?start=drip_{drop_id}"
+
+        all_users = set()
+        lang_data = load_json_file(LANG_FILE)
+        token_data = load_tokens()
+        for uid in lang_data.keys(): all_users.add(int(uid))
+        for uid in token_data.keys(): all_users.add(int(uid))
+
+        await update.message.reply_text(f"🚀 Broadcasting flash drop text to **{len(all_users)} users** in their DMs...", parse_mode="Markdown")
+
+        success_broadcasts = 0
+        keyboard = [[InlineKeyboardButton("🎁 Claim Flash Drop", url=claim_url)]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        for uid in all_users:
+            if uid == ADMIN_ID: continue
+            try:
+                await context.bot.send_message(
+                    chat_id=uid,
+                    text="🚨 **NEW FLASH DROP UNLOCKED!** 🚨\n\nA secret drop is waiting for you in your DM. Click below to claim it before it expires in **8 minutes**!",
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+                success_broadcasts += 1
+                await asyncio.sleep(0.05)
+            except Exception:
+                pass
 
         await update.message.reply_text(
-            f"✅ **Flash Drop Generated!**\n\n"
-            f"⏳ Valid for: **8 Minutes**\n\n"
-            f"🔗 **Your Exclusive Claim Link:**\n`{deep_link}`\n\n"
-            f"*(Copy and share this link anywhere you want. When users click it, the bot will deliver the content straight to their DMs after a quick 18+ check!)*",
+            f"✅ **Flash Drop Successfully Broadcasted!**\n\n"
+            f"📬 Sent to: **{success_broadcasts} users**\n"
+            f"⏳ Expires in: **8 Minutes**",
             parse_mode="Markdown"
         )
         return
