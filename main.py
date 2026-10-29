@@ -105,7 +105,7 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
         except Exception:
             pass
 
-# --- FIXED UNIVERSAL DOWNLOAD ENGINE ---
+# --- FIXED UNIVERSAL DOWNLOAD ENGINE (HD PRIORITY) ---
 def download_media_engine(url: str, download_type: str):
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
@@ -201,14 +201,15 @@ def download_media_engine(url: str, download_type: str):
             total_size = sum(os.path.getsize(p) for p in image_paths) / (1024 * 1024)
             return image_paths, f"{len(image_paths)} Images", f"{total_size:.1f}MB"
 
-    # --- 4. VIDEO (The Fixed Logic) ---
+    # --- 4. VIDEO (HD PRIORITY FIX) ---
     else:
-        # We force it to 480p maximum first to guarantee it fits in 50MB. 
-        # If it's a TikTok, we try to get the no-watermark version.
+        # Try the absolute best first, then step down.
         if "tiktok.com" in url_lower:
-            tiers = ["best[format_id!='download'][height<=720]", "best[height<=480]", "best"]
+            # For TikTok, try to get no-watermark HD first.
+            tiers = ["best[format_id!='download']", "best", "best[height<=720]", "best[height<=480]"]
         else:
-            tiers = ["best[height<=720]", "best[height<=480]", "best"]
+            # For everything else, try HD, then step down.
+            tiers = ["bestvideo+bestaudio/best", "best[height<=1080]", "best[height<=720]", "best[height<=480]", "best"]
 
         for fmt in tiers:
             try:
@@ -217,7 +218,6 @@ def download_media_engine(url: str, download_type: str):
                     'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
                     'merge_output_format': 'mp4',
                     'ffmpeg_location': ffmpeg_path,
-                    # REMOVED 'max_filesize' here. We will check the size after download.
                 })
 
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -232,10 +232,10 @@ def download_media_engine(url: str, download_type: str):
                     if os.path.exists(filename):
                         file_size_bytes = os.path.getsize(filename)
                         
-                        # NOW we check the actual file size on the server
+                        # Check if the HD file is too big. If so, delete and try the next tier.
                         if file_size_bytes > 50 * 1024 * 1024:
                             os.remove(filename)
-                            continue # Try the next smaller tier
+                            continue 
                         
                         height = info.get('height', 'Unknown')
                         resolution = f"{height}p" if isinstance(height, int) else "HD/SD"
@@ -257,13 +257,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(
             "🚀 **Welcome to the Ultimate Media Downloader Bot!** 🚀\n\n"
             "I am your all-in-one Swiss Army Knife for social media. Here is everything I can do:\n\n"
-            "🎬 **Video Downloader:** Paste any link (TikTok, Insta, Twitter, FB) to get the video. *TikTok videos are downloaded WITHOUT watermarks!*\n\n"
+            "🎬 **Video Downloader:** Paste any link (TikTok, Insta, Twitter, FB) to get the video in the highest quality possible (up to 4K). *TikTok videos are downloaded WITHOUT watermarks!*\n\n"
             "🎵 **Audio / MP3 Extractor:** Turn any video into an MP3 audio file instantly.\n\n"
             "🖼️ **Image / Gallery Saver:** Download photos from Instagram posts or Pinterest.\n\n"
             "📝 **Subtitle Extractor:** Grab the subtitle text files (SRT) from videos.\n\n"
             "📦 **Massive Batch Downloader:** Paste up to 100+ links at once, or upload a `.txt` file. I will download them all and send them straight to your Private Channel!\n\n"
             "⚠️ **Rules & Limits:**\n"
-            "• Telegram limits bots to 50MB per file. Anything bigger will be skipped.\n"
+            "• Telegram limits bots to 50MB per file. Anything bigger will automatically step down to a lower quality that fits.\n"
             "• You get 20 free batch downloads. After that, you must watch a quick 20-second sponsor timer to refill.\n\n"
             "👉 **Just paste a link to get started!**"
         )
@@ -606,7 +606,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except Exception as e:
             logger.error(f"Single download error: {e}")
             error_msg = "❌ Failed to download. Link might be private, or site blocked the bot."
-            if "FILE_TOO_LARGE" in str(e): error_msg = "❌ File exceeds Telegram's 50MB limit."
+            if "FILE_TOO_LARGE" in str(e): error_msg = "❌ File exceeds Telegram's 50MB limit (even at lowest quality)."
             elif "NO_SUBTITLES" in str(e): error_msg = "❌ No English subtitles found for this video."
             elif "NO_IMAGES" in str(e): error_msg = "❌ No images found at this link. Try 'Video' format instead."
             
