@@ -396,8 +396,38 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
 
 async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
+    chat_id = update.message.chat_id
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
+
+    # --- TOP PRIORITY: CAPTURE CONTENT FOR FLASH DROP ---
+    drip_states = load_json_file(DRIP_STATE_FILE)
+    if str(user_id) in drip_states and drip_states[str(user_id)] == "waiting_for_drop_content":
+        del drip_states[str(user_id)]
+        save_json_file(DRIP_STATE_FILE, drip_states)
+
+        drop_id = str(int(time.time()))
+        expires_at = time.time() + 480  # 8 minutes expiry
+
+        drop_data = load_json_file(DRIP_FILE)
+        drop_data[drop_id] = {
+            "from_chat_id": chat_id,
+            "message_id": update.message.message_id,
+            "expires_at": expires_at
+        }
+        save_json_file(DRIP_FILE, drop_data)
+
+        bot_username = context.bot.username
+        deep_link = f"https://t.me/{bot_username}?start=drip_{drop_id}"
+
+        await update.message.reply_text(
+            f"✅ **Flash Drop Generated!**\n\n"
+            f"⏳ Valid for: **8 Minutes**\n\n"
+            f"🔗 **Your Exclusive Claim Link:**\n`{deep_link}`\n\n"
+            f"*(Copy and share this link anywhere you want. When users click it, the bot will deliver the content straight to their DMs after a quick 18+ check!)*",
+            parse_mode="Markdown"
+        )
+        return
 
     if user_id == ADMIN_ID:
         try:
@@ -434,13 +464,13 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    text = update.message.text
+    text = update.message.text if update.message.text else ""
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
-    # --- ADMIN FLASH DROP CREATOR BUTTON TRIGGER ---
+    # --- TOP PRIORITY: ADMIN FLASH DROP CREATOR BUTTON TRIGGER ---
     if text == "⚡ Create Flash Drop" and user_id == ADMIN_ID:
         states = load_json_file(DRIP_STATE_FILE)
         states[str(user_id)] = "waiting_for_drop_content"
@@ -452,7 +482,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
         return
 
-    # --- CAPTURE CONTENT FOR FLASH DROP ---
+    # --- TOP PRIORITY: CAPTURE TEXT CONTENT FOR FLASH DROP ---
     drip_states = load_json_file(DRIP_STATE_FILE)
     if str(user_id) in drip_states and drip_states[str(user_id)] == "waiting_for_drop_content":
         del drip_states[str(user_id)]
@@ -463,7 +493,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
         drop_data = load_json_file(DRIP_FILE)
         drop_data[drop_id] = {
-            "from_chat_id": update.message.forward_from_chat.id if update.message.forward_from_chat else chat_id,
+            "from_chat_id": chat_id,
             "message_id": update.message.message_id,
             "expires_at": expires_at
         }
@@ -822,7 +852,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         linking_states[str(user_id)] = "waiting_for_channel"
         save_linking_states(linking_states)
         await query.answer("🔄 Mode activated!")
-        await query.message.reply_text("🔄 **Change Channel**\n\nForward a message from your new channel here.", parse_Mode="Markdown")
+        await query.message.reply_text("🔄 **Change Channel**\n\nForward a message from your new channel here.", parse_mode="Markdown")
         return
 
     if data == "verify_user":
