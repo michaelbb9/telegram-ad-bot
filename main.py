@@ -225,10 +225,11 @@ def get_main_keyboard(lang_code, is_admin):
     keyboard = [
         [KeyboardButton(t["menu_stats"]), KeyboardButton(t["menu_lang"])],
         [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])],
-        [KeyboardButton(t["menu_upload"])]
+        [KeyboardButton(t["menu_upload"])],
+        [KeyboardButton("🟢 Bot Status")]
     ]
     if is_admin:
-        keyboard.append([KeyboardButton(t["menu_uploads"])])
+        keyboard.append([KeyboardButton(t["menu_uploads"]), KeyboardButton("📢 Broadcast")])
         keyboard.append([KeyboardButton("⚡ Create Flash Drop")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -401,7 +402,7 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     # --- SUPPORT TICKET CHECK ---
     support_states = load_json_file(SUPPORT_STATES_FILE)
-    if user_str := str(user_id) in support_states and support_states[str(user_id)] == "waiting_for_support":
+    if str(user_id) in support_states and support_states[str(user_id)] == "waiting_for_support":
         del support_states[str(user_id)]
         save_json_file(SUPPORT_STATES_FILE, support_states)
         
@@ -466,6 +467,14 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
+    # If user clicks any menu button, clear support state immediately
+    menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🟢 Bot Status", "📢 Broadcast", "⚡ Create Flash Drop"]
+    if text in menu_texts:
+        support_states = load_json_file(SUPPORT_STATES_FILE)
+        if str(user_id) in support_states:
+            del support_states[str(user_id)]
+            save_json_file(SUPPORT_STATES_FILE, support_states)
+
     # --- SUPPORT TICKET CHECK ---
     support_states = load_json_file(SUPPORT_STATES_FILE)
     if str(user_id) in support_states and support_states[str(user_id)] == "waiting_for_support":
@@ -493,6 +502,20 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             "Now send **one or multiple files, photos, or videos** back-to-back. They will be collected silently.\n"
             "When finished, tap **🚀 Finish & Broadcast Drop** or **❌ Cancel / Exit** to abort.",
             reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+        return
+
+    # --- TOP PRIORITY 1.2: BOT STATUS BUTTON ---
+    if text == "🟢 Bot Status":
+        await status_command(update, context)
+        return
+
+    # --- TOP PRIORITY 1.3: BROADCAST BUTTON ---
+    if text == "📢 Broadcast" and user_id == ADMIN_ID:
+        await update.message.reply_text(
+            "📢 **Broadcast Mode:**\n\n"
+            "Type `/broadcast [your message]` or reply to any photo/video with `/broadcast` to send it out.",
             parse_mode="Markdown"
         )
         return
