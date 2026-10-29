@@ -31,7 +31,7 @@ WEB_BASE_URL = "https://michaelbbc.pythonanywhere.com"
 BRIDGE_URL = f"{WEB_BASE_URL}/bridge"
 PUBLIC_CHANNEL_URL = "https://t.me/booksaufio"
 PUBLIC_CHANNEL_USERNAME = "@booksaufio"
-HELP_CHANNEL_URL = "https://t.me/faqandaupport" # Your help channel link
+HELP_CHANNEL_URL = "https://t.me/faqandaupport"
 DELETE_DELAY_TIME = 540  # 9 minutes
 
 CHANNELS_FILE = "user_channels.json"
@@ -349,7 +349,6 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
         except Exception as e:
             logger.error(f"Batch item error: {e}")
             try:
-                # --- NEW ERROR MESSAGING WITH HELP BUTTON ---
                 if "FILE_TOO_LARGE" in str(e):
                     error_text = f"❌ [{index}/{len(urls)}] Failed: Video is larger than 50MB."
                     help_text = "The video exceeds Telegram's limit. Try finding a lower quality source."
@@ -363,10 +362,8 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     error_text = f"❌ [{index}/{len(urls)}] Download failed."
                     help_text = f"Error details: {str(e)[:50]}"
                 
-                # Create the Help Keyboard
                 help_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("💬 Ask for Help in FAQ Channel", url=HELP_CHANNEL_URL)]])
                 
-                # Send the error, and if it's a site block, add the help button
                 if "403" in str(e) or "Forbidden" in str(e):
                      await bot.edit_message_text(
                          chat_id=chat_id, 
@@ -398,7 +395,6 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
         else:
             dest_text = f"📥 **{success_count} videos sent to this chat.**"
 
-        # If many failed, add the help button to the final summary
         final_keyboard = None
         final_text = f"🏁 **Batch Finished!**\n✅ Success: {success_count}\n❌ Failed/Skipped: {fail_count}\n\n{dest_text}"
         
@@ -727,7 +723,8 @@ def run_telegram_bot():
     loop.run_until_complete(start_bot())
 
 if not getattr(web_app, '_bot_started', False):
-    web_app._bot_started = True    print("Starting Telegram bot thread...")
+    web_app._bot_started = True
+    print("Starting Telegram bot thread...")
     threading.Thread(target=run_telegram_bot, daemon=True).start()
 
 if __name__ == "__main__":
