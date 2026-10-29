@@ -8,8 +8,9 @@ import logging
 import re
 import imageio_ffmpeg
 import yt_dlp
+from bs4 import BeautifulSoup
 from flask import Flask
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 # --- FIX FFMPEG EXECUTION PERMISSIONS FOR RENDER ---
@@ -105,7 +106,52 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
         except Exception:
             pass
 
-# --- UNIVERSAL DOWNLOAD ENGINE (Video & Audio Only) ---
+# --- FIXED: MOBILE SAFARI SCRAPER FOR FACEBOOK/INSTAGRAM ---
+def scrape_html_images(url, cookiefile=None):
+    # Spoofing Mobile Safari to bypass Facebook/Instagram login walls
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Sec-Fetch-Mode': 'navigate',
+    }
+    
+    cookies = None
+    if cookiefile and os.path.exists(cookiefile):
+        try:
+            import http.cookiejar
+            cj = http.cookiejar.MozillaCookieJar(cookiefile)
+            cj.load(ignore_discard=True, ignore_expires=True)
+            cookies = {cookie.name: cookie.value for cookie in cj}
+        except:
+            pass
+
+    try:
+        # Follow redirects (like fb share links)
+        res = requests.get(url, headers=headers, cookies=cookies, timeout=15, allow_redirects=True)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        
+        # 1. Look for Facebook/General Open Graph Image
+        og_img = soup.find('meta', property='og:image')
+        if og_img and og_img.get('content'):
+            return og_img['content']
+            
+        # 2. Look for Twitter Image
+        tw_img = soup.find('meta', name='twitter:image')
+        if tw_img and tw_img.get('content'):
+            return tw_img['content']
+            
+        # 3. Look for specific Facebook CDN images in the HTML
+        for img in soup.find_all('img'):
+            src = img.get('src')
+            if src and ('scontent' in src or 'fbcdn' in src):
+                return src
+                
+    except Exception as e:
+        logger.error(f"HTML Scrape error: {e}")
+    return None
+
+# --- UNIVERSAL DOWNLOAD ENGINE ---
 def download_media_engine(url: str, download_type: str):
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
@@ -182,7 +228,29 @@ def download_media_engine(url: str, download_type: str):
                     return [srt_path], "Subtitles (EN)", "Text File"
         raise ValueError("NO_SUBTITLES")
 
-    # --- 3. VIDEO ---
+    # --- 3. IMAGES ---
+    elif download_type == 'images':
+        img_url = scrape_html_images(url, cookiefile)
+        if img_url:
+            try:
+                img_data = requests.get(img_url, headers=http_headers, timeout=15).content
+                ext = 'jpg'
+                if '.png' in img_url: ext = 'png'
+                elif '.webp' in img_url: ext = 'webp'
+                
+                img_path = os.path.join(output_dir, f"image_{int(time.time())}.{ext}")
+                with open(img_path, 'wb') as handler:
+                    handler.write(img_data)
+                
+                if os.path.getsize(img_path) > 1000:
+                    size_mb = f"{os.path.getsize(img_path) / (1024 * 1024):.1f}MB"
+                    return [img_path], "Image", size_mb
+            except Exception as e:
+                logger.error(f"Direct image download error: {e}")
+        
+        raise ValueError("NO_IMAGES")
+
+    # --- 4. VIDEO ---
     else:
         tiers = [
             "bestvideo+bestaudio/best", 
@@ -229,6 +297,7 @@ def download_media_engine(url: str, download_type: str):
                 
         raise ValueError("FILE_TOO_LARGE")
 
+# (Rest of the code is exactly the same as your previous version)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
     args = context.args
@@ -239,6 +308,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "I am your all-in-one Swiss Army Knife for social media. Here is everything I can do:\n\n"
             "🎬 **Video Downloader:** Paste any link (TikTok, Insta, Twitter, FB) to get the video in the highest quality possible.\n\n"
             "🎵 **Audio / MP3 Extractor:** Turn any video into an MP3 audio file instantly.\n\n"
+            "🖼️ **Image / Gallery Saver:** Download photos from Instagram posts, Facebook, or Pinterest.\n\n"
             "📝 **Subtitle Extractor:** Grab the subtitle text files (SRT) from videos.\n\n"
             "📦 **Massive Batch Downloader:** Paste up to 100+ links at once, or upload a `.txt` file.\n\n"
             "⚠️ **Rules & Limits:**\n"
@@ -443,6 +513,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     keyboard = [
         [InlineKeyboardButton("🎬 Video (MP4)", callback_data=f"fmt_vid_{payload_key}")],
         [InlineKeyboardButton("🎵 Audio (MP3)", callback_data=f"fmt_aud_{payload_key}")],
+        [InlineKeyboardButton("🖼️ Images (Gallery)", callback_data=f"fmt_img_{payload_key}")],
         [InlineKeyboardButton("📝 Subtitles (SRT)", callback_data=f"fmt_sub_{payload_key}")]
     ]
     await update.message.reply_text(
@@ -513,6 +584,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         dl_type = 'video'
         if fmt_type == 'aud': dl_type = 'audio'
+        elif fmt_type == 'img': dl_type = 'images'
         elif fmt_type == 'sub': dl_type = 'subtitles'
 
         try:
@@ -543,7 +615,18 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             if not file_paths:
                 raise ValueError("FILE_NOT_FOUND")
 
-            if dl_type == 'audio':
+            if dl_type == 'images':
+                media_group = []
+                for p in file_paths:
+                    media_group.append(InputMediaPhoto(media=open(p, 'rb')))
+                
+                sent_media = await context.bot.send_media_group(chat_id=chat_id, media=media_group)
+                warning_msg = await context.bot.send_message(chat_id=chat_id, text=f"⏳ **{len(file_paths)} Images received. Auto-deletes in 9 minutes.**")
+                
+                asyncio.create_task(schedule_deletion(context.bot, chat_id, [m.message_id for m in sent_media] + [warning_msg.message_id], DELETE_DELAY_TIME))
+                for p in file_paths: os.remove(p)
+                
+            elif dl_type == 'audio':
                 file_path = file_paths[0]
                 with open(file_path, 'rb') as f:
                     sent_media = await context.bot.send_audio(chat_id=chat_id, audio=f, title="Extracted Audio", caption=f"🎵 **Audio Extracted**\n📦 Size: {size_str}", parse_mode="Markdown")
@@ -576,6 +659,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 error_msg = "❌ File exceeds Telegram's 50MB limit (even at lowest quality)."
             elif "NO_SUBTITLES" in str(e): 
                 error_msg = "❌ No English subtitles found for this video."
+            elif "NO_IMAGES" in str(e): 
+                error_msg = "❌ No images found at this link. Try 'Video' format instead."
             
             help_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("💬 Ask for Help", url=HELP_CHANNEL_URL)]])
             await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=error_msg, reply_markup=help_keyboard)
