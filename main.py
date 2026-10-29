@@ -60,70 +60,44 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
-# --- NATIVE AUTO-DELETE BACKGROUND TASK ---
-async def schedule_deletion(bot, chat_id, message_ids, delay):
-    """Waits for the specified delay and deletes messages securely."""
-    await asyncio.sleep(delay)
-    for msg_id in message_ids:
-        try:
-            await bot.delete_message(chat_id=chat_id, message_id=msg_id)
-        except Exception:
-            pass
-
-# --- YT-DLP DOWNLOAD HELPER (Dynamic Quality Fallback System) ---
+# --- YT-DLP DOWNLOAD HELPER (Safe Options & Selective Cookies) ---
 def download_video_ytdlp(url: str):
-    """
-    Tries downloading in highest possible quality first. 
-    Steps down to 720p, then 480p if too big. Raises error if 480p still exceeds 50MB.
-    """
+    """Downloads media using yt-dlp safely without assertion errors."""
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
-    # Quality tiers to try sequentially from highest to lowest
-    tiers = [
-        ("best", "Highest Quality (4K/1080p)"),
-        ("best[height<=720]", "720p HD"),
-        ("best[height<=480]", "480p")
-    ]
+    ydl_opts = {
+        'format': 'best/bestvideo+bestaudio',
+        'format_sort': ['res:720', 'ext:mp4'],
+        'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
+        'max_filesize': 50 * 1024 * 1024,  # 50MB limit for Telegram bots
+        'noplaylist': True,
+        'quiet': True,
+        'merge_output_format': 'mp4',
+        'ffmpeg_location': ffmpeg_path,
+    }
     
-    for fmt, tier_desc in tiers:
+    # ONLY attach cookies if the link belongs to YouTube or Twitter/X
+    domain_lower = url.lower()
+    if any(d in domain_lower for d in ["twitter.com", "x.com", "youtube.com", "youtu.be"]):
+        if os.path.exists("cookies.txt"):
+            ydl_opts['cookiefile'] = "cookies.txt"
+    
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        filename = ydl.prepare_filename(info)
+        
+        # Extract quality/resolution and file size metrics
+        height = info.get('height', 'Unknown')
+        resolution = f"{height}p" if isinstance(height, int) else "HD/SD"
+        
         try:
-            ydl_opts = {
-                'format': fmt,
-                'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
-                'max_filesize': 50 * 1024 * 1024,  # Strict 50MB limit cap for Telegram bots
-                'noplaylist': True,
-                'quiet': True,
-                'merge_output_format': 'mp4',
-                'ffmpeg_location': ffmpeg_path,
-            }
-            
-            # ONLY attach cookies if the link belongs to YouTube or Twitter/X
-            domain_lower = url.lower()
-            if any(d in domain_lower for d in ["twitter.com", "x.com", "youtube.com", "youtu.be"]):
-                if os.path.exists("cookies.txt"):
-                    ydl_opts['cookiefile'] = "cookies.txt"
-            
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                filename = ydl.prepare_filename(info)
-                
-                # Double-check actual file size on disk
-                file_size_bytes = os.path.getsize(filename)
-                if file_size_bytes > 50 * 1024 * 1024:
-                    os.remove(filename)
-                    continue  # Try next lower quality tier
-                
-                height = info.get('height', 'Unknown')
-                resolution = f"{height}p" if isinstance(height, int) else "HD/SD"
-                size_str = f"{file_size_bytes / (1024 * 1024):.1f}MB"
-                    
-                return filename, resolution, size_str
+            file_size_bytes = os.path.getsize(filename)
+            size_str = f"{file_size_bytes / (1024 * 1024):.1f}MB"
         except Exception:
-            continue  # Fall back to next lower tier if this one fails or exceeds size
+            size_str = "Unknown size"
             
-    # If all tiers (including 480p) failed or exceeded 50MB
-    raise ValueError("FILE_TOO_LARGE")
+        return filename, resolution, size_str
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
@@ -133,15 +107,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(
             "👋 **Welcome to the Media Downloader & Vault Bot!**\n\n"
             "📥 **What I can do:**\n"
-            "I allow you to download media files directly from **several different websites** AND unlock exclusive content vaults!\n\n"
+            "I allow you to download media files directly from supported platforms AND unlock exclusive content vaults!\n\n"
             "💬 **How to Download:**\n"
             "• Simply **share or paste any media link** directly into this chat to download it instantly!\n\n"
-            "🌐 **Supported Sites & Platforms:**\n"
-            "• **Multiple Websites** (TikTok, X/Twitter, Instagram, Facebook, and thousands of other video & media sites!)\n"
-            "• ❌ ~~YouTube~~ *(Temporarily paused / Maintenance)*\n\n"
-            "⚡ **Dynamic Quality & Size Notice:**\n"
-            "• The bot automatically grabs the **highest possible quality** (up to 4K/1080p). If the file is too large, it gracefully reduces quality down to 720p and 480p.\n"
-            "• If a video exceeds **50MB** even at 480p, it will notify you that Telegram won't allow it.\n\n"
+            "🌐 **Supported Platforms for Downloading:**\n"
+            "• **TikTok** (Videos & Slides)\n"
+            "• ❌ ~~YouTube~~ *(Temporarily paused / Maintenance)*\n"
+            "• **X (Twitter)** (Public, Sensitive, & Authenticated Posts)\n"
+            "• **Instagram** (Reels & Posts)\n"
+            "• **Facebook** (Videos & Reels)\n\n"
             "📦 **Exclusive Content Vaults:**\n"
             "• Tap vault links to unlock premium curated video bundles and media packs from our private channels.\n\n"
             "🎁 **Allowance & Refills:**\n"
@@ -217,19 +191,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             parse_mode="Markdown"
         )
 
-# --- UNIVERSAL MEDIA LINK LISTENER HANDLER ---
+# --- MEDIA LINK LISTENER HANDLER ---
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text
     user_id = update.message.from_user.id
     
     # Check if user sent a YouTube link while paused
     if "youtube.com" in text.lower() or "youtu.be" in text.lower():
-        await update.message.reply_text("❌ **YouTube downloads are temporarily paused for maintenance.** Please share links from other supported websites instead!")
+        await update.message.reply_text("❌ **YouTube downloads are temporarily paused for maintenance.** Please share links from TikTok, X (Twitter), Instagram, or Facebook instead!")
         return
 
-    # Extract any valid http/https URL from the message text
+    supported_domains = ["tiktok.com", "twitter.com", "x.com", "facebook.com", "fb.watch", "instagram.com"]
+    if not any(domain in text.lower() for domain in supported_domains):
+        return
+
     words = text.split()
-    url = next((word for word in words if word.startswith("http://") or word.startswith("https://")), None)
+    url = next((word for word in words if any(d in word.lower() for d in supported_domains)), None)
     
     if not url:
         return
@@ -250,15 +227,15 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if res_data.get("status") == "allowed":
         remaining = res_data.get("left", 0)
         display_left = "∞ (Admin)" if remaining > 500 else str(remaining)
-        status_msg = await update.message.reply_text(f"📥 **Checking highest quality & downloading...** ({display_left} free downloads remaining for today)")
+        status_msg = await update.message.reply_text(f"📥 **Downloading video...** ({display_left} free downloads remaining for today)")
         
         try:
             file_path, resolution, size_str = download_video_ytdlp(url)
             if file_path and os.path.exists(file_path):
-                with open(file_path, 'rb') as media_file:
-                    sent_media = await context.bot.send_video(
+                with open(file_path, 'rb') as video_file:
+                    sent_video = await context.bot.send_video(
                         chat_id=user_id,
-                        video=media_file,
+                        video=video_file,
                         caption=(
                             "✨ **Download Successful!**\n"
                             f"📐 **Quality:** {resolution}\n"
@@ -269,11 +246,11 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 
                 warning_msg = await context.bot.send_message(
                     chat_id=user_id,
-                    text="⏳ **Safety Alert:** This downloaded file will automatically delete in **9 minutes** for security reasons. Watch or save it now!"
+                    text="⏳ **Safety Alert:** This downloaded video will automatically delete in **9 minutes** for security reasons. Watch or save it now!"
                 )
                 
-                messages_to_delete = [sent_media.message_id, warning_msg.message_id]
-                asyncio.create_task(schedule_deletion(context.bot, user_id, messages_to_delete, DELETE_DELAY_TIME))
+                messages_to_delete = [sent_video.message_id, warning_msg.message_id]
+                context.job_queue.run_once(auto_delete_task, when=DELETE_DELAY_TIME, data=messages_to_delete, chat_id=user_id)
 
                 os.remove(file_path)
                 await context.bot.delete_message(chat_id=user_id, message_id=status_msg.message_id)
@@ -281,14 +258,11 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 await context.bot.edit_message_text(
                     chat_id=user_id,
                     message_id=status_msg.message_id,
-                    text="❌ Failed to download media. File path not found."
+                    text="❌ Failed to download video. File path not found."
                 )
         except Exception as e:
             logger.error(f"Download error details: {e}", exc_info=True)
-            if "FILE_TOO_LARGE" in str(e):
-                error_msg = "❌ The file is too large and Telegram won't allow it (exceeds the 50MB bot limit even at 480p)."
-            else:
-                error_msg = str(e) if str(e) else type(e).__name__
+            error_msg = str(e) if str(e) else type(e).__name__
             try:
                 await context.bot.edit_message_text(
                     chat_id=user_id,
@@ -417,10 +391,19 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
             forwarded_message_ids.append(warning_msg.message_id)
 
-            asyncio.create_task(schedule_deletion(context.bot, user_id, forwarded_message_ids, DELETE_DELAY_TIME))
+            context.job_queue.run_once(auto_delete_task, when=DELETE_DELAY_TIME, data=forwarded_message_ids, chat_id=user_id)
 
         except Exception as e:
             await query.message.reply_text(f"❌ Error fetching file bundle: {e}")
+
+async def auto_delete_task(context: ContextTypes.DEFAULT_TYPE) -> None:
+    job = context.job
+    chat_id = job.chat_id
+    for msg_id in job.data:
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+        except Exception:
+            pass
 
 def run_telegram_bot():
     """Runs the Telegram bot in a dedicated event loop thread"""
