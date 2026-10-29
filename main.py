@@ -9,7 +9,7 @@ import re
 import imageio_ffmpeg
 import yt_dlp
 from flask import Flask
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 # --- FIX FFMPEG EXECUTION PERMISSIONS FOR RENDER ---
@@ -105,7 +105,7 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
         except Exception:
             pass
 
-# --- FIXED UNIVERSAL DOWNLOAD ENGINE (HD PRIORITY) ---
+# --- UNIVERSAL DOWNLOAD ENGINE (Video & Audio Only) ---
 def download_media_engine(url: str, download_type: str):
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
@@ -123,6 +123,8 @@ def download_media_engine(url: str, download_type: str):
     elif "twitter.com" in url_lower or "x.com" in url_lower:
         if os.path.exists("twitter_cookies.txt"):
             cookiefile = "twitter_cookies.txt"
+    elif "facebook.com" in url_lower and os.path.exists("facebook_cookies.txt"):
+        cookiefile = "facebook_cookies.txt"
     elif "naijafap.com" in url_lower and os.path.exists("naijafap_cookies.txt"):
         cookiefile = "naijafap_cookies.txt"
     elif os.path.exists("cookies.txt"):
@@ -180,30 +182,8 @@ def download_media_engine(url: str, download_type: str):
                     return [srt_path], "Subtitles (EN)", "Text File"
         raise ValueError("NO_SUBTITLES")
 
-    # --- 3. IMAGES ---
-    elif download_type == 'images':
-        ydl_opts.update({
-            'format': 'best',
-            'outtmpl': os.path.join(output_dir, '%(id)s_%(autonumber)s.%(ext)s'),
-            'ignoreerrors': True,
-        })
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            image_paths = []
-            video_id = info.get('id', '')
-            for file in os.listdir(output_dir):
-                if video_id in file and file.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
-                    image_paths.append(os.path.join(output_dir, file))
-            
-            if not image_paths:
-                raise ValueError("NO_IMAGES")
-            
-            total_size = sum(os.path.getsize(p) for p in image_paths) / (1024 * 1024)
-            return image_paths, f"{len(image_paths)} Images", f"{total_size:.1f}MB"
-
-    # --- 4. VIDEO (HD PRIORITY) ---
+    # --- 3. VIDEO ---
     else:
-        # Try absolute best quality first, then step down only if it's over 50MB
         tiers = [
             "bestvideo+bestaudio/best", 
             "best[height<=1080]", 
@@ -233,7 +213,6 @@ def download_media_engine(url: str, download_type: str):
                     if os.path.exists(filename):
                         file_size_bytes = os.path.getsize(filename)
                         
-                        # Check size AFTER downloading. If > 50MB, delete and try lower tier.
                         if file_size_bytes > 50 * 1024 * 1024:
                             os.remove(filename)
                             continue 
@@ -250,7 +229,6 @@ def download_media_engine(url: str, download_type: str):
                 
         raise ValueError("FILE_TOO_LARGE")
 
-# (The rest of the code remains exactly the same as the previous message)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
     args = context.args
@@ -261,7 +239,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "I am your all-in-one Swiss Army Knife for social media. Here is everything I can do:\n\n"
             "🎬 **Video Downloader:** Paste any link (TikTok, Insta, Twitter, FB) to get the video in the highest quality possible.\n\n"
             "🎵 **Audio / MP3 Extractor:** Turn any video into an MP3 audio file instantly.\n\n"
-            "🖼️ **Image / Gallery Saver:** Download photos from Instagram posts or Pinterest.\n\n"
             "📝 **Subtitle Extractor:** Grab the subtitle text files (SRT) from videos.\n\n"
             "📦 **Massive Batch Downloader:** Paste up to 100+ links at once, or upload a `.txt` file.\n\n"
             "⚠️ **Rules & Limits:**\n"
@@ -466,7 +443,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     keyboard = [
         [InlineKeyboardButton("🎬 Video (MP4)", callback_data=f"fmt_vid_{payload_key}")],
         [InlineKeyboardButton("🎵 Audio (MP3)", callback_data=f"fmt_aud_{payload_key}")],
-        [InlineKeyboardButton("🖼️ Images (Gallery)", callback_data=f"fmt_img_{payload_key}")],
         [InlineKeyboardButton("📝 Subtitles (SRT)", callback_data=f"fmt_sub_{payload_key}")]
     ]
     await update.message.reply_text(
@@ -537,7 +513,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         dl_type = 'video'
         if fmt_type == 'aud': dl_type = 'audio'
-        elif fmt_type == 'img': dl_type = 'images'
         elif fmt_type == 'sub': dl_type = 'subtitles'
 
         try:
@@ -568,18 +543,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             if not file_paths:
                 raise ValueError("FILE_NOT_FOUND")
 
-            if dl_type == 'images':
-                media_group = []
-                for p in file_paths:
-                    media_group.append(InputMediaPhoto(media=open(p, 'rb')))
-                
-                sent_media = await context.bot.send_media_group(chat_id=chat_id, media=media_group)
-                warning_msg = await context.bot.send_message(chat_id=chat_id, text=f"⏳ **{len(file_paths)} Images received. Auto-deletes in 9 minutes.**")
-                
-                asyncio.create_task(schedule_deletion(context.bot, chat_id, [m.message_id for m in sent_media] + [warning_msg.message_id], DELETE_DELAY_TIME))
-                for p in file_paths: os.remove(p)
-                
-            elif dl_type == 'audio':
+            if dl_type == 'audio':
                 file_path = file_paths[0]
                 with open(file_path, 'rb') as f:
                     sent_media = await context.bot.send_audio(chat_id=chat_id, audio=f, title="Extracted Audio", caption=f"🎵 **Audio Extracted**\n📦 Size: {size_str}", parse_mode="Markdown")
@@ -608,9 +572,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except Exception as e:
             logger.error(f"Single download error: {e}")
             error_msg = "❌ Failed to download. Link might be private, or site blocked the bot."
-            if "FILE_TOO_LARGE" in str(e): error_msg = "❌ File exceeds Telegram's 50MB limit (even at lowest quality)."
-            elif "NO_SUBTITLES" in str(e): error_msg = "❌ No English subtitles found for this video."
-            elif "NO_IMAGES" in str(e): error_msg = "❌ No images found at this link. Try 'Video' format instead."
+            if "FILE_TOO_LARGE" in str(e): 
+                error_msg = "❌ File exceeds Telegram's 50MB limit (even at lowest quality)."
+            elif "NO_SUBTITLES" in str(e): 
+                error_msg = "❌ No English subtitles found for this video."
             
             help_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("💬 Ask for Help", url=HELP_CHANNEL_URL)]])
             await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=error_msg, reply_markup=help_keyboard)
