@@ -26,7 +26,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # .strip() automatically removes any accidental spaces or hidden enter keys (\n) from Render's environment variables
-BOT_TOKEN = os.getenv("TELEGRAM_TOKEN", "8863904451:AAG-QT2pLfR1myUkCyziVCteRiGW5t08udc").strip()
+BOT_TOKEN = os.getenv("TELEGRAM_TOKEN", "8863904451:AAFYl9yyjTvKTaliLR5iqTsvZr2tytFi3bk").strip()
 ADMIN_ID = 6248570946  # Your secure personal Telegram ID
 DETECTED_CHANNEL_ID = -1004347828512
 PRIVATE_CHANNEL_ID = -1004347828512  # Vault/Tutorial channel
@@ -80,7 +80,6 @@ def download_video_ytdlp(url: str):
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
-    # Quality tiers to try sequentially from highest to lowest
     tiers = [
         ("best", "Highest Quality (4K/1080p)"),
         ("best[height<=720]", "720p HD"),
@@ -97,9 +96,12 @@ def download_video_ytdlp(url: str):
                 'quiet': True,
                 'merge_output_format': 'mp4',
                 'ffmpeg_location': ffmpeg_path,
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                }
             }
             
-            # ONLY attach cookies if the link belongs to YouTube or Twitter/X
             domain_lower = url.lower()
             if any(d in domain_lower for d in ["twitter.com", "x.com", "youtube.com", "youtu.be"]):
                 if os.path.exists("cookies.txt"):
@@ -109,11 +111,10 @@ def download_video_ytdlp(url: str):
                 info = ydl.extract_info(url, download=True)
                 filename = ydl.prepare_filename(info)
                 
-                # Double-check actual file size on disk
                 file_size_bytes = os.path.getsize(filename)
                 if file_size_bytes > 50 * 1024 * 1024:
                     os.remove(filename)
-                    continue  # Try next lower quality tier
+                    continue
                 
                 height = info.get('height', 'Unknown')
                 resolution = f"{height}p" if isinstance(height, int) else "HD/SD"
@@ -121,9 +122,8 @@ def download_video_ytdlp(url: str):
                     
                 return filename, resolution, size_str
         except Exception:
-            continue  # Fall back to next lower tier if this one fails or exceeds size
+            continue
             
-    # If all tiers (including 480p) failed or exceeded 50MB
     raise ValueError("FILE_TOO_LARGE")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -139,7 +139,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "• **Single Link:** Paste any link directly into chat.\n"
             "• **Batch Links:** Paste jumbled text containing multiple links OR upload a `.txt` file packed with links to download them all at once!\n\n"
             "🌐 **Supported Sites & Platforms:**\n"
-            "• **Multiple Websites** (TikTok, X/Twitter, Instagram, Facebook, and thousands of other video & media sites!)\n"
+            "• **Multiple Websites** (TikTok, vt.tiktok.com short links, X/Twitter, Instagram, Facebook, and thousands of other video & media sites!)\n"
             "• ❌ ~~YouTube~~ *(Temporarily paused / Maintenance)*\n\n"
             "⚡ **Dynamic Quality & Size Notice:**\n"
             "• Automatically grabs the **highest possible quality** (up to 4K/1080p), stepping down to 720p/480p if needed.\n"
@@ -239,7 +239,6 @@ async def process_url_batch(bot, user_id, chat_id, urls):
             await bot.send_message(chat_id=chat_id, text=f"❌ [{index}/{len(urls)}] Skipped YouTube link (under maintenance).")
             continue
 
-        # Check allowance per link
         try:
             response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id}, timeout=5)
             if response.status_code == 200:
@@ -577,17 +576,20 @@ def run_telegram_bot():
         
         await app.initialize()
         await app.start()
-        await app.updater.start_polling()
+        await app.updater.start_polling(drop_pending_updates=True)
         
         await asyncio.Event().wait()
 
     loop.run_until_complete(start_bot())
 
-if __name__ == "__main__":
+# --- MODULE-LEVEL STARTUP (CRITICAL FOR GUNICORN ON RENDER) ---
+if not getattr(web_app, '_bot_started', False):
+    web_app._bot_started = True
     print("Starting Telegram bot background thread...")
     bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
     bot_thread.start()
 
+if __name__ == "__main__":
     print("Testing Flask web server on main thread...")
     port = int(os.environ.get("PORT", 10000))
     web_app.run(host="0.0.0.0", port=port)
