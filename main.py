@@ -275,7 +275,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls):
 
     stop_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop Batch Processing", callback_data="stop_batch")]])
     
-    # --- NEW: Inform user about Telegram Limit before starting ---
+    # --- Inform user about Telegram Limit before starting ---
     batch_notice = await bot.send_message(
         chat_id=chat_id,
         text=(
@@ -375,7 +375,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls):
         except Exception as e:
             logger.error(f"Batch item error for {url}: {e}")
             try:
-                # --- NEW: Explicit message for Telegram Limit ---
+                # --- Explicit message for Telegram Limit ---
                 if "FILE_TOO_LARGE" in str(e):
                     error_text = f"❌ [{index}/{len(urls)}] Failed: Video exceeds Telegram's 50MB limit."
                 else:
@@ -396,7 +396,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls):
     except Exception:
         pass
 
-    # --- NEW: Clearer Final Summary ---
+    # --- Clearer Final Summary ---
     if target_destination_id != chat_id:
         dest_text = f"📢 **{success_count} videos have been successfully forwarded to your private channel!**\n*(Files will auto-delete from the channel in 9 minutes for safety)*"
     else:
@@ -791,3 +791,22 @@ def run_telegram_bot():
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
         app.add_handler(CallbackQueryHandler(handle_buttons))
         
+        await app.initialize()
+        await app.start()
+        await app.updater.start_polling(drop_pending_updates=True)
+        
+        await asyncio.Event().wait()
+
+    loop.run_until_complete(start_bot())
+
+# --- MODULE-LEVEL STARTUP (CRITICAL FOR GUNICORN ON RENDER) ---
+if not getattr(web_app, '_bot_started', False):
+    web_app._bot_started = True
+    print("Starting Telegram bot background thread...")
+    bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
+    bot_thread.start()
+
+if __name__ == "__main__":
+    print("Testing Flask web server on main thread...")
+    port = int(os.environ.get("PORT", 10000))
+    web_app.run(host="0.0.0.0", port=port)
