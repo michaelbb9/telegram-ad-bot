@@ -1,0 +1,6 @@
+# Netscape HTTP Cookie File
+# https://curl.haxx.se/rfc/cookie_spec.html
+# This is a generated file! Do not edit.
+
+.naijafap.com	TRUE	/	FALSE	1827802592	_ga	GA1.1.183639383.1793225658
+.naijafap.com	TRUE	/	FALSE	1827802592	_ga_1K870MP9J9	GS2.1.s1793242592$o4$g0$t1793242592$j60$l0$h0
