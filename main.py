@@ -8,7 +8,6 @@ import logging
 import re
 import imageio_ffmpeg
 import yt_dlp
-from bs4 import BeautifulSoup
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
@@ -106,49 +105,7 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
         except Exception:
             pass
 
-# --- FIXED IMAGE SCRAPER ---
-def scrape_html_images(url, cookiefile=None):
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9',
-    }
-    
-    cookies = None
-    if cookiefile and os.path.exists(cookiefile):
-        try:
-            import http.cookiejar
-            cj = http.cookiejar.MozillaCookieJar(cookiefile)
-            cj.load(ignore_discard=True, ignore_expires=True)
-            cookies = {cookie.name: cookie.value for cookie in cj}
-        except:
-            pass
-
-    try:
-        res = requests.get(url, headers=headers, cookies=cookies, timeout=15)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        
-        # Facebook & General OG Image
-        og_img = soup.find('meta', property='og:image')
-        if og_img and og_img.get('content'):
-            return og_img['content']
-            
-        # Twitter Image
-        tw_img = soup.find('meta', name='twitter:image')
-        if tw_img and tw_img.get('content'):
-            return tw_img['content']
-            
-        # Fallback to generic image tags (skipping icons/logos)
-        imgs = soup.find_all('img')
-        for img in imgs:
-            src = img.get('src')
-            if src and src.startswith('http') and ('jpg' in src or 'jpeg' in src or 'png' in src):
-                if 'icon' not in src and 'logo' not in src and 'profile' not in src:
-                    return src
-    except Exception as e:
-        logger.error(f"HTML Scrape error: {e}")
-    return None
-
-# --- UNIVERSAL DOWNLOAD ENGINE ---
+# --- FIXED UNIVERSAL DOWNLOAD ENGINE (HD PRIORITY) ---
 def download_media_engine(url: str, download_type: str):
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
@@ -166,8 +123,6 @@ def download_media_engine(url: str, download_type: str):
     elif "twitter.com" in url_lower or "x.com" in url_lower:
         if os.path.exists("twitter_cookies.txt"):
             cookiefile = "twitter_cookies.txt"
-    elif "facebook.com" in url_lower and os.path.exists("facebook_cookies.txt"):
-        cookiefile = "facebook_cookies.txt"
     elif "naijafap.com" in url_lower and os.path.exists("naijafap_cookies.txt"):
         cookiefile = "naijafap_cookies.txt"
     elif os.path.exists("cookies.txt"):
@@ -225,53 +180,30 @@ def download_media_engine(url: str, download_type: str):
                     return [srt_path], "Subtitles (EN)", "Text File"
         raise ValueError("NO_SUBTITLES")
 
-    # --- 3. IMAGES (FIXED) ---
+    # --- 3. IMAGES ---
     elif download_type == 'images':
-        img_url = scrape_html_images(url, cookiefile)
-        if img_url:
-            try:
-                # Download the image directly from the URL we found
-                img_data = requests.get(img_url, headers=http_headers, timeout=15).content
-                ext = 'jpg'
-                if '.png' in img_url: ext = 'png'
-                elif '.webp' in img_url: ext = 'webp'
-                
-                img_path = os.path.join(output_dir, f"image_{int(time.time())}.{ext}")
-                with open(img_path, 'wb') as handler:
-                    handler.write(img_data)
-                
-                # Check if it actually downloaded something
-                if os.path.getsize(img_path) > 1000:
-                    size_mb = f"{os.path.getsize(img_path) / (1024 * 1024):.1f}MB"
-                    return [img_path], "Image", size_mb
-            except Exception as e:
-                logger.error(f"Direct image download error: {e}")
-        
-        # If HTML scraping failed, try yt-dlp as a last resort
         ydl_opts.update({
             'format': 'best',
             'outtmpl': os.path.join(output_dir, '%(id)s_%(autonumber)s.%(ext)s'),
             'ignoreerrors': True,
         })
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                image_paths = []
-                video_id = info.get('id', '')
-                for file in os.listdir(output_dir):
-                    if video_id in file and file.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
-                        image_paths.append(os.path.join(output_dir, file))
-                
-                if image_paths:
-                    total_size = sum(os.path.getsize(p) for p in image_paths) / (1024 * 1024)
-                    return image_paths, f"{len(image_paths)} Images", f"{total_size:.1f}MB"
-        except:
-            pass
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            image_paths = []
+            video_id = info.get('id', '')
+            for file in os.listdir(output_dir):
+                if video_id in file and file.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                    image_paths.append(os.path.join(output_dir, file))
             
-        raise ValueError("NO_IMAGES")
+            if not image_paths:
+                raise ValueError("NO_IMAGES")
+            
+            total_size = sum(os.path.getsize(p) for p in image_paths) / (1024 * 1024)
+            return image_paths, f"{len(image_paths)} Images", f"{total_size:.1f}MB"
 
-    # --- 4. VIDEO ---
+    # --- 4. VIDEO (HD PRIORITY) ---
     else:
+        # Try absolute best quality first, then step down only if it's over 50MB
         tiers = [
             "bestvideo+bestaudio/best", 
             "best[height<=1080]", 
@@ -301,6 +233,7 @@ def download_media_engine(url: str, download_type: str):
                     if os.path.exists(filename):
                         file_size_bytes = os.path.getsize(filename)
                         
+                        # Check size AFTER downloading. If > 50MB, delete and try lower tier.
                         if file_size_bytes > 50 * 1024 * 1024:
                             os.remove(filename)
                             continue 
@@ -317,6 +250,7 @@ def download_media_engine(url: str, download_type: str):
                 
         raise ValueError("FILE_TOO_LARGE")
 
+# (The rest of the code remains exactly the same as the previous message)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
     args = context.args
@@ -327,7 +261,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "I am your all-in-one Swiss Army Knife for social media. Here is everything I can do:\n\n"
             "🎬 **Video Downloader:** Paste any link (TikTok, Insta, Twitter, FB) to get the video in the highest quality possible.\n\n"
             "🎵 **Audio / MP3 Extractor:** Turn any video into an MP3 audio file instantly.\n\n"
-            "🖼️ **Image / Gallery Saver:** Download photos from Instagram posts, Facebook, or Pinterest.\n\n"
+            "🖼️ **Image / Gallery Saver:** Download photos from Instagram posts or Pinterest.\n\n"
             "📝 **Subtitle Extractor:** Grab the subtitle text files (SRT) from videos.\n\n"
             "📦 **Massive Batch Downloader:** Paste up to 100+ links at once, or upload a `.txt` file.\n\n"
             "⚠️ **Rules & Limits:**\n"
@@ -674,12 +608,9 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except Exception as e:
             logger.error(f"Single download error: {e}")
             error_msg = "❌ Failed to download. Link might be private, or site blocked the bot."
-            if "FILE_TOO_LARGE" in str(e): 
-                error_msg = "❌ File exceeds Telegram's 50MB limit (even at lowest quality)."
-            elif "NO_SUBTITLES" in str(e): 
-                error_msg = "❌ No English subtitles found for this video."
-            elif "NO_IMAGES" in str(e): 
-                error_msg = "❌ No images found at this link. Try 'Video' format instead."
+            if "FILE_TOO_LARGE" in str(e): error_msg = "❌ File exceeds Telegram's 50MB limit (even at lowest quality)."
+            elif "NO_SUBTITLES" in str(e): error_msg = "❌ No English subtitles found for this video."
+            elif "NO_IMAGES" in str(e): error_msg = "❌ No images found at this link. Try 'Video' format instead."
             
             help_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("💬 Ask for Help", url=HELP_CHANNEL_URL)]])
             await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=error_msg, reply_markup=help_keyboard)
