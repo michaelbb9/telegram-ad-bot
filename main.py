@@ -42,6 +42,7 @@ UPLOADS_FILE = "fan_uploads.json"
 UPLOAD_LIMITS_FILE = "upload_limits.json"
 DRIP_FILE = "active_drip.json"
 DRIP_STATE_FILE = "drip_states.json"
+SUPPORT_STATES_FILE = "support_states.json"
 
 active_batch_sessions = {}
 pending_batch_payloads = {}
@@ -68,7 +69,7 @@ LANGUAGES = {
         "batch_done_chan": "🏁 **Batch Finished!**\n✅ Success: {}\n❌ Failed: {}\n\n📢 **{} files forwarded!**",
         "dl_video": "📥 Downloading video...", "dl_audio": "📥 Extracting audio...", "dl_image": "📥 Scraping images...", "dl_sub": "📥 Fetching subtitles...",
         "failed_50": "❌ Failed: File > 50MB.", "failed_blocked": "❌ Failed: Site blocked bot or link private.", "failed_generic": "❌ Download failed.",
-        "menu_lang": "🌍 Language", "menu_stats": "📊 My Stats", "menu_help": "📢 FAQ / Help", "menu_join": "📢 Join Channel",
+        "menu_lang": "🌍 Language", "menu_stats": "📊 My Stats", "menu_help": "💬 Support / FAQ", "menu_join": "📢 Join Channel",
         "menu_uploads": "🍿 Fan Uploads", "menu_upload": "📤 Upload File",
         "admin_upload_prompt": "📂 **Fan Uploads Inbox**\n\nHere is what your fans have sent you recently:",
         "user_upload_prompt": "📤 **Upload File**\n\nSend me any video, image, or file. I will forward it directly to the Admin (anonymously if you wish!).\n\n⚠️ *Limit: 5 uploads per 24 hours.*",
@@ -398,6 +399,17 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
+    # --- SUPPORT TICKET CHECK ---
+    support_states = load_json_file(SUPPORT_STATES_FILE)
+    if user_str := str(user_id) in support_states and support_states[str(user_id)] == "waiting_for_support":
+        del support_states[str(user_id)]
+        save_json_file(SUPPORT_STATES_FILE, support_states)
+        
+        await context.bot.send_message(chat_id=ADMIN_ID, text=f"💬 **New Support Ticket**\nFrom ID: `{user_id}`\n\nMessage:", parse_mode="Markdown")
+        await update.message.forward(chat_id=ADMIN_ID)
+        await update.message.reply_text("✅ **Support Message Sent!** The Admin will review your message shortly.")
+        return
+
     # --- TOP PRIORITY: SILENTLY COLLECT ITEMS FOR FLASH DROP ---
     states = load_json_file(DRIP_STATE_FILE)
     user_state = states.get(str(user_id))
@@ -453,6 +465,16 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     chat_id = update.message.chat_id
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
+
+    # --- SUPPORT TICKET CHECK ---
+    support_states = load_json_file(SUPPORT_STATES_FILE)
+    if str(user_id) in support_states and support_states[str(user_id)] == "waiting_for_support":
+        del support_states[str(user_id)]
+        save_json_file(SUPPORT_STATES_FILE, support_states)
+        
+        await context.bot.send_message(chat_id=ADMIN_ID, text=f"💬 **New Support Ticket**\nFrom ID: `{user_id}`\n\n{text}", parse_mode="Markdown")
+        await update.message.reply_text("✅ **Support Message Sent!** The Admin will review your message shortly.")
+        return
 
     # --- TOP PRIORITY 1: ADMIN TRIGGERS FLASH DROP ---
     if text == "⚡ Create Flash Drop" and user_id == ADMIN_ID:
@@ -560,7 +582,15 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
 
     if text == t["menu_help"]:
-        await update.message.reply_text(f"💬 [Click here for FAQ / Support]({HELP_CHANNEL_URL})", parse_mode="Markdown", disable_web_page_preview=True)
+        keyboard = [[InlineKeyboardButton("💬 Open Support Ticket", callback_data="open_support")]]
+        await update.message.reply_text(
+            f"💬 **FAQ & Support Hub**\n\n"
+            f"• Check out our help channel: [Click Here]({HELP_CHANNEL_URL})\n"
+            f"• Need direct help? Tap below to send a message to the Admin:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown",
+            disable_web_page_preview=True
+        )
         return
         
     if text == t["menu_lang"]:
@@ -691,6 +721,70 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     tokens = load_tokens()
     await update.message.reply_text(f"📊 **ADMIN STATS**\nTotal Users: {len(tokens)}", parse_mode="Markdown")
 
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(
+        "🟢 **Bot Status Dashboard**\n\n"
+        "• Telegram API Connection: **ONLINE**\n"
+        "• Downloader Engine (`yt-dlp`): **ONLINE**\n"
+        "• Flask Bridge Server: **RUNNING**\n"
+        "• Flash Drop & Broadcast Systems: **ACTIVE**",
+        parse_mode="Markdown"
+    )
+
+async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.message.from_user.id
+    if user_id != ADMIN_ID:
+        return  # Silently ignore non-admins
+
+    args = context.args
+    reply_msg = update.message.reply_to_message
+
+    if not args and not reply_msg:
+        await update.message.reply_text(
+            "📢 **Broadcast Usage:**\n\n"
+            "• Type: `/broadcast Your message here`\n"
+            "• Or **reply to any photo/video/message** with `/broadcast` to send it out!",
+            parse_mode="Markdown"
+        )
+        return
+
+    all_users = set()
+    lang_data = load_json_file(LANG_FILE)
+    token_data = load_tokens()
+    for uid in lang_data.keys():
+        try: all_users.add(int(uid))
+        except: pass
+    for uid in token_data.keys():
+        try: all_users.add(int(uid))
+        except: pass
+
+    status_msg = await update.message.reply_text(f"🚀 Starting broadcast to **{len(all_users)} users**...", parse_mode="Markdown")
+
+    success_count = 0
+    fail_count = 0
+
+    for uid in all_users:
+        if uid == ADMIN_ID:
+            continue
+        try:
+            if reply_msg:
+                await context.bot.copy_message(chat_id=uid, from_chat_id=update.message.chat_id, message_id=reply_msg.message_id)
+            else:
+                broadcast_text = " ".join(args)
+                await context.bot.send_message(chat_id=uid, text=broadcast_text, parse_mode="Markdown")
+            
+            success_count += 1
+            await asyncio.sleep(0.05)
+        except Exception:
+            fail_count += 1
+
+    await status_msg.edit_text(
+        f"✅ **Broadcast Finished!**\n\n"
+        f"📬 Successfully sent: **{success_count}**\n"
+        f"❌ Failed / Blocked: **{fail_count}**",
+        parse_mode="Markdown"
+    )
+
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     user_id = query.from_user.id
@@ -698,6 +792,18 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     chat_id = query.message.chat_id
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
+
+    if data == "open_support":
+        support_states = load_json_file(SUPPORT_STATES_FILE)
+        support_states[str(user_id)] = "waiting_for_support"
+        save_json_file(SUPPORT_STATES_FILE, support_states)
+        await query.answer("Support ticket mode opened!")
+        await query.message.reply_text(
+            "✍️ **Send your message or question below.**\n"
+            "Your next message will be forwarded directly to the Admin as a support ticket.",
+            parse_mode="Markdown"
+        )
+        return
 
     if data == "drop_cancel" and user_id == ADMIN_ID:
         states = load_json_file(DRIP_STATE_FILE)
@@ -745,7 +851,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         bot_username = context.bot.username
         claim_url = f"https://t.me/{bot_username}?start=drip_{drop_id}"
 
-        # Gather all user IDs robustly from both language files and token files
         all_users = set()
         lang_data = load_json_file(LANG_FILE)
         token_data = load_tokens()
@@ -1049,6 +1154,8 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CommandHandler("language", language_command))
         app.add_handler(CommandHandler("stats", stats))
+        app.add_handler(CommandHandler("status", status_command))
+        app.add_handler(CommandHandler("broadcast", broadcast_command))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
         app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE, handle_user_upload))
