@@ -106,7 +106,6 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
         except Exception:
             pass
 
-# --- NEW: CUSTOM COOKIE PARSER ---
 def parse_netscape_cookies(cookiefile):
     cookies_dict = {}
     if cookiefile and os.path.exists(cookiefile):
@@ -123,18 +122,37 @@ def parse_netscape_cookies(cookiefile):
             logger.error(f"Error parsing cookies: {e}")
     return cookies_dict
 
-# --- FIXED: MOBILE SAFARI SCRAPER WITH MANUAL COOKIES ---
+# --- NEW: ADVANCED IMAGE SCRAPER (MOBILE API TRICK) ---
 def scrape_html_images(url, cookiefile=None):
     headers = {
         'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
-        'Sec-Fetch-Mode': 'navigate',
     }
     
-    # Manually inject cookies using our custom parser
     cookies_dict = parse_netscape_cookies(cookiefile)
 
+    # TRICK 1: Try the Mobile Facebook API
+    if "facebook.com" in url.lower():
+        try:
+            mobile_url = url.replace('www.facebook.com', 'm.facebook.com').replace('web.facebook.com', 'm.facebook.com')
+            res = requests.get(mobile_url, headers=headers, cookies=cookies_dict, timeout=15, allow_redirects=True)
+            soup = BeautifulSoup(res.text, 'html.parser')
+            
+            # Mobile API often puts the image in og:image or a specific meta tag
+            og_img = soup.find('meta', property='og:image')
+            if og_img and og_img.get('content'):
+                return og_img['content']
+                
+            # Or look for the specific m.facebook image link
+            for img in soup.find_all('img'):
+                src = img.get('src')
+                if src and ('scontent' in src or 'fbcdn' in src):
+                    return src
+        except Exception as e:
+            logger.error(f"Mobile FB Scrape error: {e}")
+
+    # TRICK 2: Standard Scrape (for other sites)
     try:
         res = requests.get(url, headers=headers, cookies=cookies_dict, timeout=15, allow_redirects=True)
         soup = BeautifulSoup(res.text, 'html.parser')
@@ -153,7 +171,8 @@ def scrape_html_images(url, cookiefile=None):
                 return src
                 
     except Exception as e:
-        logger.error(f"HTML Scrape error: {e}")
+        logger.error(f"Standard Scrape error: {e}")
+        
     return None
 
 # --- UNIVERSAL DOWNLOAD ENGINE ---
