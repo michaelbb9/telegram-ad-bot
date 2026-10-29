@@ -31,6 +31,7 @@ WEB_BASE_URL = "https://michaelbbc.pythonanywhere.com"
 BRIDGE_URL = f"{WEB_BASE_URL}/bridge"
 PUBLIC_CHANNEL_URL = "https://t.me/booksaufio"
 PUBLIC_CHANNEL_USERNAME = "@booksaufio"
+HELP_CHANNEL_URL = "https://t.me/faqandaupport" # Your help channel link
 DELETE_DELAY_TIME = 540  # 9 minutes
 
 CHANNELS_FILE = "user_channels.json"
@@ -123,9 +124,18 @@ def download_video_ytdlp(url: str):
                 }
             }
             
-            # Check for cookies.txt
-            if os.path.exists("cookies.txt"):
+            # --- DYNAMIC COOKIE LOADER ---
+            url_lower = url.lower()
+            if "tiktok.com" in url_lower and os.path.exists("tiktok_cookies.txt"):
+                ydl_opts['cookiefile'] = "tiktok_cookies.txt"
+            elif "twitter.com" in url_lower or "x.com" in url_lower:
+                if os.path.exists("twitter_cookies.txt"):
+                    ydl_opts['cookiefile'] = "twitter_cookies.txt"
+            elif "naijafap.com" in url_lower and os.path.exists("naijafap_cookies.txt"):
+                ydl_opts['cookiefile'] = "naijafap_cookies.txt"
+            elif os.path.exists("cookies.txt"):
                 ydl_opts['cookiefile'] = "cookies.txt"
+            # ------------------------------
             
             # 1. Extract info first to check size before downloading
             with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
@@ -157,7 +167,6 @@ def download_video_ytdlp(url: str):
                     
         except Exception as e:
             logger.error(f"yt-dlp tier error for {url}: {e}")
-            # Raise error to show the exact reason it failed
             if "Unsupported URL" in str(e) or "Video unavailable" in str(e) or "403" in str(e) or "Forbidden" in str(e) or "HTTP Error" in str(e):
                 raise e
             continue
@@ -340,21 +349,35 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
         except Exception as e:
             logger.error(f"Batch item error: {e}")
             try:
-                # --- NEW: Show exact HTTP error if possible ---
+                # --- NEW ERROR MESSAGING WITH HELP BUTTON ---
                 if "FILE_TOO_LARGE" in str(e):
                     error_text = f"❌ [{index}/{len(urls)}] Failed: Video is larger than 50MB."
-                elif "403" in str(e):
-                    error_text = f"❌ [{index}/{len(urls)}] Failed: HTTP 403 Forbidden (Site blocked bot)."
-                elif "404" in str(e):
-                    error_text = f"❌ [{index}/{len(urls)}] Failed: HTTP 404 Not Found."
+                    help_text = "The video exceeds Telegram's limit. Try finding a lower quality source."
+                elif "403" in str(e) or "Forbidden" in str(e):
+                    error_text = f"❌ [{index}/{len(urls)}] Failed: Site blocked the bot."
+                    help_text = "Too many attempts made. Site blocked the server. Please contact support to refresh cookies."
                 elif "Unsupported URL" in str(e) or "Video unavailable" in str(e):
-                    error_text = f"❌ [{index}/{len(urls)}] Failed: Site restricted download."
+                    error_text = f"❌ [{index}/{len(urls)}] Failed: Private or deleted video."
+                    help_text = "The link is dead or requires a login. Try a different link."
                 else:
-                    # Show a snippet of the actual error
-                    short_err = str(e).split(";")[0][:40] 
-                    error_text = f"❌ [{index}/{len(urls)}] Failed: {short_err}..."
+                    error_text = f"❌ [{index}/{len(urls)}] Download failed."
+                    help_text = f"Error details: {str(e)[:50]}"
                 
-                await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=error_text)
+                # Create the Help Keyboard
+                help_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("💬 Ask for Help in FAQ Channel", url=HELP_CHANNEL_URL)]])
+                
+                # Send the error, and if it's a site block, add the help button
+                if "403" in str(e) or "Forbidden" in str(e):
+                     await bot.edit_message_text(
+                         chat_id=chat_id, 
+                         message_id=status_msg.message_id, 
+                         text=f"{error_text}\n\n⚠️ {help_text}\n\n👉 *Please share the site you are trying to download from in our support channel.*",
+                         reply_markup=help_keyboard,
+                         parse_mode="Markdown"
+                     )
+                else:
+                    await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=error_text)
+                    
             except Exception:
                 pass
             fail_count += 1
@@ -375,9 +398,18 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
         else:
             dest_text = f"📥 **{success_count} videos sent to this chat.**"
 
+        # If many failed, add the help button to the final summary
+        final_keyboard = None
+        final_text = f"🏁 **Batch Finished!**\n✅ Success: {success_count}\n❌ Failed/Skipped: {fail_count}\n\n{dest_text}"
+        
+        if fail_count > 5:
+            final_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("💬 Need Help? Contact Support", url=HELP_CHANNEL_URL)]])
+            final_text += "\n\n⚠️ *Many links failed. If you believe this is an error (like a site block), join our support channel and share the site you are trying to scrape!*"
+
         await bot.send_message(
             chat_id=chat_id,
-            text=f"🏁 **Batch Finished!**\n✅ Success: {success_count}\n❌ Failed/Skipped: {fail_count}\n\n{dest_text}",
+            text=final_text,
+            reply_markup=final_keyboard,
             parse_mode="Markdown"
         )
 
@@ -459,7 +491,14 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                     error_msg = "❌ HTTP 404 Not Found."
                 else:
                     error_msg = "❌ Site restricted download."
-                await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=error_msg)
+                
+                help_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("💬 Ask for Help in FAQ Channel", url=HELP_CHANNEL_URL)]])
+                await context.bot.edit_message_text(
+                    chat_id=chat_id, 
+                    message_id=status_msg.message_id, 
+                    text=error_msg,
+                    reply_markup=help_keyboard if "403" in str(e) else None
+                )
         else:
             bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
             tokens = load_tokens()
@@ -688,8 +727,7 @@ def run_telegram_bot():
     loop.run_until_complete(start_bot())
 
 if not getattr(web_app, '_bot_started', False):
-    web_app._bot_started = True
-    print("Starting Telegram bot thread...")
+    web_app._bot_started = True    print("Starting Telegram bot thread...")
     threading.Thread(target=run_telegram_bot, daemon=True).start()
 
 if __name__ == "__main__":
