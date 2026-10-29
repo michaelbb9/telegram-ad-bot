@@ -546,7 +546,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.message.delete()
         return
 
-    # --- FIXED: BATCH FORMAT SELECTION (maxsplit prevents session expires) ---
     if data.startswith("batchtype_"):
         parts = data.split("_", 2) 
         dl_type = parts[1] 
