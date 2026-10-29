@@ -546,12 +546,11 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.message.delete()
         return
 
-    # --- FIXED: BATCH FORMAT SELECTION (Uses .get() so it doesn't pop early) ---
     if data.startswith("batchtype_"):
         parts = data.split("_", 2) 
         dl_type = parts[1] 
         payload_key = parts[2]
-        urls = pending_batch_payloads.get(payload_key)  # FIX: Use .get() instead of .pop() here
+        urls = pending_batch_payloads.get(payload_key)
         if not urls:
             await query.answer("❌ Session expired.", show_alert=True)
             return
@@ -648,7 +647,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"]))
         return
 
-    # --- FIXED: DESTINATION SELECTION ---
     if data.startswith("dest_chat_") or data.startswith("dest_chan_"):
         parts = data.split("_", 3)
         action_type = parts[1]
@@ -745,9 +743,11 @@ def run_telegram_bot():
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
         app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE, handle_user_upload))
         app.add_handler(CallbackQueryHandler(handle_buttons))
+        
         await app.initialize()
         await app.start()
-        await app.updater.start_polling(drop_pending_updates=True)
+        # FIX: Added allowed_updates to capture all button/callback types correctly
+        await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
         await asyncio.Event().wait()
     loop.run_until_complete(start_bot())
 
