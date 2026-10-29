@@ -398,7 +398,7 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
-    # --- PERSISTENT JSON STATE: COLLECT ITEMS FOR FLASH DROP ---
+    # --- TOP PRIORITY: COLLECT ITEMS FOR FLASH DROP ---
     states = load_json_file(DRIP_STATE_FILE)
     user_state = states.get(str(user_id))
 
@@ -456,7 +456,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
-    # --- STEP 1: ADMIN TRIGGERS FLASH DROP CREATOR ---
+    # --- TOP PRIORITY 1: ADMIN TRIGGERS FLASH DROP ---
     if text == "⚡ Create Flash Drop" and user_id == ADMIN_ID:
         states = load_json_file(DRIP_STATE_FILE)
         states[str(user_id)] = {"mode": "collecting", "items": []}
@@ -465,21 +465,21 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text(
             "⚡ **Flash Drop Creator Mode Activated**\n\n"
             "Now send **one or multiple files, photos, or videos** back-to-back.\n"
-            "When you are finished adding your items, use the inline button or command to finish!",
+            "When you are finished adding your items, click the 'Finish & Broadcast Drop' button!",
             parse_mode="Markdown"
         )
         return
 
-    # --- STEP 2: ADMIN ENTERS DELETION TIME BEFORE BROADCASTING ---
+    # --- TOP PRIORITY 2: CAPTURE DELETION TIME NUMBER ---
     states = load_json_file(DRIP_STATE_FILE)
     user_state = states.get(str(user_id))
 
-    if user_state and isinstance(user_state, dict) and user_state.get("mode") == "waiting_for_time":
+    if user_state and isinstance(user_state, dict) and user_state.get("mode") == "waiting_for_time" and user_id == ADMIN_ID:
         try:
             mins = int(text.strip())
             if mins <= 0: raise ValueError()
         except ValueError:
-            await update.message.reply_text("❌ Please enter a valid number of minutes (e.g., `5`, `10`, `15`):")
+            await update.message.reply_text("❌ Please enter a valid number of minutes (e.g., `5`, `9`, `15`):")
             return
 
         items_to_drop = user_state["items"]
