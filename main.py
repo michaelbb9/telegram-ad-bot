@@ -48,10 +48,11 @@ active_batch_sessions = {}
 pending_batch_payloads = {}
 paused_batches = {}
 pending_single_links = {}
+active_admin_drops = {} # Stores multiple items sent during an active drop session
 
 LANGUAGES = {
     "en": {
-        "welcome": "🚀 **Welcome to the Ultimate Media Downloader & Vault Bot!** 🚀\n\nI am your all-in-one Swiss Army Knife. Here is everything I can do:\n\n🎬 **Video Downloader:** Paste any link for HD videos.\n🎵 **Audio / MP3 Extractor:** Turn any video into an MP3.\n🖼️ **Image / Gallery Saver:** Download photos.\n📝 **Subtitle Extractor:** Grab SRT files.\n📦 **Massive Batch Downloader:** Paste up to 100+ links. Choose Video, Audio, or Images!\n💎 **Exclusive Vaults:** Unlock premium curated video bundles.\n📤 **Uploads:** Send us files/images directly (Max 5 per day)!\n\n⚠️ **Rules & Limits:**\n• Telegram limits bots to 50MB per file.\n• You get 20 free batch downloads. After that, watch a 20-second sponsor timer to refill.\n\n👉 **Just paste a link to get started!**",
+        "welcome": "🚀 **Welcome to the Ultimate Media Downloader & Vault Bot!** 🚀\n\nI am your all-in-one Swiss Army Knife. Here is everything I can do:\n\n🎬 **Video Downloader:** Paste any link for HD videos.\n🎵 **Audio / MP3 Extractor:** Turn any video into an MP3.\n🖼️ **Image / Gallery Saver:** Download photos.\n📝 **Subtitle Extractor:** Grab SRT files.\n📦 **Massive Batch Downloader:** Paste up to 100+ links. Choose Video, Audio, or Images!\n⚡ **Flash Drops:** Exclusive timed secret drops sent directly to your DM with safe 18+ verification!\n💎 **Exclusive Vaults:** Unlock premium curated video bundles.\n📤 **Uploads:** Send us files/images directly (Max 5 per day)!\n\n⚠️ **Rules & Limits:**\n• Telegram limits bots to 50MB per file.\n• You get 20 free batch downloads. After that, watch a 20-second sponsor timer to refill.\n\n👉 **Just paste a link to get started!**",
         "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Images", "btn_sub": "📝 Subtitles (SRT)",
         "ask_format": "👇 **What would you like to download?**",
         "fetching": "📥 **Fetching {}... Please wait.**",
@@ -230,6 +231,7 @@ def get_main_keyboard(lang_code, is_admin):
     if is_admin:
         keyboard.append([KeyboardButton(t["menu_uploads"])])
         keyboard.append([KeyboardButton("⚡ Create Flash Drop")])
+        keyboard.append([KeyboardButton("🚀 Finish & Broadcast Drop")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -400,59 +402,13 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
-    # --- TOP PRIORITY: CAPTURE CONTENT FOR FLASH DROP & BROADCAST TO ALL USERS ---
+    # --- TOP PRIORITY: COLLECT MULTIPLE ITEMS FOR FLASH DROP ---
     drip_states = load_json_file(DRIP_STATE_FILE)
     if str(user_id) in drip_states and drip_states[str(user_id)] == "waiting_for_drop_content":
-        del drip_states[str(user_id)]
-        save_json_file(DRIP_STATE_FILE, drip_states)
-
-        drop_id = str(int(time.time()))
-        expires_at = time.time() + 480  # 8 minutes expiry
-
-        drop_data = load_json_file(DRIP_FILE)
-        drop_data[drop_id] = {
-            "from_chat_id": chat_id,
-            "message_id": update.message.message_id,
-            "expires_at": expires_at
-        }
-        save_json_file(DRIP_FILE, drop_data)
-
-        bot_username = context.bot.username
-        claim_url = f"https://t.me/{bot_username}?start=drip_{drop_id}"
-
-        # Gather all unique user IDs from languages / tokens to push notification to their DMs
-        all_users = set()
-        lang_data = load_json_file(LANG_FILE)
-        token_data = load_tokens()
-        for uid in lang_data.keys(): all_users.add(int(uid))
-        for uid in token_data.keys(): all_users.add(int(uid))
-
-        await update.message.reply_text(f"🚀 Broadcasting flash drop to **{len(all_users)} users** in their DMs...", parse_mode="Markdown")
-
-        success_broadcasts = 0
-        keyboard = [[InlineKeyboardButton("🎁 Claim Flash Drop", url=claim_url)]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        for uid in all_users:
-            if uid == ADMIN_ID: continue
-            try:
-                await context.bot.send_message(
-                    chat_id=uid,
-                    text="🚨 **NEW FLASH DROP UNLOCKED!** 🚨\n\nA secret drop is waiting for you in your DM. Click below to claim it before it expires in **8 minutes**!",
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
-                )
-                success_broadcasts += 1
-                await asyncio.sleep(0.05) # Prevent flood limits
-            except Exception:
-                pass
-
-        await update.message.reply_text(
-            f"✅ **Flash Drop Successfully Broadcasted!**\n\n"
-            f"📬 Sent to: **{success_broadcasts} users**\n"
-            f"⏳ Expires in: **8 Minutes**",
-            parse_mode="Markdown"
-        )
+        if user_id not in active_admin_drops:
+            active_admin_drops[user_id] = []
+        active_admin_drops[user_id].append({"chat_id": chat_id, "message_id": update.message.message_id})
+        await update.message.reply_text(f"📥 **Item added to Flash Drop!** ({len(active_admin_drops[user_id])} items added so far).\n\nSend more or tap **🚀 Finish & Broadcast Drop** when done.", parse_mode="Markdown")
         return
 
     if user_id == ADMIN_ID:
@@ -501,26 +457,32 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         states = load_json_file(DRIP_STATE_FILE)
         states[str(user_id)] = "waiting_for_drop_content"
         save_json_file(DRIP_STATE_FILE, states)
+        active_admin_drops[user_id] = [] # Reset bundle list
         await update.message.reply_text(
-            "⚡ **Flash Drop Creator Mode**\n\n"
-            "Now, **send** or **forward** the content (video, photo, text, or file) you want to drop. I will instantly push it to all users' DMs with an 8-minute timer!",
+            "⚡ **Flash Drop Creator Mode Activated**\n\n"
+            "You can now send **one or multiple files, photos, or videos** back-to-back.\n"
+            "When you are finished adding your items, tap **🚀 Finish & Broadcast Drop** on your keyboard!",
             parse_mode="Markdown"
         )
         return
 
-    # --- TOP PRIORITY: CAPTURE TEXT CONTENT FOR FLASH DROP & BROADCAST ---
-    drip_states = load_json_file(DRIP_STATE_FILE)
-    if str(user_id) in drip_states and drip_states[str(user_id)] == "waiting_for_drop_content":
-        del drip_states[str(user_id)]
-        save_json_file(DRIP_STATE_FILE, drip_states)
+    # --- TOP PRIORITY: FINISH & BROADCAST MULTI-FILE DROP ---
+    if text == "🚀 Finish & Broadcast Drop" and user_id == ADMIN_ID:
+        states = load_json_file(DRIP_STATE_FILE)
+        if str(user_id) not in states or not active_admin_drops.get(user_id):
+            await update.message.reply_text("⚠️ You haven't added any items yet! Tap '⚡ Create Flash Drop' first.")
+            return
 
+        del states[str(user_id)]
+        save_json_file(DRIP_STATE_FILE, states)
+
+        items_to_drop = active_admin_drops.pop(user_id, [])
         drop_id = str(int(time.time()))
         expires_at = time.time() + 480  # 8 minutes expiry
 
         drop_data = load_json_file(DRIP_FILE)
         drop_data[drop_id] = {
-            "from_chat_id": chat_id,
-            "message_id": update.message.message_id,
+            "items": items_to_drop,
             "expires_at": expires_at
         }
         save_json_file(DRIP_FILE, drop_data)
@@ -534,18 +496,26 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         for uid in lang_data.keys(): all_users.add(int(uid))
         for uid in token_data.keys(): all_users.add(int(uid))
 
-        await update.message.reply_text(f"🚀 Broadcasting flash drop text to **{len(all_users)} users** in their DMs...", parse_mode="Markdown")
+        await update.message.reply_text(f"🚀 Broadcasting flash drop bundle ({len(items_to_drop)} items) to **{len(all_users)} users**...", parse_mode="Markdown")
 
         success_broadcasts = 0
-        keyboard = [[InlineKeyboardButton("🎁 Claim Flash Drop", url=claim_url)]]
+        keyboard = [[InlineKeyboardButton("🎁 Claim Flash Drop Now", url=claim_url)]]
         reply_markup = InlineKeyboardMarkup(keyboard)
+
+        # Reassuring text explaining flash drops so users aren't scared
+        broadcast_text = (
+            "🚨 **EXCLUSIVE FLASH DROP UNLOCKED!** 🚨\n\n"
+            "✨ *What is this?* This is a safe, surprise media bundle sent directly to your DM by the admin.\n"
+            "⏳ **Strictly Limited:** It will completely self-destruct in **8 minutes**, so grab it right now!\n\n"
+            "👇 Tap the button below to verify and claim your bundle:"
+        )
 
         for uid in all_users:
             if uid == ADMIN_ID: continue
             try:
                 await context.bot.send_message(
                     chat_id=uid,
-                    text="🚨 **NEW FLASH DROP UNLOCKED!** 🚨\n\nA secret drop is waiting for you in your DM. Click below to claim it before it expires in **8 minutes**!",
+                    text=broadcast_text,
                     reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
@@ -555,11 +525,21 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 pass
 
         await update.message.reply_text(
-            f"✅ **Flash Drop Successfully Broadcasted!**\n\n"
-            f"📬 Sent to: **{success_broadcasts} users**\n"
-            f"⏳ Expires in: **8 Minutes**",
+            f"✅ **Flash Drop Broadcast Complete!**\n\n"
+            f"📬 Delivered to: **{success_broadcasts} users**\n"
+            f"📦 Items in bundle: **{len(items_to_drop)}**\n"
+            f"⏳ Timer: **8 Minutes**",
             parse_mode="Markdown"
         )
+        return
+
+    # If admin is still sending items for the drop bundle
+    drip_states = load_json_file(DRIP_STATE_FILE)
+    if str(user_id) in drip_states and drip_states[str(user_id)] == "waiting_for_drop_content":
+        if user_id not in active_admin_drops:
+            active_admin_drops[user_id] = []
+        active_admin_drops[user_id].append({"chat_id": chat_id, "message_id": update.message.message_id})
+        await update.message.reply_text(f"📥 **Item added to Flash Drop bundle!** ({len(active_admin_drops[user_id])} items added).\n\nSend more text/files or tap **🚀 Finish & Broadcast Drop** when ready.", parse_mode="Markdown")
         return
 
     if text == t["menu_stats"]:
@@ -715,7 +695,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
-    # --- AGE VERIFICATION FOR FLASH DROPS ---
+    # --- AGE VERIFICATION FOR MULTI-FILE FLASH DROPS ---
     if data.startswith("age_yes_"):
         drop_id = data.replace("age_yes_", "")
         drip_data = load_json_file(DRIP_FILE)
@@ -731,18 +711,26 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             except: pass
             return
 
-        await query.answer("✅ Verified! Delivering content...")
+        await query.answer("✅ Verified! Delivering bundle...")
         try:
             await query.message.delete()
-            fwd = await context.bot.copy_message(
-                chat_id=user_id,
-                from_chat_id=drop["from_chat_id"],
-                message_id=drop["message_id"]
-            )
+            sent_message_ids = []
+            
+            # Deliver all items in the flash drop bundle safely to the user
+            for item in drop["items"]:
+                fwd = await context.bot.copy_message(
+                    chat_id=user_id,
+                    from_chat_id=item["chat_id"],
+                    message_id=item["message_id"]
+                )
+                sent_message_ids.append(fwd.message_id)
+                await asyncio.sleep(0.2)
+
             warn = await context.bot.send_message(chat_id=user_id, text=t["deletes_in_9"])
-            asyncio.create_task(schedule_deletion(context.bot, user_id, [fwd.message_id, warn.message_id], DELETE_DELAY_TIME))
+            sent_message_ids.append(warn.message_id)
+            asyncio.create_task(schedule_deletion(context.bot, user_id, sent_message_ids, DELETE_DELAY_TIME))
         except Exception as e:
-            await context.bot.send_message(chat_id=user_id, text=f"❌ Error delivering content: {e}")
+            await context.bot.send_message(chat_id=user_id, text=f"❌ Error delivering bundle: {e}")
         return
 
     if data == "age_no":
