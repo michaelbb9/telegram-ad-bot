@@ -274,10 +274,17 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls):
     active_batch_sessions[user_id] = True
 
     stop_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop Batch Processing", callback_data="stop_batch")]])
+    
+    # --- NEW: Inform user about Telegram Limit before starting ---
     batch_notice = await bot.send_message(
         chat_id=chat_id,
-        text=f"📦 **Batch Processing Started:** Found **{len(urls)} links**. Processing downloads...",
-        reply_markup=stop_markup
+        text=(
+            f"📦 **Batch Processing Started:** Found **{len(urls)} links**.\n\n"
+            "⚠️ **Important Notice:** Telegram has a strict **50MB limit** for bots. If a video is larger than 50MB (even after reducing quality), it will be skipped and marked as failed.\n\n"
+            "⏳ *Processing downloads...*"
+        ),
+        reply_markup=stop_markup,
+        parse_mode="Markdown"
     )
 
     for index, url in enumerate(urls, start=1):
@@ -368,7 +375,13 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls):
         except Exception as e:
             logger.error(f"Batch item error for {url}: {e}")
             try:
-                await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}/{len(urls)}] Download failed.")
+                # --- NEW: Explicit message for Telegram Limit ---
+                if "FILE_TOO_LARGE" in str(e):
+                    error_text = f"❌ [{index}/{len(urls)}] Failed: Video exceeds Telegram's 50MB limit."
+                else:
+                    error_text = f"❌ [{index}/{len(urls)}] Download failed."
+                
+                await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=error_text)
             except Exception:
                 pass
             fail_count += 1
@@ -383,10 +396,21 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls):
     except Exception:
         pass
 
-    dest_name = "your private channel" if target_destination_id != chat_id else "this chat"
+    # --- NEW: Clearer Final Summary ---
+    if target_destination_id != chat_id:
+        dest_text = f"📢 **{success_count} videos have been successfully forwarded to your private channel!**\n*(Files will auto-delete from the channel in 9 minutes for safety)*"
+    else:
+        dest_text = f"📥 **{success_count} videos were successfully sent to this chat!**"
+
     await bot.send_message(
         chat_id=chat_id,
-        text=f"🏁 **Batch Processing Finished!**\n✅ Successfully completed: {success_count}\n❌ Failed/Skipped: {fail_count}\n\n*Destination: {dest_name}*"
+        text=(
+            f"🏁 **Batch Processing Finished!**\n\n"
+            f"✅ **Successful:** {success_count}\n"
+            f"❌ **Failed/Skipped:** {fail_count}\n\n"
+            f"{dest_text}"
+        ),
+        parse_mode="Markdown"
     )
 
 # --- UNIVERSAL MEDIA LINK & BATCH TEXT LISTENER HANDLER ---
@@ -400,7 +424,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     # 1. Check for channel change linking state
     linking_states = load_linking_states()
     if linking_states.get(str(user_id)) == "waiting_for_channel":
-        # FIXED: Checked for the new forward_origin property
         if update.message.forward_origin and getattr(update.message.forward_origin, 'type', None) == 'channel':
             f_chat = update.message.forward_origin.chat
             user_channels = load_user_channels()
@@ -427,7 +450,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             return
 
     # 2. Check for initial channel linking via forward
-    # FIXED: Checked for the new forward_origin property
     if update.message.forward_origin and getattr(update.message.forward_origin, 'type', None) == 'channel':
         f_chat = update.message.forward_origin.chat
         user_channels = load_user_channels()
@@ -769,22 +791,3 @@ def run_telegram_bot():
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
         app.add_handler(CallbackQueryHandler(handle_buttons))
         
-        await app.initialize()
-        await app.start()
-        await app.updater.start_polling(drop_pending_updates=True)
-        
-        await asyncio.Event().wait()
-
-    loop.run_until_complete(start_bot())
-
-# --- MODULE-LEVEL STARTUP (CRITICAL FOR GUNICORN ON RENDER) ---
-if not getattr(web_app, '_bot_started', False):
-    web_app._bot_started = True
-    print("Starting Telegram bot background thread...")
-    bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
-    bot_thread.start()
-
-if __name__ == "__main__":
-    print("Testing Flask web server on main thread...")
-    port = int(os.environ.get("PORT", 10000))
-    web_app.run(host="0.0.0.0", port=port)
