@@ -47,7 +47,6 @@ pending_batch_payloads = {}
 paused_batches = {}
 pending_single_links = {}
 
-# --- TRANSLATIONS DICTIONARY ---
 LANGUAGES = {
     "en": {
         "welcome": "🚀 **Welcome to the Ultimate Media Downloader & Vault Bot!** 🚀\n\nI am your all-in-one Swiss Army Knife. Here is everything I can do:\n\n🎬 **Video Downloader:** Paste any link for HD videos.\n🎵 **Audio / MP3 Extractor:** Turn any video into an MP3.\n🖼️ **Image / Gallery Saver:** Download photos.\n📝 **Subtitle Extractor:** Grab SRT files.\n📦 **Massive Batch Downloader:** Paste up to 100+ links. Choose Video, Audio, or Images!\n💎 **Exclusive Vaults:** Unlock premium curated video bundles.\n📤 **Uploads:** Send us files/images directly (Max 5 per day)!\n\n⚠️ **Rules & Limits:**\n• Telegram limits bots to 50MB per file.\n• You get 20 free batch downloads. After that, watch a 20-second sponsor timer to refill.\n\n👉 **Just paste a link to get started!**",
@@ -547,8 +546,9 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.message.delete()
         return
 
+    # --- FIXED: BATCH FORMAT SELECTION (maxsplit prevents session expires) ---
     if data.startswith("batchtype_"):
-        parts = data.split("_", 2)
+        parts = data.split("_", 2) 
         dl_type = parts[1] 
         payload_key = parts[2]
         urls = pending_batch_payloads.pop(payload_key, None)
@@ -648,6 +648,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"]))
         return
 
+    # --- FIXED: DESTINATION SELECTION ---
     if data.startswith("dest_chat_") or data.startswith("dest_chan_"):
         parts = data.split("_", 3)
         action_type = parts[1]
