@@ -523,7 +523,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 parse_mode="Markdown"
             )
     else:
-        # Multiple links batch flow -> Check if user has linked a private channel first
         user_channels = load_user_channels()
         target_channel_id = user_channels.get(str(user_id))
 
@@ -715,22 +714,23 @@ def run_telegram_bot():
 
     loop.run_until_complete(start_bot())
 
+# --- GLOBAL STARTUP BLOCK (Works for Gunicorn & Direct Python execution) ---
+LOCK_FILE = os.path.join(tempfile.gettempdir(), "telegram_bot_running.lock")
+is_primary_worker = False
+try:
+    os.open(LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_RDWR)
+    is_primary_worker = True
+except OSError:
+    pass
+
+if is_primary_worker:
+    print("Starting Telegram bot background thread (Primary Worker)...")
+    bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
+    bot_thread.start()
+else:
+    print("Secondary worker detected. Skipping duplicate Telegram bot thread.")
+
 if __name__ == "__main__":
-    LOCK_FILE = os.path.join(tempfile.gettempdir(), "telegram_bot_running.lock")
-    is_primary_worker = False
-    try:
-        os.open(LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_RDWR)
-        is_primary_worker = True
-    except OSError:
-        pass
-
-    if is_primary_worker:
-        print("Starting Telegram bot background thread (Primary Worker)...")
-        bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
-        bot_thread.start()
-    else:
-        print("Secondary worker detected. Skipping duplicate Telegram bot thread.")
-
     print("Testing Flask web server on main thread...")
     port = int(os.environ.get("PORT", 10000))
     web_app.run(host="0.0.0.0", port=port)
