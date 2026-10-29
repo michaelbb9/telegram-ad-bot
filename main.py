@@ -404,13 +404,10 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
     support_states = load_json_file(SUPPORT_STATES_FILE)
     if str(user_id) in support_states and isinstance(support_states[str(user_id)], dict) and support_states[str(user_id)].get("mode") == "user_writing":
         ticket_id = support_states[str(user_id)]["ticket_id"]
-        admin_chat_id = support_states[str(user_id)]["admin_chat_id"]
-        admin_msg_id = support_states[str(user_id)]["admin_msg_id"]
         
         del support_states[str(user_id)]
         save_json_file(SUPPORT_STATES_FILE, support_states)
         
-        # Forward user message to Admin with buttons
         keyboard = [
             [
                 InlineKeyboardButton("💬 Reply to User", callback_data=f"support_reply_{user_id}"),
@@ -501,8 +498,12 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         del support_states[str(user_id)]
         save_json_file(SUPPORT_STATES_FILE, support_states)
 
+        # ATTACH BOTH BUTTONS SO USER CAN EITHER REPLY BACK OR CLOSE TICKET
         keyboard = [
-            [InlineKeyboardButton("🔒 Close Ticket", callback_data=f"support_close_{ticket_id}")]
+            [
+                InlineKeyboardButton("💬 Reply to Admin", callback_data=f"user_reply_ticket_{ticket_id}"),
+                InlineKeyboardButton("🔒 Close Ticket", callback_data=f"support_close_{ticket_id}")
+            ]
         ]
         try:
             await context.bot.send_message(
@@ -894,6 +895,20 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await context.bot.send_message(
             chat_id=ADMIN_ID,
             text=f"✍️ **Type your reply to User `{target_user_id}`:**\nYour next message in this chat will be sent directly to them as an admin reply.",
+            parse_mode="Markdown"
+        )
+        return
+
+    if data.startswith("user_reply_ticket_"):
+        ticket_id = data.replace("user_reply_ticket_", "")
+        support_states = load_json_file(SUPPORT_STATES_FILE)
+        support_states[str(user_id)] = {"mode": "user_writing", "ticket_id": ticket_id}
+        save_json_file(SUPPORT_STATES_FILE, support_states)
+        
+        await query.answer("Reply mode opened!")
+        await query.message.reply_text(
+            "✍️ **Type your follow-up message below.**\n"
+            "Your next message will be sent directly to the Admin.",
             parse_mode="Markdown"
         )
         return
