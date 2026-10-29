@@ -19,10 +19,7 @@ try:
 except Exception as e:
     logging.error(f"Could not set ffmpeg permissions: {e}")
 
-# Enable logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
+logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN", "8863904451:AAFYl9yyjTvKTaliLR5iqTsvZr2tytFi3bk").strip()
@@ -41,15 +38,15 @@ LINKING_STATE_FILE = "linking_states.json"
 
 active_batch_sessions = {}
 pending_batch_payloads = {}
+# NEW: Stores paused batches so users can resume after watching the ad
+paused_batches = {}
 
-# --- TINY WEB SERVER FOR RENDER ---
 web_app = Flask(__name__)
 
 @web_app.route('/')
 def health_check():
     return "Bot is alive and running!", 200
 
-# TOKEN SYNC
 def load_tokens():
     try:
         response = requests.get(f"{WEB_BASE_URL}/get_tokens", timeout=5)
@@ -97,7 +94,6 @@ def save_linking_states(states):
     except Exception as e:
         logger.error(f"Error saving linking states: {e}")
 
-# --- NATIVE AUTO-DELETE BACKGROUND TASK ---
 async def schedule_deletion(bot, chat_id, message_ids, delay):
     await asyncio.sleep(delay)
     for msg_id in message_ids:
@@ -106,7 +102,6 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
         except Exception:
             pass
 
-# --- YT-DLP DOWNLOAD HELPER ---
 def download_video_ytdlp(url: str):
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
@@ -214,7 +209,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(text=caption_text, reply_markup=reply_markup, parse_mode="Markdown")
 
 # --- CORE BATCH DOWNLOAD PROCESSOR ---
-async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls):
+async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, start_index=0):
     if not urls:
         return
 
@@ -223,18 +218,24 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls):
     active_batch_sessions[user_id] = True
 
     stop_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop Batch Processing", callback_data="stop_batch")]])
-    batch_notice = await bot.send_message(
-        chat_id=chat_id,
-        text=(
+    
+    if start_index > 0:
+        notice_text = f"▶️ **Resuming Batch...** Starting from link {start_index + 1} of {len(urls)}."
+    else:
+        notice_text = (
             f"📦 **Batch Processing Started:** Found **{len(urls)} links**.\n\n"
             "⚠️ **Notice:** Telegram limits bots to 50MB. Videos larger than this will be skipped.\n\n"
             "⏳ *Processing...*"
-        ),
+        )
+
+    batch_notice = await bot.send_message(
+        chat_id=chat_id,
+        text=notice_text,
         reply_markup=stop_markup,
         parse_mode="Markdown"
     )
 
-    for index, url in enumerate(urls, start=1):
+    for index, url in enumerate(urls[start_index:], start=start_index + 1):
         if not active_batch_sessions.get(user_id, False):
             break
 
@@ -242,20 +243,18 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls):
             await bot.send_message(chat_id=chat_id, text=f"❌ [{index}/{len(urls)}] Skipped YouTube (maintenance).")
             continue
 
-        # CHECK ALLOWANCE (Now passes is_batch=True so Flask knows to check the 20 limit)
         try:
             response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": True}, timeout=5)
             if response.status_code == 200:
                 res_data = response.json()
             else:
-                await bot.send_message(chat_id=chat_id, text=f"❌ [{index}/{len(urls)}] Server error checking allowance.")
+                await bot.send_message(chat_id=chat_id, text=f"❌ [{index}/{len(urls)}] Server error.")
                 break
         except Exception:
-            await bot.send_message(chat_id=chat_id, text=f"❌ [{index}/{len(urls)}] Connection error to server.")
+            await bot.send_message(chat_id=chat_id, text=f"❌ [{index}/{len(urls)}] Connection error.")
             break
 
         if res_data.get("status") != "allowed":
-            # LIMIT REACHED (Either 20 batch limit or daily limit)
             bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
             tokens = load_tokens()
             tokens[str(user_id)] = {
@@ -263,6 +262,14 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls):
                 "clicked_ad": False, "verified": False, "expires": time.time() + 600
             }
             save_tokens(tokens)
+
+            # --- SAVE PAUSED BATCH SO THEY CAN RESUME LATER ---
+            paused_batches[user_id] = {
+                "urls": urls,
+                "next_index": index - 1, # The index of the URL that failed
+                "target_destination_id": target_destination_id,
+                "chat_id": chat_id
+            }
 
             keyboard = [
                 [InlineKeyboardButton("🔓 Open Link & Refill Batch Limit", url=bridge_link)],
@@ -274,16 +281,16 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls):
             await bot.send_message(
                 chat_id=chat_id,
                 text=(
-                    f"⚠️ **Download Limit Reached at link {index} of {len(urls)}!**\n\n"
+                    f"⚠️ **Batch Limit Reached! (Stopped at link {index} of {len(urls)})**\n\n"
                     "You have hit your limit. You must refill to continue batch downloading.\n\n"
                     "1️⃣ Click **Open Link & Refill Batch Limit** below.\n"
                     "2️⃣ Watch the sponsor timer.\n"
-                    "3️⃣ Return here and click **Check & Refill Balance**."
+                    "3️⃣ Return here and click **Check & Refill Balance** to resume!"
                 ),
                 reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
-            break
+            break 
 
         status_msg = await bot.send_message(chat_id=chat_id, text=f"📥 [{index}/{len(urls)}] Downloading video...")
 
@@ -298,7 +305,6 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls):
                         parse_mode="Markdown"
                     )
                 
-                # ONLY schedule deletion if it's going to the CHAT, NOT the private channel
                 if target_destination_id == chat_id:
                     warning_msg = await bot.send_message(
                         chat_id=target_destination_id,
@@ -330,16 +336,18 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls):
     except Exception:
         pass
 
-    if target_destination_id != chat_id:
-        dest_text = f"📢 **{success_count} videos forwarded to your private channel!**\n*(Files will stay in your channel permanently)*"
-    else:
-        dest_text = f"📥 **{success_count} videos sent to this chat.**"
+    # Only show final summary if the batch wasn't paused for a limit
+    if user_id not in paused_batches:
+        if target_destination_id != chat_id:
+            dest_text = f"📢 **{success_count} videos forwarded to your private channel!**"
+        else:
+            dest_text = f"📥 **{success_count} videos sent to this chat.**"
 
-    await bot.send_message(
-        chat_id=chat_id,
-        text=f"🏁 **Batch Finished!**\n✅ Success: {success_count}\n❌ Failed/Skipped: {fail_count}\n\n{dest_text}",
-        parse_mode="Markdown"
-    )
+        await bot.send_message(
+            chat_id=chat_id,
+            text=f"🏁 **Batch Finished!**\n✅ Success: {success_count}\n❌ Failed/Skipped: {fail_count}\n\n{dest_text}",
+            parse_mode="Markdown"
+        )
 
 # --- UNIVERSAL MEDIA LINK LISTENER ---
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -383,7 +391,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
 
     if len(extracted_urls) == 1:
-        # Single link logic (Bundle links)
         url = extracted_urls[0]
         if "youtube.com" in url.lower() or "youtu.be" in url.lower():
             await update.message.reply_text("❌ YouTube is paused.")
@@ -416,7 +423,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 error_msg = "❌ Exceeds 50MB limit." if "FILE_TOO_LARGE" in str(e) else f"❌ Error: {e}"
                 await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=error_msg)
         else:
-            # Refill logic for single links
             bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
             tokens = load_tokens()
             tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
@@ -428,7 +434,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             ]
             await update.message.reply_text("⚠️ **Limit Reached!** Refill to continue.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     else:
-        # Multiple URLs detected -> Channel check before proceeding!
         try:
             member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_USERNAME, user_id=user_id)
             if member.status not in ["creator", "administrator", "member"]:
@@ -463,7 +468,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text("❌ Please upload a valid `.txt` file.")
         return
 
-    # Channel check for txt file batch
     try:
         member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_USERNAME, user_id=user_id)
         if member.status not in ["creator", "administrator", "member"]:
@@ -522,6 +526,21 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.edit_message_text("🛑 **Batch Stopped.**")
         except Exception:
             pass
+        return
+
+    # NEW: Handle the Resume button
+    if data == "resume_batch":
+        paused = paused_batches.pop(user_id, None)
+        if not paused:
+            await query.answer("❌ Resume session expired or already finished.", show_alert=True)
+            return
+        
+        await query.answer("▶️ Resuming batch...", show_alert=False)
+        await query.message.delete()
+        asyncio.create_task(process_url_batch(
+            context.bot, user_id, paused["chat_id"], paused["target_destination_id"], 
+            paused["urls"], start_index=paused["next_index"]
+        ))
         return
 
     if data.startswith("dest_chat_") or data.startswith("dest_chan_"):
@@ -588,6 +607,17 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         del tokens[user_str]
         save_tokens(tokens)
         await query.answer("✅ Verified!")
+
+        # Check if they have a paused batch waiting
+        if user_id in paused_batches:
+            keyboard = [[InlineKeyboardButton("▶️ Resume Batch from where I stopped", callback_data="resume_batch")]]
+            await query.message.reply_text(
+                "✅ **Verification Successful!** Your batch limit has been refilled.\n\n"
+                "Click the button below to continue downloading your remaining links without starting over!",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown"
+            )
+            return
 
         if msg_start == 0:
             await query.message.reply_text("✅ **Refilled!** You can download again now.")
