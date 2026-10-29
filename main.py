@@ -9,7 +9,7 @@ import re
 import imageio_ffmpeg
 import yt_dlp
 from flask import Flask
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 # --- FIX FFMPEG EXECUTION PERMISSIONS FOR RENDER ---
@@ -34,7 +34,6 @@ PUBLIC_CHANNEL_USERNAME = "@booksaufio"
 HELP_CHANNEL_URL = "https://t.me/faqandaupport"
 DELETE_DELAY_TIME = 540  # 9 minutes
 
-# Proxy is disabled
 PROXY_URL = None 
 
 CHANNELS_FILE = "user_channels.json"
@@ -43,6 +42,8 @@ LINKING_STATE_FILE = "linking_states.json"
 active_batch_sessions = {}
 pending_batch_payloads = {}
 paused_batches = {}
+# NEW: Stores single links waiting for user to choose format
+pending_single_links = {}
 
 web_app = Flask(__name__)
 
@@ -105,79 +106,172 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
         except Exception:
             pass
 
-def download_video_ytdlp(url: str):
+# --- NEW UNIVERSAL DOWNLOAD ENGINE ---
+def download_media_engine(url: str, download_type: str):
+    """
+    download_type options: 'video', 'audio', 'images', 'subtitles'
+    Returns: (file_paths_list, resolution_string, size_string)
+    """
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
-    tiers = ["best", "best[height<=720]", "best[height<=480]"]
     
-    for fmt in tiers:
-        try:
-            ydl_opts = {
-                'format': fmt,
-                'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
-                'max_filesize': 50 * 1024 * 1024,
-                'noplaylist': True,
-                'quiet': True,
-                'no_warnings': True,
-                'merge_output_format': 'mp4',
-                'ffmpeg_location': ffmpeg_path,
-                'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept-Language': 'en-US,en;q=0.9',
-                }
-            }
-            
-            if PROXY_URL:
-                ydl_opts['proxy'] = PROXY_URL
+    url_lower = url.lower()
+    
+    # Base headers
+    http_headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+    }
 
-            # --- DYNAMIC COOKIE LOADER ---
-            url_lower = url.lower()
-            if "tiktok.com" in url_lower and os.path.exists("tiktok_cookies.txt"):
-                ydl_opts['cookiefile'] = "tiktok_cookies.txt"
-            elif "twitter.com" in url_lower or "x.com" in url_lower:
-                if os.path.exists("twitter_cookies.txt"):
-                    ydl_opts['cookiefile'] = "twitter_cookies.txt"
-            elif "naijafap.com" in url_lower and os.path.exists("naijafap_cookies.txt"):
-                ydl_opts['cookiefile'] = "naijafap_cookies.txt"
-            elif os.path.exists("cookies.txt"):
-                ydl_opts['cookiefile'] = "cookies.txt"
-            # ------------------------------
+    # Cookie Loader
+    cookiefile = None
+    if "tiktok.com" in url_lower and os.path.exists("tiktok_cookies.txt"):
+        cookiefile = "tiktok_cookies.txt"
+    elif "twitter.com" in url_lower or "x.com" in url_lower:
+        if os.path.exists("twitter_cookies.txt"):
+            cookiefile = "twitter_cookies.txt"
+    elif "naijafap.com" in url_lower and os.path.exists("naijafap_cookies.txt"):
+        cookiefile = "naijafap_cookies.txt"
+    elif os.path.exists("cookies.txt"):
+        cookiefile = "cookies.txt"
+
+    # Base options
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'http_headers': http_headers,
+        'proxy': PROXY_URL if PROXY_URL else None,
+    }
+    if cookiefile:
+        ydl_opts['cookiefile'] = cookiefile
+
+    # -----------------------------------------
+    # TYPE 1: AUDIO (MP3)
+    # -----------------------------------------
+    if download_type == 'audio':
+        ydl_opts.update({
+            'format': 'bestaudio/best',
+            'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }],
+            'ffmpeg_location': ffmpeg_path,
+        })
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            base_name = os.path.splitext(ydl.prepare_filename(info))[0]
+            mp3_path = f"{base_name}.mp3"
+            if os.path.exists(mp3_path):
+                size_mb = f"{os.path.getsize(mp3_path) / (1024 * 1024):.1f}MB"
+                return [mp3_path], "Audio MP3", size_mb
+        raise ValueError("FILE_NOT_FOUND")
+
+    # -----------------------------------------
+    # TYPE 2: SUBTITLES
+    # -----------------------------------------
+    elif download_type == 'subtitles':
+        ydl_opts.update({
+            'skip_download': True,
+            'writesubtitles': True,
+            'writeautomaticsub': True,
+            'subtitleslangs': ['en'],
+            'subtitlesformat': 'srt',
+            'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
+        })
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            base_name = os.path.splitext(ydl.prepare_filename(info))[0]
+            srt_path = f"{base_name}.en.srt"
+            if os.path.exists(srt_path):
+                return [srt_path], "Subtitles (EN)", "Text File"
+            else:
+                # Check if it's available as automatic captions
+                srt_path = f"{base_name}.en.vtt"
+                if os.path.exists(srt_path):
+                    return [srt_path], "Subtitles (EN)", "Text File"
+        raise ValueError("NO_SUBTITLES")
+
+    # -----------------------------------------
+    # TYPE 3: IMAGES (Photos / Galleries)
+    # -----------------------------------------
+    elif download_type == 'images':
+        # For image scraping (like Instagram/Pinterest)
+        ydl_opts.update({
+            'format': 'best',
+            'outtmpl': os.path.join(output_dir, '%(id)s_%(autonumber)s.%(ext)s'),
+            'ignoreerrors': True,
+        })
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            image_paths = []
             
-            # 1. Extract info first to check size before downloading
-            with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True, 'proxy': PROXY_URL if PROXY_URL else None}) as ydl:
-                info = ydl.extract_info(url, download=False)
-                filesize = info.get('filesize') or info.get('filesize_approx')
-                if filesize and filesize > 50 * 1024 * 1024:
-                    continue 
+            # Find all downloaded images in the dir matching this ID
+            video_id = info.get('id', '')
+            for file in os.listdir(output_dir):
+                if video_id in file and file.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                    image_paths.append(os.path.join(output_dir, file))
             
-            # 2. Download if it passed the size check
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                filename = ydl.prepare_filename(info)
+            if not image_paths:
+                raise ValueError("NO_IMAGES")
+            
+            total_size = sum(os.path.getsize(p) for p in image_paths) / (1024 * 1024)
+            return image_paths, f"{len(image_paths)} Images", f"{total_size:.1f}MB"
+
+    # -----------------------------------------
+    # TYPE 4: VIDEO (With TikTok No-Watermark)
+    # -----------------------------------------
+    else:
+        tiers = ["best", "best[height<=720]", "best[height<=480]"]
+        
+        # TikTok No Watermark Hack
+        if "tiktok.com" in url_lower:
+            tiers = ["best[format_id!='download']", "best"] 
+
+        for fmt in tiers:
+            try:
+                ydl_opts.update({
+                    'format': fmt,
+                    'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
+                    'max_filesize': 50 * 1024 * 1024,
+                    'merge_output_format': 'mp4',
+                    'ffmpeg_location': ffmpeg_path,
+                })
                 
-                if not os.path.exists(filename):
-                    base = os.path.splitext(filename)[0]
-                    if os.path.exists(base + ".mp4"):
-                        filename = base + ".mp4"
-                        
-                if os.path.exists(filename):
-                    file_size_bytes = os.path.getsize(filename)
-                    if file_size_bytes > 50 * 1024 * 1024:
-                        os.remove(filename)
+                # Size Check
+                with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True, 'proxy': PROXY_URL if PROXY_URL else None, 'cookiefile': cookiefile if cookiefile else None}) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                    filesize = info.get('filesize') or info.get('filesize_approx')
+                    if filesize and filesize > 50 * 1024 * 1024:
                         continue 
+
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    filename = ydl.prepare_filename(info)
                     
-                    height = info.get('height', 'Unknown')
-                    resolution = f"{height}p" if isinstance(height, int) else "HD/SD"
-                    size_str = f"{file_size_bytes / (1024 * 1024):.1f}MB"
-                    return filename, resolution, size_str
-                    
-        except Exception as e:
-            logger.error(f"yt-dlp tier error for {url}: {e}")
-            if "Unsupported URL" in str(e) or "Video unavailable" in str(e) or "403" in str(e) or "Forbidden" in str(e) or "HTTP Error" in str(e) or "ProxyError" in str(e):
-                raise e
-            continue
-            
-    raise ValueError("FILE_TOO_LARGE")
+                    if not os.path.exists(filename):
+                        base = os.path.splitext(filename)[0]
+                        if os.path.exists(base + ".mp4"):
+                            filename = base + ".mp4"
+                            
+                    if os.path.exists(filename):
+                        file_size_bytes = os.path.getsize(filename)
+                        if file_size_bytes > 50 * 1024 * 1024:
+                            os.remove(filename)
+                            continue 
+                        
+                        height = info.get('height', 'Unknown')
+                        resolution = f"{height}p" if isinstance(height, int) else "HD/SD"
+                        size_str = f"{file_size_bytes / (1024 * 1024):.1f}MB"
+                        return [filename], resolution, size_str
+            except Exception as e:
+                if "Unsupported URL" in str(e) or "Video unavailable" in str(e) or "403" in str(e) or "HTTP Error" in str(e):
+                    raise e
+                continue
+                
+        raise ValueError("FILE_TOO_LARGE")
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
@@ -185,19 +279,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if not args:
         await update.message.reply_text(
-            "👋 **Welcome to the Media Downloader & Vault Bot!**\n\n"
-            "📥 **What I can do:**\n"
-            "I download media from websites, process **batch links**, AND unlock exclusive content vaults!\n\n"
-            "💬 **How to Download:**\n"
-            "• **Single Link:** Paste any link directly.\n"
-            "• **Batch Links:** Paste multiple links or upload a `.txt` file.\n\n"
-            "⚡ **Limit Notice:** Telegram limits bots to 50MB. Files larger than 50MB will be skipped.\n\n"
-            "🎁 **Allowance:**\n"
-            "• You get 4 free bundle downloads daily.\n"
-            "• Batch downloads are limited to 20 per session. Refill by completing a quick sponsor timer!"
+            "🚀 **Welcome to the Ultimate Media Downloader Bot!** 🚀\n\n"
+            "I am your all-in-one Swiss Army Knife for social media. Here is everything I can do:\n\n"
+            "🎬 **Video Downloader:** Paste any link (TikTok, Insta, Twitter, FB) to get the video. *TikTok videos are downloaded WITHOUT watermarks!*\n\n"
+            "🎵 **Audio / MP3 Extractor:** Turn any video into an MP3 audio file instantly.\n\n"
+            "🖼️ **Image / Gallery Saver:** Download photos from Instagram posts or Pinterest.\n\n"
+            "📝 **Subtitle Extractor:** Grab the subtitle text files (SRT) from videos.\n\n"
+            "📦 **Massive Batch Downloader:** Paste up to 100+ links at once, or upload a `.txt` file. I will download them all and send them straight to your Private Channel!\n\n"
+            "⚠️ **Rules & Limits:**\n"
+            "• Telegram limits bots to 50MB per file. Anything bigger will be skipped.\n"
+            "• You get 20 free batch downloads. After that, you must watch a quick 20-second sponsor timer to refill.\n\n"
+            "👉 **Just paste a link to get started!**"
         )
         return
 
+    # (Existing Bundle Unlock Logic)
     video_code = args[0]
     if video_code.startswith("vid"):
         clean_code = video_code.replace("vid", "")
@@ -257,20 +353,10 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
     if start_index > 0:
         notice_text = f"▶️ **Resuming Batch...** Starting from link {start_index + 1} of {len(urls)}."
     else:
-        notice_text = (
-            f"📦 **Batch Processing Started:** Found **{len(urls)} links**.\n\n"
-            "⚠️ **Notice:** Telegram limits bots to 50MB. Videos larger than this will be skipped.\n\n"
-            "⏳ *Processing...*"
-        )
+        notice_text = f"📦 **Batch Processing Started:** Found **{len(urls)} links**.\n\n⏳ *Processing...*"
 
-    batch_notice = await bot.send_message(
-        chat_id=chat_id,
-        text=notice_text,
-        reply_markup=stop_markup,
-        parse_mode="Markdown"
-    )
+    batch_notice = await bot.send_message(chat_id=chat_id, text=notice_text, reply_markup=stop_markup, parse_mode="Markdown")
 
-    # Smart Cooldown tracker
     consecutive_fails = 0
 
     for index, url in enumerate(urls[start_index:], start=start_index + 1):
@@ -281,26 +367,17 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             await bot.send_message(chat_id=chat_id, text=f"❌ [{index}/{len(urls)}] Skipped YouTube (maintenance).")
             continue
 
-        # --- COOLDOWN LOGIC ---
+        # COOLDOWN LOGIC
         if consecutive_fails >= 3:
-            cooldown_msg = await bot.send_message(
-                chat_id=chat_id, 
-                text=f"⏳ **Site Rate Limit Detected.** Pausing for 60 seconds to let the firewall clear... (Fails: {consecutive_fails})"
-            )
-            await asyncio.sleep(60) # Wait 60 seconds
-            try:
-                await cooldown_msg.delete()
-            except:
-                pass
-            consecutive_fails = 0 # Reset counter after pause
+            cooldown_msg = await bot.send_message(chat_id=chat_id, text=f"⏳ **Site Rate Limit Detected.** Pausing for 60 seconds...")
+            await asyncio.sleep(60)
+            try: await cooldown_msg.delete()
+            except: pass
+            consecutive_fails = 0
 
         try:
             response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": True}, timeout=5)
-            if response.status_code == 200:
-                res_data = response.json()
-            else:
-                await bot.send_message(chat_id=chat_id, text=f"❌ [{index}/{len(urls)}] Server error.")
-                break
+            res_data = response.json() if response.status_code == 200 else {}
         except Exception:
             await bot.send_message(chat_id=chat_id, text=f"❌ [{index}/{len(urls)}] Connection error.")
             break
@@ -308,45 +385,31 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
         if res_data.get("status") != "allowed":
             bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
             tokens = load_tokens()
-            tokens[str(user_id)] = {
-                "user_id": int(user_id), "msg_start": 0, "msg_end": 0,
-                "clicked_ad": False, "verified": False, "expires": time.time() + 600
-            }
+            tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
             save_tokens(tokens)
 
-            paused_batches[user_id] = {
-                "urls": urls,
-                "next_index": index - 1,
-                "target_destination_id": target_destination_id,
-                "chat_id": chat_id
-            }
+            paused_batches[user_id] = {"urls": urls, "next_index": index - 1, "target_destination_id": target_destination_id, "chat_id": chat_id}
 
             keyboard = [
                 [InlineKeyboardButton("🔓 Open Link & Refill Batch Limit", url=bridge_link)],
                 [InlineKeyboardButton("📢 Join Public Channel", url=PUBLIC_CHANNEL_URL)],
                 [InlineKeyboardButton("💜 Check & Refill Balance", callback_data="verify_user")]
             ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
             await bot.send_message(
                 chat_id=chat_id,
-                text=(
-                    f"⚠️ **Batch Limit Reached! (Stopped at link {index} of {len(urls)})**\n\n"
-                    "You have hit your limit. You must refill to continue batch downloading.\n\n"
-                    "1️⃣ Click **Open Link & Refill Batch Limit** below.\n"
-                    "2️⃣ Watch the sponsor timer.\n"
-                    "3️⃣ Return here and click **Check & Refill Balance** to resume!"
-                ),
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
+                text=f"⚠️ **Batch Limit Reached! (Stopped at link {index} of {len(urls)})**\n\nRefill to continue:",
+                reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
             )
             break 
 
         status_msg = await bot.send_message(chat_id=chat_id, text=f"📥 [{index}/{len(urls)}] Downloading video...")
 
         try:
-            file_path, resolution, size_str = download_video_ytdlp(url)
-            if file_path and os.path.exists(file_path):
+            # Batch ALWAYS downloads as Video
+            file_paths, resolution, size_str = download_media_engine(url, 'video')
+            
+            if file_paths and os.path.exists(file_paths[0]):
+                file_path = file_paths[0]
                 with open(file_path, 'rb') as media_file:
                     sent_media = await bot.send_video(
                         chat_id=target_destination_id,
@@ -356,87 +419,44 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     )
                 
                 if target_destination_id == chat_id:
-                    warning_msg = await bot.send_message(
-                        chat_id=target_destination_id,
-                        text=f"⏳ [{index}/{len(urls)}] Safety Alert: This file will automatically delete in **9 minutes**."
-                    )
+                    warning_msg = await bot.send_message(chat_id=target_destination_id, text=f"⏳ Deletes in 9 minutes.")
                     asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent_media.message_id, warning_msg.message_id], DELETE_DELAY_TIME))
                 
                 os.remove(file_path)
                 await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
                 success_count += 1
-                consecutive_fails = 0 # Reset on success
+                consecutive_fails = 0 
             else:
-                await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}/{len(urls)}] Failed: File path not found.")
+                await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}/{len(urls)}] Failed.")
                 fail_count += 1
                 consecutive_fails += 1
         except Exception as e:
-            logger.error(f"Batch item error: {e}")
             consecutive_fails += 1
             try:
                 if "FILE_TOO_LARGE" in str(e):
-                    error_text = f"❌ [{index}/{len(urls)}] Failed: Video is larger than 50MB."
-                    help_text = "The video exceeds Telegram's limit. Try finding a lower quality source."
-                elif "403" in str(e) or "Forbidden" in str(e):
-                    error_text = f"❌ [{index}/{len(urls)}] Failed: Site blocked the bot."
-                    help_text = "Too many attempts made. Site blocked the server. Please contact support to refresh cookies."
-                elif "ProxyError" in str(e) or "proxy" in str(e).lower():
-                    error_text = f"❌ [{index}/{len(urls)}] Failed: Proxy connection failed."
-                    help_text = "The proxy is dead or timing out. Try a new proxy."
-                elif "Unsupported URL" in str(e) or "Video unavailable" in str(e):
-                    error_text = f"❌ [{index}/{len(urls)}] Failed: Private or deleted video."
-                    help_text = "The link is dead or requires a login. Try a different link."
+                    error_text = f"❌ [{index}/{len(urls)}] Failed: Video > 50MB."
+                elif "403" in str(e) or "Unsupported URL" in str(e):
+                    error_text = f"❌ [{index}/{len(urls)}] Failed: Site blocked bot or link private."
                 else:
                     error_text = f"❌ [{index}/{len(urls)}] Download failed."
-                    help_text = f"Error details: {str(e)[:50]}"
                 
-                help_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("💬 Ask for Help in FAQ Channel", url=HELP_CHANNEL_URL)]])
-                
-                if "403" in str(e) or "Forbidden" in str(e) or "ProxyError" in str(e):
-                     await bot.edit_message_text(
-                         chat_id=chat_id, 
-                         message_id=status_msg.message_id, 
-                         text=f"{error_text}\n\n⚠️ {help_text}\n\n👉 *Please share the site you are trying to download from in our support channel.*",
-                         reply_markup=help_keyboard,
-                         parse_mode="Markdown"
-                     )
-                else:
-                    await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=error_text)
-                    
+                await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=error_text)
             except Exception:
                 pass
             fail_count += 1
         
-        # Standard delay between downloads
         await asyncio.sleep(4) 
 
     if user_id in active_batch_sessions:
         del active_batch_sessions[user_id]
 
-    try:
-        await bot.delete_message(chat_id=chat_id, message_id=batch_notice.message_id)
-    except Exception:
-        pass
+    try: await bot.delete_message(chat_id=chat_id, message_id=batch_notice.message_id)
+    except: pass
 
     if user_id not in paused_batches:
-        if target_destination_id != chat_id:
-            dest_text = f"📢 **{success_count} videos forwarded to your private channel!**"
-        else:
-            dest_text = f"📥 **{success_count} videos sent to this chat.**"
+        dest_text = f"📢 **{success_count} videos forwarded!**" if target_destination_id != chat_id else f"📥 **{success_count} videos sent here.**"
+        await bot.send_message(chat_id=chat_id, text=f"🏁 **Batch Finished!**\n✅ Success: {success_count}\n❌ Failed: {fail_count}\n\n{dest_text}", parse_mode="Markdown")
 
-        final_keyboard = None
-        final_text = f"🏁 **Batch Finished!**\n✅ Success: {success_count}\n❌ Failed/Skipped: {fail_count}\n\n{dest_text}"
-        
-        if fail_count > 5:
-            final_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("💬 Need Help? Contact Support", url=HELP_CHANNEL_URL)]])
-            final_text += "\n\n⚠️ *Many links failed. If you believe this is an error (like a site block), join our support channel and share the site you are trying to scrape!*"
-
-        await bot.send_message(
-            chat_id=chat_id,
-            text=final_text,
-            reply_markup=final_keyboard,
-            parse_mode="Markdown"
-        )
 
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text
@@ -446,126 +466,45 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if active_batch_sessions.get(user_id, False):
         return
 
-    linking_states = load_linking_states()
-    if linking_states.get(str(user_id)) == "waiting_for_channel":
-        if update.message.forward_origin and getattr(update.message.forward_origin, 'type', None) == 'channel':
-            f_chat = update.message.forward_origin.chat
-            user_channels = load_user_channels()
-            user_channels[str(user_id)] = f_chat.id
-            save_user_channels(user_channels)
-            del linking_states[str(user_id)]
-            save_linking_states(linking_states)
-            keyboard = [[InlineKeyboardButton("🔄 Change Linked Channel", callback_data="change_channel")]]
-            await update.message.reply_text(
-                f"✅ **Channel Linked!**\n📢 {f_chat.title}\n🆔 `{f_chat.id}`",
-                reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
-            )
-            return
-        else:
-            await update.message.reply_text("❌ Forward a message from your channel to link it.")
-            return
-
-    if update.message.forward_origin and getattr(update.message.forward_origin, 'type', None) == 'channel':
-        f_chat = update.message.forward_origin.chat
-        user_channels = load_user_channels()
-        user_channels[str(user_id)] = f_chat.id
-        save_user_channels(user_channels)
-        keyboard = [[InlineKeyboardButton("🔄 Change Linked Channel", callback_data="change_channel")]]
-        await update.message.reply_text(
-            f"✅ **Channel Linked!**\n📢 {f_chat.title}\n🆔 `{f_chat.id}`",
-            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
-        )
-        return
-
     extracted_urls = re.findall(r'https?://[^\s]+', text)
     if not extracted_urls:
         return
 
-    if len(extracted_urls) == 1:
-        url = extracted_urls[0]
-        if "youtube.com" in url.lower() or "youtu.be" in url.lower():
-            await update.message.reply_text("❌ YouTube is paused.")
-            return
-
-        try:
-            response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": False}, timeout=5)
-            res_data = response.json() if response.status_code == 200 else {}
-        except Exception:
-            await update.message.reply_text("❌ Error connecting to server.")
-            return
-
-        if res_data.get("status") == "allowed":
-            remaining = res_data.get("left", 0)
-            status_msg = await update.message.reply_text(f"📥 **Downloading...** ({remaining} free downloads left)")
-            try:
-                file_path, resolution, size_str = download_video_ytdlp(url)
-                if file_path and os.path.exists(file_path):
-                    with open(file_path, 'rb') as media_file:
-                        sent_media = await context.bot.send_video(
-                            chat_id=chat_id, video=media_file,
-                            caption=f"✨ **Download Successful!**\n📐 Quality: {resolution}\n📦 Size: {size_str}",
-                            parse_mode="Markdown"
-                        )
-                    warning_msg = await context.bot.send_message(chat_id=chat_id, text="⏳ **Auto-deletes in 9 minutes.**")
-                    asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent_media.message_id, warning_msg.message_id], DELETE_DELAY_TIME))
-                    os.remove(file_path)
-                    await context.bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
-            except Exception as e:
-                if "FILE_TOO_LARGE" in str(e):
-                    error_msg = "❌ Video is larger than 50MB."
-                elif "403" in str(e):
-                    error_msg = "❌ HTTP 403 Forbidden (Site blocked bot)."
-                elif "ProxyError" in str(e):
-                    error_msg = "❌ Proxy connection failed."
-                elif "404" in str(e):
-                    error_msg = "❌ HTTP 404 Not Found."
-                else:
-                    error_msg = "❌ Site restricted download."
-                
-                help_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("💬 Ask for Help in FAQ Channel", url=HELP_CHANNEL_URL)]])
-                await context.bot.edit_message_text(
-                    chat_id=chat_id, 
-                    message_id=status_msg.message_id, 
-                    text=error_msg,
-                    reply_markup=help_keyboard if "403" in str(e) or "ProxyError" in str(e) else None
-                )
-        else:
-            bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
-            tokens = load_tokens()
-            tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
-            save_tokens(tokens)
-            keyboard = [
-                [InlineKeyboardButton("🔓 Open Link & Refill", url=bridge_link)],
-                [InlineKeyboardButton("📢 Join Public Channel", url=PUBLIC_CHANNEL_URL)],
-                [InlineKeyboardButton("💜 Check Balance", callback_data="verify_user")]
-            ]
-            await update.message.reply_text("⚠️ **Limit Reached!** Refill to continue.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-    else:
-        try:
-            member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_USERNAME, user_id=user_id)
-            if member.status not in ["creator", "administrator", "member"]:
-                keyboard = [[InlineKeyboardButton("📢 Join Public Channel", url=PUBLIC_CHANNEL_URL)]]
-                await update.message.reply_text(
-                    "⚠️ **Channel Required!**\n\nYou must join our public channel before using the Batch Downloader.\n\n1. Join the channel below.\n2. Send your links again.",
-                    reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
-                )
-                return
-        except Exception:
-            await update.message.reply_text("⚠️ Please join the public channel to use batch downloads.")
-            return
-
+    # If Multiple Links -> Batch Flow
+    if len(extracted_urls) > 1:
         payload_key = f"batch_{user_id}_{int(time.time())}"
         pending_batch_payloads[payload_key] = extracted_urls
         keyboard = [
             [InlineKeyboardButton("📥 Download in Chat", callback_data=f"dest_chat_{payload_key}")],
             [InlineKeyboardButton("📢 Forward to Private Channel", callback_data=f"dest_chan_{payload_key}")]
         ]
-        await update.message.reply_text(
-            f"📦 **Batch Detected ({len(extracted_urls)} links)**\n\nWhere would you like to send these?",
-            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
-        )
+        await update.message.reply_text(f"📦 **Batch Detected ({len(extracted_urls)} links)**\nWhere to send these?", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        return
+
+    # If Single Link -> Show Format Menu
+    url = extracted_urls[0]
+    if "youtube.com" in url.lower() or "youtu.be" in url.lower():
+        await update.message.reply_text("❌ YouTube is paused.")
+        return
+
+    payload_key = f"single_{user_id}_{int(time.time())}"
+    pending_single_links[payload_key] = url
+
+    keyboard = [
+        [InlineKeyboardButton("🎬 Video (MP4)", callback_data=f"fmt_vid_{payload_key}")],
+        [InlineKeyboardButton("🎵 Audio (MP3)", callback_data=f"fmt_aud_{payload_key}")],
+        [InlineKeyboardButton("🖼️ Images (Gallery)", callback_data=f"fmt_img_{payload_key}")],
+        [InlineKeyboardButton("📝 Subtitles (SRT)", callback_data=f"fmt_sub_{payload_key}")]
+    ]
+    await update.message.reply_text(
+        "👇 **What would you like to download?**",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # (Keep existing Batch TXT logic)
     document = update.message.document
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
@@ -575,19 +514,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     if not document.file_name or not document.file_name.endswith('.txt'):
         await update.message.reply_text("❌ Please upload a valid `.txt` file.")
-        return
-
-    try:
-        member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_USERNAME, user_id=user_id)
-        if member.status not in ["creator", "administrator", "member"]:
-            keyboard = [[InlineKeyboardButton("📢 Join Public Channel", url=PUBLIC_CHANNEL_URL)]]
-            await update.message.reply_text(
-                "⚠️ **Channel Required!**\n\nYou must join our public channel before using the Batch Downloader.",
-                reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
-            )
-            return
-    except Exception:
-        await update.message.reply_text("⚠️ Please join the public channel to use batch downloads.")
         return
 
     try:
@@ -606,35 +532,130 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             [InlineKeyboardButton("📥 Download in Chat", callback_data=f"dest_chat_{payload_key}")],
             [InlineKeyboardButton("📢 Forward to Private Channel", callback_data=f"dest_chan_{payload_key}")]
         ]
-        await update.message.reply_text(
-            f"📄 **File Detected ({len(extracted_urls)} links)**\n\nWhere would you like to send these?",
-            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
-        )
+        await update.message.reply_text(f"📄 **File Detected ({len(extracted_urls)} links)**\nWhere to send these?", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     except Exception as e:
         logger.error(f"File error: {e}")
         await update.message.reply_text("❌ Failed to read the file.")
 
+
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message.from_user.id != ADMIN_ID:
-        return
+    if update.message.from_user.id != ADMIN_ID: return
     tokens = load_tokens()
-    total = len(tokens)
-    clicked = sum(1 for d in tokens.values() if d.get("clicked_ad", False))
-    verified = sum(1 for d in tokens.values() if d.get("verified", False))
-    await update.message.reply_text(f"📊 **STATS**\nTotal: {total}\nClicked Ad: {clicked}\nVerified: {verified}\nPending: {total-verified}", parse_mode="Markdown")
+    await update.message.reply_text(f"📊 **STATS**\nTotal Users: {len(tokens)}", parse_mode="Markdown")
+
 
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     user_id = query.from_user.id
     data = query.data
+    chat_id = query.message.chat_id
 
+    # --- SINGLE LINK FORMAT SELECTION ---
+    if data.startswith("fmt_"):
+        parts = data.split("_", 2)
+        fmt_type = parts[1] # vid, aud, img, sub
+        payload_key = parts[2]
+        
+        url = pending_single_links.pop(payload_key, None)
+        if not url:
+            await query.answer("❌ Session expired. Resend link.", show_alert=True)
+            return
+            
+        await query.answer("Processing...")
+        await query.message.delete()
+
+        # Map formats
+        dl_type = 'video'
+        if fmt_type == 'aud': dl_type = 'audio'
+        elif fmt_type == 'img': dl_type = 'images'
+        elif fmt_type == 'sub': dl_type = 'subtitles'
+
+        # Check User Limit
+        try:
+            response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": False}, timeout=5)
+            res_data = response.json() if response.status_code == 200 else {}
+        except Exception:
+            await context.bot.send_message(chat_id=chat_id, text="❌ Server connection error.")
+            return
+
+        if res_data.get("status") != "allowed":
+            bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
+            tokens = load_tokens()
+            tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
+            save_tokens(tokens)
+            keyboard = [
+                [InlineKeyboardButton("🔓 Open Link & Refill", url=bridge_link)],
+                [InlineKeyboardButton("📢 Join Public Channel", url=PUBLIC_CHANNEL_URL)],
+                [InlineKeyboardButton("💜 Check Balance", callback_data="verify_user")]
+            ]
+            await context.bot.send_message(chat_id=chat_id, text="⚠️ **Limit Reached!** Refill to continue.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            return
+
+        # Start Downloading
+        status_msg = await context.bot.send_message(chat_id=chat_id, text=f"📥 **Fetching {dl_type}... Please wait.**")
+
+        try:
+            file_paths, resolution, size_str = download_media_engine(url, dl_type)
+            
+            if not file_paths:
+                raise ValueError("FILE_NOT_FOUND")
+
+            # Send based on type
+            if dl_type == 'images':
+                # Send as media group (album)
+                media_group = []
+                for p in file_paths:
+                    media_group.append(InputMediaPhoto(media=open(p, 'rb')))
+                
+                sent_media = await context.bot.send_media_group(chat_id=chat_id, media=media_group)
+                warning_msg = await context.bot.send_message(chat_id=chat_id, text=f"⏳ **{len(file_paths)} Images received. Auto-deletes in 9 minutes.**")
+                
+                asyncio.create_task(schedule_deletion(context.bot, chat_id, [m.message_id for m in sent_media] + [warning_msg.message_id], DELETE_DELAY_TIME))
+                for p in file_paths: os.remove(p)
+                
+            elif dl_type == 'audio':
+                file_path = file_paths[0]
+                with open(file_path, 'rb') as f:
+                    sent_media = await context.bot.send_audio(chat_id=chat_id, audio=f, title="Extracted Audio", caption=f"🎵 **Audio Extracted**\n📦 Size: {size_str}", parse_mode="Markdown")
+                warning_msg = await context.bot.send_message(chat_id=chat_id, text="⏳ **Auto-deletes in 9 minutes.**")
+                asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent_media.message_id, warning_msg.message_id], DELETE_DELAY_TIME))
+                os.remove(file_path)
+                
+            elif dl_type == 'subtitles':
+                file_path = file_paths[0]
+                with open(file_path, 'rb') as f:
+                    sent_media = await context.bot.send_document(chat_id=chat_id, document=f, caption=f"📝 **Subtitles Extracted**", parse_mode="Markdown")
+                warning_msg = await context.bot.send_message(chat_id=chat_id, text="⏳ **Auto-deletes in 9 minutes.**")
+                asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent_media.message_id, warning_msg.message_id], DELETE_DELAY_TIME))
+                os.remove(file_path)
+                
+            else:
+                file_path = file_paths[0]
+                with open(file_path, 'rb') as f:
+                    sent_media = await context.bot.send_video(chat_id=chat_id, video=f, caption=f"✨ **Video Downloaded**\n📐 Quality: {resolution}\n📦 Size: {size_str}", parse_mode="Markdown")
+                warning_msg = await context.bot.send_message(chat_id=chat_id, text="⏳ **Auto-deletes in 9 minutes.**")
+                asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent_media.message_id, warning_msg.message_id], DELETE_DELAY_TIME))
+                os.remove(file_path)
+
+            await context.bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+
+        except Exception as e:
+            logger.error(f"Single download error: {e}")
+            error_msg = "❌ Failed to download. Link might be private, or site blocked the bot."
+            if "FILE_TOO_LARGE" in str(e): error_msg = "❌ File exceeds Telegram's 50MB limit."
+            elif "NO_SUBTITLES" in str(e): error_msg = "❌ No English subtitles found for this video."
+            elif "NO_IMAGES" in str(e): error_msg = "❌ No images found at this link. Try 'Video' format instead."
+            
+            help_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("💬 Ask for Help", url=HELP_CHANNEL_URL)]])
+            await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=error_msg, reply_markup=help_keyboard)
+        return
+
+    # --- BATCH BUTTONS ---
     if data == "stop_batch":
         active_batch_sessions[user_id] = False
         await query.answer("🛑 Stopping...", show_alert=True)
-        try:
-            await query.edit_message_text("🛑 **Batch Stopped.**")
-        except Exception:
-            pass
+        try: await query.edit_message_text("🛑 **Batch Stopped.**")
+        except: pass
         return
 
     if data == "resume_batch":
@@ -642,13 +663,9 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if not paused:
             await query.answer("❌ Resume session expired.", show_alert=True)
             return
-        
         await query.answer("▶️ Resuming batch...", show_alert=False)
         await query.message.delete()
-        asyncio.create_task(process_url_batch(
-            context.bot, user_id, paused["chat_id"], paused["target_destination_id"], 
-            paused["urls"], start_index=paused["next_index"]
-        ))
+        asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], start_index=paused["next_index"]))
         return
 
     if data.startswith("dest_chat_") or data.startswith("dest_chan_"):
@@ -658,10 +675,9 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         urls = pending_batch_payloads.pop(payload_key, None)
         
         if not urls:
-            await query.answer("❌ Session expired. Resend links.", show_alert=True)
+            await query.answer("❌ Session expired.", show_alert=True)
             return
 
-        chat_id = query.message.chat_id
         if action_type == "chat":
             await query.answer("📥 Streaming to chat...")
             await query.message.delete()
@@ -671,9 +687,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             target_channel_id = user_channels.get(str(user_id))
             if not target_channel_id:
                 await query.answer("❌ No private channel linked!", show_alert=True)
-                linking_states = load_linking_states()
-                linking_states[str(user_id)] = "waiting_for_channel"
-                save_linking_states(linking_states)
                 await query.message.edit_text("📦 **Setup Required!**\n\n1. Make bot Admin in your channel.\n2. **Forward any message** from the channel here.", parse_mode="Markdown")
                 return
             await query.answer("📢 Forwarding to channel...")
@@ -681,30 +694,20 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, target_channel_id, urls))
         return
 
-    if data == "change_channel":
-        linking_states = load_linking_states()
-        linking_states[str(user_id)] = "waiting_for_channel"
-        save_linking_states(linking_states)
-        await query.answer("🔄 Mode activated!")
-        await query.message.reply_text("🔄 **Change Channel**\n\nForward a message from your new channel here.", parse_mode="Markdown")
-        return
-
+    # (Keep existing verify_user logic)
     if data == "verify_user":
         try:
             member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_USERNAME, user_id=user_id)
             if member.status not in ["creator", "administrator", "member"]:
-                await query.answer("❌ Join our public channel first!", show_alert=True)
+                await query.answer("❌ Join public channel first!", show_alert=True)
                 return
         except Exception:
-            await query.answer("⚠️ Join the channel before proceeding!", show_alert=True)
+            await query.answer("⚠️ Join the channel first!", show_alert=True)
             return
 
         tokens = load_tokens()
         user_str = str(user_id)
-        if user_str not in tokens:
-            await query.answer("❌ Session expired. Try again.", show_alert=True)
-            return
-        
+        if user_str not in tokens: return
         token_data = tokens[user_str]
         if not token_data.get("verified", False):
             await query.answer("❌ Finish the timer first!", show_alert=True)
@@ -717,17 +720,12 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.answer("✅ Verified!")
 
         if user_id in paused_batches:
-            keyboard = [[InlineKeyboardButton("▶️ Resume Batch from where I stopped", callback_data="resume_batch")]]
-            await query.message.reply_text(
-                "✅ **Verification Successful!** Your batch limit has been refilled.\n\n"
-                "Click the button below to continue downloading your remaining links!",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="Markdown"
-            )
+            keyboard = [[InlineKeyboardButton("▶️ Resume Batch", callback_data="resume_batch")]]
+            await query.message.reply_text("✅ **Verified!** Your batch limit has been refilled.\nClick below to resume!", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             return
 
         if msg_start == 0:
-            await query.message.reply_text("✅ **Refilled!** You can download again now.")
+            await query.message.reply_text("✅ **Refilled!** You can download again.")
             return
 
         await query.message.reply_text("✅ **Verified!** Fetching bundle...")
@@ -741,7 +739,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             forwarded_ids.append(warn.message_id)
             asyncio.create_task(schedule_deletion(context.bot, user_id, forwarded_ids, DELETE_DELAY_TIME))
         except Exception as e:
-            await query.message.reply_text(f"❌ Error fetching bundle: {e}")
+            await query.message.reply_text(f"❌ Error: {e}")
+
 
 def run_telegram_bot():
     loop = asyncio.new_event_loop()
@@ -765,6 +764,5 @@ if not getattr(web_app, '_bot_started', False):
     threading.Thread(target=run_telegram_bot, daemon=True).start()
 
 if __name__ == "__main__":
-    print("Testing Flask server...")
     port = int(os.environ.get("PORT", 10000))
     web_app.run(host="0.0.0.0", port=port)
