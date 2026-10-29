@@ -710,11 +710,13 @@ def run_telegram_bot():
 
     loop.run_until_complete(start_bot())
 
-if __name__ == "__main__":
+# --- GLOBAL MODULE-LEVEL STARTUP (FIXES GUNICORN / RENDER SILENT STARTUP) ---
+if not getattr(web_app, '_bot_started', False):
+    web_app._bot_started = True
     print("Starting Telegram bot background thread...")
     bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
     bot_thread.start()
 
-    print("Testing Flask web server on main thread...")
+if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     web_app.run(host="0.0.0.0", port=port)
