@@ -97,9 +97,9 @@ def save_linking_states(states):
     except Exception as e:
         logger.error(f"Error saving linking states: {e}")
 
-# --- YT-DLP DOWNLOAD HELPER (Safe Options & Selective Cookies) ---
+# --- YT-DLP DOWNLOAD HELPER (With Browser Headers for TikTok) ---
 def download_video_ytdlp(url: str):
-    """Downloads media using yt-dlp safely without assertion errors."""
+    """Downloads media using yt-dlp safely with proper browser headers to prevent TikTok blocking."""
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
@@ -112,9 +112,12 @@ def download_video_ytdlp(url: str):
         'quiet': True,
         'merge_output_format': 'mp4',
         'ffmpeg_location': ffmpeg_path,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9',
+        }
     }
     
-    # ONLY attach cookies if the link belongs to YouTube or Twitter/X
     domain_lower = url.lower()
     if any(d in domain_lower for d in ["twitter.com", "x.com", "youtube.com", "youtu.be"]):
         if os.path.exists("cookies.txt"):
@@ -148,7 +151,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "• **Single Link:** Share or paste any media link directly into this chat.\n"
             "• **Batch Links:** Paste text containing multiple links or upload a `.txt` file to stream them directly into your linked private channel!\n\n"
             "🌐 **Supported Platforms for Downloading:**\n"
-            "• **TikTok** (Videos & Slides)\n"
+            "• **TikTok** (Videos, Slides, & Short Links like `vt.tiktok.com`)\n"
             "• ❌ ~~YouTube~~ *(Temporarily paused / Maintenance)*\n"
             "• **X (Twitter)** (Public, Sensitive, & Authenticated Posts)\n"
             "• **Instagram** (Reels & Posts)\n"
@@ -397,14 +400,14 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text("❌ **YouTube downloads are temporarily paused for maintenance.** Please share links from TikTok, X (Twitter), Instagram, or Facebook instead!")
         return
 
-    supported_domains = ["tiktok.com", "twitter.com", "x.com", "facebook.com", "fb.watch", "instagram.com"]
+    supported_domains = ["tiktok.com", "vt.tiktok.com", "vm.tiktok.com", "twitter.com", "x.com", "facebook.com", "fb.watch", "instagram.com"]
     words = text.split()
     found_urls = [word for word in words if any(d in word.lower() for d in supported_domains)]
     
     if not found_urls:
         return
 
-    # Single Link Handling (Directly to chat using your exact working build logic)
+    # Single Link Handling (Directly to chat using your working build logic)
     if len(found_urls) == 1:
         url = found_urls[0]
 
@@ -559,7 +562,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         file_bytes = await file.download_as_bytearray()
         file_text = file_bytes.decode('utf-8', errors='ignore')
 
-        supported_domains = ["tiktok.com", "twitter.com", "x.com", "facebook.com", "fb.watch", "instagram.com"]
+        supported_domains = ["tiktok.com", "vt.tiktok.com", "vm.tiktok.com", "twitter.com", "x.com", "facebook.com", "fb.watch", "instagram.com"]
         words = file_text.split()
         extracted_urls = [word for word in words if any(d in word.lower() for d in supported_domains)]
 
