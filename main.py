@@ -6,7 +6,6 @@ import threading
 import requests
 import logging
 import re
-import tempfile
 import imageio_ffmpeg
 import yt_dlp
 from flask import Flask
@@ -16,7 +15,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 # --- FIX FFMPEG EXECUTION PERMISSIONS FOR RENDER ---
 ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 try:
-    os.chmod(ffmpeg_path, 0o755)  # Grants execution rights to the ffmpeg binary
+    os.chmod(ffmpeg_path, 0o755)
 except Exception as e:
     logging.error(f"Could not set ffmpeg permissions: {e}")
 
@@ -26,17 +25,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# .strip() automatically removes any accidental spaces or hidden enter keys (\n) from Render's environment variables
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN", "8863904451:AAG-QT2pLfR1myUkCyziVCteRiGW5t08udc").strip()
-ADMIN_ID = 6248570946  # Your secure personal Telegram ID
+ADMIN_ID = 6248570946
 DETECTED_CHANNEL_ID = -1004347828512
-PRIVATE_CHANNEL_ID = -1004347828512  # Vault/Tutorial channel
-TUTORIAL_MESSAGE_ID = 108             # Your working tutorial video message ID
+PRIVATE_CHANNEL_ID = -1004347828512
+TUTORIAL_MESSAGE_ID = 108
 WEB_BASE_URL = "https://michaelbbc.pythonanywhere.com"
 BRIDGE_URL = f"{WEB_BASE_URL}/bridge"
 PUBLIC_CHANNEL_URL = "https://t.me/booksaufio"
-PUBLIC_CHANNEL_USERNAME = "@booksaufio"  # Used for API channel membership checks
-DELETE_DELAY_TIME = 540  # 9 minutes
+PUBLIC_CHANNEL_USERNAME = "@booksaufio"
+DELETE_DELAY_TIME = 540
 
 CHANNELS_FILE = "user_channels.json"
 LINKING_STATE_FILE = "linking_states.json"
@@ -47,7 +45,6 @@ web_app = Flask(__name__)
 @web_app.route('/')
 def health_check():
     return "Bot is alive and running!", 200
-# ----------------------------------
 
 # TOKEN SYNC WITH PYTHONANYWHERE BRIDGE BACKEND
 def load_tokens():
@@ -65,7 +62,6 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
-# USER CHANNEL STORAGE HELPERS
 def load_user_channels():
     if os.path.exists(CHANNELS_FILE):
         try:
@@ -82,7 +78,6 @@ def save_user_channels(channels):
     except Exception as e:
         logger.error(f"Error saving user channels: {e}")
 
-# LINKING STATE HELPERS (For change channel workflow)
 def load_linking_states():
     if os.path.exists(LINKING_STATE_FILE):
         try:
@@ -99,7 +94,6 @@ def save_linking_states(states):
     except Exception as e:
         logger.error(f"Error saving linking states: {e}")
 
-# --- SMART URL EXTRACTOR (Handles raw domains, grabber text, & URLs) ---
 def extract_urls_from_text(text: str):
     pattern = r'(?:https?://)?(?:www\.)?[a-zA-Z0-9][-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&//=]*)'
     raw_matches = re.findall(pattern, text)
@@ -115,9 +109,7 @@ def extract_urls_from_text(text: str):
             normalized_urls.append(url)
     return normalized_urls
 
-# --- NATIVE AUTO-DELETE BACKGROUND TASK ---
 async def schedule_deletion(bot, chat_id, message_ids, delay):
-    """Waits for the specified delay and deletes messages securely."""
     await asyncio.sleep(delay)
     for msg_id in message_ids:
         try:
@@ -125,7 +117,6 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
         except Exception:
             pass
 
-# --- YT-DLP DOWNLOAD HELPER (Hardened TikTok/Social Extractor) ---
 def download_video_ytdlp(url: str):
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
@@ -143,7 +134,7 @@ def download_video_ytdlp(url: str):
                 'format': fmt,
                 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
                 'noplaylist': True,
-                'quiet': False,  # Enabled to catch full extraction logs if something fails
+                'quiet': False,
                 'merge_output_format': 'mp4',
                 'ffmpeg_location': ffmpeg_path,
                 'http_headers': {
@@ -173,7 +164,7 @@ def download_video_ytdlp(url: str):
                     return filename, resolution, size_str
         except Exception as e:
             last_error = e
-            logger.error(f"yt-dlp extraction error on tier {fmt} for {url}: {e}")
+            logger.error(f"yt-dlp error on tier {fmt} for {url}: {e}")
             continue
             
     raise ValueError(f"FILE_TOO_LARGE_OR_FAILED: {str(last_error)}")
@@ -267,13 +258,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.error(f"Copy message error: {e}")
         await update.message.reply_text(
             text=caption_text,
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
+            reply_markup=reply_markup
         )
 
-# --- CORE BATCH DOWNLOAD PROCESSOR (Streams to User Private Channel) ---
 async def process_url_batch(bot, user_id, chat_id, target_channel_id, urls):
-    """Processes a list of extracted URLs sequentially, sending results directly to the user's private channel."""
     if not urls:
         return
 
@@ -291,7 +279,6 @@ async def process_url_batch(bot, user_id, chat_id, target_channel_id, urls):
             await bot.send_message(chat_id=chat_id, text=f"❌ [{index}/{len(urls)}] Skipped YouTube link (under maintenance).")
             continue
 
-        # Check allowance per link
         try:
             response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id}, timeout=5)
             if response.status_code == 200:
@@ -370,9 +357,8 @@ async def process_url_batch(bot, user_id, chat_id, target_channel_id, urls):
                 fail_count += 1
         except Exception as e:
             logger.error(f"Batch download error for {url}: {e}", exc_info=True)
-            err_text = f"❌ [{index}/{len(urls)}] Download failed (Extraction error or file > 50MB)."
             try:
-                await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=err_text)
+                await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}/{len(urls)}] Download failed.")
             except Exception:
                 pass
             fail_count += 1
@@ -386,10 +372,9 @@ async def process_url_batch(bot, user_id, chat_id, target_channel_id, urls):
 
     await bot.send_message(
         chat_id=chat_id,
-        text=f"🏁 **Batch Processing Complete!**\n✅ Successfully streamed: {success_count}\n❌ Failed/Skipped: {fail_count}\n\n*Check your linked private channel to view your downloads!*"
+        text=f"🏁 **Batch Processing Complete!**\n✅ Successful: {success_count}\n❌ Failed/Skipped: {fail_count}"
     )
 
-# --- UNIVERSAL MEDIA LINK & BATCH TEXT LISTENER HANDLER ---
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text
     user_id = update.message.from_user.id
@@ -555,7 +540,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
         asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, target_channel_id, extracted_urls))
 
-# --- .TXT FILE UPLOAD BATCH HANDLER ---
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     document = update.message.document
     user_id = update.message.from_user.id
@@ -704,8 +688,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except Exception as e:
             await query.message.reply_text(f"❌ Error fetching file bundle: {e}")
 
+# --- SINGLE THREAD-SAFE LAUNCHER TO PREVENT GUNICORN/RENDER CONFLICTS ---
 def run_telegram_bot():
-    """Runs the Telegram bot in a dedicated event loop thread"""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
@@ -719,29 +703,21 @@ def run_telegram_bot():
         
         await app.initialize()
         await app.start()
-        await app.updater.start_polling()
+        await app.updater.start_polling(drop_pending_updates=True)
         
         await asyncio.Event().wait()
 
     loop.run_until_complete(start_bot())
 
-# --- GLOBAL STARTUP BLOCK (Works for Gunicorn & Direct Python execution) ---
-LOCK_FILE = os.path.join(tempfile.gettempdir(), "telegram_bot_running.lock")
-is_primary_worker = False
-try:
-    os.open(LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_RDWR)
-    is_primary_worker = True
-except OSError:
-    pass
-
-if is_primary_worker:
-    print("Starting Telegram bot background thread (Primary Worker)...")
-    bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
-    bot_thread.start()
-else:
-    print("Secondary worker detected. Skipping duplicate Telegram bot thread.")
+# Start the background polling thread safely without lock files
+if os.environ.get("RENDER", "true").lower() == "true" or True:
+    # Ensure it only spawns once globally by using a threading flag check
+    if not getattr(web_app, '_bot_started', False):
+        web_app._bot_started = True
+        print("Starting Telegram bot background thread...")
+        bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
+        bot_thread.start()
 
 if __name__ == "__main__":
-    print("Testing Flask web server on main thread...")
     port = int(os.environ.get("PORT", 10000))
     web_app.run(host="0.0.0.0", port=port)
