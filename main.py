@@ -125,12 +125,8 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
         except Exception:
             pass
 
-# --- YT-DLP DOWNLOAD HELPER (Dynamic Quality Fallback + TikTok Fix) ---
+# --- YT-DLP DOWNLOAD HELPER (Hardened TikTok/Social Extractor) ---
 def download_video_ytdlp(url: str):
-    """
-    Tries downloading in highest possible quality first. 
-    Steps down to 720p, then 480p if too big. Relies on post-download file size check.
-    """
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
@@ -140,15 +136,19 @@ def download_video_ytdlp(url: str):
         ("best[height<=480]", "480p")
     ]
     
+    last_error = None
     for fmt, tier_desc in tiers:
         try:
             ydl_opts = {
                 'format': fmt,
                 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
                 'noplaylist': True,
-                'quiet': True,
+                'quiet': False,  # Enabled to catch full extraction logs if something fails
                 'merge_output_format': 'mp4',
                 'ffmpeg_location': ffmpeg_path,
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                }
             }
             
             domain_lower = url.lower()
@@ -172,10 +172,11 @@ def download_video_ytdlp(url: str):
                         
                     return filename, resolution, size_str
         except Exception as e:
-            logger.error(f"yt-dlp error for {url}: {e}")
+            last_error = e
+            logger.error(f"yt-dlp extraction error on tier {fmt} for {url}: {e}")
             continue
             
-    raise ValueError("FILE_TOO_LARGE")
+    raise ValueError(f"FILE_TOO_LARGE_OR_FAILED: {str(last_error)}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
@@ -369,10 +370,7 @@ async def process_url_batch(bot, user_id, chat_id, target_channel_id, urls):
                 fail_count += 1
         except Exception as e:
             logger.error(f"Batch download error for {url}: {e}", exc_info=True)
-            if "FILE_TOO_LARGE" in str(e):
-                err_text = f"❌ [{index}/{len(urls)}] File too large (exceeds 50MB even at 480p)."
-            else:
-                err_text = f"❌ [{index}/{len(urls)}] Error: {type(e).__name__}"
+            err_text = f"❌ [{index}/{len(urls)}] Download failed (Extraction error or file > 50MB)."
             try:
                 await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=err_text)
             except Exception:
@@ -500,12 +498,8 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                     await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text="❌ Failed to download media. File path not found.")
             except Exception as e:
                 logger.error(f"Download error details: {e}", exc_info=True)
-                if "FILE_TOO_LARGE" in str(e):
-                    error_msg = "❌ The file is too large and Telegram won't allow it (exceeds the 50MB bot limit even at 480p)."
-                else:
-                    error_msg = str(e) if str(e) else type(e).__name__
                 try:
-                    await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ Download error: {error_msg}")
+                    await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text="❌ Download error: Failed to extract or file exceeds 50MB limit.")
                 except Exception:
                     pass
         else:
