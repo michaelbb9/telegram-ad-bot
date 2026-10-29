@@ -42,7 +42,6 @@ LINKING_STATE_FILE = "linking_states.json"
 active_batch_sessions = {}
 pending_batch_payloads = {}
 paused_batches = {}
-# NEW: Stores single links waiting for user to choose format
 pending_single_links = {}
 
 web_app = Flask(__name__)
@@ -106,24 +105,18 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
         except Exception:
             pass
 
-# --- NEW UNIVERSAL DOWNLOAD ENGINE ---
+# --- FIXED UNIVERSAL DOWNLOAD ENGINE ---
 def download_media_engine(url: str, download_type: str):
-    """
-    download_type options: 'video', 'audio', 'images', 'subtitles'
-    Returns: (file_paths_list, resolution_string, size_string)
-    """
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
     url_lower = url.lower()
     
-    # Base headers
     http_headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept-Language': 'en-US,en;q=0.9',
     }
 
-    # Cookie Loader
     cookiefile = None
     if "tiktok.com" in url_lower and os.path.exists("tiktok_cookies.txt"):
         cookiefile = "tiktok_cookies.txt"
@@ -135,7 +128,6 @@ def download_media_engine(url: str, download_type: str):
     elif os.path.exists("cookies.txt"):
         cookiefile = "cookies.txt"
 
-    # Base options
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
@@ -145,9 +137,7 @@ def download_media_engine(url: str, download_type: str):
     if cookiefile:
         ydl_opts['cookiefile'] = cookiefile
 
-    # -----------------------------------------
-    # TYPE 1: AUDIO (MP3)
-    # -----------------------------------------
+    # --- 1. AUDIO (MP3) ---
     if download_type == 'audio':
         ydl_opts.update({
             'format': 'bestaudio/best',
@@ -168,9 +158,7 @@ def download_media_engine(url: str, download_type: str):
                 return [mp3_path], "Audio MP3", size_mb
         raise ValueError("FILE_NOT_FOUND")
 
-    # -----------------------------------------
-    # TYPE 2: SUBTITLES
-    # -----------------------------------------
+    # --- 2. SUBTITLES ---
     elif download_type == 'subtitles':
         ydl_opts.update({
             'skip_download': True,
@@ -187,17 +175,13 @@ def download_media_engine(url: str, download_type: str):
             if os.path.exists(srt_path):
                 return [srt_path], "Subtitles (EN)", "Text File"
             else:
-                # Check if it's available as automatic captions
                 srt_path = f"{base_name}.en.vtt"
                 if os.path.exists(srt_path):
                     return [srt_path], "Subtitles (EN)", "Text File"
         raise ValueError("NO_SUBTITLES")
 
-    # -----------------------------------------
-    # TYPE 3: IMAGES (Photos / Galleries)
-    # -----------------------------------------
+    # --- 3. IMAGES ---
     elif download_type == 'images':
-        # For image scraping (like Instagram/Pinterest)
         ydl_opts.update({
             'format': 'best',
             'outtmpl': os.path.join(output_dir, '%(id)s_%(autonumber)s.%(ext)s'),
@@ -206,8 +190,6 @@ def download_media_engine(url: str, download_type: str):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             image_paths = []
-            
-            # Find all downloaded images in the dir matching this ID
             video_id = info.get('id', '')
             for file in os.listdir(output_dir):
                 if video_id in file and file.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
@@ -219,32 +201,24 @@ def download_media_engine(url: str, download_type: str):
             total_size = sum(os.path.getsize(p) for p in image_paths) / (1024 * 1024)
             return image_paths, f"{len(image_paths)} Images", f"{total_size:.1f}MB"
 
-    # -----------------------------------------
-    # TYPE 4: VIDEO (With TikTok No-Watermark)
-    # -----------------------------------------
+    # --- 4. VIDEO (The Fixed Logic) ---
     else:
-        tiers = ["best", "best[height<=720]", "best[height<=480]"]
-        
-        # TikTok No Watermark Hack
+        # We force it to 480p maximum first to guarantee it fits in 50MB. 
+        # If it's a TikTok, we try to get the no-watermark version.
         if "tiktok.com" in url_lower:
-            tiers = ["best[format_id!='download']", "best"] 
+            tiers = ["best[format_id!='download'][height<=720]", "best[height<=480]", "best"]
+        else:
+            tiers = ["best[height<=720]", "best[height<=480]", "best"]
 
         for fmt in tiers:
             try:
                 ydl_opts.update({
                     'format': fmt,
                     'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
-                    'max_filesize': 50 * 1024 * 1024,
                     'merge_output_format': 'mp4',
                     'ffmpeg_location': ffmpeg_path,
+                    # REMOVED 'max_filesize' here. We will check the size after download.
                 })
-                
-                # Size Check
-                with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True, 'proxy': PROXY_URL if PROXY_URL else None, 'cookiefile': cookiefile if cookiefile else None}) as ydl:
-                    info = ydl.extract_info(url, download=False)
-                    filesize = info.get('filesize') or info.get('filesize_approx')
-                    if filesize and filesize > 50 * 1024 * 1024:
-                        continue 
 
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(url, download=True)
@@ -257,21 +231,23 @@ def download_media_engine(url: str, download_type: str):
                             
                     if os.path.exists(filename):
                         file_size_bytes = os.path.getsize(filename)
+                        
+                        # NOW we check the actual file size on the server
                         if file_size_bytes > 50 * 1024 * 1024:
                             os.remove(filename)
-                            continue 
+                            continue # Try the next smaller tier
                         
                         height = info.get('height', 'Unknown')
                         resolution = f"{height}p" if isinstance(height, int) else "HD/SD"
                         size_str = f"{file_size_bytes / (1024 * 1024):.1f}MB"
                         return [filename], resolution, size_str
             except Exception as e:
+                logger.error(f"Video tier error ({fmt}): {e}")
                 if "Unsupported URL" in str(e) or "Video unavailable" in str(e) or "403" in str(e) or "HTTP Error" in str(e):
                     raise e
                 continue
                 
         raise ValueError("FILE_TOO_LARGE")
-
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
@@ -293,7 +269,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
-    # (Existing Bundle Unlock Logic)
     video_code = args[0]
     if video_code.startswith("vid"):
         clean_code = video_code.replace("vid", "")
@@ -367,7 +342,6 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             await bot.send_message(chat_id=chat_id, text=f"❌ [{index}/{len(urls)}] Skipped YouTube (maintenance).")
             continue
 
-        # COOLDOWN LOGIC
         if consecutive_fails >= 3:
             cooldown_msg = await bot.send_message(chat_id=chat_id, text=f"⏳ **Site Rate Limit Detected.** Pausing for 60 seconds...")
             await asyncio.sleep(60)
@@ -405,7 +379,6 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
         status_msg = await bot.send_message(chat_id=chat_id, text=f"📥 [{index}/{len(urls)}] Downloading video...")
 
         try:
-            # Batch ALWAYS downloads as Video
             file_paths, resolution, size_str = download_media_engine(url, 'video')
             
             if file_paths and os.path.exists(file_paths[0]):
@@ -470,7 +443,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if not extracted_urls:
         return
 
-    # If Multiple Links -> Batch Flow
     if len(extracted_urls) > 1:
         payload_key = f"batch_{user_id}_{int(time.time())}"
         pending_batch_payloads[payload_key] = extracted_urls
@@ -481,7 +453,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text(f"📦 **Batch Detected ({len(extracted_urls)} links)**\nWhere to send these?", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
 
-    # If Single Link -> Show Format Menu
     url = extracted_urls[0]
     if "youtube.com" in url.lower() or "youtu.be" in url.lower():
         await update.message.reply_text("❌ YouTube is paused.")
@@ -504,7 +475,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # (Keep existing Batch TXT logic)
     document = update.message.document
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
@@ -550,10 +520,9 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     data = query.data
     chat_id = query.message.chat_id
 
-    # --- SINGLE LINK FORMAT SELECTION ---
     if data.startswith("fmt_"):
         parts = data.split("_", 2)
-        fmt_type = parts[1] # vid, aud, img, sub
+        fmt_type = parts[1] 
         payload_key = parts[2]
         
         url = pending_single_links.pop(payload_key, None)
@@ -564,13 +533,11 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.answer("Processing...")
         await query.message.delete()
 
-        # Map formats
         dl_type = 'video'
         if fmt_type == 'aud': dl_type = 'audio'
         elif fmt_type == 'img': dl_type = 'images'
         elif fmt_type == 'sub': dl_type = 'subtitles'
 
-        # Check User Limit
         try:
             response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": False}, timeout=5)
             res_data = response.json() if response.status_code == 200 else {}
@@ -591,7 +558,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await context.bot.send_message(chat_id=chat_id, text="⚠️ **Limit Reached!** Refill to continue.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             return
 
-        # Start Downloading
         status_msg = await context.bot.send_message(chat_id=chat_id, text=f"📥 **Fetching {dl_type}... Please wait.**")
 
         try:
@@ -600,9 +566,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             if not file_paths:
                 raise ValueError("FILE_NOT_FOUND")
 
-            # Send based on type
             if dl_type == 'images':
-                # Send as media group (album)
                 media_group = []
                 for p in file_paths:
                     media_group.append(InputMediaPhoto(media=open(p, 'rb')))
@@ -650,7 +614,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=error_msg, reply_markup=help_keyboard)
         return
 
-    # --- BATCH BUTTONS ---
     if data == "stop_batch":
         active_batch_sessions[user_id] = False
         await query.answer("🛑 Stopping...", show_alert=True)
@@ -694,7 +657,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, target_channel_id, urls))
         return
 
-    # (Keep existing verify_user logic)
     if data == "verify_user":
         try:
             member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_USERNAME, user_id=user_id)
