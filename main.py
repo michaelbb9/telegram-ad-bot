@@ -99,6 +99,23 @@ def save_linking_states(states):
     except Exception as e:
         logger.error(f"Error saving linking states: {e}")
 
+# --- SMART URL EXTRACTOR (Handles scraped/raw domains & full URLs) ---
+def extract_urls_from_text(text: str):
+    # Matches http/https URLs, www. links, or raw domains like tiktok.com/...
+    pattern = r'(?:https?://)?(?:www\.)?[a-zA-Z0-9][-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&//=]*)'
+    raw_matches = re.findall(pattern, text)
+    
+    normalized_urls = []
+    seen = set()
+    for match in raw_matches:
+        url = match.strip()
+        if not url.startswith(('http://', 'https://')):
+            url = 'https://' + url
+        if len(url) > 10 and '.' in url and url not in seen:
+            seen.add(url)
+            normalized_urls.append(url)
+    return normalized_urls
+
 # --- NATIVE AUTO-DELETE BACKGROUND TASK ---
 async def schedule_deletion(bot, chat_id, message_ids, delay):
     """Waits for the specified delay and deletes messages securely."""
@@ -426,7 +443,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
         return
 
-    extracted_urls = re.findall(r'https?://[^\s]+', text)
+    extracted_urls = extract_urls_from_text(text)
     
     if not extracted_urls:
         return
@@ -578,9 +595,9 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         file_bytes = await file.download_as_bytearray()
         file_text = file_bytes.decode('utf-8', errors='ignore')
 
-        extracted_urls = re.findall(r'https?://[^\s]+', file_text)
+        extracted_urls = extract_urls_from_text(file_text)
         if not extracted_urls:
-            await update.message.reply_text("❌ No valid HTTP/HTTPS links found inside the uploaded `.txt` file.")
+            await update.message.reply_text("❌ No valid links found inside the uploaded `.txt` file.")
             return
 
         asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, target_channel_id, extracted_urls))
@@ -715,7 +732,6 @@ def run_telegram_bot():
     loop.run_until_complete(start_bot())
 
 if __name__ == "__main__":
-    # --- EXCLUSIVE PROCESS LOCK TO PREVENT MULTI-WORKER CONFLICTS ---
     LOCK_FILE = os.path.join(tempfile.gettempdir(), "telegram_bot_running.lock")
     is_primary_worker = False
     try:
