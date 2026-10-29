@@ -38,7 +38,6 @@ LINKING_STATE_FILE = "linking_states.json"
 
 active_batch_sessions = {}
 pending_batch_payloads = {}
-# NEW: Stores paused batches so users can resume after watching the ad
 paused_batches = {}
 
 web_app = Flask(__name__)
@@ -102,6 +101,7 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
         except Exception:
             pass
 
+# --- NEW: SMARTER DOWNLOADER WITH STRICT SIZE CHECK ---
 def download_video_ytdlp(url: str):
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
@@ -115,6 +115,7 @@ def download_video_ytdlp(url: str):
                 'max_filesize': 50 * 1024 * 1024,
                 'noplaylist': True,
                 'quiet': True,
+                'no_warnings': True,
                 'merge_output_format': 'mp4',
                 'ffmpeg_location': ffmpeg_path,
                 'http_headers': {
@@ -122,25 +123,45 @@ def download_video_ytdlp(url: str):
                     'Accept-Language': 'en-US,en;q=0.9',
                 }
             }
-            domain_lower = url.lower()
-            if any(d in domain_lower for d in ["twitter.com", "x.com", "youtube.com", "youtu.be"]):
-                if os.path.exists("cookies.txt"):
-                    ydl_opts['cookiefile'] = "cookies.txt"
             
+            # 1. Extract info first to check size before downloading
+            with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
+                info = ydl.extract_info(url, download=False)
+                
+                # Check if the site reports a file size and if it's too big
+                filesize = info.get('filesize') or info.get('filesize_approx')
+                if filesize and filesize > 50 * 1024 * 1024:
+                    continue # Too big, try next tier (480p)
+            
+            # 2. Download if it passed the size check
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
                 filename = ydl.prepare_filename(info)
-                file_size_bytes = os.path.getsize(filename)
-                if file_size_bytes > 50 * 1024 * 1024:
-                    os.remove(filename)
-                    continue
-                height = info.get('height', 'Unknown')
-                resolution = f"{height}p" if isinstance(height, int) else "HD/SD"
-                size_str = f"{file_size_bytes / (1024 * 1024):.1f}MB"
-                return filename, resolution, size_str
+                
+                if not os.path.exists(filename):
+                    # Sometimes merged files get an .mp4 extension instead of .webm
+                    base = os.path.splitext(filename)[0]
+                    if os.path.exists(base + ".mp4"):
+                        filename = base + ".mp4"
+                        
+                if os.path.exists(filename):
+                    file_size_bytes = os.path.getsize(filename)
+                    if file_size_bytes > 50 * 1024 * 1024:
+                        os.remove(filename)
+                        continue # Still too big after download, try next tier
+                    
+                    height = info.get('height', 'Unknown')
+                    resolution = f"{height}p" if isinstance(height, int) else "HD/SD"
+                    size_str = f"{file_size_bytes / (1024 * 1024):.1f}MB"
+                    return filename, resolution, size_str
+                    
         except Exception as e:
-            logger.error(f"yt-dlp tier error: {e}")
+            logger.error(f"yt-dlp tier error for {url}: {e}")
+            # If the site blocks the bot, raise the actual error to show the user
+            if "Unsupported URL" in str(e) or "Video unavailable" in str(e) or "403" in str(e):
+                raise e
             continue
+            
     raise ValueError("FILE_TOO_LARGE")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -263,10 +284,9 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             }
             save_tokens(tokens)
 
-            # --- SAVE PAUSED BATCH SO THEY CAN RESUME LATER ---
             paused_batches[user_id] = {
                 "urls": urls,
-                "next_index": index - 1, # The index of the URL that failed
+                "next_index": index - 1,
                 "target_destination_id": target_destination_id,
                 "chat_id": chat_id
             }
@@ -321,12 +341,23 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
         except Exception as e:
             logger.error(f"Batch item error: {e}")
             try:
-                error_text = f"❌ [{index}/{len(urls)}] Failed: Exceeds Telegram 50MB limit." if "FILE_TOO_LARGE" in str(e) else f"❌ [{index}/{len(urls)}] Download failed."
+                # --- IMPROVED ERROR MESSAGING ---
+                if "FILE_TOO_LARGE" in str(e):
+                    error_text = f"❌ [{index}/{len(urls)}] Failed: Video is larger than 50MB."
+                elif "403" in str(e) or "Forbidden" in str(e):
+                    error_text = f"❌ [{index}/{len(urls)}] Failed: Site blocked the bot."
+                elif "Unsupported URL" in str(e) or "Video unavailable" in str(e):
+                    error_text = f"❌ [{index}/{len(urls)}] Failed: Private or deleted video."
+                else:
+                    error_text = f"❌ [{index}/{len(urls)}] Download failed."
+                
                 await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=error_text)
             except Exception:
                 pass
             fail_count += 1
-        await asyncio.sleep(1.5)
+        
+        # --- INCREASED DELAY TO PREVENT IP BANS ---
+        await asyncio.sleep(4) 
 
     if user_id in active_batch_sessions:
         del active_batch_sessions[user_id]
@@ -336,7 +367,6 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
     except Exception:
         pass
 
-    # Only show final summary if the batch wasn't paused for a limit
     if user_id not in paused_batches:
         if target_destination_id != chat_id:
             dest_text = f"📢 **{success_count} videos forwarded to your private channel!**"
@@ -420,7 +450,12 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                     os.remove(file_path)
                     await context.bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
             except Exception as e:
-                error_msg = "❌ Exceeds 50MB limit." if "FILE_TOO_LARGE" in str(e) else f"❌ Error: {e}"
+                if "FILE_TOO_LARGE" in str(e):
+                    error_msg = "❌ Video is larger than 50MB."
+                elif "403" in str(e) or "Forbidden" in str(e):
+                    error_msg = "❌ Site blocked the bot."
+                else:
+                    error_msg = "❌ Private or deleted video."
                 await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=error_msg)
         else:
             bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
@@ -528,11 +563,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             pass
         return
 
-    # NEW: Handle the Resume button
     if data == "resume_batch":
         paused = paused_batches.pop(user_id, None)
         if not paused:
-            await query.answer("❌ Resume session expired or already finished.", show_alert=True)
+            await query.answer("❌ Resume session expired.", show_alert=True)
             return
         
         await query.answer("▶️ Resuming batch...", show_alert=False)
@@ -608,12 +642,11 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         save_tokens(tokens)
         await query.answer("✅ Verified!")
 
-        # Check if they have a paused batch waiting
         if user_id in paused_batches:
             keyboard = [[InlineKeyboardButton("▶️ Resume Batch from where I stopped", callback_data="resume_batch")]]
             await query.message.reply_text(
                 "✅ **Verification Successful!** Your batch limit has been refilled.\n\n"
-                "Click the button below to continue downloading your remaining links without starting over!",
+                "Click the button below to continue downloading your remaining links!",
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode="Markdown"
             )
