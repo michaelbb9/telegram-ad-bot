@@ -33,7 +33,6 @@ BRIDGE_URL = f"{WEB_BASE_URL}/bridge"
 PUBLIC_CHANNEL_URL = "https://t.me/booksaufio"
 PUBLIC_CHANNEL_USERNAME = "@booksaufio"
 HELP_CHANNEL_URL = "https://t.me/faqandaupport"
-DELETE_DELAY_TIME = 540 
 
 PROXY_URL = None 
 CHANNELS_FILE = "user_channels.json"
@@ -48,7 +47,6 @@ active_batch_sessions = {}
 pending_batch_payloads = {}
 paused_batches = {}
 pending_single_links = {}
-active_admin_drops = {} # Stores multiple items sent during an active drop session
 
 LANGUAGES = {
     "en": {
@@ -58,7 +56,7 @@ LANGUAGES = {
         "fetching": "📥 **Fetching {}... Please wait.**",
         "error_generic": "❌ Failed to download. Link might be private, or site blocked the bot.",
         "error_50mb": "❌ File exceeds Telegram's 50MB limit.", "error_no_img": "❌ No images found at this link.",
-        "deletes_in_9": "⏳ **Auto-deletes in 9 minutes.**", "images_received": "⏳ **{} Images received. Auto-deletes in 9 minutes.**",
+        "deletes_in_custom": "⏳ **Auto-deletes in {} minutes.**", "images_received": "⏳ **{} Images received.**",
         "select_lang": "🌍 Please select your language:", "lang_set": "✅ Language set to English!",
         "batch_detected": "📦 **Batch Detected ({} links)**\nWhat format do you want?", "batch_dest": "📦 **Where to send these files?**",
         "btn_chat": "📥 Download in Chat", "btn_chan": "📢 Forward to Private Channel",
@@ -231,7 +229,6 @@ def get_main_keyboard(lang_code, is_admin):
     if is_admin:
         keyboard.append([KeyboardButton(t["menu_uploads"])])
         keyboard.append([KeyboardButton("⚡ Create Flash Drop")])
-        keyboard.append([KeyboardButton("🚀 Finish & Broadcast Drop")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -256,7 +253,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     arg_code = args[0]
 
-    # --- HANDLE 8-MINUTE FLASH DROP CLAIM FROM DM BUTTON ---
     if arg_code.startswith("drip_"):
         drop_id = arg_code.replace("drip_", "")
         drip_data = load_json_file(DRIP_FILE)
@@ -267,7 +263,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
 
         if time.time() > drop["expires_at"]:
-            await update.message.reply_text("⏳ **Expired!** This 8-minute flash vault drop has closed.", parse_mode="Markdown")
+            await update.message.reply_text("⏳ **Expired!** This flash drop has closed.", parse_mode="Markdown")
             return
 
         keyboard = [
@@ -367,8 +363,8 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     with open(file_path, 'rb') as f: sent_media = await bot.send_video(chat_id=target_destination_id, video=f, caption=f"✨ **Item {index}/{len(urls)}**\n📐 Quality: {resolution}\n📦 Size: {size_str}")
                 
                 if target_destination_id == chat_id:
-                    warning_msg = await bot.send_message(chat_id=target_destination_id, text=t["deletes_in_9"])
-                    asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent_media.message_id, warning_msg.message_id], DELETE_DELAY_TIME))
+                    warning_msg = await bot.send_message(chat_id=target_destination_id, text=f"⏳ **Auto-deletes in 9 minutes.**")
+                    asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent_media.message_id, warning_msg.message_id], 540))
                 
                 os.remove(file_path)
                 await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
@@ -402,13 +398,21 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
-    # --- TOP PRIORITY: COLLECT MULTIPLE ITEMS FOR FLASH DROP ---
-    drip_states = load_json_file(DRIP_STATE_FILE)
-    if str(user_id) in drip_states and drip_states[str(user_id)] == "waiting_for_drop_content":
-        if user_id not in active_admin_drops:
-            active_admin_drops[user_id] = []
-        active_admin_drops[user_id].append({"chat_id": chat_id, "message_id": update.message.message_id})
-        await update.message.reply_text(f"📥 **Item added to Flash Drop!** ({len(active_admin_drops[user_id])} items added so far).\n\nSend more or tap **🚀 Finish & Broadcast Drop** when done.", parse_mode="Markdown")
+    # --- PERSISTENT JSON STATE: COLLECT ITEMS FOR FLASH DROP ---
+    states = load_json_file(DRIP_STATE_FILE)
+    user_state = states.get(str(user_id))
+
+    if user_state and isinstance(user_state, dict) and user_state.get("mode") == "collecting":
+        user_state["items"].append({"chat_id": chat_id, "message_id": update.message.message_id})
+        save_json_file(DRIP_STATE_FILE, states)
+        
+        keyboard = [[InlineKeyboardButton("🚀 Finish & Broadcast Drop", callback_data="finish_drop")]]
+        await update.message.reply_text(
+            f"📥 **Item added to Flash Drop bundle!** ({len(user_state['items'])} items added).\n\n"
+            f"Send more files/photos, or click below when you're done:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
         return
 
     if user_id == ADMIN_ID:
@@ -452,40 +456,46 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
-    # --- TOP PRIORITY: ADMIN FLASH DROP CREATOR BUTTON TRIGGER ---
+    # --- STEP 1: ADMIN TRIGGERS FLASH DROP CREATOR ---
     if text == "⚡ Create Flash Drop" and user_id == ADMIN_ID:
         states = load_json_file(DRIP_STATE_FILE)
-        states[str(user_id)] = "waiting_for_drop_content"
+        states[str(user_id)] = {"mode": "collecting", "items": []}
         save_json_file(DRIP_STATE_FILE, states)
-        active_admin_drops[user_id] = [] # Reset bundle list
+        
         await update.message.reply_text(
             "⚡ **Flash Drop Creator Mode Activated**\n\n"
-            "You can now send **one or multiple files, photos, or videos** back-to-back.\n"
-            "When you are finished adding your items, tap **🚀 Finish & Broadcast Drop** on your keyboard!",
+            "Now send **one or multiple files, photos, or videos** back-to-back.\n"
+            "When you are finished adding your items, use the inline button or command to finish!",
             parse_mode="Markdown"
         )
         return
 
-    # --- TOP PRIORITY: FINISH & BROADCAST MULTI-FILE DROP ---
-    if text == "🚀 Finish & Broadcast Drop" and user_id == ADMIN_ID:
-        items_to_drop = active_admin_drops.pop(user_id, [])
-        
-        states = load_json_file(DRIP_STATE_FILE)
-        if str(user_id) in states:
-            del states[str(user_id)]
-            save_json_file(DRIP_STATE_FILE, states)
+    # --- STEP 2: ADMIN ENTERS DELETION TIME BEFORE BROADCASTING ---
+    states = load_json_file(DRIP_STATE_FILE)
+    user_state = states.get(str(user_id))
 
-        if not items_to_drop:
-            await update.message.reply_text("⚠️ You haven't added any items yet! Tap '⚡ Create Flash Drop' first.")
+    if user_state and isinstance(user_state, dict) and user_state.get("mode") == "waiting_for_time":
+        try:
+            mins = int(text.strip())
+            if mins <= 0: raise ValueError()
+        except ValueError:
+            await update.message.reply_text("❌ Please enter a valid number of minutes (e.g., `5`, `10`, `15`):")
             return
 
+        items_to_drop = user_state["items"]
+        del states[str(user_id)]
+        save_json_file(DRIP_STATE_FILE, states)
+
         drop_id = str(int(time.time()))
-        expires_at = time.time() + 480  # 8 minutes expiry
+        expires_at = time.time() + 480  # 8 minutes claim window
+        delete_delay_seconds = mins * 60
 
         drop_data = load_json_file(DRIP_FILE)
         drop_data[drop_id] = {
             "items": items_to_drop,
-            "expires_at": expires_at
+            "expires_at": expires_at,
+            "delete_delay": delete_delay_seconds,
+            "delete_mins": mins
         }
         save_json_file(DRIP_FILE, drop_data)
 
@@ -498,7 +508,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         for uid in lang_data.keys(): all_users.add(int(uid))
         for uid in token_data.keys(): all_users.add(int(uid))
 
-        await update.message.reply_text(f"🚀 Broadcasting flash drop bundle ({len(items_to_drop)} items) to **{len(all_users)} users**...", parse_mode="Markdown")
+        await update.message.reply_text(f"🚀 Broadcasting flash drop bundle ({len(items_to_drop)} items, auto-deletes in {mins}m) to **{len(all_users)} users**...", parse_mode="Markdown")
 
         success_broadcasts = 0
         keyboard = [[InlineKeyboardButton("🎁 Claim Flash Drop Now", url=claim_url)]]
@@ -506,9 +516,9 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
         broadcast_text = (
             "🚨 **EXCLUSIVE FLASH DROP UNLOCKED!** 🚨\n\n"
-            "✨ *What is this?* This is a safe, surprise media bundle sent directly to your DM by the admin.\n"
-            "⏳ **Strictly Limited:** It will completely self-destruct in **8 minutes**, so grab it right now!\n\n"
-            "👇 Tap the button below to verify and claim your bundle:"
+            "✨ *What is this?* A safe, surprise media bundle sent directly to your DM by the admin.\n"
+            "⏳ **Auto-Destruct:** Files will automatically disappear **{mins} minutes** after viewing!\n\n"
+            "👇 Tap the button below to verify and claim your bundle:".format(mins=mins)
         )
 
         for uid in all_users:
@@ -529,18 +539,23 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             f"✅ **Flash Drop Broadcast Complete!**\n\n"
             f"📬 Delivered to: **{success_broadcasts} users**\n"
             f"📦 Items in bundle: **{len(items_to_drop)}**\n"
-            f"⏳ Timer: **8 Minutes**",
+            f"⏱️ Deletion Timer Set To: **{mins} minutes**",
             parse_mode="Markdown"
         )
         return
 
-    # If admin is still sending items for the drop bundle
-    drip_states = load_json_file(DRIP_STATE_FILE)
-    if str(user_id) in drip_states and drip_states[str(user_id)] == "waiting_for_drop_content":
-        if user_id not in active_admin_drops:
-            active_admin_drops[user_id] = []
-        active_admin_drops[user_id].append({"chat_id": chat_id, "message_id": update.message.message_id})
-        await update.message.reply_text(f"📥 **Item added to Flash Drop bundle!** ({len(active_admin_drops[user_id])} items added).\n\nSend more text/files or tap **🚀 Finish & Broadcast Drop** when ready.", parse_mode="Markdown")
+    # Catch text messages if still collecting items
+    if user_state and isinstance(user_state, dict) and user_state.get("mode") == "collecting":
+        user_state["items"].append({"chat_id": chat_id, "message_id": update.message.message_id})
+        save_json_file(DRIP_STATE_FILE, states)
+        
+        keyboard = [[InlineKeyboardButton("🚀 Finish & Broadcast Drop", callback_data="finish_drop")]]
+        await update.message.reply_text(
+            f"📥 **Text added to Flash Drop bundle!** ({len(user_state['items'])} items added).\n\n"
+            f"Send more files or click below when done:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
         return
 
     if text == t["menu_stats"]:
@@ -696,6 +711,29 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
+    # --- BUTTON TO FINISH COLLECTING & ASK FOR DELETION TIME ---
+    if data == "finish_drop" and user_id == ADMIN_ID:
+        states = load_json_file(DRIP_STATE_FILE)
+        user_state = states.get(str(user_id))
+
+        if not user_state or not user_state.get("items"):
+            await query.answer("⚠️ No items added yet!", show_alert=True)
+            return
+
+        user_state["mode"] = "waiting_for_time"
+        save_json_file(DRIP_STATE_FILE, states)
+
+        await query.answer("Bundle saved!")
+        try: await query.message.delete()
+        except: pass
+
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="⏱️ **Set Deletion Timer**\n\nHow many minutes should these dropped files stay before auto-deleting for users?\n*(Type a number like `5`, `9`, `15`, etc.)*",
+            parse_mode="Markdown"
+        )
+        return
+
     # --- AGE VERIFICATION FOR MULTI-FILE FLASH DROPS ---
     if data.startswith("age_yes_"):
         drop_id = data.replace("age_yes_", "")
@@ -726,11 +764,14 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 sent_message_ids.append(fwd.message_id)
                 await asyncio.sleep(0.2)
 
-            warn = await context.bot.send_message(chat_id=user_id, text=t["deletes_in_9"])
+            del_mins = drop.get("delete_mins", 9)
+            del_seconds = drop.get("delete_delay", 540)
+
+            warn = await context.bot.send_message(chat_id=user_id, text=f"⏳ **Auto-deletes in {del_mins} minutes.**")
             sent_message_ids.append(warn.message_id)
-            asyncio.create_task(schedule_deletion(context.bot, user_id, sent_message_ids, DELETE_DELAY_TIME))
+            asyncio.create_task(schedule_deletion(context.bot, user_id, sent_message_ids, del_seconds))
         except Exception as e:
-            await query.message.reply_text(f"❌ Error delivering bundle: {e}")
+            await context.bot.send_message(chat_id=user_id, text=f"❌ Error delivering bundle: {e}")
         return
 
     if data == "age_no":
@@ -813,22 +854,22 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 media_group = [InputMediaPhoto(media=open(p, 'rb')) for p in file_paths]
                 sent_media = await context.bot.send_media_group(chat_id=chat_id, media=media_group)
                 warning_msg = await context.bot.send_message(chat_id=chat_id, text=t["images_received"].format(len(file_paths)))
-                asyncio.create_task(schedule_deletion(context.bot, chat_id, [m.message_id for m in sent_media] + [warning_msg.message_id], DELETE_DELAY_TIME))
+                asyncio.create_task(schedule_deletion(context.bot, chat_id, [m.message_id for m in sent_media] + [warning_msg.message_id], 540))
                 for p in file_paths: os.remove(p)
             elif dl_type == 'audio':
                 with open(file_paths[0], 'rb') as f: sent_media = await context.bot.send_audio(chat_id=chat_id, audio=f, title="Extracted Audio", caption=f"🎵 **Audio**\n📦 Size: {size_str}", parse_mode="Markdown")
-                warning_msg = await context.bot.send_message(chat_id=chat_id, text=t["deletes_in_9"])
-                asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent_media.message_id, warning_msg.message_id], DELETE_DELAY_TIME))
+                warning_msg = await context.bot.send_message(chat_id=chat_id, text=f"⏳ **Auto-deletes in 9 minutes.**")
+                asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent_media.message_id, warning_msg.message_id], 540))
                 os.remove(file_paths[0])
             elif dl_type == 'subtitles':
                 with open(file_paths[0], 'rb') as f: sent_media = await context.bot.send_document(chat_id=chat_id, document=f, caption=f"📝 **Subtitles**", parse_mode="Markdown")
-                warning_msg = await context.bot.send_message(chat_id=chat_id, text=t["deletes_in_9"])
-                asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent_media.message_id, warning_msg.message_id], DELETE_DELAY_TIME))
+                warning_msg = await context.bot.send_message(chat_id=chat_id, text=f"⏳ **Auto-deletes in 9 minutes.**")
+                asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent_media.message_id, warning_msg.message_id], 540))
                 os.remove(file_paths[0])
             else:
                 with open(file_paths[0], 'rb') as f: sent_media = await context.bot.send_video(chat_id=chat_id, video=f, caption=f"✨ **Video**\n📐 Quality: {resolution}\n📦 Size: {size_str}", parse_mode="Markdown")
-                warning_msg = await context.bot.send_message(chat_id=chat_id, text=t["deletes_in_9"])
-                asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent_media.message_id, warning_msg.message_id], DELETE_DELAY_TIME))
+                warning_msg = await context.bot.send_message(chat_id=chat_id, text=f"⏳ **Auto-deletes in 9 minutes.**")
+                asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent_media.message_id, warning_msg.message_id], 540))
                 os.remove(file_paths[0])
 
             await context.bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
@@ -933,9 +974,9 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 fwd = await context.bot.forward_message(chat_id=user_id, from_chat_id=DETECTED_CHANNEL_ID, message_id=target_msg_id)
                 forwarded_ids.append(fwd.message_id)
                 asyncio.sleep(0.2)
-            warn = await context.bot.send_message(chat_id=user_id, text=t["deletes_in_9"])
+            warn = await context.bot.send_message(chat_id=user_id, text=f"⏳ **Auto-deletes in 9 minutes.**")
             forwarded_ids.append(warn.message_id)
-            asyncio.create_task(schedule_deletion(context.bot, user_id, forwarded_ids, DELETE_DELAY_TIME))
+            asyncio.create_task(schedule_deletion(context.bot, user_id, forwarded_ids, 540))
         except Exception as e:
             await query.message.reply_text(f"❌ Error: {e}")
 
