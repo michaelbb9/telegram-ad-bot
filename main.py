@@ -15,7 +15,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 # --- FIX FFMPEG EXECUTION PERMISSIONS FOR RENDER ---
 ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 try:
-    os.chmod(ffmpeg_path, 0o755)
+    os.chmod(ffmpeg_path, 0o755)  # Grants execution rights to the ffmpeg binary
 except Exception as e:
     logging.error(f"Could not set ffmpeg permissions: {e}")
 
@@ -25,16 +25,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# .strip() automatically removes any accidental spaces or hidden enter keys (\n) from Render's environment variables
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN", "8863904451:AAG-QT2pLfR1myUkCyziVCteRiGW5t08udc").strip()
-ADMIN_ID = 6248570946
+ADMIN_ID = 6248570946  # Your secure personal Telegram ID
 DETECTED_CHANNEL_ID = -1004347828512
-PRIVATE_CHANNEL_ID = -1004347828512
-TUTORIAL_MESSAGE_ID = 108
+PRIVATE_CHANNEL_ID = -1004347828512  # Vault/Tutorial channel
+TUTORIAL_MESSAGE_ID = 108             # Your working tutorial video message ID
 WEB_BASE_URL = "https://michaelbbc.pythonanywhere.com"
 BRIDGE_URL = f"{WEB_BASE_URL}/bridge"
 PUBLIC_CHANNEL_URL = "https://t.me/booksaufio"
-PUBLIC_CHANNEL_USERNAME = "@booksaufio"
-DELETE_DELAY_TIME = 540
+PUBLIC_CHANNEL_USERNAME = "@booksaufio"  # Used for API channel membership checks
+DELETE_DELAY_TIME = 540  # 9 minutes
 
 CHANNELS_FILE = "user_channels.json"
 LINKING_STATE_FILE = "linking_states.json"
@@ -45,6 +46,7 @@ web_app = Flask(__name__)
 @web_app.route('/')
 def health_check():
     return "Bot is alive and running!", 200
+# ----------------------------------
 
 # TOKEN SYNC WITH PYTHONANYWHERE BRIDGE BACKEND
 def load_tokens():
@@ -62,6 +64,7 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
+# USER CHANNEL STORAGE HELPERS
 def load_user_channels():
     if os.path.exists(CHANNELS_FILE):
         try:
@@ -78,6 +81,7 @@ def save_user_channels(channels):
     except Exception as e:
         logger.error(f"Error saving user channels: {e}")
 
+# LINKING STATE HELPERS (For change channel workflow)
 def load_linking_states():
     if os.path.exists(LINKING_STATE_FILE):
         try:
@@ -94,6 +98,7 @@ def save_linking_states(states):
     except Exception as e:
         logger.error(f"Error saving linking states: {e}")
 
+# --- SMART URL EXTRACTOR (Handles raw domains, grabber text, & URLs) ---
 def extract_urls_from_text(text: str):
     pattern = r'(?:https?://)?(?:www\.)?[a-zA-Z0-9][-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&//=]*)'
     raw_matches = re.findall(pattern, text)
@@ -109,7 +114,9 @@ def extract_urls_from_text(text: str):
             normalized_urls.append(url)
     return normalized_urls
 
+# --- NATIVE AUTO-DELETE BACKGROUND TASK ---
 async def schedule_deletion(bot, chat_id, message_ids, delay):
+    """Waits for the specified delay and deletes messages securely."""
     await asyncio.sleep(delay)
     for msg_id in message_ids:
         try:
@@ -117,7 +124,12 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
         except Exception:
             pass
 
+# --- YT-DLP DOWNLOAD HELPER (Dynamic Quality Fallback System) ---
 def download_video_ytdlp(url: str):
+    """
+    Tries downloading in highest possible quality first. 
+    Steps down to 720p, then 480p if too big. Raises error if 480p still exceeds 50MB.
+    """
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
@@ -127,19 +139,16 @@ def download_video_ytdlp(url: str):
         ("best[height<=480]", "480p")
     ]
     
-    last_error = None
     for fmt, tier_desc in tiers:
         try:
             ydl_opts = {
                 'format': fmt,
                 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
+                'max_filesize': 50 * 1024 * 1024,  # Strict 50MB limit cap for Telegram bots
                 'noplaylist': True,
-                'quiet': False,
+                'quiet': True,
                 'merge_output_format': 'mp4',
                 'ffmpeg_location': ffmpeg_path,
-                'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                }
             }
             
             domain_lower = url.lower()
@@ -151,23 +160,20 @@ def download_video_ytdlp(url: str):
                 info = ydl.extract_info(url, download=True)
                 filename = ydl.prepare_filename(info)
                 
-                if os.path.exists(filename):
-                    file_size_bytes = os.path.getsize(filename)
-                    if file_size_bytes > 50 * 1024 * 1024:
-                        os.remove(filename)
-                        continue
+                file_size_bytes = os.path.getsize(filename)
+                if file_size_bytes > 50 * 1024 * 1024:
+                    os.remove(filename)
+                    continue
+                
+                height = info.get('height', 'Unknown')
+                resolution = f"{height}p" if isinstance(height, int) else "HD/SD"
+                size_str = f"{file_size_bytes / (1024 * 1024):.1f}MB"
                     
-                    height = info.get('height', 'Unknown')
-                    resolution = f"{height}p" if isinstance(height, int) else "HD/SD"
-                    size_str = f"{file_size_bytes / (1024 * 1024):.1f}MB"
-                        
-                    return filename, resolution, size_str
-        except Exception as e:
-            last_error = e
-            logger.error(f"yt-dlp error on tier {fmt} for {url}: {e}")
+                return filename, resolution, size_str
+        except Exception:
             continue
             
-    raise ValueError(f"FILE_TOO_LARGE_OR_FAILED: {str(last_error)}")
+    raise ValueError("FILE_TOO_LARGE")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
@@ -258,10 +264,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.error(f"Copy message error: {e}")
         await update.message.reply_text(
             text=caption_text,
-            reply_markup=reply_markup
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
         )
 
+# --- CORE BATCH DOWNLOAD PROCESSOR (Streams to User Private Channel) ---
 async def process_url_batch(bot, user_id, chat_id, target_channel_id, urls):
+    """Processes a list of extracted URLs sequentially, streaming results directly to the user's private channel."""
     if not urls:
         return
 
@@ -357,8 +366,12 @@ async def process_url_batch(bot, user_id, chat_id, target_channel_id, urls):
                 fail_count += 1
         except Exception as e:
             logger.error(f"Batch download error for {url}: {e}", exc_info=True)
+            if "FILE_TOO_LARGE" in str(e):
+                err_text = f"❌ [{index}/{len(urls)}] File too large (exceeds 50MB even at 480p)."
+            else:
+                err_text = f"❌ [{index}/{len(urls)}] Error: {type(e).__name__}"
             try:
-                await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}/{len(urls)}] Download failed.")
+                await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=err_text)
             except Exception:
                 pass
             fail_count += 1
@@ -372,14 +385,16 @@ async def process_url_batch(bot, user_id, chat_id, target_channel_id, urls):
 
     await bot.send_message(
         chat_id=chat_id,
-        text=f"🏁 **Batch Processing Complete!**\n✅ Successful: {success_count}\n❌ Failed/Skipped: {fail_count}"
+        text=f"🏁 **Batch Processing Complete!**\n✅ Successfully streamed: {success_count}\n❌ Failed/Skipped: {fail_count}\n\n*Check your linked private channel to view your downloads!*"
     )
 
+# --- UNIVERSAL MEDIA LINK & BATCH TEXT LISTENER HANDLER ---
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
 
+    # Check for channel change linking state
     linking_states = load_linking_states()
     if linking_states.get(str(user_id)) == "waiting_for_channel":
         if update.message.forward_from_chat and update.message.forward_from_chat.type == "channel":
@@ -407,6 +422,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             await update.message.reply_text("❌ That wasn't a forwarded message from a channel. Please open your private channel, tap share on any post, and **forward it here**.")
             return
 
+    # Check for initial channel linking via forward
     if update.message.forward_from_chat and update.message.forward_from_chat.type == "channel":
         f_chat = update.message.forward_from_chat
         user_channels = load_user_channels()
@@ -483,8 +499,12 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                     await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text="❌ Failed to download media. File path not found.")
             except Exception as e:
                 logger.error(f"Download error details: {e}", exc_info=True)
+                if "FILE_TOO_LARGE" in str(e):
+                    error_msg = "❌ The file is too large and Telegram won't allow it (exceeds the 50MB bot limit even at 480p)."
+                else:
+                    error_msg = str(e) if str(e) else type(e).__name__
                 try:
-                    await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text="❌ Download error: Failed to extract or file exceeds 50MB limit.")
+                    await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ Download error: {error_msg}")
                 except Exception:
                     pass
         else:
@@ -519,6 +539,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 parse_mode="Markdown"
             )
     else:
+        # Multiple URLs detected -> Stream to user's private channel
         user_channels = load_user_channels()
         target_channel_id = user_channels.get(str(user_id))
 
@@ -540,6 +561,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
         asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, target_channel_id, extracted_urls))
 
+# --- .TXT FILE UPLOAD BATCH HANDLER ---
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     document = update.message.document
     user_id = update.message.from_user.id
@@ -688,8 +710,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except Exception as e:
             await query.message.reply_text(f"❌ Error fetching file bundle: {e}")
 
-# --- SINGLE THREAD-SAFE LAUNCHER TO PREVENT GUNICORN/RENDER CONFLICTS ---
 def run_telegram_bot():
+    """Runs the Telegram bot in a dedicated event loop thread"""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
@@ -709,15 +731,11 @@ def run_telegram_bot():
 
     loop.run_until_complete(start_bot())
 
-# Start the background polling thread safely without lock files
-if os.environ.get("RENDER", "true").lower() == "true" or True:
-    # Ensure it only spawns once globally by using a threading flag check
-    if not getattr(web_app, '_bot_started', False):
-        web_app._bot_started = True
-        print("Starting Telegram bot background thread...")
-        bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
-        bot_thread.start()
-
 if __name__ == "__main__":
+    print("Starting Telegram bot background thread...")
+    bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
+    bot_thread.start()
+
+    print("Testing Flask web server on main thread...")
     port = int(os.environ.get("PORT", 10000))
     web_app.run(host="0.0.0.0", port=port)
