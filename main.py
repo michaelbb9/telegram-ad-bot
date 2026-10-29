@@ -39,7 +39,8 @@ PROXY_URL = None
 CHANNELS_FILE = "user_channels.json"
 LINKING_STATE_FILE = "linking_states.json"
 LANG_FILE = "user_languages.json"
-UPLOADS_FILE = "fan_uploads.json" # Tracks fan uploads for admin
+UPLOADS_FILE = "fan_uploads.json" 
+UPLOAD_LIMITS_FILE = "upload_limits.json" # NEW: Tracks 5 uploads per day
 
 active_batch_sessions = {}
 pending_batch_payloads = {}
@@ -48,7 +49,7 @@ pending_single_links = {}
 
 LANGUAGES = {
     "en": {
-        "welcome": "🚀 **Welcome to the Ultimate Media Downloader & Vault Bot!** 🚀\n\nI am your all-in-one Swiss Army Knife. Here is everything I can do:\n\n🎬 **Video Downloader:** Paste any link for HD videos.\n🎵 **Audio / MP3 Extractor:** Turn any video into an MP3.\n🖼️ **Image / Gallery Saver:** Download photos.\n📝 **Subtitle Extractor:** Grab SRT files.\n📦 **Massive Batch Downloader:** Paste up to 100+ links. Choose Video, Audio, or Images!\n💎 **Exclusive Vaults:** Unlock premium curated video bundles.\n📤 **Uploads:** Send us files/images directly!\n\n⚠️ **Rules & Limits:**\n• Telegram limits bots to 50MB per file.\n• You get 20 free batch downloads. After that, watch a 20-second sponsor timer to refill.\n\n👉 **Just paste a link to get started!**",
+        "welcome": "🚀 **Welcome to the Ultimate Media Downloader & Vault Bot!** 🚀\n\nI am your all-in-one Swiss Army Knife. Here is everything I can do:\n\n🎬 **Video Downloader:** Paste any link for HD videos.\n🎵 **Audio / MP3 Extractor:** Turn any video into an MP3.\n🖼️ **Image / Gallery Saver:** Download photos.\n📝 **Subtitle Extractor:** Grab SRT files.\n📦 **Massive Batch Downloader:** Paste up to 100+ links. Choose Video, Audio, or Images!\n💎 **Exclusive Vaults:** Unlock premium curated video bundles.\n📤 **Uploads:** Send us files/images directly (Max 5 per day)!\n\n⚠️ **Rules & Limits:**\n• Telegram limits bots to 50MB per file.\n• You get 20 free batch downloads. After that, watch a 20-second sponsor timer to refill.\n\n👉 **Just paste a link to get started!**",
         "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Images", "btn_sub": "📝 Subtitles (SRT)",
         "ask_format": "👇 **What would you like to download?**",
         "fetching": "📥 **Fetching {}... Please wait.**",
@@ -69,8 +70,9 @@ LANGUAGES = {
         "menu_lang": "🌍 Language", "menu_stats": "📊 My Stats", "menu_help": "📢 FAQ / Help", "menu_join": "📢 Join Channel",
         "menu_uploads": "🍿 Fan Uploads", "menu_upload": "📤 Upload File",
         "admin_upload_prompt": "📂 **Fan Uploads Inbox**\n\nHere is what your fans have sent you recently:",
-        "user_upload_prompt": "📤 **Upload File**\n\nSend me any video, image, or file. I will forward it directly to the Admin (anonymously if you wish!).\n\n⚠️ *Telegram limits files to 50MB.*",
+        "user_upload_prompt": "📤 **Upload File**\n\nSend me any video, image, or file. I will forward it directly to the Admin (anonymously if you wish!).\n\n⚠️ *Limit: 5 uploads per 24 hours.*",
         "upload_success_user": "✅ **File Received!**\nYour upload has been anonymously sent to the Admin.",
+        "upload_limit_reached": "⚠️ **Upload Limit Reached!**\nYou can only send 5 files every 24 hours. Please try again tomorrow.",
         "no_uploads": "📭 No fan uploads yet. When users send files, they will appear here.",
         "stats_msg": "📊 **Your Stats:**\n\n• Normal Downloads Left: {}\n• Batch Downloads Left: {}\n\n*Stats reset every 24 hours.*"
     }
@@ -356,6 +358,22 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except Exception as e:
             await update.message.reply_text(f"❌ Failed to save. Error: {e}")
     else:
+        # --- NEW: Check 5 Uploads per day limit ---
+        limits = load_json_file(UPLOAD_LIMITS_FILE)
+        user_str = str(user_id)
+        now = time.time()
+        
+        if user_str in limits and now - limits[user_str]["timestamp"] < 86400:
+            if limits[user_str]["count"] >= 5:
+                await update.message.reply_text(t["upload_limit_reached"])
+                return
+            limits[user_str]["count"] += 1
+        else:
+            limits[user_str] = {"count": 1, "timestamp": now}
+        
+        save_json_file(UPLOAD_LIMITS_FILE, limits)
+        # ------------------------------------------
+
         try:
             uploads = load_json_file(UPLOADS_FILE)
             upload_id = str(int(time.time()))
@@ -402,7 +420,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text(prompt, parse_mode="Markdown")
         return
 
-    # --- ADMIN FAN UPLOADS FOLDER (NOW 20) ---
+    # --- ADMIN FAN UPLOADS FOLDER ---
     if text == t["menu_uploads"] and user_id == ADMIN_ID:
         uploads = load_json_file(UPLOADS_FILE)
         if not uploads:
@@ -532,6 +550,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.message.delete()
         return
 
+    # --- FIXED: BATCH FORMAT SELECTION (maxsplit=3 prevents session expires) ---
     if data.startswith("batchtype_"):
         parts = data.split("_", 3) 
         dl_type = parts[1] 
