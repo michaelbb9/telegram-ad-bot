@@ -106,73 +106,46 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
         except Exception:
             pass
 
-def parse_netscape_cookies(cookiefile):
-    cookies_dict = {}
-    if cookiefile and os.path.exists(cookiefile):
-        try:
-            with open(cookiefile, 'r') as f:
-                for line in f:
-                    if line.startswith('#') or not line.strip():
-                        continue
-                    parts = line.strip().split('\t')
-                    if len(parts) >= 7:
-                        domain, flag, path, secure, expiration, name, value = parts[:7]
-                        cookies_dict[name] = value
-        except Exception as e:
-            logger.error(f"Error parsing cookies: {e}")
-    return cookies_dict
-
-# --- NEW: ADVANCED IMAGE SCRAPER (MOBILE API TRICK) ---
+# --- FIXED IMAGE SCRAPER ---
 def scrape_html_images(url, cookiefile=None):
     headers = {
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept-Language': 'en-US,en;q=0.9',
     }
     
-    cookies_dict = parse_netscape_cookies(cookiefile)
-
-    # TRICK 1: Try the Mobile Facebook API
-    if "facebook.com" in url.lower():
+    cookies = None
+    if cookiefile and os.path.exists(cookiefile):
         try:
-            mobile_url = url.replace('www.facebook.com', 'm.facebook.com').replace('web.facebook.com', 'm.facebook.com')
-            res = requests.get(mobile_url, headers=headers, cookies=cookies_dict, timeout=15, allow_redirects=True)
-            soup = BeautifulSoup(res.text, 'html.parser')
-            
-            # Mobile API often puts the image in og:image or a specific meta tag
-            og_img = soup.find('meta', property='og:image')
-            if og_img and og_img.get('content'):
-                return og_img['content']
-                
-            # Or look for the specific m.facebook image link
-            for img in soup.find_all('img'):
-                src = img.get('src')
-                if src and ('scontent' in src or 'fbcdn' in src):
-                    return src
-        except Exception as e:
-            logger.error(f"Mobile FB Scrape error: {e}")
+            import http.cookiejar
+            cj = http.cookiejar.MozillaCookieJar(cookiefile)
+            cj.load(ignore_discard=True, ignore_expires=True)
+            cookies = {cookie.name: cookie.value for cookie in cj}
+        except:
+            pass
 
-    # TRICK 2: Standard Scrape (for other sites)
     try:
-        res = requests.get(url, headers=headers, cookies=cookies_dict, timeout=15, allow_redirects=True)
+        res = requests.get(url, headers=headers, cookies=cookies, timeout=15)
         soup = BeautifulSoup(res.text, 'html.parser')
         
+        # Facebook & General OG Image
         og_img = soup.find('meta', property='og:image')
         if og_img and og_img.get('content'):
             return og_img['content']
             
+        # Twitter Image
         tw_img = soup.find('meta', name='twitter:image')
         if tw_img and tw_img.get('content'):
             return tw_img['content']
             
-        for img in soup.find_all('img'):
+        # Fallback to generic image tags (skipping icons/logos)
+        imgs = soup.find_all('img')
+        for img in imgs:
             src = img.get('src')
-            if src and ('scontent' in src or 'fbcdn' in src):
-                return src
-                
+            if src and src.startswith('http') and ('jpg' in src or 'jpeg' in src or 'png' in src):
+                if 'icon' not in src and 'logo' not in src and 'profile' not in src:
+                    return src
     except Exception as e:
-        logger.error(f"Standard Scrape error: {e}")
-        
+        logger.error(f"HTML Scrape error: {e}")
     return None
 
 # --- UNIVERSAL DOWNLOAD ENGINE ---
@@ -252,11 +225,12 @@ def download_media_engine(url: str, download_type: str):
                     return [srt_path], "Subtitles (EN)", "Text File"
         raise ValueError("NO_SUBTITLES")
 
-    # --- 3. IMAGES ---
+    # --- 3. IMAGES (FIXED) ---
     elif download_type == 'images':
         img_url = scrape_html_images(url, cookiefile)
         if img_url:
             try:
+                # Download the image directly from the URL we found
                 img_data = requests.get(img_url, headers=http_headers, timeout=15).content
                 ext = 'jpg'
                 if '.png' in img_url: ext = 'png'
@@ -266,12 +240,34 @@ def download_media_engine(url: str, download_type: str):
                 with open(img_path, 'wb') as handler:
                     handler.write(img_data)
                 
+                # Check if it actually downloaded something
                 if os.path.getsize(img_path) > 1000:
                     size_mb = f"{os.path.getsize(img_path) / (1024 * 1024):.1f}MB"
                     return [img_path], "Image", size_mb
             except Exception as e:
                 logger.error(f"Direct image download error: {e}")
         
+        # If HTML scraping failed, try yt-dlp as a last resort
+        ydl_opts.update({
+            'format': 'best',
+            'outtmpl': os.path.join(output_dir, '%(id)s_%(autonumber)s.%(ext)s'),
+            'ignoreerrors': True,
+        })
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                image_paths = []
+                video_id = info.get('id', '')
+                for file in os.listdir(output_dir):
+                    if video_id in file and file.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                        image_paths.append(os.path.join(output_dir, file))
+                
+                if image_paths:
+                    total_size = sum(os.path.getsize(p) for p in image_paths) / (1024 * 1024)
+                    return image_paths, f"{len(image_paths)} Images", f"{total_size:.1f}MB"
+        except:
+            pass
+            
         raise ValueError("NO_IMAGES")
 
     # --- 4. VIDEO ---
