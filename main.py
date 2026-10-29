@@ -38,9 +38,6 @@ PUBLIC_CHANNEL_URL = "https://t.me/booksaufio"
 PUBLIC_CHANNEL_USERNAME = "@booksaufio"  # Used for API channel membership checks
 DELETE_DELAY_TIME = 540  # 9 minutes
 
-CHANNELS_FILE = "user_channels.json"
-LINKING_STATE_FILE = "linking_states.json"
-
 # --- TINY WEB SERVER FOR RENDER ---
 web_app = Flask(__name__)
 
@@ -65,57 +62,6 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Error saving tokens to bridge: {e}")
 
-# USER CHANNEL STORAGE HELPERS
-def load_user_channels():
-    if os.path.exists(CHANNELS_FILE):
-        try:
-            with open(CHANNELS_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
-
-def save_user_channels(channels):
-    try:
-        with open(CHANNELS_FILE, "w") as f:
-            json.dump(channels, f)
-    except Exception as e:
-        logger.error(f"Error saving user channels: {e}")
-
-# LINKING STATE HELPERS (For change channel workflow)
-def load_linking_states():
-    if os.path.exists(LINKING_STATE_FILE):
-        try:
-            with open(LINKING_STATE_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
-
-def save_linking_states(states):
-    try:
-        with open(LINKING_STATE_FILE, "w") as f:
-            json.dump(states, f)
-    except Exception as e:
-        logger.error(f"Error saving linking states: {e}")
-
-# --- SMART URL EXTRACTOR (Handles scraped/raw domains & full URLs) ---
-def extract_urls_from_text(text: str):
-    # Matches http/https URLs, www. links, or raw domains like tiktok.com/...
-    pattern = r'(?:https?://)?(?:www\.)?[a-zA-Z0-9][-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&//=]*)'
-    raw_matches = re.findall(pattern, text)
-    
-    normalized_urls = []
-    seen = set()
-    for match in raw_matches:
-        url = match.strip()
-        if not url.startswith(('http://', 'https://')):
-            url = 'https://' + url
-        if len(url) > 10 and '.' in url and url not in seen:
-            seen.add(url)
-            normalized_urls.append(url)
-    return normalized_urls
-
 # --- NATIVE AUTO-DELETE BACKGROUND TASK ---
 async def schedule_deletion(bot, chat_id, message_ids, delay):
     """Waits for the specified delay and deletes messages securely."""
@@ -135,6 +81,7 @@ def download_video_ytdlp(url: str):
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
+    # Quality tiers to try sequentially from highest to lowest
     tiers = [
         ("best", "Highest Quality (4K/1080p)"),
         ("best[height<=720]", "720p HD"),
@@ -153,6 +100,7 @@ def download_video_ytdlp(url: str):
                 'ffmpeg_location': ffmpeg_path,
             }
             
+            # ONLY attach cookies if the link belongs to YouTube or Twitter/X
             domain_lower = url.lower()
             if any(d in domain_lower for d in ["twitter.com", "x.com", "youtube.com", "youtu.be"]):
                 if os.path.exists("cookies.txt"):
@@ -162,10 +110,11 @@ def download_video_ytdlp(url: str):
                 info = ydl.extract_info(url, download=True)
                 filename = ydl.prepare_filename(info)
                 
+                # Double-check actual file size on disk
                 file_size_bytes = os.path.getsize(filename)
                 if file_size_bytes > 50 * 1024 * 1024:
                     os.remove(filename)
-                    continue
+                    continue  # Try next lower quality tier
                 
                 height = info.get('height', 'Unknown')
                 resolution = f"{height}p" if isinstance(height, int) else "HD/SD"
@@ -173,8 +122,9 @@ def download_video_ytdlp(url: str):
                     
                 return filename, resolution, size_str
         except Exception:
-            continue
+            continue  # Fall back to next lower tier if this one fails or exceeds size
             
+    # If all tiers (including 480p) failed or exceeded 50MB
     raise ValueError("FILE_TOO_LARGE")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -185,10 +135,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(
             "👋 **Welcome to the Media Downloader & Vault Bot!**\n\n"
             "📥 **What I can do:**\n"
-            "I allow you to download media files from **several different websites**, process **batch multi-link text/files** straight to your private channel, AND unlock exclusive content vaults!\n\n"
+            "I allow you to download media files from **several different websites**, process **batch multi-link text/files**, AND unlock exclusive content vaults!\n\n"
             "💬 **How to Download:**\n"
             "• **Single Link:** Paste any link directly into chat.\n"
-            "• **Batch Links:** Paste jumbled text containing multiple links OR upload a `.txt` file packed with links to stream them directly into your linked private channel!\n\n"
+            "• **Batch Links:** Paste jumbled text containing multiple links OR upload a `.txt` file packed with links to download them all at once!\n\n"
             "🌐 **Supported Sites & Platforms:**\n"
             "• **Multiple Websites** (TikTok, X/Twitter, Instagram, Facebook, and thousands of other video & media sites!)\n"
             "• ❌ ~~YouTube~~ *(Temporarily paused / Maintenance)*\n\n"
@@ -270,9 +220,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             parse_mode="Markdown"
         )
 
-# --- CORE BATCH DOWNLOAD PROCESSOR (Streams to User Private Channel) ---
-async def process_url_batch(bot, user_id, chat_id, target_channel_id, urls):
-    """Processes a list of extracted URLs sequentially, sending results directly to the user's private channel."""
+# --- CORE BATCH DOWNLOAD PROCESSOR ---
+async def process_url_batch(bot, user_id, chat_id, urls):
+    """Processes a list of extracted URLs sequentially with allowance checks and security timers."""
     if not urls:
         return
 
@@ -281,7 +231,7 @@ async def process_url_batch(bot, user_id, chat_id, target_channel_id, urls):
 
     batch_notice = await bot.send_message(
         chat_id=chat_id,
-        text=f"📦 **Batch Processing Started:** Found **{len(urls)} links**. Streaming downloads directly to your private channel..."
+        text=f"📦 **Batch Processing Started:** Found **{len(urls)} links**. Processing downloads sequentially..."
     )
 
     for index, url in enumerate(urls, start=1):
@@ -343,7 +293,7 @@ async def process_url_batch(bot, user_id, chat_id, target_channel_id, urls):
             if file_path and os.path.exists(file_path):
                 with open(file_path, 'rb') as media_file:
                     sent_media = await bot.send_video(
-                        chat_id=target_channel_id,
+                        chat_id=chat_id,
                         video=media_file,
                         caption=(
                             f"✨ **Batch Item {index}/{len(urls)} Successful!**\n"
@@ -354,12 +304,12 @@ async def process_url_batch(bot, user_id, chat_id, target_channel_id, urls):
                     )
                 
                 warning_msg = await bot.send_message(
-                    chat_id=target_channel_id,
+                    chat_id=chat_id,
                     text=f"⏳ [{index}/{len(urls)}] Safety Alert: This file will automatically delete in **9 minutes**."
                 )
                 
                 messages_to_delete = [sent_media.message_id, warning_msg.message_id]
-                asyncio.create_task(schedule_deletion(bot, target_channel_id, messages_to_delete, DELETE_DELAY_TIME))
+                asyncio.create_task(schedule_deletion(bot, chat_id, messages_to_delete, DELETE_DELAY_TIME))
 
                 os.remove(file_path)
                 await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
@@ -388,7 +338,7 @@ async def process_url_batch(bot, user_id, chat_id, target_channel_id, urls):
 
     await bot.send_message(
         chat_id=chat_id,
-        text=f"🏁 **Batch Processing Complete!**\n✅ Successfully streamed: {success_count}\n❌ Failed/Skipped: {fail_count}\n\n*Check your linked private channel to view your downloads!*"
+        text=f"🏁 **Batch Processing Complete!**\n✅ Successful: {success_count}\n❌ Failed/Skipped: {fail_count}"
     )
 
 # --- UNIVERSAL MEDIA LINK & BATCH TEXT LISTENER HANDLER ---
@@ -397,53 +347,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
 
-    linking_states = load_linking_states()
-    if linking_states.get(str(user_id)) == "waiting_for_channel":
-        if update.message.forward_from_chat and update.message.forward_from_chat.type == "channel":
-            f_chat = update.message.forward_from_chat
-            user_channels = load_user_channels()
-            user_channels[str(user_id)] = f_chat.id
-            save_user_channels(user_channels)
-
-            del linking_states[str(user_id)]
-            save_linking_states(linking_states)
-
-            keyboard = [[InlineKeyboardButton("🔄 Change Linked Channel", callback_data="change_channel")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await update.message.reply_text(
-                f"✅ **Channel Successfully Updated!**\n"
-                f"📢 **New Channel Name:** {f_chat.title}\n"
-                f"🆔 **Channel ID:** `{f_chat.id}`\n\n"
-                f"Future batch downloads will now stream directly here!",
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
-            )
-            return
-        else:
-            await update.message.reply_text("❌ That wasn't a forwarded message from a channel. Please open your private channel, tap share on any post, and **forward it here**.")
-            return
-
-    if update.message.forward_from_chat and update.message.forward_from_chat.type == "channel":
-        f_chat = update.message.forward_from_chat
-        user_channels = load_user_channels()
-        user_channels[str(user_id)] = f_chat.id
-        save_user_channels(user_channels)
-        
-        keyboard = [[InlineKeyboardButton("🔄 Change Linked Channel", callback_data="change_channel")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await update.message.reply_text(
-            f"✅ **Channel Linked Successfully!**\n"
-            f"📢 **Channel Name:** {f_chat.title}\n"
-            f"🆔 **Channel ID:** `{f_chat.id}`\n\n"
-            f"Your batch downloads will now stream directly here! You can now re-send your batch text or `.txt` file.",
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
-        )
-        return
-
-    extracted_urls = extract_urls_from_text(text)
+    extracted_urls = re.findall(r'https?://[^\s]+', text)
     
     if not extracted_urls:
         return
@@ -540,26 +444,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 parse_mode="Markdown"
             )
     else:
-        user_channels = load_user_channels()
-        target_channel_id = user_channels.get(str(user_id))
-
-        if not target_channel_id:
-            keyboard = [[InlineKeyboardButton("🔄 Change Linked Channel", callback_data="change_channel")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(
-                "📦 **Batch Download Setup Required!**\n\n"
-                "To prevent cluttering your personal chat, batch downloads are streamed directly into your own **private Telegram channel**.\n\n"
-                "**How to link your channel (Takes 30 seconds):**\n"
-                "1️⃣ Create a new private Telegram channel (e.g., named *'My TikTok Vault'*).\n"
-                "2️⃣ Add this bot as an **Administrator** with permission to **Post Messages**.\n"
-                "3️⃣ **Forward any message** from your new channel right here into this chat!\n\n"
-                "Once linked, resend your batch text and your downloads will stream straight there automatically.",
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
-            )
-            return
-
-        asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, target_channel_id, extracted_urls))
+        asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, extracted_urls))
 
 # --- .TXT FILE UPLOAD BATCH HANDLER ---
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -571,36 +456,17 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text("❌ Please upload a valid `.txt` file containing your links.")
         return
 
-    user_channels = load_user_channels()
-    target_channel_id = user_channels.get(str(user_id))
-
-    if not target_channel_id:
-        keyboard = [[InlineKeyboardButton("🔄 Change Linked Channel", callback_data="change_channel")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
-            "📦 **Batch Download Setup Required!**\n\n"
-            "To prevent cluttering your personal chat, `.txt` batch downloads are streamed directly into your own **private Telegram channel**.\n\n"
-            "**How to link your channel (Takes 30 seconds):**\n"
-            "1️⃣ Create a new private Telegram channel.\n"
-            "2️⃣ Add this bot as an **Administrator** with permission to **Post Messages**.\n"
-            "3️⃣ **Forward any message** from your new channel right here into this chat!\n\n"
-            "Once linked, re-upload your `.txt` file and your downloads will stream straight there automatically.",
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
-        )
-        return
-
     try:
         file = await context.bot.get_file(document.file_id)
         file_bytes = await file.download_as_bytearray()
         file_text = file_bytes.decode('utf-8', errors='ignore')
 
-        extracted_urls = extract_urls_from_text(file_text)
+        extracted_urls = re.findall(r'https?://[^\s]+', file_text)
         if not extracted_urls:
-            await update.message.reply_text("❌ No valid links found inside the uploaded `.txt` file.")
+            await update.message.reply_text("❌ No valid HTTP/HTTPS links found inside the uploaded `.txt` file.")
             return
 
-        asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, target_channel_id, extracted_urls))
+        asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, extracted_urls))
     except Exception as e:
         logger.error(f"Error processing .txt file: {e}")
         await update.message.reply_text("❌ Failed to read the uploaded text file.")
@@ -630,19 +496,6 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     user_id = query.from_user.id
-
-    if query.data == "change_channel":
-        linking_states = load_linking_states()
-        linking_states[str(user_id)] = "waiting_for_channel"
-        save_linking_states(linking_states)
-
-        await query.answer("🔄 Channel change mode activated!", show_alert=False)
-        await query.message.reply_text(
-            "🔄 **Change Linked Channel**\n\n"
-            "Please open your new private channel, make sure the bot is an administrator, and **forward any message from it right here**.",
-            parse_mode="Markdown"
-        )
-        return
 
     if query.data == "verify_user":
         try:
@@ -732,6 +585,7 @@ def run_telegram_bot():
     loop.run_until_complete(start_bot())
 
 if __name__ == "__main__":
+    # --- EXCLUSIVE PROCESS LOCK TO PREVENT GETUPDATES CONFLICTS ---
     LOCK_FILE = os.path.join(tempfile.gettempdir(), "telegram_bot_running.lock")
     is_primary_worker = False
     try:
