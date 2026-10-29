@@ -229,7 +229,6 @@ def get_main_keyboard(lang_code, is_admin):
     if is_admin:
         keyboard.append([KeyboardButton(t["menu_uploads"])])
         keyboard.append([KeyboardButton("⚡ Create Flash Drop")])
-        keyboard.append([KeyboardButton("🚀 Finish & Broadcast Drop")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -403,10 +402,16 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
     states = load_json_file(DRIP_STATE_FILE)
     user_state = states.get(str(user_id))
 
-    if user_state and isinstance(user_state, dict) and user_state.get("mode") == "collecting":
+    if user_id == ADMIN_ID and user_state and isinstance(user_state, dict) and user_state.get("mode") == "collecting":
         user_state["items"].append({"chat_id": chat_id, "message_id": update.message.message_id})
         save_json_file(DRIP_STATE_FILE, states)
-        return  # SILENTLY COLLECT WITHOUT SPAMMING CHAT!
+        
+        count = len(user_state["items"])
+        msg = await update.message.reply_text(f"📥 Item #{count} added to bundle.")
+        await asyncio.sleep(1.5)
+        try: await msg.delete()
+        except: pass
+        return
 
     if user_id == ADMIN_ID:
         try:
@@ -455,14 +460,31 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         states[str(user_id)] = {"mode": "collecting", "items": []}
         save_json_file(DRIP_STATE_FILE, states)
         
-        keyboard = [[KeyboardButton("🚀 Finish & Broadcast Drop")]]
+        keyboard = [
+            [KeyboardButton("🚀 Finish & Broadcast Drop")],
+            [KeyboardButton("❌ Cancel / Exit")]
+        ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
         await update.message.reply_text(
             "⚡ **Flash Drop Creator Mode Activated**\n\n"
             "Now send **one or multiple files, photos, or videos** back-to-back. They will be collected silently.\n"
-            "When you are finished, tap **🚀 Finish & Broadcast Drop** below!",
+            "When finished, tap **🚀 Finish & Broadcast Drop** or **❌ Cancel / Exit** to abort.",
             reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+        return
+
+    # --- TOP PRIORITY 1.5: CANCEL / EXIT CREATOR MODE ---
+    if text == "❌ Cancel / Exit" and user_id == ADMIN_ID:
+        states = load_json_file(DRIP_STATE_FILE)
+        if str(user_id) in states:
+            del states[str(user_id)]
+            save_json_file(DRIP_STATE_FILE, states)
+
+        await update.message.reply_text(
+            "❌ **Flash Drop Cancelled.** Returned to normal menu.",
+            reply_markup=get_main_keyboard(lang, True),
             parse_mode="Markdown"
         )
         return
@@ -473,7 +495,14 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         user_state = states.get(str(user_id))
 
         if not user_state or not user_state.get("items"):
-            await update.message.reply_text("⚠️ You haven't added any items yet! Send files first.")
+            keyboard = [
+                [KeyboardButton("🚀 Finish & Broadcast Drop")],
+                [KeyboardButton("❌ Cancel / Exit")]
+            ]
+            await update.message.reply_text(
+                "⚠️ You haven't added any items yet! Send files first, or tap Cancel:",
+                reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+            )
             return
 
         user_state["mode"] = "waiting_for_timer"
@@ -488,12 +517,17 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             [
                 InlineKeyboardButton("⏱️ 5 Minutes", callback_data="drop_time_300"),
                 InlineKeyboardButton("⏱️ 10 Minutes", callback_data="drop_time_600")
+            ],
+            [
+                InlineKeyboardButton("❌ Cancel Drop", callback_data="drop_cancel")
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.message.reply_text(
-            "⏱️ **Select Auto-Deletion Timer**\n\nChoose how long these dropped files should stay before auto-deleting for users:",
+            f"⏱️ **Select Auto-Deletion Timer**\n\n"
+            f"Bundle contains **{len(user_state['items'])} items**.\n"
+            f"Choose how long these dropped files should stay before auto-deleting for users:",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -505,6 +539,11 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if user_state and isinstance(user_state, dict) and user_state.get("mode") == "collecting":
         user_state["items"].append({"chat_id": chat_id, "message_id": update.message.message_id})
         save_json_file(DRIP_STATE_FILE, states)
+        count = len(user_state["items"])
+        msg = await update.message.reply_text(f"📥 Text item #{count} added.")
+        await asyncio.sleep(1.5)
+        try: await msg.delete()
+        except: pass
         return
 
     if text == t["menu_stats"]:
@@ -660,7 +699,18 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
-    # --- HANDLE PREMADE TIMER SELECTION BUTTONS ---
+    if data == "drop_cancel" and user_id == ADMIN_ID:
+        states = load_json_file(DRIP_STATE_FILE)
+        if str(user_id) in states:
+            del states[str(user_id)]
+            save_json_file(DRIP_STATE_FILE, states)
+        await query.answer("Drop cancelled.")
+        try: await query.message.delete()
+        except: pass
+        await context.bot.send_message(chat_id=chat_id, text="❌ Flash drop cancelled.", reply_markup=get_main_keyboard(lang, True))
+        return
+
+    # --- HANDLE PREMADE TIMER SELECTION BUTTONS & ROBUST BROADCAST ---
     if data.startswith("drop_time_") and user_id == ADMIN_ID:
         seconds = int(data.replace("drop_time_", ""))
         mins_label = "30 Seconds" if seconds == 30 else f"{seconds // 60} Minutes"
@@ -688,18 +738,23 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         }
         save_json_file(DRIP_FILE, drop_data)
 
-        await query.answer(f"Timer set to {mins_label}!")
+        await query.answer(f"Timer set to {mins_label}! Broadcasting...")
         try: await query.message.delete()
         except: pass
 
         bot_username = context.bot.username
         claim_url = f"https://t.me/{bot_username}?start=drip_{drop_id}"
 
+        # Gather all user IDs robustly from both language files and token files
         all_users = set()
         lang_data = load_json_file(LANG_FILE)
         token_data = load_tokens()
-        for uid in lang_data.keys(): all_users.add(int(uid))
-        for uid in token_data.keys(): all_users.add(int(uid))
+        for uid in lang_data.keys():
+            try: all_users.add(int(uid))
+            except: pass
+        for uid in token_data.keys():
+            try: all_users.add(int(uid))
+            except: pass
 
         await context.bot.send_message(chat_id=chat_id, text=f"🚀 Broadcasting flash drop bundle ({len(items_to_drop)} items, auto-deletes in {mins_label}) to **{len(all_users)} users**...", parse_mode="Markdown")
 
@@ -725,8 +780,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 )
                 success_broadcasts += 1
                 await asyncio.sleep(0.05)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Failed to broadcast to {uid}: {e}")
 
         await context.bot.send_message(
             chat_id=chat_id,
