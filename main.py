@@ -163,7 +163,8 @@ def download_video_ytdlp(url: str):
                 size_str = f"{file_size_bytes / (1024 * 1024):.1f}MB"
                     
                 return filename, resolution, size_str
-        except Exception:
+        except Exception as e:
+            logger.error(f"yt-dlp tier error for {url}: {e}")
             continue
             
     raise ValueError("FILE_TOO_LARGE")
@@ -261,7 +262,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             parse_mode="Markdown"
         )
 
-# --- CORE BATCH DOWNLOAD PROCESSOR (Streams to target destination with Stop Support) ---
+# --- CORE BATCH DOWNLOAD PROCESSOR ---
 async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls):
     """Processes a list of extracted URLs sequentially with a live Stop button."""
     if not urls:
@@ -365,13 +366,9 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls):
                 await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}/{len(urls)}] Failed: File path not found.")
                 fail_count += 1
         except Exception as e:
-            logger.error(f"Batch download error for {url}: {e}", exc_info=True)
-            if "FILE_TOO_LARGE" in str(e):
-                err_text = f"❌ [{index}/{len(urls)}] File too large (exceeds 50MB even at 480p)."
-            else:
-                err_text = f"❌ [{index}/{len(urls)}] Error: {type(e).__name__}"
+            logger.error(f"Batch item error for {url}: {e}")
             try:
-                await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=err_text)
+                await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}/{len(urls)}] Download failed.")
             except Exception:
                 pass
             fail_count += 1
@@ -397,6 +394,8 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     text = update.message.text
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
+
+    logger.info(f"Received message from user {user_id}: {text}")
 
     # 1. Check for channel change linking state
     linking_states = load_linking_states()
@@ -447,6 +446,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
 
     extracted_urls = re.findall(r'https?://[^\s]+', text)
+    logger.info(f"Extracted URLs: {extracted_urls}")
     
     if not extracted_urls:
         return
@@ -741,7 +741,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     message_id=target_msg_id
                 )
                 forwarded_message_ids.append(forwarded_msg.message_id)
-                await asyncio.sleep(0.2)
+                asyncio.sleep(0.2)
 
             warning_msg = await context.bot.send_message(
                 chat_id=user_id,
