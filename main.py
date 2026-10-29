@@ -400,8 +400,9 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     # 1. Check for channel change linking state
     linking_states = load_linking_states()
     if linking_states.get(str(user_id)) == "waiting_for_channel":
-        if update.message.forward_from_chat and update.message.forward_from_chat.type == "channel":
-            f_chat = update.message.forward_from_chat
+        # FIXED: Checked for the new forward_origin property
+        if update.message.forward_origin and getattr(update.message.forward_origin, 'type', None) == 'channel':
+            f_chat = update.message.forward_origin.chat
             user_channels = load_user_channels()
             user_channels[str(user_id)] = f_chat.id
             save_user_channels(user_channels)
@@ -426,8 +427,9 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             return
 
     # 2. Check for initial channel linking via forward
-    if update.message.forward_from_chat and update.message.forward_from_chat.type == "channel":
-        f_chat = update.message.forward_from_chat
+    # FIXED: Checked for the new forward_origin property
+    if update.message.forward_origin and getattr(update.message.forward_origin, 'type', None) == 'channel':
+        f_chat = update.message.forward_origin.chat
         user_channels = load_user_channels()
         user_channels[str(user_id)] = f_chat.id
         save_user_channels(user_channels)
