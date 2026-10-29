@@ -34,6 +34,9 @@ PUBLIC_CHANNEL_USERNAME = "@booksaufio"
 HELP_CHANNEL_URL = "https://t.me/faqandaupport"
 DELETE_DELAY_TIME = 540  # 9 minutes
 
+# --- ADD YOUR PROXY HERE ---
+PROXY_URL = "http://94.249.180.231:8080" 
+
 CHANNELS_FILE = "user_channels.json"
 LINKING_STATE_FILE = "linking_states.json"
 
@@ -124,6 +127,9 @@ def download_video_ytdlp(url: str):
                 }
             }
             
+            if PROXY_URL:
+                ydl_opts['proxy'] = PROXY_URL
+
             # --- DYNAMIC COOKIE LOADER ---
             url_lower = url.lower()
             if "tiktok.com" in url_lower and os.path.exists("tiktok_cookies.txt"):
@@ -138,7 +144,7 @@ def download_video_ytdlp(url: str):
             # ------------------------------
             
             # 1. Extract info first to check size before downloading
-            with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
+            with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True, 'proxy': PROXY_URL if PROXY_URL else None}) as ydl:
                 info = ydl.extract_info(url, download=False)
                 filesize = info.get('filesize') or info.get('filesize_approx')
                 if filesize and filesize > 50 * 1024 * 1024:
@@ -167,7 +173,7 @@ def download_video_ytdlp(url: str):
                     
         except Exception as e:
             logger.error(f"yt-dlp tier error for {url}: {e}")
-            if "Unsupported URL" in str(e) or "Video unavailable" in str(e) or "403" in str(e) or "Forbidden" in str(e) or "HTTP Error" in str(e):
+            if "Unsupported URL" in str(e) or "Video unavailable" in str(e) or "403" in str(e) or "Forbidden" in str(e) or "HTTP Error" in str(e) or "ProxyError" in str(e):
                 raise e
             continue
             
@@ -355,6 +361,9 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                 elif "403" in str(e) or "Forbidden" in str(e):
                     error_text = f"❌ [{index}/{len(urls)}] Failed: Site blocked the bot."
                     help_text = "Too many attempts made. Site blocked the server. Please contact support to refresh cookies."
+                elif "ProxyError" in str(e) or "proxy" in str(e).lower():
+                    error_text = f"❌ [{index}/{len(urls)}] Failed: Proxy connection failed."
+                    help_text = "The proxy is dead or timing out. Try a new proxy."
                 elif "Unsupported URL" in str(e) or "Video unavailable" in str(e):
                     error_text = f"❌ [{index}/{len(urls)}] Failed: Private or deleted video."
                     help_text = "The link is dead or requires a login. Try a different link."
@@ -364,7 +373,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                 
                 help_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("💬 Ask for Help in FAQ Channel", url=HELP_CHANNEL_URL)]])
                 
-                if "403" in str(e) or "Forbidden" in str(e):
+                if "403" in str(e) or "Forbidden" in str(e) or "ProxyError" in str(e):
                      await bot.edit_message_text(
                          chat_id=chat_id, 
                          message_id=status_msg.message_id, 
@@ -483,6 +492,8 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                     error_msg = "❌ Video is larger than 50MB."
                 elif "403" in str(e):
                     error_msg = "❌ HTTP 403 Forbidden (Site blocked bot)."
+                elif "ProxyError" in str(e):
+                    error_msg = "❌ Proxy connection failed."
                 elif "404" in str(e):
                     error_msg = "❌ HTTP 404 Not Found."
                 else:
@@ -493,7 +504,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                     chat_id=chat_id, 
                     message_id=status_msg.message_id, 
                     text=error_msg,
-                    reply_markup=help_keyboard if "403" in str(e) else None
+                    reply_markup=help_keyboard if "403" in str(e) or "ProxyError" in str(e) else None
                 )
         else:
             bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
