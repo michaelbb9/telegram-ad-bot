@@ -101,7 +101,6 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
         except Exception:
             pass
 
-# --- NEW: SMARTER DOWNLOADER WITH STRICT SIZE CHECK ---
 def download_video_ytdlp(url: str):
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
@@ -124,14 +123,16 @@ def download_video_ytdlp(url: str):
                 }
             }
             
+            # Check for cookies.txt
+            if os.path.exists("cookies.txt"):
+                ydl_opts['cookiefile'] = "cookies.txt"
+            
             # 1. Extract info first to check size before downloading
             with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
                 info = ydl.extract_info(url, download=False)
-                
-                # Check if the site reports a file size and if it's too big
                 filesize = info.get('filesize') or info.get('filesize_approx')
                 if filesize and filesize > 50 * 1024 * 1024:
-                    continue # Too big, try next tier (480p)
+                    continue 
             
             # 2. Download if it passed the size check
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -139,7 +140,6 @@ def download_video_ytdlp(url: str):
                 filename = ydl.prepare_filename(info)
                 
                 if not os.path.exists(filename):
-                    # Sometimes merged files get an .mp4 extension instead of .webm
                     base = os.path.splitext(filename)[0]
                     if os.path.exists(base + ".mp4"):
                         filename = base + ".mp4"
@@ -148,7 +148,7 @@ def download_video_ytdlp(url: str):
                     file_size_bytes = os.path.getsize(filename)
                     if file_size_bytes > 50 * 1024 * 1024:
                         os.remove(filename)
-                        continue # Still too big after download, try next tier
+                        continue 
                     
                     height = info.get('height', 'Unknown')
                     resolution = f"{height}p" if isinstance(height, int) else "HD/SD"
@@ -157,8 +157,8 @@ def download_video_ytdlp(url: str):
                     
         except Exception as e:
             logger.error(f"yt-dlp tier error for {url}: {e}")
-            # If the site blocks the bot, raise the actual error to show the user
-            if "Unsupported URL" in str(e) or "Video unavailable" in str(e) or "403" in str(e):
+            # Raise error to show the exact reason it failed
+            if "Unsupported URL" in str(e) or "Video unavailable" in str(e) or "403" in str(e) or "Forbidden" in str(e) or "HTTP Error" in str(e):
                 raise e
             continue
             
@@ -229,7 +229,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception:
         await update.message.reply_text(text=caption_text, reply_markup=reply_markup, parse_mode="Markdown")
 
-# --- CORE BATCH DOWNLOAD PROCESSOR ---
 async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, start_index=0):
     if not urls:
         return
@@ -341,22 +340,25 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
         except Exception as e:
             logger.error(f"Batch item error: {e}")
             try:
-                # --- IMPROVED ERROR MESSAGING ---
+                # --- NEW: Show exact HTTP error if possible ---
                 if "FILE_TOO_LARGE" in str(e):
                     error_text = f"❌ [{index}/{len(urls)}] Failed: Video is larger than 50MB."
-                elif "403" in str(e) or "Forbidden" in str(e):
-                    error_text = f"❌ [{index}/{len(urls)}] Failed: Site blocked the bot."
+                elif "403" in str(e):
+                    error_text = f"❌ [{index}/{len(urls)}] Failed: HTTP 403 Forbidden (Site blocked bot)."
+                elif "404" in str(e):
+                    error_text = f"❌ [{index}/{len(urls)}] Failed: HTTP 404 Not Found."
                 elif "Unsupported URL" in str(e) or "Video unavailable" in str(e):
-                    error_text = f"❌ [{index}/{len(urls)}] Failed: Private or deleted video."
+                    error_text = f"❌ [{index}/{len(urls)}] Failed: Site restricted download."
                 else:
-                    error_text = f"❌ [{index}/{len(urls)}] Download failed."
+                    # Show a snippet of the actual error
+                    short_err = str(e).split(";")[0][:40] 
+                    error_text = f"❌ [{index}/{len(urls)}] Failed: {short_err}..."
                 
                 await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=error_text)
             except Exception:
                 pass
             fail_count += 1
         
-        # --- INCREASED DELAY TO PREVENT IP BANS ---
         await asyncio.sleep(4) 
 
     if user_id in active_batch_sessions:
@@ -379,7 +381,6 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             parse_mode="Markdown"
         )
 
-# --- UNIVERSAL MEDIA LINK LISTENER ---
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text
     user_id = update.message.from_user.id
@@ -452,10 +453,12 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             except Exception as e:
                 if "FILE_TOO_LARGE" in str(e):
                     error_msg = "❌ Video is larger than 50MB."
-                elif "403" in str(e) or "Forbidden" in str(e):
-                    error_msg = "❌ Site blocked the bot."
+                elif "403" in str(e):
+                    error_msg = "❌ HTTP 403 Forbidden (Site blocked bot)."
+                elif "404" in str(e):
+                    error_msg = "❌ HTTP 404 Not Found."
                 else:
-                    error_msg = "❌ Private or deleted video."
+                    error_msg = "❌ Site restricted download."
                 await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=error_msg)
         else:
             bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
@@ -493,7 +496,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
         )
 
-# --- .TXT FILE UPLOAD HANDLER ---
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     document = update.message.document
     user_id = update.message.from_user.id
