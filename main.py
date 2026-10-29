@@ -40,7 +40,7 @@ CHANNELS_FILE = "user_channels.json"
 LINKING_STATE_FILE = "linking_states.json"
 LANG_FILE = "user_languages.json"
 UPLOADS_FILE = "fan_uploads.json" 
-UPLOAD_LIMITS_FILE = "upload_limits.json" # NEW: Tracks 5 uploads per day
+UPLOAD_LIMITS_FILE = "upload_limits.json"
 
 active_batch_sessions = {}
 pending_batch_payloads = {}
@@ -358,7 +358,6 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except Exception as e:
             await update.message.reply_text(f"❌ Failed to save. Error: {e}")
     else:
-        # --- NEW: Check 5 Uploads per day limit ---
         limits = load_json_file(UPLOAD_LIMITS_FILE)
         user_str = str(user_id)
         now = time.time()
@@ -372,7 +371,6 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
             limits[user_str] = {"count": 1, "timestamp": now}
         
         save_json_file(UPLOAD_LIMITS_FILE, limits)
-        # ------------------------------------------
 
         try:
             uploads = load_json_file(UPLOADS_FILE)
@@ -420,7 +418,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text(prompt, parse_mode="Markdown")
         return
 
-    # --- ADMIN FAN UPLOADS FOLDER ---
     if text == t["menu_uploads"] and user_id == ADMIN_ID:
         uploads = load_json_file(UPLOADS_FILE)
         if not uploads:
@@ -428,7 +425,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             return
             
         await update.message.reply_text(t["admin_upload_prompt"])
-        # Show last 20 uploads to Admin
         for key, data in list(uploads.items())[-20:]:
             try:
                 await context.bot.forward_message(chat_id=ADMIN_ID, from_chat_id=data["user_id"], message_id=data["msg_id"])
@@ -550,7 +546,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.message.delete()
         return
 
-    # --- FIXED: BATCH FORMAT SELECTION (maxsplit=3 prevents session expires) ---
+    # --- FIXED: BATCH FORMAT SELECTION ---
     if data.startswith("batchtype_"):
         parts = data.split("_", 3) 
         dl_type = parts[1] 
@@ -652,12 +648,16 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"]))
         return
 
+    # --- FIXED: DESTINATION SELECTION ---
     if data.startswith("dest_chat_") or data.startswith("dest_chan_"):
         parts = data.split("_", 3)
-        action_type, dl_type, payload_key = parts[1], parts[2], parts[3]
+        action_type = parts[1]
+        dl_type = parts[2]
+        payload_key = parts[3]
+        
         urls = pending_batch_payloads.pop(payload_key, None)
         if not urls:
-            await query.answer("❌ Session expired.", show_alert=True)
+            await query.answer("❌ Session expired. Please send the links again.", show_alert=True)
             return
 
         if action_type == "chat":
