@@ -400,14 +400,31 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
-    # --- SUPPORT TICKET CHECK ---
+    # --- SUPPORT TICKET CHECK FOR USERS ---
     support_states = load_json_file(SUPPORT_STATES_FILE)
-    if str(user_id) in support_states and support_states[str(user_id)] == "waiting_for_support":
+    if str(user_id) in support_states and isinstance(support_states[str(user_id)], dict) and support_states[str(user_id)].get("mode") == "user_writing":
+        ticket_id = support_states[str(user_id)]["ticket_id"]
+        admin_chat_id = support_states[str(user_id)]["admin_chat_id"]
+        admin_msg_id = support_states[str(user_id)]["admin_msg_id"]
+        
         del support_states[str(user_id)]
         save_json_file(SUPPORT_STATES_FILE, support_states)
         
-        await context.bot.send_message(chat_id=ADMIN_ID, text=f"💬 **New Support Ticket**\nFrom ID: `{user_id}`\n\nMessage:", parse_mode="Markdown")
+        # Forward user message to Admin with buttons
+        keyboard = [
+            [
+                InlineKeyboardButton("💬 Reply to User", callback_data=f"support_reply_{user_id}"),
+                InlineKeyboardButton("🔒 Close Ticket", callback_data=f"support_close_{ticket_id}")
+            ]
+        ]
+        await context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=f"💬 **Support Ticket [ID: {ticket_id}]**\nFrom User ID: `{user_id}`\n\nMessage:",
+            parse_mode="Markdown"
+        )
         await update.message.forward(chat_id=ADMIN_ID)
+        await context.bot.send_message(chat_id=ADMIN_ID, text="👇 Manage this ticket:", reply_markup=InlineKeyboardMarkup(keyboard))
+        
         await update.message.reply_text("✅ **Support Message Sent!** The Admin will review your message shortly.")
         return
 
@@ -475,13 +492,48 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             del support_states[str(user_id)]
             save_json_file(SUPPORT_STATES_FILE, support_states)
 
-    # --- SUPPORT TICKET CHECK ---
+    # --- ADMIN REPLY STATE CHECK ---
     support_states = load_json_file(SUPPORT_STATES_FILE)
-    if str(user_id) in support_states and support_states[str(user_id)] == "waiting_for_support":
+    if user_id == ADMIN_ID and str(user_id) in support_states and isinstance(support_states[str(user_id)], dict) and support_states[str(user_id)].get("mode") == "admin_replying":
+        target_user_id = support_states[str(user_id)]["target_user_id"]
+        ticket_id = support_states[str(user_id)]["ticket_id"]
+        
+        del support_states[str(user_id)]
+        save_json_file(SUPPORT_STATES_FILE, support_states)
+
+        keyboard = [
+            [InlineKeyboardButton("🔒 Close Ticket", callback_data=f"support_close_{ticket_id}")]
+        ]
+        try:
+            await context.bot.send_message(
+                chat_id=target_user_id,
+                text=f"💬 **Admin Reply:**\n\n{text}",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown"
+            )
+            await update.message.reply_text(f"✅ Reply successfully sent to user `{target_user_id}`!", parse_mode="Markdown")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Failed to send reply: {e}")
+        return
+
+    # --- USER SUPPORT TICKET STATE CHECK ---
+    if str(user_id) in support_states and isinstance(support_states[str(user_id)], dict) and support_states[str(user_id)].get("mode") == "user_writing":
+        ticket_id = support_states[str(user_id)]["ticket_id"]
         del support_states[str(user_id)]
         save_json_file(SUPPORT_STATES_FILE, support_states)
         
-        await context.bot.send_message(chat_id=ADMIN_ID, text=f"💬 **New Support Ticket**\nFrom ID: `{user_id}`\n\n{text}", parse_mode="Markdown")
+        keyboard = [
+            [
+                InlineKeyboardButton("💬 Reply to User", callback_data=f"support_reply_{user_id}"),
+                InlineKeyboardButton("🔒 Close Ticket", callback_data=f"support_close_{ticket_id}")
+            ]
+        ]
+        await context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=f"💬 **Support Ticket [ID: {ticket_id}]**\nFrom User ID: `{user_id}`\n\n{text}",
+            parse_mode="Markdown"
+        )
+        await context.bot.send_message(chat_id=ADMIN_ID, text="👇 Manage this ticket:", reply_markup=InlineKeyboardMarkup(keyboard))
         await update.message.reply_text("✅ **Support Message Sent!** The Admin will review your message shortly.")
         return
 
@@ -818,14 +870,41 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     if data == "open_support":
         support_states = load_json_file(SUPPORT_STATES_FILE)
-        support_states[str(user_id)] = "waiting_for_support"
+        ticket_id = str(int(time.time()))
+        support_states[str(user_id)] = {"mode": "user_writing", "ticket_id": ticket_id}
         save_json_file(SUPPORT_STATES_FILE, support_states)
+        
         await query.answer("Support ticket mode opened!")
         await query.message.reply_text(
             "✍️ **Send your message or question below.**\n"
             "Your next message will be forwarded directly to the Admin as a support ticket.",
             parse_mode="Markdown"
         )
+        return
+
+    if data.startswith("support_reply_"):
+        target_user_id = data.replace("support_reply_", "")
+        ticket_id = str(int(time.time()))
+        
+        support_states = load_json_file(SUPPORT_STATES_FILE)
+        support_states[str(ADMIN_ID)] = {"mode": "admin_replying", "target_user_id": int(target_user_id), "ticket_id": ticket_id}
+        save_json_file(SUPPORT_STATES_FILE, support_states)
+        
+        await query.answer("Reply mode activated!")
+        await context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=f"✍️ **Type your reply to User `{target_user_id}`:**\nYour next message in this chat will be sent directly to them as an admin reply.",
+            parse_mode="Markdown"
+        )
+        return
+
+    if data.startswith("support_close_"):
+        ticket_id = data.replace("support_close_", "")
+        await query.answer("Ticket closed successfully!", show_alert=True)
+        try:
+            await query.message.edit_text("🔒 **Ticket Closed & Resolved**")
+        except:
+            pass
         return
 
     if data == "drop_cancel" and user_id == ADMIN_ID:
