@@ -205,7 +205,8 @@ def download_media_engine(url: str, download_type: str):
         raise ValueError("FILE_TOO_LARGE")
 
 def get_main_keyboard(lang_code, is_admin):
-    t = LANGUAGES[lang_code]
+    # Fallback to English dictionary safely if lang_code is missing translations
+    t = LANGUAGES.get(lang_code, LANGUAGES["en"])
     keyboard = [
         [KeyboardButton(t["menu_stats"]), KeyboardButton(t["menu_lang"])],
         [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])],
@@ -217,18 +218,19 @@ def get_main_keyboard(lang_code, is_admin):
 
 async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lang = get_lang(update.message.from_user.id)
+    t = LANGUAGES.get(lang, LANGUAGES["en"])
     keyboard = [
         [InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"), InlineKeyboardButton("🇪🇸 Español", callback_data="lang_es")],
         [InlineKeyboardButton("🇫🇷 Français", callback_data="lang_fr"), InlineKeyboardButton("🇸🇦 العربية", callback_data="lang_ar")],
         [InlineKeyboardButton("🇮🇳 हिंदी", callback_data="lang_hi"), InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru")]
     ]
-    await update.message.reply_text(LANGUAGES[lang]["select_lang"], reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text(t["select_lang"], reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
     args = context.args
     lang = get_lang(user_id)
-    t = LANGUAGES[lang]
+    t = LANGUAGES.get(lang, LANGUAGES["en"])
 
     if not args:
         await update.message.reply_text(t["welcome"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID), parse_mode="Markdown")
@@ -264,7 +266,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0):
     if not urls: return
     lang = get_lang(user_id)
-    t = LANGUAGES[lang]
+    t = LANGUAGES.get(lang, LANGUAGES["en"])
 
     success_count = 0
     fail_count = 0
@@ -349,7 +351,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
 async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
     lang = get_lang(user_id)
-    t = LANGUAGES[lang]
+    t = LANGUAGES.get(lang, LANGUAGES["en"])
 
     if user_id == ADMIN_ID:
         try:
@@ -390,7 +392,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
     lang = get_lang(user_id)
-    t = LANGUAGES[lang]
+    t = LANGUAGES.get(lang, LANGUAGES["en"])
 
     if text == t["menu_stats"]:
         tokens = load_tokens()
@@ -494,7 +496,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
     lang = get_lang(user_id)
-    t = LANGUAGES[lang]
+    t = LANGUAGES.get(lang, LANGUAGES["en"])
 
     if not document.file_name or not document.file_name.endswith('.txt'):
         await handle_user_upload(update, context)
@@ -533,17 +535,23 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     data = query.data
     chat_id = query.message.chat_id
     lang = get_lang(user_id)
-    t = LANGUAGES[lang]
+    t = LANGUAGES.get(lang, LANGUAGES["en"])
 
     if data.startswith("lang_"):
         new_lang = data.split("_")[1]
         langs = load_json_file(LANG_FILE)
         langs[str(user_id)] = new_lang
         save_json_file(LANG_FILE, langs)
-        new_t = LANGUAGES[new_lang]
-        await query.answer(new_t["lang_set"], show_alert=True)
-        await query.message.reply_text(new_t["welcome"], reply_markup=get_main_keyboard(new_lang, user_id == ADMIN_ID), parse_mode="Markdown")
-        await query.message.delete()
+        
+        # FIX: Fallback safely if the language dictionary is missing
+        new_t = LANGUAGES.get(new_lang, LANGUAGES["en"])
+        
+        await query.answer("✅ Language updated!", show_alert=True)
+        try:
+            await query.message.reply_text(new_t["welcome"], reply_markup=get_main_keyboard(new_lang, user_id == ADMIN_ID), parse_mode="Markdown")
+            await query.message.delete()
+        except Exception as e:
+            logger.error(f"Error updating language message: {e}")
         return
 
     if data.startswith("batchtype_"):
@@ -746,7 +754,6 @@ def run_telegram_bot():
         
         await app.initialize()
         await app.start()
-        # FIX: Added allowed_updates to capture all button/callback types correctly
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
         await asyncio.Event().wait()
     loop.run_until_complete(start_bot())
