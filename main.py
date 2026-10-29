@@ -201,15 +201,16 @@ def download_media_engine(url: str, download_type: str):
             total_size = sum(os.path.getsize(p) for p in image_paths) / (1024 * 1024)
             return image_paths, f"{len(image_paths)} Images", f"{total_size:.1f}MB"
 
-    # --- 4. VIDEO (HD PRIORITY FIX) ---
+    # --- 4. VIDEO (HD PRIORITY) ---
     else:
-        # Try the absolute best first, then step down.
-        if "tiktok.com" in url_lower:
-            # For TikTok, try to get no-watermark HD first.
-            tiers = ["best[format_id!='download']", "best", "best[height<=720]", "best[height<=480]"]
-        else:
-            # For everything else, try HD, then step down.
-            tiers = ["bestvideo+bestaudio/best", "best[height<=1080]", "best[height<=720]", "best[height<=480]", "best"]
+        # Try absolute best quality first, then step down only if it's over 50MB
+        tiers = [
+            "bestvideo+bestaudio/best", 
+            "best[height<=1080]", 
+            "best[height<=720]", 
+            "best[height<=480]", 
+            "best"
+        ]
 
         for fmt in tiers:
             try:
@@ -232,7 +233,7 @@ def download_media_engine(url: str, download_type: str):
                     if os.path.exists(filename):
                         file_size_bytes = os.path.getsize(filename)
                         
-                        # Check if the HD file is too big. If so, delete and try the next tier.
+                        # Check size AFTER downloading. If > 50MB, delete and try lower tier.
                         if file_size_bytes > 50 * 1024 * 1024:
                             os.remove(filename)
                             continue 
@@ -249,6 +250,7 @@ def download_media_engine(url: str, download_type: str):
                 
         raise ValueError("FILE_TOO_LARGE")
 
+# (The rest of the code remains exactly the same as the previous message)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
     args = context.args
@@ -257,11 +259,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(
             "🚀 **Welcome to the Ultimate Media Downloader Bot!** 🚀\n\n"
             "I am your all-in-one Swiss Army Knife for social media. Here is everything I can do:\n\n"
-            "🎬 **Video Downloader:** Paste any link (TikTok, Insta, Twitter, FB) to get the video in the highest quality possible (up to 4K). *TikTok videos are downloaded WITHOUT watermarks!*\n\n"
+            "🎬 **Video Downloader:** Paste any link (TikTok, Insta, Twitter, FB) to get the video in the highest quality possible.\n\n"
             "🎵 **Audio / MP3 Extractor:** Turn any video into an MP3 audio file instantly.\n\n"
             "🖼️ **Image / Gallery Saver:** Download photos from Instagram posts or Pinterest.\n\n"
             "📝 **Subtitle Extractor:** Grab the subtitle text files (SRT) from videos.\n\n"
-            "📦 **Massive Batch Downloader:** Paste up to 100+ links at once, or upload a `.txt` file. I will download them all and send them straight to your Private Channel!\n\n"
+            "📦 **Massive Batch Downloader:** Paste up to 100+ links at once, or upload a `.txt` file.\n\n"
             "⚠️ **Rules & Limits:**\n"
             "• Telegram limits bots to 50MB per file. Anything bigger will automatically step down to a lower quality that fits.\n"
             "• You get 20 free batch downloads. After that, you must watch a quick 20-second sponsor timer to refill.\n\n"
