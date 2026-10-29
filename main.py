@@ -106,9 +106,25 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
         except Exception:
             pass
 
-# --- FIXED: MOBILE SAFARI SCRAPER FOR FACEBOOK/INSTAGRAM ---
+# --- NEW: CUSTOM COOKIE PARSER ---
+def parse_netscape_cookies(cookiefile):
+    cookies_dict = {}
+    if cookiefile and os.path.exists(cookiefile):
+        try:
+            with open(cookiefile, 'r') as f:
+                for line in f:
+                    if line.startswith('#') or not line.strip():
+                        continue
+                    parts = line.strip().split('\t')
+                    if len(parts) >= 7:
+                        domain, flag, path, secure, expiration, name, value = parts[:7]
+                        cookies_dict[name] = value
+        except Exception as e:
+            logger.error(f"Error parsing cookies: {e}")
+    return cookies_dict
+
+# --- FIXED: MOBILE SAFARI SCRAPER WITH MANUAL COOKIES ---
 def scrape_html_images(url, cookiefile=None):
-    # Spoofing Mobile Safari to bypass Facebook/Instagram login walls
     headers = {
         'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -116,32 +132,21 @@ def scrape_html_images(url, cookiefile=None):
         'Sec-Fetch-Mode': 'navigate',
     }
     
-    cookies = None
-    if cookiefile and os.path.exists(cookiefile):
-        try:
-            import http.cookiejar
-            cj = http.cookiejar.MozillaCookieJar(cookiefile)
-            cj.load(ignore_discard=True, ignore_expires=True)
-            cookies = {cookie.name: cookie.value for cookie in cj}
-        except:
-            pass
+    # Manually inject cookies using our custom parser
+    cookies_dict = parse_netscape_cookies(cookiefile)
 
     try:
-        # Follow redirects (like fb share links)
-        res = requests.get(url, headers=headers, cookies=cookies, timeout=15, allow_redirects=True)
+        res = requests.get(url, headers=headers, cookies=cookies_dict, timeout=15, allow_redirects=True)
         soup = BeautifulSoup(res.text, 'html.parser')
         
-        # 1. Look for Facebook/General Open Graph Image
         og_img = soup.find('meta', property='og:image')
         if og_img and og_img.get('content'):
             return og_img['content']
             
-        # 2. Look for Twitter Image
         tw_img = soup.find('meta', name='twitter:image')
         if tw_img and tw_img.get('content'):
             return tw_img['content']
             
-        # 3. Look for specific Facebook CDN images in the HTML
         for img in soup.find_all('img'):
             src = img.get('src')
             if src and ('scontent' in src or 'fbcdn' in src):
@@ -297,7 +302,6 @@ def download_media_engine(url: str, download_type: str):
                 
         raise ValueError("FILE_TOO_LARGE")
 
-# (Rest of the code is exactly the same as your previous version)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
     args = context.args
