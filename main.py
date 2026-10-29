@@ -34,7 +34,7 @@ PUBLIC_CHANNEL_USERNAME = "@booksaufio"
 HELP_CHANNEL_URL = "https://t.me/faqandaupport"
 DELETE_DELAY_TIME = 540  # 9 minutes
 
-# Proxy is removed
+# Proxy is disabled
 PROXY_URL = None 
 
 CHANNELS_FILE = "user_channels.json"
@@ -127,7 +127,8 @@ def download_video_ytdlp(url: str):
                 }
             }
             
-            # Proxy logic removed
+            if PROXY_URL:
+                ydl_opts['proxy'] = PROXY_URL
 
             # --- DYNAMIC COOKIE LOADER ---
             url_lower = url.lower()
@@ -143,7 +144,7 @@ def download_video_ytdlp(url: str):
             # ------------------------------
             
             # 1. Extract info first to check size before downloading
-            with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
+            with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True, 'proxy': PROXY_URL if PROXY_URL else None}) as ydl:
                 info = ydl.extract_info(url, download=False)
                 filesize = info.get('filesize') or info.get('filesize_approx')
                 if filesize and filesize > 50 * 1024 * 1024:
@@ -172,7 +173,7 @@ def download_video_ytdlp(url: str):
                     
         except Exception as e:
             logger.error(f"yt-dlp tier error for {url}: {e}")
-            if "Unsupported URL" in str(e) or "Video unavailable" in str(e) or "403" in str(e) or "Forbidden" in str(e) or "HTTP Error" in str(e):
+            if "Unsupported URL" in str(e) or "Video unavailable" in str(e) or "403" in str(e) or "Forbidden" in str(e) or "HTTP Error" in str(e) or "ProxyError" in str(e):
                 raise e
             continue
             
@@ -269,6 +270,9 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
         parse_mode="Markdown"
     )
 
+    # Smart Cooldown tracker
+    consecutive_fails = 0
+
     for index, url in enumerate(urls[start_index:], start=start_index + 1):
         if not active_batch_sessions.get(user_id, False):
             break
@@ -276,6 +280,19 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
         if "youtube.com" in url.lower() or "youtu.be" in url.lower():
             await bot.send_message(chat_id=chat_id, text=f"❌ [{index}/{len(urls)}] Skipped YouTube (maintenance).")
             continue
+
+        # --- COOLDOWN LOGIC ---
+        if consecutive_fails >= 3:
+            cooldown_msg = await bot.send_message(
+                chat_id=chat_id, 
+                text=f"⏳ **Site Rate Limit Detected.** Pausing for 60 seconds to let the firewall clear... (Fails: {consecutive_fails})"
+            )
+            await asyncio.sleep(60) # Wait 60 seconds
+            try:
+                await cooldown_msg.delete()
+            except:
+                pass
+            consecutive_fails = 0 # Reset counter after pause
 
         try:
             response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": True}, timeout=5)
@@ -348,11 +365,14 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                 os.remove(file_path)
                 await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
                 success_count += 1
+                consecutive_fails = 0 # Reset on success
             else:
                 await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}/{len(urls)}] Failed: File path not found.")
                 fail_count += 1
+                consecutive_fails += 1
         except Exception as e:
             logger.error(f"Batch item error: {e}")
+            consecutive_fails += 1
             try:
                 if "FILE_TOO_LARGE" in str(e):
                     error_text = f"❌ [{index}/{len(urls)}] Failed: Video is larger than 50MB."
@@ -360,6 +380,9 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                 elif "403" in str(e) or "Forbidden" in str(e):
                     error_text = f"❌ [{index}/{len(urls)}] Failed: Site blocked the bot."
                     help_text = "Too many attempts made. Site blocked the server. Please contact support to refresh cookies."
+                elif "ProxyError" in str(e) or "proxy" in str(e).lower():
+                    error_text = f"❌ [{index}/{len(urls)}] Failed: Proxy connection failed."
+                    help_text = "The proxy is dead or timing out. Try a new proxy."
                 elif "Unsupported URL" in str(e) or "Video unavailable" in str(e):
                     error_text = f"❌ [{index}/{len(urls)}] Failed: Private or deleted video."
                     help_text = "The link is dead or requires a login. Try a different link."
@@ -369,7 +392,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                 
                 help_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("💬 Ask for Help in FAQ Channel", url=HELP_CHANNEL_URL)]])
                 
-                if "403" in str(e) or "Forbidden" in str(e):
+                if "403" in str(e) or "Forbidden" in str(e) or "ProxyError" in str(e):
                      await bot.edit_message_text(
                          chat_id=chat_id, 
                          message_id=status_msg.message_id, 
@@ -384,6 +407,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                 pass
             fail_count += 1
         
+        # Standard delay between downloads
         await asyncio.sleep(4) 
 
     if user_id in active_batch_sessions:
@@ -418,6 +442,9 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     text = update.message.text
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
+
+    if active_batch_sessions.get(user_id, False):
+        return
 
     linking_states = load_linking_states()
     if linking_states.get(str(user_id)) == "waiting_for_channel":
@@ -488,6 +515,8 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                     error_msg = "❌ Video is larger than 50MB."
                 elif "403" in str(e):
                     error_msg = "❌ HTTP 403 Forbidden (Site blocked bot)."
+                elif "ProxyError" in str(e):
+                    error_msg = "❌ Proxy connection failed."
                 elif "404" in str(e):
                     error_msg = "❌ HTTP 404 Not Found."
                 else:
@@ -498,7 +527,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                     chat_id=chat_id, 
                     message_id=status_msg.message_id, 
                     text=error_msg,
-                    reply_markup=help_keyboard if "403" in str(e) else None
+                    reply_markup=help_keyboard if "403" in str(e) or "ProxyError" in str(e) else None
                 )
         else:
             bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
@@ -540,6 +569,9 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     document = update.message.document
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
+
+    if active_batch_sessions.get(user_id, False):
+        return
 
     if not document.file_name or not document.file_name.endswith('.txt'):
         await update.message.reply_text("❌ Please upload a valid `.txt` file.")
