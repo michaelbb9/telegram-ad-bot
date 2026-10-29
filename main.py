@@ -455,7 +455,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         states[str(user_id)] = {"mode": "collecting", "items": []}
         save_json_file(DRIP_STATE_FILE, states)
         
-        # Add the permanent finish button to the keyboard right away!
         keyboard = [[KeyboardButton("🚀 Finish & Broadcast Drop")]]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -468,7 +467,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
         return
 
-    # --- TOP PRIORITY 2: ADMIN CLICKS PERMANENT FINISH BUTTON OR SENDS TIME ---
+    # --- TOP PRIORITY 2: ADMIN CLICKS FINISH BUTTON ---
     if text == "🚀 Finish & Broadcast Drop" and user_id == ADMIN_ID:
         states = load_json_file(DRIP_STATE_FILE)
         user_state = states.get(str(user_id))
@@ -477,98 +476,36 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             await update.message.reply_text("⚠️ You haven't added any items yet! Send files first.")
             return
 
-        user_state["mode"] = "waiting_for_time"
+        user_state["mode"] = "waiting_for_timer"
         save_json_file(DRIP_STATE_FILE, states)
 
-        await update.message.reply_text(
-            "⏱️ **Set Deletion Timer**\n\n"
-            "How many minutes should these dropped files stay before auto-deleting for users?\n"
-            "*(Type a number like `5`, `9`, `15`, etc.)*",
-            parse_mode="Markdown"
-        )
-        return
-
-    # --- TOP PRIORITY 3: CAPTURE DELETION TIME NUMBER ---
-    states = load_json_file(DRIP_STATE_FILE)
-    user_state = states.get(str(user_id))
-
-    if user_state and isinstance(user_state, dict) and user_state.get("mode") == "waiting_for_time" and user_id == ADMIN_ID:
-        try:
-            mins = int(text.strip())
-            if mins <= 0: raise ValueError()
-        except ValueError:
-            await update.message.reply_text("❌ Please enter a valid number of minutes (e.g., `5`, `9`, `15`):")
-            return
-
-        items_to_drop = user_state["items"]
-        del states[str(user_id)]
-        save_json_file(DRIP_STATE_FILE, states)
-
-        drop_id = str(int(time.time()))
-        expires_at = time.time() + 480  # 8 minutes claim window
-        delete_delay_seconds = mins * 60
-
-        drop_data = load_json_file(DRIP_FILE)
-        drop_data[drop_id] = {
-            "items": items_to_drop,
-            "expires_at": expires_at,
-            "delete_delay": delete_delay_seconds,
-            "delete_mins": mins
-        }
-        save_json_file(DRIP_FILE, drop_data)
-
-        bot_username = context.bot.username
-        claim_url = f"https://t.me/{bot_username}?start=drip_{drop_id}"
-
-        all_users = set()
-        lang_data = load_json_file(LANG_FILE)
-        token_data = load_tokens()
-        for uid in lang_data.keys(): all_users.add(int(uid))
-        for uid in token_data.keys(): all_users.add(int(uid))
-
-        await update.message.reply_text(f"🚀 Broadcasting flash drop bundle ({len(items_to_drop)} items, auto-deletes in {mins}m) to **{len(all_users)} users**...", parse_mode="Markdown")
-
-        success_broadcasts = 0
-        keyboard = [[InlineKeyboardButton("🎁 Claim Flash Drop Now", url=claim_url)]]
+        # PREMADE INLINE TIMER BUTTONS
+        keyboard = [
+            [
+                InlineKeyboardButton("⚡ 30 Seconds", callback_data="drop_time_30"),
+                InlineKeyboardButton("⏱️ 2 Minutes", callback_data="drop_time_120")
+            ],
+            [
+                InlineKeyboardButton("⏱️ 5 Minutes", callback_data="drop_time_300"),
+                InlineKeyboardButton("⏱️ 10 Minutes", callback_data="drop_time_600")
+            ]
+        ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        broadcast_text = (
-            "🚨 **EXCLUSIVE FLASH DROP UNLOCKED!** 🚨\n\n"
-            "✨ *What is this?* A safe, surprise media bundle sent directly to your DM by the admin.\n"
-            "⏳ **Auto-Destruct:** Files will automatically disappear **{mins} minutes** after viewing!\n\n"
-            "👇 Tap the button below to verify and claim your bundle:".format(mins=mins)
-        )
-
-        for uid in all_users:
-            if uid == ADMIN_ID: continue
-            try:
-                await context.bot.send_message(
-                    chat_id=uid,
-                    text=broadcast_text,
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
-                )
-                success_broadcasts += 1
-                await asyncio.sleep(0.05)
-            except Exception:
-                pass
-
-        # Restore normal admin keyboard after broadcast is complete
         await update.message.reply_text(
-            f"✅ **Flash Drop Broadcast Complete!**\n\n"
-            f"📬 Delivered to: **{success_broadcasts} users**\n"
-            f"📦 Items in bundle: **{len(items_to_drop)}**\n"
-            f"⏱️ Deletion Timer Set To: **{mins} minutes**",
-            reply_markup=get_main_keyboard(lang, True),
+            "⏱️ **Select Auto-Deletion Timer**\n\nChoose how long these dropped files should stay before auto-deleting for users:",
+            reply_markup=reply_markup,
             parse_mode="Markdown"
         )
         return
 
     # Catch text messages if still collecting items
+    states = load_json_file(DRIP_STATE_FILE)
+    user_state = states.get(str(user_id))
     if user_state and isinstance(user_state, dict) and user_state.get("mode") == "collecting":
         user_state["items"].append({"chat_id": chat_id, "message_id": update.message.message_id})
         save_json_file(DRIP_STATE_FILE, states)
-        return # Silently collect text as well
+        return
 
     if text == t["menu_stats"]:
         tokens = load_tokens()
@@ -723,6 +660,85 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
+    # --- HANDLE PREMADE TIMER SELECTION BUTTONS ---
+    if data.startswith("drop_time_") and user_id == ADMIN_ID:
+        seconds = int(data.replace("drop_time_", ""))
+        mins_label = "30 Seconds" if seconds == 30 else f"{seconds // 60} Minutes"
+
+        states = load_json_file(DRIP_STATE_FILE)
+        user_state = states.get(str(user_id))
+
+        if not user_state or not user_state.get("items"):
+            await query.answer("⚠️ No items found!", show_alert=True)
+            return
+
+        items_to_drop = user_state["items"]
+        del states[str(user_id)]
+        save_json_file(DRIP_STATE_FILE, states)
+
+        drop_id = str(int(time.time()))
+        expires_at = time.time() + 480  # 8 minutes claim window
+
+        drop_data = load_json_file(DRIP_FILE)
+        drop_data[drop_id] = {
+            "items": items_to_drop,
+            "expires_at": expires_at,
+            "delete_delay": seconds,
+            "delete_label": mins_label
+        }
+        save_json_file(DRIP_FILE, drop_data)
+
+        await query.answer(f"Timer set to {mins_label}!")
+        try: await query.message.delete()
+        except: pass
+
+        bot_username = context.bot.username
+        claim_url = f"https://t.me/{bot_username}?start=drip_{drop_id}"
+
+        all_users = set()
+        lang_data = load_json_file(LANG_FILE)
+        token_data = load_tokens()
+        for uid in lang_data.keys(): all_users.add(int(uid))
+        for uid in token_data.keys(): all_users.add(int(uid))
+
+        await context.bot.send_message(chat_id=chat_id, text=f"🚀 Broadcasting flash drop bundle ({len(items_to_drop)} items, auto-deletes in {mins_label}) to **{len(all_users)} users**...", parse_mode="Markdown")
+
+        success_broadcasts = 0
+        keyboard = [[InlineKeyboardButton("🎁 Claim Flash Drop Now", url=claim_url)]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        broadcast_text = (
+            "🚨 **EXCLUSIVE FLASH DROP UNLOCKED!** 🚨\n\n"
+            "✨ *What is this?* A safe, surprise media bundle sent directly to your DM by the admin.\n"
+            "⏳ **Auto-Destruct:** Files will automatically disappear **{mins_label}** after viewing!\n\n"
+            "👇 Tap the button below to verify and claim your bundle:".format(mins_label=mins_label)
+        )
+
+        for uid in all_users:
+            if uid == ADMIN_ID: continue
+            try:
+                await context.bot.send_message(
+                    chat_id=uid,
+                    text=broadcast_text,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+                success_broadcasts += 1
+                await asyncio.sleep(0.05)
+            except Exception:
+                pass
+
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"✅ **Flash Drop Broadcast Complete!**\n\n"
+                 f"📬 Delivered to: **{success_broadcasts} users**\n"
+                 f"📦 Items in bundle: **{len(items_to_drop)}**\n"
+                 f"⏱️ Deletion Timer: **{mins_label}**",
+            reply_markup=get_main_keyboard(lang, True),
+            parse_mode="Markdown"
+        )
+        return
+
     # --- AGE VERIFICATION FOR MULTI-FILE FLASH DROPS ---
     if data.startswith("age_yes_"):
         drop_id = data.replace("age_yes_", "")
@@ -753,10 +769,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 sent_message_ids.append(fwd.message_id)
                 await asyncio.sleep(0.2)
 
-            del_mins = drop.get("delete_mins", 9)
+            del_label = drop.get("delete_label", "9 Minutes")
             del_seconds = drop.get("delete_delay", 540)
 
-            warn = await context.bot.send_message(chat_id=user_id, text=f"⏳ **Auto-deletes in {del_mins} minutes.**")
+            warn = await context.bot.send_message(chat_id=user_id, text=f"⏳ **Auto-deletes in {del_label}.**")
             sent_message_ids.append(warn.message_id)
             asyncio.create_task(schedule_deletion(context.bot, user_id, sent_message_ids, del_seconds))
         except Exception as e:
