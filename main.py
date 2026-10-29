@@ -41,6 +41,8 @@ LINKING_STATE_FILE = "linking_states.json"
 LANG_FILE = "user_languages.json"
 UPLOADS_FILE = "fan_uploads.json" 
 UPLOAD_LIMITS_FILE = "upload_limits.json"
+DRIP_FILE = "active_drip.json"
+DRIP_STATE_FILE = "drip_states.json"
 
 active_batch_sessions = {}
 pending_batch_payloads = {}
@@ -125,6 +127,20 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
         try: await bot.delete_message(chat_id=chat_id, message_id=msg_id)
         except Exception: pass
 
+def fetch_url_metadata(url):
+    ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True}
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            title = info.get('title', 'Unknown Title')
+            duration = info.get('duration', 0)
+            mins = duration // 60
+            secs = duration % 60
+            duration_str = f"{mins}m {secs}s" if mins > 0 else f"{secs}s"
+            return title, duration_str
+    except Exception:
+        return "Media Link", "N/A"
+
 def scrape_html_images(url, cookiefile=None):
     headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1', 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'en-US,en;q=0.9'}
     cookies = None
@@ -205,7 +221,6 @@ def download_media_engine(url: str, download_type: str):
         raise ValueError("FILE_TOO_LARGE")
 
 def get_main_keyboard(lang_code, is_admin):
-    # Fallback to English dictionary safely if lang_code is missing translations
     t = LANGUAGES.get(lang_code, LANGUAGES["en"])
     keyboard = [
         [KeyboardButton(t["menu_stats"]), KeyboardButton(t["menu_lang"])],
@@ -214,6 +229,7 @@ def get_main_keyboard(lang_code, is_admin):
     ]
     if is_admin:
         keyboard.append([KeyboardButton(t["menu_uploads"])])
+        keyboard.append([KeyboardButton("⚡ Create Flash Drop")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -236,7 +252,37 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(t["welcome"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID), parse_mode="Markdown")
         return
 
-    video_code = args[0]
+    arg_code = args[0]
+
+    # --- HANDLE 8-MINUTE FLASH DROP WITH AGE VERIFICATION ---
+    if arg_code.startswith("drip_"):
+        drop_id = arg_code.replace("drip_", "")
+        drip_data = load_json_file(DRIP_FILE)
+        drop = drip_data.get(drop_id)
+
+        if not drop:
+            await update.message.reply_text("❌ This flash drop link is invalid.")
+            return
+
+        if time.time() > drop["expires_at"]:
+            await update.message.reply_text("⏳ **Expired!** This 8-minute flash vault drop has closed.", parse_mode="Markdown")
+            return
+
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Yes, I am 18+", callback_data=f"age_yes_{drop_id}"),
+                InlineKeyboardButton("❌ No", callback_data="age_no")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "🔞 **Age Verification Required**\n\nThis flash drop contains restricted or 18+ content. Are you 18 years of age or older?",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+        return
+
+    video_code = arg_code
     if video_code.startswith("vid"):
         clean_code = video_code.replace("vid", "")
         if "to" in clean_code:
@@ -394,6 +440,47 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
+    # --- ADMIN FLASH DROP CREATOR BUTTON TRIGGER ---
+    if text == "⚡ Create Flash Drop" and user_id == ADMIN_ID:
+        states = load_json_file(DRIP_STATE_FILE)
+        states[str(user_id)] = "waiting_for_drop_content"
+        save_json_file(DRIP_STATE_FILE, states)
+        await update.message.reply_text(
+            "⚡ **Flash Drop Creator Mode**\n\n"
+            "Now, **send** or **forward** the content (video, photo, text, or file) you want to drop. I will generate your private 8-minute claim link right here in your DM!",
+            parse_mode="Markdown"
+        )
+        return
+
+    # --- CAPTURE CONTENT FOR FLASH DROP ---
+    drip_states = load_json_file(DRIP_STATE_FILE)
+    if str(user_id) in drip_states and drip_states[str(user_id)] == "waiting_for_drop_content":
+        del drip_states[str(user_id)]
+        save_json_file(DRIP_STATE_FILE, drip_states)
+
+        drop_id = str(int(time.time()))
+        expires_at = time.time() + 480  # 8 minutes expiry
+
+        drop_data = load_json_file(DRIP_FILE)
+        drop_data[drop_id] = {
+            "from_chat_id": update.message.forward_from_chat.id if update.message.forward_from_chat else chat_id,
+            "message_id": update.message.message_id,
+            "expires_at": expires_at
+        }
+        save_json_file(DRIP_FILE, drop_data)
+
+        bot_username = context.bot.username
+        deep_link = f"https://t.me/{bot_username}?start=drip_{drop_id}"
+
+        await update.message.reply_text(
+            f"✅ **Flash Drop Generated!**\n\n"
+            f"⏳ Valid for: **8 Minutes**\n\n"
+            f"🔗 **Your Exclusive Claim Link:**\n`{deep_link}`\n\n"
+            f"*(Copy and share this link anywhere you want. When users click it, the bot will deliver the content straight to their DMs after a quick 18+ check!)*",
+            parse_mode="Markdown"
+        )
+        return
+
     if text == t["menu_stats"]:
         tokens = load_tokens()
         profile = tokens.get(str(user_id), {})
@@ -479,6 +566,14 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text("❌ YouTube is paused.")
         return
 
+    # --- SMART URL PRE-FLIGHT INSPECTION ---
+    status_preview = await update.message.reply_text("🔍 Inspecting link metadata...")
+    title, duration_str = fetch_url_metadata(url)
+    try:
+        await status_preview.delete()
+    except:
+        pass
+
     payload_key = f"single_{user_id}_{int(time.time())}"
     pending_single_links[payload_key] = url
 
@@ -488,7 +583,9 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         [InlineKeyboardButton(t["btn_image"], callback_data=f"fmt_img_{payload_key}")],
         [InlineKeyboardButton(t["btn_sub"], callback_data=f"fmt_sub_{payload_key}")]
     ]
-    await update.message.reply_text(t["ask_format"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    
+    preview_text = f"🎬 **Found:** {title}\n⏱️ **Duration:** {duration_str}\n\n{t['ask_format']}"
+    await update.message.reply_text(preview_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -537,15 +634,50 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
+    # --- AGE VERIFICATION FOR FLASH DROPS ---
+    if data.startswith("age_yes_"):
+        drop_id = data.replace("age_yes_", "")
+        drip_data = load_json_file(DRIP_FILE)
+        drop = drip_data.get(drop_id)
+
+        if not drop:
+            await query.answer("❌ Session expired or drop invalid.", show_alert=True)
+            return
+
+        if time.time() > drop["expires_at"]:
+            await query.answer("⏳ Expired! This drop has closed.", show_alert=True)
+            try: await query.message.edit_text("⏳ **Expired!** This flash drop has closed.")
+            except: pass
+            return
+
+        await query.answer("✅ Verified! Delivering content...")
+        try:
+            await query.message.delete()
+            fwd = await context.bot.copy_message(
+                chat_id=user_id,
+                from_chat_id=drop["from_chat_id"],
+                message_id=drop["message_id"]
+            )
+            warn = await context.bot.send_message(chat_id=user_id, text=t["deletes_in_9"])
+            asyncio.create_task(schedule_deletion(context.bot, user_id, [fwd.message_id, warn.message_id], DELETE_DELAY_TIME))
+        except Exception as e:
+            await context.bot.send_message(chat_id=user_id, text=f"❌ Error delivering content: {e}")
+        return
+
+    if data == "age_no":
+        await query.answer("Access denied.", show_alert=True)
+        try:
+            await query.message.edit_text("❌ **Access Denied.** You must be 18 or older to view this flash drop.")
+        except:
+            pass
+        return
+
     if data.startswith("lang_"):
         new_lang = data.split("_")[1]
         langs = load_json_file(LANG_FILE)
         langs[str(user_id)] = new_lang
         save_json_file(LANG_FILE, langs)
-        
-        # FIX: Fallback safely if the language dictionary is missing
         new_t = LANGUAGES.get(new_lang, LANGUAGES["en"])
-        
         await query.answer("✅ Language updated!", show_alert=True)
         try:
             await query.message.reply_text(new_t["welcome"], reply_markup=get_main_keyboard(new_lang, user_id == ADMIN_ID), parse_mode="Markdown")
@@ -690,7 +822,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         linking_states[str(user_id)] = "waiting_for_channel"
         save_linking_states(linking_states)
         await query.answer("🔄 Mode activated!")
-        await query.message.reply_text("🔄 **Change Channel**\n\nForward a message from your new channel here.", parse_mode="Markdown")
+        await query.message.reply_text("🔄 **Change Channel**\n\nForward a message from your new channel here.", parse_Mode="Markdown")
         return
 
     if data == "verify_user":
