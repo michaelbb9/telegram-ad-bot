@@ -603,6 +603,21 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             await update.message.reply_text(t["stats_msg"].format(d_left, b_left), parse_mode="Markdown")
             return
 
+    if text == t["menu_uploads"] and user_id == ADMIN_ID:
+        track_user_activity(user_id, "menu_uploads")
+        uploads = load_json_file(UPLOADS_FILE)
+        if not uploads:
+            await update.message.reply_text(t["no_uploads"])
+            return
+            
+        await update.message.reply_text(t["admin_upload_prompt"])
+        for key, data in list(uploads.items())[-20:]:
+            try:
+                await context.bot.forward_message(chat_id=ADMIN_ID, from_chat_id=data["user_id"], message_id=data["msg_id"])
+            except Exception:
+                pass
+        return
+
     track_user_activity(user_id, "text_input")
 
     if text == "⚙️ Ad Toggle Panel" and user_id == ADMIN_ID:
@@ -785,20 +800,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text(prompt, parse_mode="Markdown")
         return
 
-    if text == t["menu_uploads"] and user_id == ADMIN_ID:
-        uploads = load_json_file(UPLOADS_FILE)
-        if not uploads:
-            await update.message.reply_text(t["no_uploads"])
-            return
-            
-        await update.message.reply_text(t["admin_upload_prompt"])
-        for key, data in list(uploads.items())[-20:]:
-            try:
-                await context.bot.forward_message(chat_id=ADMIN_ID, from_chat_id=data["user_id"], message_id=data["msg_id"])
-            except Exception:
-                pass
-        return
-
     extracted_urls = re.findall(r'https?://[^\s]+', text)
     if not extracted_urls: return
 
@@ -945,7 +946,6 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     
     active_24hr = sum(1 for data in activity.values() if now - data.get("last_active", 0) < 86400)
     
-    # Aggregate feature usage across all users
     feature_totals = {}
     for data in activity.values():
         features = data.get("features", {})
@@ -1636,7 +1636,6 @@ def run_telegram_bot():
         await app.initialize()
         await app.start()
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
-        # Keep the bot running indefinitely inside the loop
         await asyncio.Event().wait()
 
     try:
