@@ -47,6 +47,7 @@ UPLOAD_LIMITS_FILE = "upload_limits.json"
 DRIP_FILE = "active_drip.json"
 DRIP_STATE_FILE = "drip_states.json"
 SUPPORT_STATES_FILE = "support_states.json"
+CONFIG_FILE = "bot_config.json"
 
 active_batch_sessions = {}
 pending_batch_payloads = {}
@@ -111,20 +112,27 @@ def get_lang(user_id):
 
 def get_global_ab_network(user_id):
     """
-    Global Daily A/B Split-Test Rotation:
-    Rotates between 'adsterra' and 'adsgram' every 24 hours based on day hash and user ID.
+    Global Network Selector with Admin Override Control:
+    Modes: 'auto' (24hr hash rotation), 'adsgram' (force adsgram), 'adsterra' (force adsterra)
     """
+    config = load_json_file(CONFIG_FILE)
+    mode = config.get("ad_mode", "auto")
+    
+    if mode == "adsgram":
+        return "adsgram"
+    elif mode == "adsterra":
+        return "adsterra"
+    
+    # Default Auto 24-hour A/B Rotation
     day_epoch = int(time.time() // 86400)
     combined_hash = hash(f"{user_id}_{day_epoch}")
     return "adsgram" if combined_hash % 2 == 0 else "adsterra"
 
 def fetch_adsgram_ad_data():
-    """Fetches active native ad block info from Adsgram API for Clause 13 compliance."""
     try:
         res = requests.get(f"{ADSGRAM_API_URL}?blockId={ADSGRAM_BLOCK_ID}", timeout=5)
         if res.status_code == 200:
-            data = res.json()
-            return data
+            return res.json()
     except Exception as e:
         logger.error(f"Adsgram API fetch error: {e}")
     return None
@@ -254,7 +262,7 @@ def get_main_keyboard(lang_code, is_admin):
     ]
     if is_admin:
         keyboard.append([KeyboardButton(t["menu_uploads"]), KeyboardButton("📢 Broadcast")])
-        keyboard.append([KeyboardButton("⚡ Create Flash Drop")])
+        keyboard.append([KeyboardButton("⚡ Create Flash Drop"), KeyboardButton("⚙️ Ad Toggle Panel")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -332,7 +340,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": int(msg_start), "msg_end": int(msg_end), "clicked_ad": True, "verified": True, "expires": time.time() + 600}
         save_tokens(tokens)
         
-        ad_info = fetch_adsgram_ad_data()
         caption_text = "📺 **Adsgram Native Sponsor Block**\n\nSupport our bot by viewing our sponsor partner below to instantly unlock your content!"
         keyboard = [
             [InlineKeyboardButton("📺 Watch Sponsor Ad (Adsgram)", callback_data=f"adsgram_complete_{msg_start}_{msg_end}")],
@@ -404,7 +411,12 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             save_tokens(tokens)
             paused_batches[user_id] = {"urls": urls, "next_index": index - 1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
             keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
-            await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            
+            caption_text = t["limit_batch"].format(index, len(urls))
+            try:
+                await bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID, caption=caption_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+            except Exception:
+                await bot.send_message(chat_id=chat_id, text=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             break 
 
         status_text = t["dl_video"] if download_type == 'video' else t["dl_audio"] if download_type == 'audio' else t["dl_image"]
@@ -536,12 +548,27 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
-    menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🟢 Bot Status", "📢 Broadcast", "⚡ Create Flash Drop"]
+    menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🟢 Bot Status", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel"]
     if text in menu_texts:
         support_states = load_json_file(SUPPORT_STATES_FILE)
         if str(user_id) in support_states:
             del support_states[str(user_id)]
             save_json_file(SUPPORT_STATES_FILE, support_states)
+
+    if text == "⚙️ Ad Toggle Panel" and user_id == ADMIN_ID:
+        config = load_json_file(CONFIG_FILE)
+        current_mode = config.get("ad_mode", "auto").upper()
+        keyboard = [
+            [InlineKeyboardButton("🔄 Auto A/B Rotation", callback_data="set_ad_auto")],
+            [InlineKeyboardButton("📺 Force Adsgram Only", callback_data="set_ad_adsgram")],
+            [InlineKeyboardButton("🌐 Force Adsterra Only", callback_data="set_ad_adsterra")]
+        ]
+        await update.message.reply_text(
+            f"⚙️ **Ad Network Toggle Panel**\n\nCurrent Mode: **{current_mode}**\n\nChoose which ad network system your bot should serve to users:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+        return
 
     support_states = load_json_file(SUPPORT_STATES_FILE)
     if user_id == ADMIN_ID and str(user_id) in support_states and isinstance(support_states[str(user_id)], dict) and support_states[str(user_id)].get("mode") == "admin_replying":
@@ -841,13 +868,31 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(f"📊 **ADMIN STATS**\nTotal Users: {len(tokens)}", parse_mode="Markdown")
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    config = load_json_file(CONFIG_FILE)
+    mode = config.get("ad_mode", "auto").upper()
     await update.message.reply_text(
-        "🟢 **Bot Status Dashboard**\n\n"
-        "• Telegram API Connection: **ONLINE**\n"
-        "• Downloader Engine (`yt-dlp`): **ONLINE**\n"
-        "• Flask Bridge Server: **RUNNING**\n"
-        "• Adsgram Block (`bot-56842`): **INTEGRATED**\n"
-        "• Flash Drop & Broadcast Systems: **ACTIVE**",
+        f"🟢 **Bot Status Dashboard**\n\n"
+        f"• Active Ad Mode: **{mode}**\n"
+        f"• Telegram API Connection: **ONLINE**\n"
+        f"• Downloader Engine (`yt-dlp`): **ONLINE**\n"
+        f"• Flask Bridge Server: **RUNNING**\n"
+        f"• Adsgram Block (`bot-56842`): **INTEGRATED**\n"
+        f"• Flash Drop & Broadcast Systems: **ACTIVE**",
+        parse_mode="Markdown"
+    )
+
+async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.message.from_user.id != ADMIN_ID: return
+    config = load_json_file(CONFIG_FILE)
+    current_mode = config.get("ad_mode", "auto").upper()
+    keyboard = [
+        [InlineKeyboardButton("🔄 Auto A/B Rotation", callback_data="set_ad_auto")],
+        [InlineKeyboardButton("📺 Force Adsgram Only", callback_data="set_ad_adsgram")],
+        [InlineKeyboardButton("🌐 Force Adsterra Only", callback_data="set_ad_adsterra")]
+    ]
+    await update.message.reply_text(
+        f"⚙️ **Ad Network Toggle Panel**\n\nCurrent Mode: **{current_mode}**\n\nChoose which ad network system your bot should serve to users:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
 
@@ -910,6 +955,18 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     chat_id = query.message.chat_id
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
+
+    if data.startswith("set_ad_") and user_id == ADMIN_ID:
+        mode = data.replace("set_ad_", "")
+        config = load_json_file(CONFIG_FILE)
+        config["ad_mode"] = mode
+        save_json_file(CONFIG_FILE, config)
+        await query.answer(f"Ad mode updated to {mode.upper()}!", show_alert=True)
+        try:
+            await query.message.edit_text(f"✅ **Ad Network Mode Updated Successfully!**\n\nCurrent Active Mode: **{mode.upper()}**", parse_mode="Markdown")
+        except:
+            pass
+        return
 
     if data == "open_support":
         support_states = load_json_file(SUPPORT_STATES_FILE)
@@ -1176,10 +1233,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             tokens = load_tokens()
 
             if assigned_network == "adsgram":
-                tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": True, "verified": True, "expires": time.time() + 600}
+                tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "url": url, "dl_type": dl_type, "clicked_ad": True, "verified": True, "expires": time.time() + 600}
                 save_tokens(tokens)
                 keyboard = [
-                    [InlineKeyboardButton("📺 Watch Sponsor Ad (Adsgram)", callback_data="adsgram_complete_0_0")],
+                    [InlineKeyboardButton("📺 Watch Sponsor Ad (Adsgram)", callback_data="adsgram_complete_single")],
                     [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)]
                 ]
                 await context.bot.send_message(chat_id=chat_id, text=t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
@@ -1189,7 +1246,12 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
             save_tokens(tokens)
             keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
-            await context.bot.send_message(chat_id=chat_id, text=t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            
+            caption_text = t["limit_reached"]
+            try:
+                await context.bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID, caption=caption_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+            except Exception:
+                await context.bot.send_message(chat_id=chat_id, text=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             return
 
         status_msg = await context.bot.send_message(chat_id=chat_id, text=t["fetching"].format(dl_type))
@@ -1238,6 +1300,50 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             paused = paused_batches.pop(user_id, None)
             if paused:
                 asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"]))
+            return
+
+        if data == "adsgram_complete_single":
+            tokens = load_tokens()
+            token_data = tokens.get(str(user_id), {})
+            url = token_data.get("url")
+            dl_type = token_data.get("dl_type", "video")
+            
+            if not url:
+                await query.message.reply_text("✅ **Refilled!** Please send your link again to download.")
+                return
+
+            status_msg = await context.bot.send_message(chat_id=chat_id, text=t["fetching"].format(dl_type))
+            try:
+                file_paths, resolution, size_str = download_media_engine(url, dl_type)
+                if not file_paths: raise ValueError("FILE_NOT_FOUND")
+
+                if dl_type == 'images':
+                    media_group = [InputMediaPhoto(media=open(p, 'rb')) for p in file_paths]
+                    sent_media = await context.bot.send_media_group(chat_id=chat_id, media=media_group)
+                    warning_msg = await context.bot.send_message(chat_id=chat_id, text=t["images_received"].format(len(file_paths)))
+                    asyncio.create_task(schedule_deletion(context.bot, chat_id, [m.message_id for m in sent_media] + [warning_msg.message_id], 540))
+                    for p in file_paths: os.remove(p)
+                elif dl_type == 'audio':
+                    with open(file_paths[0], 'rb') as f: sent_media = await context.bot.send_audio(chat_id=chat_id, audio=f, title="Extracted Audio", caption=f"🎵 **Audio**\n📦 Size: {size_str}", parse_mode="Markdown")
+                    warning_msg = await context.bot.send_message(chat_id=chat_id, text=f"⏳ **Auto-deletes in 9 minutes.**")
+                    asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent_media.message_id, warning_msg.message_id], 540))
+                    os.remove(file_paths[0])
+                elif dl_type == 'subtitles':
+                    with open(file_paths[0], 'rb') as f: sent_media = await context.bot.send_document(chat_id=chat_id, document=f, caption=f"📝 **Subtitles**", parse_mode="Markdown")
+                    warning_msg = await context.bot.send_message(chat_id=chat_id, text=f"⏳ **Auto-deletes in 9 minutes.**")
+                    asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent_media.message_id, warning_msg.message_id], 540))
+                    os.remove(file_paths[0])
+                else:
+                    with open(file_paths[0], 'rb') as f: sent_media = await context.bot.send_video(chat_id=chat_id, video=f, caption=f"✨ **Video**\n📐 Quality: {resolution}\n📦 Size: {size_str}", parse_mode="Markdown")
+                    warning_msg = await context.bot.send_message(chat_id=chat_id, text=f"⏳ **Auto-deletes in 9 minutes.**")
+                    asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent_media.message_id, warning_msg.message_id], 540))
+                    os.remove(file_paths[0])
+
+                await context.bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+            except Exception as e:
+                logger.error(f"Single download error after Adsgram: {e}")
+                error_msg = t["error_50mb"] if "FILE_TOO_LARGE" in str(e) else t["error_no_img"] if "NO_IMAGES" in str(e) else t["error_generic"]
+                await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=error_msg)
             return
 
         parts = data.replace("adsgram_complete_", "").split("_")
@@ -1355,7 +1461,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         forwarded_ids = []
         try:
             for target_msg_id in range(msg_start, msg_end + 1):
-                fwd = await context.bot.forward_message(chat_id=user_id, from_chat_id=DETECTED_CHANNEL_ID, message_id=target_msg_id)
+                fwd = await context.bot.copy_message(chat_id=user_id, from_chat_id=DETECTED_CHANNEL_ID, message_id=target_msg_id)
                 forwarded_ids.append(fwd.message_id)
                 asyncio.sleep(0.2)
             warn = await context.bot.send_message(chat_id=user_id, text=f"⏳ **Auto-deletes in 9 minutes.**")
@@ -1374,6 +1480,7 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("language", language_command))
         app.add_handler(CommandHandler("stats", stats))
         app.add_handler(CommandHandler("status", status_command))
+        app.add_handler(CommandHandler("toggleads", toggle_ads_command))
         app.add_handler(CommandHandler("broadcast", broadcast_command))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
