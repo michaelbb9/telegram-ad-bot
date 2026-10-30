@@ -393,11 +393,14 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": True}, timeout=5)
             res_data = response.json() if response.status_code == 200 else {}
         except Exception:
-            await bot.send_message(chat_id=chat_id, text=f"❌ [{index}/{len(urls)}] Connection error.")
-            break
-        if res_data.get("status") != "allowed" and user_id != ADMIN_ID:
+            res_data = {"status": "allowed"}
+
+        tokens = load_tokens()
+        user_profile = tokens.get(str(user_id), {})
+        d_left = user_profile.get("downloads_left", 4)
+
+        if res_data.get("status") != "allowed" and d_left <= 0 and user_id != ADMIN_ID:
             assigned_network = get_global_ab_network(user_id)
-            tokens = load_tokens()
 
             if assigned_network == "adsgram":
                 tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": True, "verified": True, "expires": time.time() + 600}
@@ -773,40 +776,41 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     extracted_urls = re.findall(r'https?://[^\s]+', text)
     if not extracted_urls: return
 
-    # --- SECURITY CHECK: RESEND AD WALL IF PENDING LIMIT (ONLY FOR REGULAR USERS) ---
+    # --- SECURITY CHECK: RESEND AD WALL IF PENDING LIMIT (ONLY IF 0 DOWNLOADS LEFT) ---
     if user_id != ADMIN_ID:
         tokens = load_tokens()
-        if str(user_id) in tokens:
-            token_data = tokens[str(user_id)]
-            if not token_data.get("verified", False):
-                assigned_network = get_global_ab_network(user_id)
-                msg_start = token_data.get("msg_start", 0)
-                msg_end = token_data.get("msg_end", 0)
-                
-                if assigned_network == "adsgram":
-                    keyboard = [
-                        [InlineKeyboardButton("📺 Watch Sponsor Ad (Adsgram)", callback_data="adsgram_complete_single" if msg_start == 0 else f"adsgram_complete_{msg_start}_{msg_end}")],
-                        [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)]
-                    ]
-                    await update.message.reply_text(
-                        t["limit_reached"],
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode="Markdown"
-                    )
-                    return
-                else:
-                    bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
-                    keyboard = [
-                        [InlineKeyboardButton(t["refill_btn"], url=bridge_link)],
-                        [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)],
-                        [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]
-                    ]
-                    caption_text = t["limit_reached"]
-                    try:
-                        await context.bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID, caption=caption_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
-                    except Exception:
-                        await update.message.reply_text(text=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-                    return
+        user_profile = tokens.get(str(user_id), {})
+        d_left = user_profile.get("downloads_left", 4)
+
+        if str(user_id) in tokens and not user_profile.get("verified", False) and d_left <= 0:
+            assigned_network = get_global_ab_network(user_id)
+            msg_start = user_profile.get("msg_start", 0)
+            msg_end = user_profile.get("msg_end", 0)
+            
+            if assigned_network == "adsgram":
+                keyboard = [
+                    [InlineKeyboardButton("📺 Watch Sponsor Ad (Adsgram)", callback_data="adsgram_complete_single" if msg_start == 0 else f"adsgram_complete_{msg_start}_{msg_end}")],
+                    [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)]
+                ]
+                await update.message.reply_text(
+                    t["limit_reached"],
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode="Markdown"
+                )
+                return
+            else:
+                bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
+                keyboard = [
+                    [InlineKeyboardButton(t["refill_btn"], url=bridge_link)],
+                    [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)],
+                    [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]
+                ]
+                caption_text = t["limit_reached"]
+                try:
+                    await context.bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID, caption=caption_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+                except Exception:
+                    await update.message.reply_text(text=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+                return
 
     if active_batch_sessions.get(user_id, False): return
     linking_states = load_linking_states()
@@ -1306,12 +1310,14 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": False}, timeout=5)
                 res_data = response.json() if response.status_code == 200 else {}
             except Exception:
-                await context.bot.send_message(chat_id=chat_id, text="❌ Server error.")
-                return
+                res_data = {"status": "allowed"}
 
-            if res_data.get("status") != "allowed":
+            tokens = load_tokens()
+            user_profile = tokens.get(str(user_id), {})
+            d_left = user_profile.get("downloads_left", 4)
+
+            if res_data.get("status") != "allowed" and d_left <= 0:
                 assigned_network = get_global_ab_network(user_id)
-                tokens = load_tokens()
 
                 if assigned_network == "adsgram":
                     tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "url": url, "dl_type": dl_type, "clicked_ad": True, "verified": True, "expires": time.time() + 600}
@@ -1383,7 +1389,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         try: await query.message.delete()
         except: pass
 
-        # CLEAR TOKEN IMMEDIATELY UPON SUCCESSFUL AD VIEW
         tokens = load_tokens()
         if str(user_id) in tokens:
             del tokens[str(user_id)]
