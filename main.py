@@ -70,18 +70,18 @@ FLOOD_COOLDOWN = 30
 
 LANGUAGES = {
     "en": {
-        "welcome": "🚀 **Welcome to the Ultimate Media Downloader & Vault Bot!** 🚀\n\n🎬 Video, 🎵 Audio, 🖼️ Images, 📝 Subtitles\n📦 Batch Downloader (100+ links)\n⚡ Flash Drops\n💎 Exclusive Vaults\n📤 Fan Uploads (5/day)\n\n👉 Just paste a TikTok/link to start!",
+        "welcome": "🚀 **WELCOME TO MICHAELBBC VAULT - ULTIMATE DOWNLOADER! 🚀✨\n\n🔥 WHAT I CAN DO:\n🎬 VIDEOS HD No Watermark!\n🎵 AUDIO MP3 192kbps!\n🖼️ IMAGES Scrape ALL!\n📝 SUBTITLES Auto!\n📦 BATCH 100+ Links!\n⚡ CACHE 1 Sec!\n💎 VAULT Forever!\n📤 FAN UPLOADS 5/day!\n\n👉 PASTE LINK TO START! 👇** 🚀\n\n🎬 Video, 🎵 Audio, 🖼️ Images, 📝 Subtitles\n📦 Batch Downloader (100+ links)\n⚡ Flash Drops\n💎 Exclusive Vaults\n📤 Fan Uploads (5/day)\n\n👉 Just paste a TikTok/link to start!",
         "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Images", "btn_sub": "📝 Subtitles (SRT)",
-        "ask_format": "👇 **What would you like to download?**",
-        "fetching": "📥 **Fetching {}... Please wait.**",
-        "error_generic": "❌ Failed. Link private or site blocked.",
-        "error_50mb": "❌ File >50MB limit.", "error_no_img": "❌ No images found.",
+        "ask_format": "👇 **AWESOME! What format you want? Pick below! 🎯 Video=watch, Audio=music!**",
+        "fetching": "📥 **Fetching your {}... Hang tight! ⏳✨ Working magic! 🚀**",
+        "error_generic": "❌ Oops! Failed! 😢 Link private/blocked. Try public link! 🔓💡",
+        "error_50mb": "❌ Too Big! 😅 >50MB limit. Try <20MB short video! ✂️", "error_no_img": "❌ No images found! 😢 Try another link! 🖼️",
         "images_received": "⏳ **{} Images received.**",
-        "select_lang": "🌍 Select language:", "lang_set": "✅ Language set!",
+        "select_lang": "🌍 Select your language! 🌍✨ Choose below! 👇", "lang_set": "✅ Language set! Enjoy magic! 🎉✨",
         "batch_detected": "📦 **Batch Detected ({} links)**\nWhat format?",
         "batch_dest": "📦 **Where to send?**",
         "btn_chat": "📥 In Chat", "btn_chan": "📢 To Channel",
-        "limit_reached": "⚠️ **Limit Reached!** Watch ad to refill.",
+        "limit_reached": "⚠️ **Limit Reached! 🚧😅 You used 4 FREE! 🎬 Watch 30s ad to refill! ♻️✨",
         "refill_btn": "🔓 Open Link & Refill",
         "join_btn": "📢 Join Channel", "check_btn": "💜 Check Balance",
         "limit_batch": "⚠️ **Batch Limit Reached at {} of {}**\nWatch ad to continue.",
@@ -195,6 +195,14 @@ async def disk_cleaner_loop():
                 logger.info(f"Cleaner deleted {deleted}")
         except Exception as e:
             logger.error(f"Cleaner: {e}")
+
+def restore_cache_info():
+    try:
+        cache = load_json_file(CACHE_FILE)
+        if len(cache)==0:
+            logger.info("Cache empty after clear/restart - vault channel has 4 vids but index reset. Use /backup to restore from private channel")
+    except:
+        pass
 
 def clean_downloads_startup():
     try:
@@ -511,7 +519,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch", url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
     if user_id == ADMIN_ID:
         keyboard.append([InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")])
-    await update.message.reply_text("👇 **CONTENT LOCKED**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await update.message.reply_text("👇 **CONTENT LOCKED 🔒**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0):
     if not urls:
@@ -838,7 +846,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 except:
                     pass
                 bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
-                keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)]]
+                keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s ⏰ 20s", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get Files ✅", callback_data="verify_user")]]
                 await update.message.reply_text(t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 return
     if active_batch_sessions.get(user_id, False):
