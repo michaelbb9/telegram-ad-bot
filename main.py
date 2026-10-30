@@ -48,6 +48,8 @@ DRIP_FILE = "active_drip.json"
 DRIP_STATE_FILE = "drip_states.json"
 SUPPORT_STATES_FILE = "support_states.json"
 CONFIG_FILE = "bot_config.json"
+ACTIVITY_FILE = "user_activity.json"
+CACHE_FILE = "download_cache.json"
 
 active_batch_sessions = {}
 pending_batch_payloads = {}
@@ -105,6 +107,16 @@ def save_json_file(filename, data):
             json.dump(data, f)
     except Exception as e:
         logger.error(f"Error saving {filename}: {e}")
+
+def track_user_activity(user_id):
+    activity = load_json_file(ACTIVITY_FILE)
+    user_str = str(user_id)
+    now = time.time()
+    if user_str not in activity:
+        activity[user_str] = {"total_interactions": 0, "last_active": now}
+    activity[user_str]["total_interactions"] += 1
+    activity[user_str]["last_active"] = now
+    save_json_file(ACTIVITY_FILE, activity)
 
 def get_lang(user_id):
     langs = load_json_file(LANG_FILE)
@@ -261,6 +273,7 @@ def get_main_keyboard(lang_code, is_admin):
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    track_user_activity(update.message.from_user.id)
     lang = get_lang(update.message.from_user.id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
     keyboard = [
@@ -272,6 +285,7 @@ async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
+    track_user_activity(user_id)
     args = context.args
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
@@ -461,6 +475,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
 async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
+    track_user_activity(user_id)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
@@ -540,19 +555,43 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     text = update.message.text if update.message.text else ""
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
+    track_user_activity(user_id)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
-    # --- SECURITY CHECK: BLOCK NEW LINKS IF AD REFILL IS PENDING ---
+    # --- SECURITY CHECK: RESEND AD WALL IF PENDING LIMIT ---
     tokens = load_tokens()
     if str(user_id) in tokens:
         token_data = tokens[str(user_id)]
         if not token_data.get("verified", False):
-            await update.message.reply_text(
-                "⚠️ **Action Blocked!** You have reached your download limit. Please complete the sponsor ad or check button above to unlock your refill before sending new links.",
-                parse_mode="Markdown"
-            )
-            return
+            assigned_network = get_global_ab_network(user_id)
+            msg_start = token_data.get("msg_start", 0)
+            msg_end = token_data.get("msg_end", 0)
+            
+            if assigned_network == "adsgram":
+                keyboard = [
+                    [InlineKeyboardButton("📺 Watch Sponsor Ad (Adsgram)", callback_data="adsgram_complete_single" if msg_start == 0 else f"adsgram_complete_{msg_start}_{msg_end}")],
+                    [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)]
+                ]
+                await update.message.reply_text(
+                    "⚠️ **Limit Reached!** Please complete the sponsor ad below to unlock your refill:",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode="Markdown"
+                )
+                return
+            else:
+                bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
+                keyboard = [
+                    [InlineKeyboardButton(t["refill_btn"], url=bridge_link)],
+                    [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)],
+                    [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]
+                ]
+                caption_text = "⚠️ **Limit Reached!** Please open the bridge link below to refill:"
+                try:
+                    await context.bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID, caption=caption_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+                except Exception:
+                    await update.message.reply_text(text=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+                return
 
     menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🟢 Bot Status", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel"]
     if text in menu_texts:
@@ -814,6 +853,26 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text("❌ YouTube is paused.")
         return
 
+    # --- SMART DUPLICATE LINK CACHE CHECK ---
+    cache = load_json_file(CACHE_FILE)
+    if url in cache and time.time() - cache[url]["timestamp"] < 3600:
+        cached_file_id = cache[url]["file_id"]
+        media_type = cache[url]["type"]
+        await update.message.reply_text("⚡ **Duplicate Link Detected (Cached):** Sending your recent file instantly!")
+        try:
+            if media_type == 'video':
+                sent_msg = await context.bot.send_video(chat_id=chat_id, video=cached_file_id, caption="✨ **Video (Cached)**")
+            elif media_type == 'audio':
+                sent_msg = await context.bot.send_audio(chat_id=chat_id, audio=cached_file_id, caption="🎵 **Audio (Cached)**")
+            else:
+                sent_msg = await context.bot.send_photo(chat_id=chat_id, photo=cached_file_id, caption="🖼️ **Image (Cached)**")
+            
+            warn = await context.bot.send_message(chat_id=chat_id, text="⏳ **Auto-deletes in 9 minutes.**")
+            asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent_msg.message_id, warn.message_id], 540))
+            return
+        except Exception:
+            pass # fallback to regular download if cached file reference expired
+
     status_preview = await update.message.reply_text("🔍 Inspecting link metadata...")
     title, duration_str = fetch_url_metadata(url)
     try:
@@ -839,6 +898,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     document = update.message.document
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
+    track_user_activity(user_id)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
@@ -870,10 +930,35 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID: return
+    
     tokens = load_tokens()
-    await update.message.reply_text(f"📊 **ADMIN STATS**\nTotal Users: {len(tokens)}", parse_mode="Markdown")
+    activity = load_json_file(ACTIVITY_FILE)
+    now = time.time()
+    
+    active_24hr = sum(1 for data in activity.values() if now - data.get("last_active", 0) < 86400)
+    
+    # Calculate Top 10 Active Users
+    sorted_users = sorted(activity.items(), key=lambda x: x[1].get("total_interactions", 0), reverse=True)[:10]
+    top_users_text = ""
+    for idx, (uid, info) in enumerate(sorted_users, 1):
+        top_users_text += f"{idx}. ID: `{uid}` — Interacted: {info.get('total_interactions', 0)} times\n"
+    if not top_users_text:
+        top_users_text = "No user activity recorded yet."
+
+    config = load_json_file(CONFIG_FILE)
+    mode = config.get("ad_mode", "auto").upper()
+
+    stats_text = (
+        f"📊 **ADVANCED ADMIN ANALYTICS**\n\n"
+        f"• Total Users Registered: **{len(tokens)}**\n"
+        f"• Active Users (Last 24h): **{active_24hr}**\n"
+        f"• Current Ad Network Mode: **{mode}**\n\n"
+        f"🏆 **Top 10 Most Active Users:**\n{top_users_text}"
+    )
+    await update.message.reply_text(stats_text, parse_mode="Markdown")
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    track_user_activity(update.message.from_user.id)
     config = load_json_file(CONFIG_FILE)
     mode = config.get("ad_mode", "auto").upper()
     await update.message.reply_text(
@@ -957,6 +1042,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     user_id = query.from_user.id
+    track_user_activity(user_id)
     data = query.data
     chat_id = query.message.chat_id
     lang = get_lang(user_id)
@@ -1266,16 +1352,20 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             file_paths, resolution, size_str = download_media_engine(url, dl_type)
             if not file_paths: raise ValueError("FILE_NOT_FOUND")
 
+            cache = load_json_file(CACHE_FILE)
+
             if dl_type == 'images':
                 media_group = [InputMediaPhoto(media=open(p, 'rb')) for p in file_paths]
                 sent_media = await context.bot.send_media_group(chat_id=chat_id, media=media_group)
                 warning_msg = await context.bot.send_message(chat_id=chat_id, text=t["images_received"].format(len(file_paths)))
                 asyncio.create_task(schedule_deletion(context.bot, chat_id, [m.message_id for m in sent_media] + [warning_msg.message_id], 540))
+                cache[url] = {"file_id": sent_media[0].photo[-1].file_id, "type": "image", "timestamp": time.time()}
                 for p in file_paths: os.remove(p)
             elif dl_type == 'audio':
                 with open(file_paths[0], 'rb') as f: sent_media = await context.bot.send_audio(chat_id=chat_id, audio=f, title="Extracted Audio", caption=f"🎵 **Audio**\n📦 Size: {size_str}", parse_mode="Markdown")
                 warning_msg = await context.bot.send_message(chat_id=chat_id, text=f"⏳ **Auto-deletes in 9 minutes.**")
                 asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent_media.message_id, warning_msg.message_id], 540))
+                cache[url] = {"file_id": sent_media.audio.file_id, "type": "audio", "timestamp": time.time()}
                 os.remove(file_paths[0])
             elif dl_type == 'subtitles':
                 with open(file_paths[0], 'rb') as f: sent_media = await context.bot.send_document(chat_id=chat_id, document=f, caption=f"📝 **Subtitles**", parse_mode="Markdown")
@@ -1286,8 +1376,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 with open(file_paths[0], 'rb') as f: sent_media = await context.bot.send_video(chat_id=chat_id, video=f, caption=f"✨ **Video**\n📐 Quality: {resolution}\n📦 Size: {size_str}", parse_mode="Markdown")
                 warning_msg = await context.bot.send_message(chat_id=chat_id, text=f"⏳ **Auto-deletes in 9 minutes.**")
                 asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent_media.message_id, warning_msg.message_id], 540))
+                cache[url] = {"file_id": sent_media.video.file_id, "type": "video", "timestamp": time.time()}
                 os.remove(file_paths[0])
 
+            save_json_file(CACHE_FILE, cache)
             await context.bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
         except Exception as e:
             logger.error(f"Single download error: {e}")
@@ -1323,16 +1415,20 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 file_paths, resolution, size_str = download_media_engine(url, dl_type)
                 if not file_paths: raise ValueError("FILE_NOT_FOUND")
 
+                cache = load_json_file(CACHE_FILE)
+
                 if dl_type == 'images':
                     media_group = [InputMediaPhoto(media=open(p, 'rb')) for p in file_paths]
                     sent_media = await context.bot.send_media_group(chat_id=chat_id, media=media_group)
                     warning_msg = await context.bot.send_message(chat_id=chat_id, text=t["images_received"].format(len(file_paths)))
                     asyncio.create_task(schedule_deletion(context.bot, chat_id, [m.message_id for m in sent_media] + [warning_msg.message_id], 540))
+                    cache[url] = {"file_id": sent_media[0].photo[-1].file_id, "type": "image", "timestamp": time.time()}
                     for p in file_paths: os.remove(p)
                 elif dl_type == 'audio':
                     with open(file_paths[0], 'rb') as f: sent_media = await context.bot.send_audio(chat_id=chat_id, audio=f, title="Extracted Audio", caption=f"🎵 **Audio**\n📦 Size: {size_str}", parse_mode="Markdown")
                     warning_msg = await context.bot.send_message(chat_id=chat_id, text=f"⏳ **Auto-deletes in 9 minutes.**")
                     asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent_media.message_id, warning_msg.message_id], 540))
+                    cache[url] = {"file_id": sent_media.audio.file_id, "type": "audio", "timestamp": time.time()}
                     os.remove(file_paths[0])
                 elif dl_type == 'subtitles':
                     with open(file_paths[0], 'rb') as f: sent_media = await context.bot.send_document(chat_id=chat_id, document=f, caption=f"📝 **Subtitles**", parse_mode="Markdown")
@@ -1343,8 +1439,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     with open(file_paths[0], 'rb') as f: sent_media = await context.bot.send_video(chat_id=chat_id, video=f, caption=f"✨ **Video**\n📐 Quality: {resolution}\n📦 Size: {size_str}", parse_mode="Markdown")
                     warning_msg = await context.bot.send_message(chat_id=chat_id, text=f"⏳ **Auto-deletes in 9 minutes.**")
                     asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent_media.message_id, warning_msg.message_id], 540))
+                    cache[url] = {"file_id": sent_media.video.file_id, "type": "video", "timestamp": time.time()}
                     os.remove(file_paths[0])
 
+                save_json_file(CACHE_FILE, cache)
                 await context.bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
             except Exception as e:
                 logger.error(f"Single download error after Adsgram: {e}")
@@ -1493,7 +1591,7 @@ def run_telegram_bot():
         app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE, handle_user_upload))
         app.add_handler(CallbackQueryHandler(handle_buttons))
         
-        await app.initialize()
+        app.initialize()
         await app.start()
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
         await asyncio.Event().wait()
