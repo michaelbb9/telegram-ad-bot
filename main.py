@@ -398,20 +398,9 @@ def get_free_disk_mb():
         return 512
 
 def deduct_download_counter(user_id, is_batch=False):
+    # FIX: Only call server once - no local double save
     try:
-        import requests
         requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": is_batch}, timeout=3)
-    except:
-        pass
-    try:
-        tokens = load_tokens()
-        uid = str(user_id)
-        if uid in tokens:
-            if is_batch:
-                tokens[uid]["batch_downloads_left"] = max(0, tokens[uid].get("batch_downloads_left", 20) - 1)
-            else:
-                tokens[uid]["downloads_left"] = max(0, tokens[uid].get("downloads_left", 4) - 1)
-            save_tokens(tokens)
     except:
         pass
 
@@ -827,14 +816,27 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         user_profile = tokens.get(str(user_id), {})
         d_left = user_profile.get("downloads_left", 4)
         if str(user_id) in tokens and not user_profile.get("verified", False) and d_left <= 0:
+            # If this is a TikTok/link download (not bundle), clear old bundle msg_start so it doesn't hijack
+            is_single_link = len(extracted_urls)==1 and "t.me/" not in extracted_urls[0]
+            if is_single_link:
+                # Force single mode - ignore old bundle ids
+                msg_start = msg_end = 0
+                # Save pending url for auto-retry after ad
+                pending_single_links[f"retry_{user_id}"] = extracted_urls[0]
+            else:
+                msg_start = user_profile.get("msg_start", 0)
+                msg_end = user_profile.get("msg_end", 0)
             assigned_network = get_global_ab_network(user_id)
-            msg_start = user_profile.get("msg_start", 0)
-            msg_end = user_profile.get("msg_end", 0)
             if assigned_network == "adsgram":
                 keyboard = [[InlineKeyboardButton("📺 Watch Ad", callback_data="adsgram_complete_single" if msg_start == 0 else f"adsgram_complete_{msg_start}_{msg_end}")]]
                 await update.message.reply_text(t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 return
             else:
+                try:
+                    tut = await context.bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+                    await asyncio.sleep(0.2)
+                except:
+                    pass
                 bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
                 keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)]]
                 await update.message.reply_text(t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
@@ -1054,7 +1056,7 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
                 if c_type == "video":
                     qual = cached.get("quality", "HD")
                     sz = cached.get("size", "")
-                    sent = await bot.send_video(chat_id=chat_id, video=file_id, caption=f"Cached Instant {qual} Size {sz} {ckey}")
+                    sent = await bot.send_video(chat_id=chat_id, video=file_id, caption=f"Cached Instant {qual} {sz} {ckey}")
                 elif c_type == "audio":
                     sent = await bot.send_audio(chat_id=chat_id, audio=file_id, caption=f"⚡ **Cached Instant** `{ckey}`")
                 elif c_type == "image":
