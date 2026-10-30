@@ -1615,32 +1615,38 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except Exception as e:
             await query.message.reply_text(f"❌ Error: {e}")
 
-
+# --- ROBUST THREAD STARTUP FOR RENDER ---
 def run_telegram_bot():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    async def start_bot():
-        app = Application.builder().token(BOT_TOKEN).build()
-        app.add_handler(CommandHandler("start", start))
-        app.add_handler(CommandHandler("language", language_command))
-        app.add_handler(CommandHandler("stats", stats))
-        app.add_handler(CommandHandler("status", status_command))
-        app.add_handler(CommandHandler("toggleads", toggle_ads_command))
-        app.add_handler(CommandHandler("broadcast", broadcast_command))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
-        app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
-        app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.ANIMATION | filters.DOCUMENT, handle_user_upload))
-        app.add_handler(CallbackQueryHandler(handle_buttons))
-        
+    
+    app = Application.builder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("language", language_command))
+    app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(CommandHandler("status", status_command))
+    app.add_handler(CommandHandler("toggleads", toggle_ads_command))
+    app.add_handler(CommandHandler("broadcast", broadcast_command))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+    app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.ANIMATION | filters.DOCUMENT, handle_user_upload))
+    app.add_handler(CallbackQueryHandler(handle_buttons))
+    
+    async def main():
         await app.initialize()
         await app.start()
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
+        # Keep the bot running indefinitely inside the loop
         await asyncio.Event().wait()
-    loop.run_until_complete(start_bot())
+
+    try:
+        loop.run_until_complete(main())
+    except Exception as e:
+        logger.error(f"Telegram bot thread exception: {e}")
 
 if not getattr(web_app, '_bot_started', False):
     web_app._bot_started = True
-    print("Starting Telegram bot thread...")
+    print("Starting Telegram bot thread on Render...")
     threading.Thread(target=run_telegram_bot, daemon=True).start()
 
 if __name__ == "__main__":
