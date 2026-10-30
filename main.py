@@ -68,9 +68,10 @@ LANGUAGES = {
         "select_lang": "🌍 Please select your language:", "lang_set": "✅ Language set to English!",
         "batch_detected": "📦 **Batch Detected ({} links)**\nWhat format do you want?", "batch_dest": "📦 **Where to send these files?**",
         "btn_chat": "📥 Download in Chat", "btn_chan": "📢 Forward to Private Channel",
-        "limit_reached": "⚠️ **Limit Reached!** Complete the sponsor ad below to refill.", "refill_btn": "🔓 Open Link & Refill",
+        "limit_reached": "⚠️ **Download Limit Reached!**\n\nYou have temporarily reached your daily download limit. Completing the sponsor ad or check button below will instantly refill your balance and unlock your access.\n\n*(You can still use menu buttons like Language and Stats freely!)*",
+        "refill_btn": "🔓 Open Link & Refill",
         "join_btn": "📢 Join Public Channel", "check_btn": "💜 Check Balance",
-        "limit_batch": "⚠️ **Batch Limit Reached! (Stopped at link {} of {})**\n\nComplete the sponsor ad below to continue:",
+        "limit_batch": "⚠️ **Batch Limit Reached! (Stopped at link {} of {})**\n\nYou have temporarily reached your download limit. Complete the sponsor ad below to continue:\n\n*(Menu buttons remain accessible)*",
         "batch_start": "📦 **Batch Processing Started:** Downloading {} **{} files**.\n\n⏳ *Processing...*",
         "batch_done": "🏁 **Batch Finished!**\n✅ Success: {}\n❌ Failed: {}\n\n📥 **{} files sent here.**",
         "batch_done_chan": "🏁 **Batch Finished!**\n✅ Success: {}\n❌ Failed: {}\n\n📢 **{} files forwarded!**",
@@ -354,6 +355,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             [InlineKeyboardButton("📺 Watch Sponsor Ad (Adsgram)", callback_data=f"adsgram_complete_{msg_start}_{msg_end}")],
             [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)]
         ]
+        if user_id == ADMIN_ID:
+            keyboard.append([InlineKeyboardButton("❌ Skip / Close (Admin)", callback_data="admin_skip_ad")])
         await update.message.reply_text(text=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
 
@@ -361,6 +364,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": int(msg_start), "msg_end": int(msg_end), "clicked_ad": False, "verified": False, "expires": time.time() + 600}
     save_tokens(tokens)
     keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch Timer", url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
+    if user_id == ADMIN_ID:
+        keyboard.append([InlineKeyboardButton("❌ Skip / Close (Admin)", callback_data="admin_skip_ad")])
     reply_markup = InlineKeyboardMarkup(keyboard)
     caption_text = "👇 **CONTENT LOCKED** 👇\n\nWatch the ad to unlock your files."
     try:
@@ -399,7 +404,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
         except Exception:
             await bot.send_message(chat_id=chat_id, text=f"❌ [{index}/{len(urls)}] Connection error.")
             break
-        if res_data.get("status") != "allowed":
+        if res_data.get("status") != "allowed" and user_id != ADMIN_ID:
             assigned_network = get_global_ab_network(user_id)
             tokens = load_tokens()
 
@@ -558,40 +563,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     track_user_activity(user_id)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
-
-    # --- SECURITY CHECK: RESEND AD WALL IF PENDING LIMIT ---
-    tokens = load_tokens()
-    if str(user_id) in tokens:
-        token_data = tokens[str(user_id)]
-        if not token_data.get("verified", False):
-            assigned_network = get_global_ab_network(user_id)
-            msg_start = token_data.get("msg_start", 0)
-            msg_end = token_data.get("msg_end", 0)
-            
-            if assigned_network == "adsgram":
-                keyboard = [
-                    [InlineKeyboardButton("📺 Watch Sponsor Ad (Adsgram)", callback_data="adsgram_complete_single" if msg_start == 0 else f"adsgram_complete_{msg_start}_{msg_end}")],
-                    [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)]
-                ]
-                await update.message.reply_text(
-                    "⚠️ **Limit Reached!** Please complete the sponsor ad below to unlock your refill:",
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode="Markdown"
-                )
-                return
-            else:
-                bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
-                keyboard = [
-                    [InlineKeyboardButton(t["refill_btn"], url=bridge_link)],
-                    [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)],
-                    [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]
-                ]
-                caption_text = "⚠️ **Limit Reached!** Please open the bridge link below to refill:"
-                try:
-                    await context.bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID, caption=caption_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
-                except Exception:
-                    await update.message.reply_text(text=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-                return
 
     menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🟢 Bot Status", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel"]
     if text in menu_texts:
@@ -808,6 +779,44 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 pass
         return
 
+    extracted_urls = re.findall(r'https?://[^\s]+', text)
+    if not extracted_urls: return
+
+    # --- SECURITY CHECK: RESEND AD WALL IF PENDING LIMIT (ONLY FOR REGULAR USERS) ---
+    if user_id != ADMIN_ID:
+        tokens = load_tokens()
+        if str(user_id) in tokens:
+            token_data = tokens[str(user_id)]
+            if not token_data.get("verified", False):
+                assigned_network = get_global_ab_network(user_id)
+                msg_start = token_data.get("msg_start", 0)
+                msg_end = token_data.get("msg_end", 0)
+                
+                if assigned_network == "adsgram":
+                    keyboard = [
+                        [InlineKeyboardButton("📺 Watch Sponsor Ad (Adsgram)", callback_data="adsgram_complete_single" if msg_start == 0 else f"adsgram_complete_{msg_start}_{msg_end}")],
+                        [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)]
+                    ]
+                    await update.message.reply_text(
+                        t["limit_reached"],
+                        reply_markup=InlineKeyboardMarkup(keyboard),
+                        parse_mode="Markdown"
+                    )
+                    return
+                else:
+                    bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
+                    keyboard = [
+                        [InlineKeyboardButton(t["refill_btn"], url=bridge_link)],
+                        [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)],
+                        [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]
+                    ]
+                    caption_text = t["limit_reached"]
+                    try:
+                        await context.bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID, caption=caption_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+                    except Exception:
+                        await update.message.reply_text(text=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+                    return
+
     if active_batch_sessions.get(user_id, False): return
     linking_states = load_linking_states()
     if linking_states.get(str(user_id)) == "waiting_for_channel":
@@ -833,9 +842,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         keyboard = [[InlineKeyboardButton("🔄 Change Linked Channel", callback_data="change_channel")]]
         await update.message.reply_text(f"✅ **Channel Linked!**\n📢 {f_chat.title}\n🆔 `{f_chat.id}`", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
-
-    extracted_urls = re.findall(r'https?://[^\s]+', text)
-    if not extracted_urls: return
 
     if len(extracted_urls) > 1:
         payload_key = f"batch_{user_id}_{int(time.time())}"
@@ -937,7 +943,6 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     
     active_24hr = sum(1 for data in activity.values() if now - data.get("last_active", 0) < 86400)
     
-    # Calculate Top 10 Active Users
     sorted_users = sorted(activity.items(), key=lambda x: x[1].get("total_interactions", 0), reverse=True)[:10]
     top_users_text = ""
     for idx, (uid, info) in enumerate(sorted_users, 1):
@@ -1047,6 +1052,18 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     chat_id = query.message.chat_id
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
+
+    if data == "admin_skip_ad" and user_id == ADMIN_ID:
+        tokens = load_tokens()
+        if str(user_id) in tokens:
+            del tokens[str(user_id)]
+            save_tokens(tokens)
+        await query.answer("✅ Admin Ad Skipped Successfully!", show_alert=True)
+        try:
+            await query.message.edit_text("✅ **Admin Bypass Activated:** Ad wall dismissed. You can continue sending links.")
+        except:
+            pass
+        return
 
     if data.startswith("set_ad_") and user_id == ADMIN_ID:
         mode = data.replace("set_ad_", "")
@@ -1313,38 +1330,39 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         elif fmt_type == 'img': dl_type = 'images'
         elif fmt_type == 'sub': dl_type = 'subtitles'
 
-        try:
-            response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": False}, timeout=5)
-            res_data = response.json() if response.status_code == 200 else {}
-        except Exception:
-            await context.bot.send_message(chat_id=chat_id, text="❌ Server error.")
-            return
-
-        if res_data.get("status") != "allowed":
-            assigned_network = get_global_ab_network(user_id)
-            tokens = load_tokens()
-
-            if assigned_network == "adsgram":
-                tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "url": url, "dl_type": dl_type, "clicked_ad": True, "verified": True, "expires": time.time() + 600}
-                save_tokens(tokens)
-                keyboard = [
-                    [InlineKeyboardButton("📺 Watch Sponsor Ad (Adsgram)", callback_data="adsgram_complete_single")],
-                    [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)]
-                ]
-                await context.bot.send_message(chat_id=chat_id, text=t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        if user_id != ADMIN_ID:
+            try:
+                response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": False}, timeout=5)
+                res_data = response.json() if response.status_code == 200 else {}
+            except Exception:
+                await context.bot.send_message(chat_id=chat_id, text="❌ Server error.")
                 return
 
-            bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
-            tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
-            save_tokens(tokens)
-            keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
-            
-            caption_text = t["limit_reached"]
-            try:
-                await context.bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID, caption=caption_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
-            except Exception:
-                await context.bot.send_message(chat_id=chat_id, text=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-            return
+            if res_data.get("status") != "allowed":
+                assigned_network = get_global_ab_network(user_id)
+                tokens = load_tokens()
+
+                if assigned_network == "adsgram":
+                    tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "url": url, "dl_type": dl_type, "clicked_ad": True, "verified": True, "expires": time.time() + 600}
+                    save_tokens(tokens)
+                    keyboard = [
+                        [InlineKeyboardButton("📺 Watch Sponsor Ad (Adsgram)", callback_data="adsgram_complete_single")],
+                        [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)]
+                    ]
+                    await context.bot.send_message(chat_id=chat_id, text=t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+                    return
+
+                bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
+                tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
+                save_tokens(tokens)
+                keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
+                
+                caption_text = t["limit_reached"]
+                try:
+                    await context.bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID, caption=caption_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+                except Exception:
+                    await context.bot.send_message(chat_id=chat_id, text=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+                return
 
         status_msg = await context.bot.send_message(chat_id=chat_id, text=t["fetching"].format(dl_type))
 
