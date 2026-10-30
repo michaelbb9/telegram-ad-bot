@@ -7,6 +7,7 @@ import requests
 import logging
 import re
 import shutil
+import hashlib
 import imageio_ffmpeg
 import yt_dlp
 from bs4 import BeautifulSoup
@@ -17,7 +18,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 try:
     os.chmod(ffmpeg_path, 0o755)
-except Exception as e:
+except:
     pass
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -27,6 +28,7 @@ BOT_TOKEN = os.getenv("TELEGRAM_TOKEN", "8863904451:AAFYl9yyjTvKTaliLR5iqTsvZr2t
 ADMIN_ID = 6248570946
 DETECTED_CHANNEL_ID = -1004347828512
 PRIVATE_CHANNEL_ID = -1004347828512
+VIDEO_VAULT_ID = -1004324594855
 TUTORIAL_MESSAGE_ID = 108
 WEB_BASE_URL = "https://michaelbbc.pythonanywhere.com"
 BRIDGE_URL = f"{WEB_BASE_URL}/bridge"
@@ -56,17 +58,15 @@ pending_batch_payloads = {}
 paused_batches = {}
 pending_single_links = {}
 
-# === POWERHOUSE CONFIG FOR 750 USERS / <20MB TIKTOK ===
-MAX_CONCURRENT_SHORT = 3  # 3 x 20MB = safe on 512MB for short videos
+MAX_CONCURRENT_SHORT = 3
 MIN_FREE_DISK_MB = 150
 active_downloads = 0
 download_lock = asyncio.Lock()
 download_queue = asyncio.Queue()
 
-# Flood control: user_id -> [timestamps]
-FLOOD_LIMIT = 3  # max 3 links
-FLOOD_WINDOW = 60  # per 60 seconds
-FLOOD_COOLDOWN = 30  # 30 sec cooldown
+FLOOD_LIMIT = 3
+FLOOD_WINDOW = 60
+FLOOD_COOLDOWN = 30
 
 LANGUAGES = {
     "en": {
@@ -111,7 +111,8 @@ def load_json_file(filename):
         try:
             with open(filename, "r") as f:
                 return json.load(f)
-        except: pass
+        except:
+            pass
     return {}
 
 def save_json_file(filename, data):
@@ -121,14 +122,39 @@ def save_json_file(filename, data):
     except Exception as e:
         logger.error(f"Save {filename}: {e}")
 
-# === 1. AUTO-BACKUP ===
+def get_canonical_key(url: str):
+    try:
+        ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True}
+        if os.path.exists("tiktok_cookies.txt") and "tiktok.com" in url.lower():
+            ydl_opts['cookiefile'] = "tiktok_cookies.txt"
+        elif os.path.exists("cookies.txt"):
+            ydl_opts['cookiefile'] = "cookies.txt"
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if not info:
+                raise ValueError("no info")
+            if 'entries' in info and info['entries']:
+                info = info['entries'][0]
+            extractor = info.get('extractor', 'generic').replace(':', '').replace(' ', '')
+            vid_id = info.get('id', '')
+            if vid_id:
+                return f"{extractor}_{vid_id}"
+    except Exception as e:
+        logger.info(f"Key extract fail: {e}")
+    try:
+        clean = url.split('?')[0].split('&')[0].lower().strip('/').replace('https://','').replace('http://','')
+        h = hashlib.md5(clean.encode()).hexdigest()[:12]
+        return f"url_{h}"
+    except:
+        return f"url_{hashlib.md5(url.encode()).hexdigest()[:12]}"
+
 BACKUP_FILES = [CHANNELS_FILE, LANG_FILE, CONFIG_FILE, ACTIVITY_FILE, CACHE_FILE, UPLOADS_FILE, UPLOAD_LIMITS_FILE, DRIP_FILE, FLOOD_FILE, BANNED_FILE]
 
 async def backup_to_channel(bot):
     try:
         ts = time.strftime("%Y-%m-%d %H:%M")
         free_mb = shutil.disk_usage(".").free // (1024*1024)
-        cap = f"📦 AUTO-BACKUP {ts}\nFree: {free_mb}MB | Active DL: {active_downloads} | Queue: {download_queue.qsize()}"
+        cap = f"📦 AUTO-BACKUP {ts}\nFree: {free_mb}MB | Active: {active_downloads} | Queue: {download_queue.qsize()} | Vault: {VIDEO_VAULT_ID}"
         first = True
         for fname in BACKUP_FILES:
             if os.path.exists(fname):
@@ -147,12 +173,12 @@ async def auto_backup_loop(bot):
         await asyncio.sleep(6 * 3600)
         await backup_to_channel(bot)
 
-# === 5. DISK CLEANER TUNED FOR 750 USERS ===
 async def disk_cleaner_loop():
     while True:
-        await asyncio.sleep(5 * 60)  # every 5 mins for 750 users
+        await asyncio.sleep(5 * 60)
         try:
-            if not os.path.exists("downloads"): continue
+            if not os.path.exists("downloads"):
+                continue
             now = time.time()
             deleted = 0
             for fname in os.listdir("downloads"):
@@ -160,10 +186,11 @@ async def disk_cleaner_loop():
                 try:
                     if os.path.isfile(fpath):
                         age = now - os.path.getmtime(fpath)
-                        if age > 3 * 60:  # 3 mins old = delete
+                        if age > 3 * 60:
                             os.remove(fpath)
                             deleted += 1
-                except: pass
+                except:
+                    pass
             if deleted:
                 logger.info(f"Cleaner deleted {deleted}")
         except Exception as e:
@@ -173,13 +200,14 @@ def clean_downloads_startup():
     try:
         if os.path.exists("downloads"):
             for fname in os.listdir("downloads"):
-                try: os.remove(os.path.join("downloads", fname))
-                except: pass
-    except: pass
+                try:
+                    os.remove(os.path.join("downloads", fname))
+                except:
+                    pass
+    except:
+        pass
 
-# === FLOOD PROTECTION ===
 def is_flood(user_id):
-    """Check if user is flooding. Returns (is_flooding, wait_seconds)"""
     if user_id == ADMIN_ID:
         return False, 0
     flood_data = load_json_file(FLOOD_FILE)
@@ -187,15 +215,12 @@ def is_flood(user_id):
     uid = str(user_id)
     if uid not in flood_data:
         flood_data[uid] = []
-    # Clean old timestamps
     flood_data[uid] = [t for t in flood_data[uid] if now - t < FLOOD_WINDOW]
     if len(flood_data[uid]) >= FLOOD_LIMIT:
-        # Calculate wait
-        oldest = min(flood_data[uid])
+        oldest = min(flood_data[uid]) if flood_data[uid] else now
         wait = int(FLOOD_COOLDOWN - (now - oldest))
         wait = max(wait, 5)
         return True, wait
-    # Add current
     flood_data[uid].append(now)
     save_json_file(FLOOD_FILE, flood_data)
     return False, 0
@@ -221,8 +246,10 @@ def get_lang(user_id):
 def get_global_ab_network(user_id):
     config = load_json_file(CONFIG_FILE)
     mode = config.get("ad_mode", "auto")
-    if mode == "adsgram": return "adsgram"
-    elif mode == "adsterra": return "adsterra"
+    if mode == "adsgram":
+        return "adsgram"
+    elif mode == "adsterra":
+        return "adsterra"
     day_epoch = int(time.time() // 86400)
     combined_hash = hash(f"{user_id}_{day_epoch}")
     return "adsgram" if combined_hash % 2 == 0 else "adsterra"
@@ -230,30 +257,42 @@ def get_global_ab_network(user_id):
 def load_tokens():
     try:
         response = requests.get(f"{WEB_BASE_URL}/get_tokens", timeout=5)
-        if response.status_code == 200: return response.json()
-    except Exception as e: logger.error(f"Tokens: {e}")
+        if response.status_code == 200:
+            return response.json()
+    except Exception as e:
+        logger.error(f"Tokens: {e}")
     return {}
 
 def save_tokens(tokens):
-    try: requests.post(f"{WEB_BASE_URL}/save_tokens", json=tokens, timeout=5)
-    except Exception as e: logger.error(f"Save tokens: {e}")
+    try:
+        requests.post(f"{WEB_BASE_URL}/save_tokens", json=tokens, timeout=5)
+    except Exception as e:
+        logger.error(f"Save tokens: {e}")
 
-def load_user_channels(): return load_json_file(CHANNELS_FILE)
-def save_user_channels(c): save_json_file(CHANNELS_FILE, c)
-def load_linking_states(): return load_json_file(LINKING_STATE_FILE)
-def save_linking_states(s): save_json_file(LINKING_STATE_FILE, s)
+def load_user_channels():
+    return load_json_file(CHANNELS_FILE)
+def save_user_channels(c):
+    save_json_file(CHANNELS_FILE, c)
+def load_linking_states():
+    return load_json_file(LINKING_STATE_FILE)
+def save_linking_states(s):
+    save_json_file(LINKING_STATE_FILE, s)
 
 async def schedule_deletion(bot, chat_id, message_ids, delay):
     await asyncio.sleep(delay)
     for msg_id in message_ids:
-        try: await bot.delete_message(chat_id=chat_id, message_id=msg_id)
-        except: pass
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=msg_id)
+        except:
+            pass
 
 def fetch_url_metadata(url):
     ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True}
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
+            if 'entries' in info and info['entries']:
+                info = info['entries'][0]
             title = info.get('title', 'Unknown')[:60]
             duration = info.get('duration', 0)
             mins, secs = divmod(duration, 60)
@@ -268,8 +307,10 @@ def scrape_html_images(url, cookiefile=None):
         res = requests.get(url, headers=headers, timeout=15)
         soup = BeautifulSoup(res.text, 'html.parser')
         og = soup.find('meta', property='og:image')
-        if og and og.get('content'): return og['content']
-    except Exception as e: logger.error(f"Scrape: {e}")
+        if og and og.get('content'):
+            return og['content']
+    except Exception as e:
+        logger.error(f"Scrape: {e}")
     return None
 
 def download_media_engine(url: str, download_type: str):
@@ -277,25 +318,31 @@ def download_media_engine(url: str, download_type: str):
     os.makedirs(output_dir, exist_ok=True)
     http_headers = {'User-Agent': 'Mozilla/5.0'}
     cookiefile = None
-    if "tiktok.com" in url.lower() and os.path.exists("tiktok_cookies.txt"): cookiefile = "tiktok_cookies.txt"
-    elif os.path.exists("cookies.txt"): cookiefile = "cookies.txt"
+    if "tiktok.com" in url.lower() and os.path.exists("tiktok_cookies.txt"):
+        cookiefile = "tiktok_cookies.txt"
+    elif os.path.exists("cookies.txt"):
+        cookiefile = "cookies.txt"
     ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL}
-    if cookiefile: ydl_opts['cookiefile'] = cookiefile
+    if cookiefile:
+        ydl_opts['cookiefile'] = cookiefile
     if download_type == 'audio':
         ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path})
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             base = os.path.splitext(ydl.prepare_filename(info))[0]
             path = f"{base}.mp3"
-            if os.path.exists(path): return [path], "MP3", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
+            if os.path.exists(path):
+                return [path], "MP3", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("FILE_NOT_FOUND")
     elif download_type == 'images':
         img_url = scrape_html_images(url, cookiefile)
         if img_url:
             data = requests.get(img_url, headers=http_headers, timeout=15).content
             path = os.path.join(output_dir, f"img_{int(time.time())}.jpg")
-            with open(path, 'wb') as f: f.write(data)
-            if os.path.getsize(path) > 1000: return [path], "Image", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
+            with open(path, 'wb') as f:
+                f.write(data)
+            if os.path.getsize(path) > 1000:
+                return [path], "Image", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("NO_IMAGES")
     else:
         for fmt in ["best", "bestvideo+bestaudio/best"]:
@@ -304,12 +351,16 @@ def download_media_engine(url: str, download_type: str):
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(url, download=True)
                     path = ydl.prepare_filename(info)
-                    if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0]+".mp4"): path = os.path.splitext(path)[0]+".mp4"
+                    if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0]+".mp4"):
+                        path = os.path.splitext(path)[0]+".mp4"
                     if os.path.exists(path):
-                        if os.path.getsize(path) > 50*1024*1024: os.remove(path); continue
+                        if os.path.getsize(path) > 50*1024*1024:
+                            os.remove(path)
+                            continue
                         return [path], f"{info.get('height', 'HD')}p", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
             except Exception as e:
-                if "Unsupported URL" in str(e) or "403" in str(e): raise e
+                if "Unsupported URL" in str(e) or "403" in str(e):
+                    raise e
                 continue
         raise ValueError("FILE_TOO_LARGE")
 
@@ -326,10 +377,11 @@ def get_main_keyboard(lang_code, is_admin):
         keyboard.append([KeyboardButton("⚡ Create Flash Drop"), KeyboardButton("⚙️ Ad Toggle Panel")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-# === DYNAMIC QUEUE ===
 def get_free_disk_mb():
-    try: return shutil.disk_usage(".").free // (1024*1024)
-    except: return 9999
+    try:
+        return shutil.disk_usage(".").free // (1024*1024)
+    except:
+        return 9999
 
 async def acquire_slot():
     global active_downloads
@@ -346,6 +398,7 @@ async def release_slot():
         active_downloads = max(0, active_downloads - 1)
 
 async def queue_processor(bot):
+    global active_downloads
     while True:
         try:
             job = await download_queue.get()
@@ -353,10 +406,10 @@ async def queue_processor(bot):
                 free_mb = get_free_disk_mb()
                 async with download_lock:
                     can_run = active_downloads < MAX_CONCURRENT_SHORT and free_mb > MIN_FREE_DISK_MB
-                if can_run: break
+                if can_run:
+                    break
                 await asyncio.sleep(2)
             async with download_lock:
-                global active_downloads
                 active_downloads += 1
             try:
                 await job['func'](*job['args'], **job['kwargs'])
@@ -412,11 +465,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             try:
                 parts = clean_code.split("to")
                 msg_start, msg_end = int(parts[0]), int(parts[1])
-            except: return
+            except:
+                return
         else:
-            try: msg_start = msg_end = int(clean_code)
-            except: return
-    else: return
+            try:
+                msg_start = msg_end = int(clean_code)
+            except:
+                return
+    else:
+        return
     assigned_network = get_global_ab_network(user_id)
     tokens = load_tokens()
     if assigned_network == "adsgram":
@@ -436,7 +493,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("👇 **CONTENT LOCKED**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0):
-    if not urls: return
+    if not urls:
+        return
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
     success_count = fail_count = 0
@@ -444,12 +502,15 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
     stop_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop Batch", callback_data="stop_batch")]])
     batch_notice = await bot.send_message(chat_id=chat_id, text=t["batch_start"].format(download_type.upper(), len(urls)), reply_markup=stop_markup, parse_mode="Markdown")
     for index, url in enumerate(urls[start_index:], start=start_index+1):
-        if not active_batch_sessions.get(user_id, False): break
-        if "youtube.com" in url.lower(): continue
+        if not active_batch_sessions.get(user_id, False):
+            break
+        if "youtube.com" in url.lower():
+            continue
         try:
             response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": True}, timeout=5)
             res_data = response.json() if response.status_code == 200 else {}
-        except: res_data = {"status": "allowed"}
+        except:
+            res_data = {"status": "allowed"}
         tokens = load_tokens()
         d_left = tokens.get(str(user_id), {}).get("downloads_left", 4)
         if res_data.get("status") != "allowed" and d_left <= 0 and user_id != ADMIN_ID:
@@ -470,6 +531,22 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             break
         status_msg = await bot.send_message(chat_id=chat_id, text=f"📥 [{index}/{len(urls)}] {t['dl_video']}")
         try:
+            ckey = get_canonical_key(url)
+            cache = load_json_file(CACHE_FILE)
+            if ckey in cache:
+                try:
+                    cached = cache[ckey]
+                    sent = await bot.send_video(chat_id=target_destination_id, video=cached["file_id"], caption=f"Item {index}/{len(urls)} ⚡ Cached")
+                    if target_destination_id == chat_id:
+                        warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
+                        asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
+                    cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
+                    save_json_file(CACHE_FILE, cache)
+                    await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+                    success_count += 1
+                    continue
+                except:
+                    pass
             file_paths, res, size = download_media_engine(url, download_type)
             if file_paths and os.path.exists(file_paths[0]):
                 with open(file_paths[0], 'rb') as f:
@@ -477,6 +554,16 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                 if target_destination_id == chat_id:
                     warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
                     asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
+                try:
+                    vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent.video.file_id, caption=ckey)
+                    cache = load_json_file(CACHE_FILE)
+                    cache[ckey] = {"file_id": sent.video.file_id, "vault_msg_id": vmsg.message_id, "type": "video", "timestamp": time.time(), "hits": 1}
+                    save_json_file(CACHE_FILE, cache)
+                except Exception as e:
+                    logger.error(f"Vault save: {e}")
+                    cache = load_json_file(CACHE_FILE)
+                    cache[ckey] = {"file_id": sent.video.file_id, "type": "video", "timestamp": time.time(), "hits": 1}
+                    save_json_file(CACHE_FILE, cache)
                 os.remove(file_paths[0])
                 await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
                 success_count += 1
@@ -484,21 +571,26 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                 await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}] Failed")
                 fail_count += 1
         except Exception as e:
-            try: await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}] {str(e)[:50]}")
-            except: pass
+            try:
+                await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}] {str(e)[:50]}")
+            except:
+                pass
             fail_count += 1
         await asyncio.sleep(3)
-    if user_id in active_batch_sessions: del active_batch_sessions[user_id]
-    try: await bot.delete_message(chat_id=chat_id, message_id=batch_notice.message_id)
-    except: pass
+    if user_id in active_batch_sessions:
+        del active_batch_sessions[user_id]
+    try:
+        await bot.delete_message(chat_id=chat_id, message_id=batch_notice.message_id)
+    except:
+        pass
     if user_id not in paused_batches:
         dest = t["batch_done_chan"].format(success_count, fail_count, success_count) if target_destination_id != chat_id else t["batch_done"].format(success_count, fail_count, success_count)
         await bot.send_message(chat_id=chat_id, text=dest, parse_mode="Markdown")
 
-# === SUPPORT MULTI-MEDIA ===
 async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
-    if is_banned(user_id): return
+    if is_banned(user_id):
+        return
     chat_id = update.message.chat_id
     track_user_activity(user_id)
     t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
@@ -509,8 +601,10 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         save_json_file(SUPPORT_STATES_FILE, support_states)
         keyboard = [[InlineKeyboardButton("💬 Reply", callback_data=f"support_reply_{user_id}"), InlineKeyboardButton("🔒 Close", callback_data=f"support_close_{ticket_id}")]]
         await context.bot.send_message(chat_id=ADMIN_ID, text=f"💬 Ticket [{ticket_id}] From {user_id}\n📎 Media below:", parse_mode="Markdown")
-        try: await update.message.forward(chat_id=ADMIN_ID)
-        except: await context.bot.copy_message(chat_id=ADMIN_ID, from_chat_id=chat_id, message_id=update.message.message_id)
+        try:
+            await update.message.forward(chat_id=ADMIN_ID)
+        except:
+            await context.bot.copy_message(chat_id=ADMIN_ID, from_chat_id=chat_id, message_id=update.message.message_id)
         await context.bot.send_message(chat_id=ADMIN_ID, text="Manage:", reply_markup=InlineKeyboardMarkup(keyboard))
         await update.message.reply_text("✅ Sent to Admin!")
         return
@@ -560,20 +654,17 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except:
             await update.message.reply_text("❌ Failed")
 
-# === FIXED STAT BUTTON + FILE_ID CACHE + FLOOD ===
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    global active_downloads
     text = update.message.text if update.message.text else ""
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
     if is_banned(user_id):
         await update.message.reply_text("🚫 Banned")
         return
-    # Flood check for links
     if "http" in text.lower():
         flood, wait = is_flood(user_id)
         if flood:
-            await update.message.reply_text(f"🐢 **Slow down!** You sent {FLOOD_LIMIT} links in last minute.\nWait {wait}s before next link.\n\n*Anti-spam protection for 750 users*", parse_mode="Markdown")
+            await update.message.reply_text(f"🐢 **Slow down!** You sent {FLOOD_LIMIT} links in last minute.\nWait {wait}s before next link.\n\n*Anti-spam for 750 users*", parse_mode="Markdown")
             return
     track_user_activity(user_id)
     lang = get_lang(user_id)
@@ -650,10 +741,8 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         save_json_file(DRIP_STATE_FILE, states)
         await update.message.reply_text(f"📥 Item #{len(user_state['items'])} added")
         return
-    # === FIXED STAT BUTTON LOGIC ===
     if text == t["menu_stats"]:
         if user_id == ADMIN_ID:
-            # ADMIN gets ADVANCED stats directly from button
             await stats(update, context)
         else:
             tokens = load_tokens()
@@ -683,11 +772,14 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             return
         await update.message.reply_text(t["admin_upload_prompt"])
         for k, data in list(uploads.items())[-20:]:
-            try: await context.bot.forward_message(chat_id=ADMIN_ID, from_chat_id=data["user_id"], message_id=data["msg_id"])
-            except: pass
+            try:
+                await context.bot.forward_message(chat_id=ADMIN_ID, from_chat_id=data["user_id"], message_id=data["msg_id"])
+            except:
+                pass
         return
     extracted_urls = re.findall(r'https?://[^\s]+', text)
-    if not extracted_urls: return
+    if not extracted_urls:
+        return
     if user_id != ADMIN_ID:
         tokens = load_tokens()
         user_profile = tokens.get(str(user_id), {})
@@ -705,7 +797,8 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)]]
                 await update.message.reply_text(t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 return
-    if active_batch_sessions.get(user_id, False): return
+    if active_batch_sessions.get(user_id, False):
+        return
     linking_states = load_linking_states()
     if linking_states.get(str(user_id)) == "waiting_for_channel":
         if update.message.forward_origin and getattr(update.message.forward_origin, 'type', None) == 'channel':
@@ -734,13 +827,15 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text(t["batch_detected"].format(len(extracted_urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     url = extracted_urls[0]
-    if "youtube.com" in url.lower(): 
+    if "youtube.com" in url.lower():
         await update.message.reply_text("❌ YouTube paused")
         return
     status_preview = await update.message.reply_text("🔍 Checking link...")
     title, dur = fetch_url_metadata(url)
-    try: await status_preview.delete()
-    except: pass
+    try:
+        await status_preview.delete()
+    except:
+        pass
     payload_key = f"single_{user_id}_{int(time.time())}"
     pending_single_links[payload_key] = url
     keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"fmt_vid_{payload_key}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"fmt_aud_{payload_key}")],[InlineKeyboardButton(t["btn_image"], callback_data=f"fmt_img_{payload_key}")]]
@@ -749,7 +844,8 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     support_states = load_json_file(SUPPORT_STATES_FILE)
     user_id = update.message.from_user.id
-    if is_banned(user_id): return
+    if is_banned(user_id):
+        return
     if str(user_id) in support_states and support_states[str(user_id)].get("mode") == "user_writing":
         await handle_user_upload(update, context)
         return
@@ -760,7 +856,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if not document.file_name or not document.file_name.endswith('.txt'):
         await handle_user_upload(update, context)
         return
-    if active_batch_sessions.get(user_id, False): return
+    if active_batch_sessions.get(user_id, False):
+        return
     try:
         file = await context.bot.get_file(document.file_id)
         file_bytes = await file.download_as_bytearray()
@@ -776,7 +873,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         logger.error(f"File: {e}")
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message.from_user.id != ADMIN_ID: return
+    if update.message.from_user.id != ADMIN_ID:
+        return
     tokens = load_tokens()
     activity = load_json_file(ACTIVITY_FILE)
     config = load_json_file(CONFIG_FILE)
@@ -788,19 +886,24 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     for uid in tokens.keys():
         try:
             net = get_global_ab_network(int(uid))
-            if net == "adsgram": adsgram_count+=1
-            else: adsterra_count+=1
-        except: pass
+            if net == "adsgram":
+                adsgram_count+=1
+            else:
+                adsterra_count+=1
+        except:
+            pass
     sorted_users = sorted(activity.items(), key=lambda x: x[1].get("total_interactions",0), reverse=True)[:10]
     top_text = ""
     for idx,(uid,info) in enumerate(sorted_users,1):
         top_text+=f"{idx}. `{uid}` — {info.get('total_interactions',0)}\n"
-    if not top_text: top_text="No activity yet"
+    if not top_text:
+        top_text="No activity yet"
     free_mb = get_free_disk_mb()
     cache = load_json_file(CACHE_FILE)
     flood_data = load_json_file(FLOOD_FILE)
     banned = load_json_file(BANNED_FILE)
-    txt = (f"📊 **ADVANCED ADMIN (/stats)**\n\n• Total: **{total_users}**\n• 24h Active: **{active_24hr}**\n• Ad Mode: **{mode}**\n\n📢 **Ad Split:**\n• Adsgram: **{adsgram_count}**\n• Adsterra: **{adsterra_count}**\n\n🖥️ **Server 512MB:**\n• Free Disk: **{free_mb}MB**\n• Active DL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\n• Queue: **{download_queue.qsize()}**\n• Cache: **{len(cache)}**\n• Flood tracked: **{len(flood_data)}**\n• Banned: **{len(banned)}**\n\n🏆 **Top 10:**\n{top_text}\n\n💡 *This shows when you tap 📊 My Stats button now*")
+    total_hits = sum(v.get("hits",0) for v in cache.values() if isinstance(v, dict))
+    txt = (f"📊 **ADVANCED ADMIN (via Button)**\n\n• Total: **{total_users}**\n• 24h Active: **{active_24hr}**\n• Ad Mode: **{mode}**\n\n📢 **Ad Split:**\n• Adsgram: **{adsgram_count}**\n• Adsterra: **{adsterra_count}**\n\n🖥️ **Server:**\n• Free: **{free_mb}MB**\n• Active: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\n• Queue: **{download_queue.qsize()}**\n• Cache: **{len(cache)}** files\n• Hits: **{total_hits}** saved\n• Flood: **{len(flood_data)}**\n• Banned: **{len(banned)}**\n\n🎞️ **Video Vault:** `{VIDEO_VAULT_ID}`\n🏆 **Top 10:**\n{top_text}")
     await update.message.reply_text(txt, parse_mode="Markdown")
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -808,17 +911,20 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     config = load_json_file(CONFIG_FILE)
     mode = config.get("ad_mode","auto").upper()
     free_mb = get_free_disk_mb()
-    await update.message.reply_text(f"🟢 **Status**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(load_json_file(CACHE_FILE))}**\nFlood: **ON**\nBackup: **6hr**\nCleaner: **5min/3min**", parse_mode="Markdown")
+    cache = load_json_file(CACHE_FILE)
+    await update.message.reply_text(f"🟢 **Status**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
 
 async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message.from_user.id != ADMIN_ID: return
+    if update.message.from_user.id != ADMIN_ID:
+        return
     config = load_json_file(CONFIG_FILE)
     mode = config.get("ad_mode","auto").upper()
     keyboard = [[InlineKeyboardButton("🔄 Auto", callback_data="set_ad_auto")],[InlineKeyboardButton("📺 Adsgram", callback_data="set_ad_adsgram")],[InlineKeyboardButton("🌐 Adsterra", callback_data="set_ad_adsterra")]]
     await update.message.reply_text(f"Ad Panel: {mode}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message.from_user.id != ADMIN_ID: return
+    if update.message.from_user.id != ADMIN_ID:
+        return
     args = context.args
     reply_msg = update.message.reply_to_message
     if not args and not reply_msg:
@@ -827,23 +933,31 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     all_users = set()
     for d in [load_json_file(LANG_FILE), load_tokens()]:
         for uid in d.keys():
-            try: all_users.add(int(uid))
-            except: pass
+            try:
+                all_users.add(int(uid))
+            except:
+                pass
     status_msg = await update.message.reply_text(f"🚀 Broadcasting to {len(all_users)}...", parse_mode="Markdown")
     success = fail = 0
     for uid in all_users:
-        if uid == ADMIN_ID: continue
-        if is_banned(uid): continue
+        if uid == ADMIN_ID:
+            continue
+        if is_banned(uid):
+            continue
         try:
-            if reply_msg: await context.bot.copy_message(chat_id=uid, from_chat_id=update.message.chat_id, message_id=reply_msg.message_id)
-            else: await context.bot.send_message(chat_id=uid, text=" ".join(args), parse_mode="Markdown")
+            if reply_msg:
+                await context.bot.copy_message(chat_id=uid, from_chat_id=update.message.chat_id, message_id=reply_msg.message_id)
+            else:
+                await context.bot.send_message(chat_id=uid, text=" ".join(args), parse_mode="Markdown")
             success+=1
             await asyncio.sleep(0.05)
-        except: fail+=1
+        except:
+            fail+=1
     await status_msg.edit_text(f"✅ Done\nSent: {success}\nFail: {fail}", parse_mode="Markdown")
 
 async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message.from_user.id != ADMIN_ID: return
+    if update.message.from_user.id != ADMIN_ID:
+        return
     if not context.args:
         await update.message.reply_text("Usage: /ban <user_id>")
         return
@@ -857,7 +971,8 @@ async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text(f"❌ {e}")
 
 async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message.from_user.id != ADMIN_ID: return
+    if update.message.from_user.id != ADMIN_ID:
+        return
     if not context.args:
         await update.message.reply_text("Usage: /unban <user_id>")
         return
@@ -874,63 +989,101 @@ async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(f"❌ {e}")
 
 async def backup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message.from_user.id != ADMIN_ID: return
-    await update.message.reply_text("📦 Backing up...")
+    if update.message.from_user.id != ADMIN_ID:
+        return
+    await update.message.reply_text(f"📦 Backing up to {PRIVATE_CHANNEL_ID}...")
     await backup_to_channel(context.bot)
-    await update.message.reply_text("✅ Backup sent to private channel!")
+    await update.message.reply_text("✅ Backup sent!")
 
 async def cached_download_and_send(bot, chat_id, url, dl_type, t):
     cache = load_json_file(CACHE_FILE)
-    if url in cache:
+    ckey = get_canonical_key(url)
+    if ckey in cache:
         try:
-            cached = cache[url]
+            cached = cache[ckey]
             file_id = cached.get("file_id")
-            c_type = cached.get("type")
+            c_type = cached.get("type", "video")
             if file_id:
-                if c_type == "video": sent = await bot.send_video(chat_id=chat_id, video=file_id, caption="⚡ **Cached Instant**")
-                elif c_type == "audio": sent = await bot.send_audio(chat_id=chat_id, audio=file_id, caption="⚡ **Cached Instant**")
-                elif c_type == "image": sent = await bot.send_photo(chat_id=chat_id, photo=file_id, caption="⚡ **Cached Instant**")
-                else: raise ValueError("bad cache")
+                if c_type == "video":
+                    sent = await bot.send_video(chat_id=chat_id, video=file_id, caption=f"⚡ **Cached Instant** `{ckey}`")
+                elif c_type == "audio":
+                    sent = await bot.send_audio(chat_id=chat_id, audio=file_id, caption=f"⚡ **Cached Instant** `{ckey}`")
+                elif c_type == "image":
+                    sent = await bot.send_photo(chat_id=chat_id, photo=file_id, caption=f"⚡ **Cached Instant** `{ckey}`")
+                else:
+                    raise ValueError("bad cache")
                 warn = await bot.send_message(chat_id=chat_id, text="⏳ Auto-deletes in 9 mins")
                 asyncio.create_task(schedule_deletion(bot, chat_id, [sent.message_id, warn.message_id], 540))
+                cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
+                save_json_file(CACHE_FILE, cache)
                 return True
         except Exception as e:
-            logger.error(f"Cache fail: {e}")
-            if url in cache:
-                del cache[url]
-                save_json_file(CACHE_FILE, cache)
-    status_msg = await bot.send_message(chat_id=chat_id, text=t["fetching"].format(dl_type))
+            logger.error(f"Cache send fail {ckey}: {e}")
+            try:
+                vmid = cache[ckey].get("vault_msg_id")
+                if vmid:
+                    fwd = await bot.forward_message(chat_id=chat_id, from_chat_id=VIDEO_VAULT_ID, message_id=vmid)
+                    warn = await bot.send_message(chat_id=chat_id, text="⏳ Auto-deletes in 9 mins (from vault)")
+                    asyncio.create_task(schedule_deletion(bot, chat_id, [fwd.message_id, warn.message_id], 540))
+                    cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
+                    save_json_file(CACHE_FILE, cache)
+                    return True
+            except Exception as e2:
+                logger.error(f"Vault fallback fail: {e2}")
+                if ckey in cache:
+                    del cache[ckey]
+                    save_json_file(CACHE_FILE, cache)
+    status_msg = await bot.send_message(chat_id=chat_id, text=t["fetching"].format(dl_type) + f"\n`{ckey}`", parse_mode="Markdown")
     try:
         file_paths, res, size = download_media_engine(url, dl_type)
-        if not file_paths: raise ValueError("FILE_NOT_FOUND")
+        if not file_paths:
+            raise ValueError("FILE_NOT_FOUND")
         cache = load_json_file(CACHE_FILE)
         if dl_type == 'images':
             media_group = [InputMediaPhoto(media=open(p, 'rb')) for p in file_paths]
             sent_media = await bot.send_media_group(chat_id=chat_id, media=media_group)
             warn = await bot.send_message(chat_id=chat_id, text=t["images_received"].format(len(file_paths)))
             asyncio.create_task(schedule_deletion(bot, chat_id, [m.message_id for m in sent_media] + [warn.message_id], 540))
-            cache[url] = {"file_id": sent_media[0].photo[-1].file_id, "type": "image", "timestamp": time.time()}
-            for p in file_paths: os.remove(p)
+            try:
+                vmsg = await bot.send_photo(chat_id=VIDEO_VAULT_ID, photo=sent_media[0].photo[-1].file_id, caption=ckey)
+                cache[ckey] = {"file_id": sent_media[0].photo[-1].file_id, "vault_msg_id": vmsg.message_id, "type": "image", "timestamp": time.time(), "hits": 1, "size": size}
+            except:
+                cache[ckey] = {"file_id": sent_media[0].photo[-1].file_id, "type": "image", "timestamp": time.time(), "hits": 1, "size": size}
+            for p in file_paths:
+                os.remove(p)
         elif dl_type == 'audio':
-            with open(file_paths[0], 'rb') as f: sent_media = await bot.send_audio(chat_id=chat_id, audio=f, caption=f"🎵 Size {size}", parse_mode="Markdown")
+            with open(file_paths[0], 'rb') as f:
+                sent_media = await bot.send_audio(chat_id=chat_id, audio=f, caption=f"🎵 Size {size} `{ckey}`", parse_mode="Markdown")
             warn = await bot.send_message(chat_id=chat_id, text="⏳ Auto-deletes in 9 mins")
             asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
-            cache[url] = {"file_id": sent_media.audio.file_id, "type": "audio", "timestamp": time.time()}
+            try:
+                vmsg = await bot.send_audio(chat_id=VIDEO_VAULT_ID, audio=sent_media.audio.file_id, caption=ckey)
+                cache[ckey] = {"file_id": sent_media.audio.file_id, "vault_msg_id": vmsg.message_id, "type": "audio", "timestamp": time.time(), "hits": 1, "size": size}
+            except:
+                cache[ckey] = {"file_id": sent_media.audio.file_id, "type": "audio", "timestamp": time.time(), "hits": 1, "size": size}
             os.remove(file_paths[0])
         else:
-            with open(file_paths[0], 'rb') as f: sent_media = await bot.send_video(chat_id=chat_id, video=f, caption=f"✨ {res} Size {size}", parse_mode="Markdown")
+            with open(file_paths[0], 'rb') as f:
+                sent_media = await bot.send_video(chat_id=chat_id, video=f, caption=f"✨ {res} Size {size} `{ckey}`", parse_mode="Markdown")
             warn = await bot.send_message(chat_id=chat_id, text="⏳ Auto-deletes in 9 mins")
             asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
-            cache[url] = {"file_id": sent_media.video.file_id, "type": "video", "timestamp": time.time()}
+            try:
+                vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent_media.video.file_id, caption=ckey)
+                cache[ckey] = {"file_id": sent_media.video.file_id, "vault_msg_id": vmsg.message_id, "type": "video", "timestamp": time.time(), "hits": 1, "size": size}
+            except Exception as e:
+                logger.error(f"Vault save fail: {e}")
+                cache[ckey] = {"file_id": sent_media.video.file_id, "type": "video", "timestamp": time.time(), "hits": 1, "size": size}
             os.remove(file_paths[0])
         save_json_file(CACHE_FILE, cache)
         await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
         return True
     except Exception as e:
-        logger.error(f"DL: {e}")
+        logger.error(f"DL {ckey}: {e}")
         err = t["error_50mb"] if "FILE_TOO_LARGE" in str(e) else t["error_generic"]
-        try: await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=err)
-        except: pass
+        try:
+            await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=err)
+        except:
+            pass
         return False
 
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -950,8 +1103,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             del tokens[str(user_id)]
             save_tokens(tokens)
         await query.answer("✅ Skipped!", show_alert=True)
-        try: await query.message.edit_text("✅ Bypassed")
-        except: pass
+        try:
+            await query.message.edit_text("✅ Bypassed")
+        except:
+            pass
         return
     if data.startswith("set_ad_") and user_id == ADMIN_ID:
         mode = data.replace("set_ad_", "")
@@ -959,8 +1114,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         config["ad_mode"] = mode
         save_json_file(CONFIG_FILE, config)
         await query.answer(f"Updated to {mode.upper()}", show_alert=True)
-        try: await query.message.edit_text(f"✅ Mode: {mode.upper()}", parse_mode="Markdown")
-        except: pass
+        try:
+            await query.message.edit_text(f"✅ Mode: {mode.upper()}", parse_mode="Markdown")
+        except:
+            pass
         return
     if data == "open_support":
         support_states = load_json_file(SUPPORT_STATES_FILE)
@@ -989,8 +1146,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     if data.startswith("support_close_"):
         await query.answer("Closed!", show_alert=True)
-        try: await query.message.edit_text("🔒 Closed")
-        except: pass
+        try:
+            await query.message.edit_text("🔒 Closed")
+        except:
+            pass
         return
     if data == "drop_cancel" and user_id == ADMIN_ID:
         states = load_json_file(DRIP_STATE_FILE)
@@ -998,8 +1157,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             del states[str(user_id)]
             save_json_file(DRIP_STATE_FILE, states)
         await query.answer("Cancelled")
-        try: await query.message.delete()
-        except: pass
+        try:
+            await query.message.delete()
+        except:
+            pass
         await context.bot.send_message(chat_id=chat_id, text="❌ Cancelled", reply_markup=get_main_keyboard(lang, True))
         return
     if data.startswith("drop_time_") and user_id == ADMIN_ID:
@@ -1019,26 +1180,32 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         drop_data[drop_id] = {"items": items_to_drop, "expires_at": expires_at, "delete_delay": seconds, "delete_label": mins_label, "claimed_users": []}
         save_json_file(DRIP_FILE, drop_data)
         await query.answer(f"{mins_label} set!")
-        try: await query.message.delete()
-        except: pass
+        try:
+            await query.message.delete()
+        except:
+            pass
         bot_username = context.bot.username
         claim_url = f"https://t.me/{bot_username}?start=drip_{drop_id}"
         all_users = set()
         for d in [load_json_file(LANG_FILE), load_tokens()]:
             for uid in d.keys():
-                try: all_users.add(int(uid))
-                except: pass
+                try:
+                    all_users.add(int(uid))
+                except:
+                    pass
         await context.bot.send_message(chat_id=chat_id, text=f"🚀 Broadcasting {len(items_to_drop)} items to {len(all_users)}...", parse_mode="Markdown")
         keyboard = [[InlineKeyboardButton("🎁 Claim Now", url=claim_url)]]
         broadcast_text = f"🚨 FLASH DROP!\nAuto-deletes in {mins_label}\nTap to claim:"
         success = 0
         for uid in all_users:
-            if uid == ADMIN_ID or is_banned(uid): continue
+            if uid == ADMIN_ID or is_banned(uid):
+                continue
             try:
                 await context.bot.send_message(chat_id=uid, text=broadcast_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 success+=1
                 await asyncio.sleep(0.05)
-            except: pass
+            except:
+                pass
         await context.bot.send_message(chat_id=chat_id, text=f"✅ Broadcast done to {success}", reply_markup=get_main_keyboard(lang, True), parse_mode="Markdown")
         return
     if data.startswith("age_yes_"):
@@ -1050,14 +1217,19 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
         if time.time() > drop["expires_at"]:
             await query.answer("Expired!", show_alert=True)
-            try: await query.message.edit_text("⏳ Expired!")
-            except: pass
+            try:
+                await query.message.edit_text("⏳ Expired!")
+            except:
+                pass
             return
-        if "claimed_users" not in drop: drop["claimed_users"]=[]
+        if "claimed_users" not in drop:
+            drop["claimed_users"]=[]
         if user_id in drop["claimed_users"]:
             await query.answer("Already claimed!", show_alert=True)
-            try: await query.message.edit_text("❌ Already claimed!")
-            except: pass
+            try:
+                await query.message.edit_text("❌ Already claimed!")
+            except:
+                pass
             return
         drop["claimed_users"].append(user_id)
         drip_data[drop_id]=drop
@@ -1078,8 +1250,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     if data == "age_no":
         await query.answer("Denied", show_alert=True)
-        try: await query.message.edit_text("❌ Denied. Must be 18+")
-        except: pass
+        try:
+            await query.message.edit_text("❌ Denied. Must be 18+")
+        except:
+            pass
         return
     if data.startswith("lang_"):
         new_lang = data.split("_")[1]
@@ -1091,7 +1265,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         try:
             await query.message.reply_text(new_t["welcome"], reply_markup=get_main_keyboard(new_lang, user_id==ADMIN_ID), parse_mode="Markdown")
             await query.message.delete()
-        except: pass
+        except:
+            pass
         return
     if data.startswith("batchtype_"):
         parts = data.split("_",2)
@@ -1112,20 +1287,26 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if not url:
             await query.answer("Expired", show_alert=True)
             return
-        await query.answer("Checking cache & server load...")
+        await query.answer("Checking vault & server load...")
         await query.message.delete()
         dl_type = 'video'
-        if fmt_type == 'aud': dl_type='audio'
-        elif fmt_type == 'img': dl_type='images'
-        elif fmt_type == 'sub': dl_type='subtitles'
+        if fmt_type == 'aud':
+            dl_type='audio'
+        elif fmt_type == 'img':
+            dl_type='images'
+        elif fmt_type == 'sub':
+            dl_type='subtitles'
+        ckey = get_canonical_key(url)
         cache = load_json_file(CACHE_FILE)
-        if url in cache:
+        if ckey in cache:
             await cached_download_and_send(context.bot, chat_id, url, dl_type, t)
             return
         can_dl = await acquire_slot()
         if can_dl:
-            try: await cached_download_and_send(context.bot, chat_id, url, dl_type, t)
-            finally: await release_slot()
+            try:
+                await cached_download_and_send(context.bot, chat_id, url, dl_type, t)
+            finally:
+                await release_slot()
         else:
             pos = download_queue.qsize()+1
             await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, url, dl_type, t), 'kwargs': {}})
@@ -1134,8 +1315,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     if data.startswith("adsgram_complete_") or data == "adsgram_resume_batch":
         await query.answer("✅ Sponsor viewed!", show_alert=True)
-        try: await query.message.delete()
-        except: pass
+        try:
+            await query.message.delete()
+        except:
+            pass
         tokens = load_tokens()
         if str(user_id) in tokens:
             del tokens[str(user_id)]
@@ -1154,15 +1337,19 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 return
             can_dl = await acquire_slot()
             if can_dl:
-                try: await cached_download_and_send(context.bot, chat_id, url, dl_type, t)
-                finally: await release_slot()
+                try:
+                    await cached_download_and_send(context.bot, chat_id, url, dl_type, t)
+                finally:
+                    await release_slot()
             else:
                 await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, url, dl_type, t), 'kwargs': {}})
                 await context.bot.send_message(chat_id=chat_id, text=f"⏳ Queued #{download_queue.qsize()}", parse_mode="Markdown")
             return
         parts = data.replace("adsgram_complete_","").split("_")
-        try: msg_start, msg_end = int(parts[0]), int(parts[1])
-        except: msg_start=msg_end=0
+        try:
+            msg_start, msg_end = int(parts[0]), int(parts[1])
+        except:
+            msg_start=msg_end=0
         if msg_start==0:
             await query.message.reply_text("✅ Refilled! You can download again")
             return
@@ -1181,8 +1368,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if data == "stop_batch":
         active_batch_sessions[user_id]=False
         await query.answer("Stopping...", show_alert=True)
-        try: await query.edit_message_text("🛑 Stopped")
-        except: pass
+        try:
+            await query.edit_message_text("🛑 Stopped")
+        except:
+            pass
         return
     if data == "resume_batch":
         paused = paused_batches.pop(user_id, None)
@@ -1236,7 +1425,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
         tokens = load_tokens()
         user_str = str(user_id)
-        if user_str not in tokens: return
+        if user_str not in tokens:
+            return
         token_data = tokens[user_str]
         if not token_data.get("verified",False):
             await query.answer("Finish timer first!", show_alert=True)
@@ -1289,7 +1479,7 @@ def run_telegram_bot():
         asyncio.create_task(auto_backup_loop(app.bot))
         asyncio.create_task(queue_processor(app.bot))
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
-        print(f"Bot started! Free {get_free_disk_mb()}MB | {MAX_CONCURRENT_SHORT} concurrent | Flood ON")
+        print(f"Bot started! Vault={VIDEO_VAULT_ID} Backup={PRIVATE_CHANNEL_ID} Free {get_free_disk_mb()}MB")
         await asyncio.Event().wait()
     loop.run_until_complete(start_bot())
 
