@@ -378,7 +378,8 @@ def get_main_keyboard(lang_code, is_admin):
         [KeyboardButton(t["menu_stats"]), KeyboardButton(t["menu_lang"])],
         [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])],
         [KeyboardButton(t["menu_upload"])],
-        [KeyboardButton("🟢 Bot Status")]
+        [KeyboardButton("🟢 Bot Status")],
+        [KeyboardButton("🧪 Test Ad"), KeyboardButton("📢 Ad Info")]
     ]
     if is_admin:
         keyboard.append([KeyboardButton(t["menu_uploads"]), KeyboardButton("📢 Broadcast")])
@@ -1539,6 +1540,47 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except Exception as e:
             await query.message.reply_text(f"❌ {e} (Bundle {msg_start}-{msg_end} + Tutorial {TUTORIAL_MESSAGE_ID})")
 
+
+async def test_ad_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    t = LANGUAGES.get("en")
+    bridge_link = f"{BRIDGE_URL}?user={update.effective_user.id}&start_msg=0&end_msg=0"
+    keyboard = [
+        [InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s (Ad)", url=bridge_link)],
+        [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
+        [InlineKeyboardButton("💜 Check & Get Files ✅", callback_data="verify_user")]
+    ]
+    await update.message.reply_text(
+        "🧪 AD PLACEMENT TEST - FOR ADSGRAM REVIEWER (Clause 13)\n\n"
+        "📍 WHERE AD IS PLACED:\n"
+        "1️⃣ User pastes link\n"
+        "2️⃣ User downloads 4 FREE\n"
+        "3️⃣ On 5th download, LIMIT REACHED wall\n"
+        "4️⃣ AD APPEARS HERE: This message with 3 buttons!\n"
+        "5️⃣ User clicks Open Link & Watch Timer 20s -> Watches ad\n"
+        "6️⃣ User clicks Check & Get Files -> Gets +4 downloads\n\n"
+        "Ad Types: Adsgram Rewarded + Adsterra Direct 20s\n"
+        "Commands: Any download after limit, /testad, batch limit\n\n"
+        "TRY AD NOW:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+
+async def ad_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📢 AD PLACEMENT INFO FOR ADSGRAM (Clause 13)\n\n"
+        "Bot: @Michaelbbcvaultbot\n"
+        "Bot ID: 8863904451\n"
+        "PlatformID: 53875\n\n"
+        "📍 Exact Ad Placement:\n"
+        "• Command: After 4 free downloads, 5th attempt\n"
+        "• Message: Limit Reached! Watch ad\n"
+        "• Buttons: Open Link & Watch Timer 20s, Join Channel, Check & Get Files\n"
+        "• Ad Type: Rewarded Interstitial 20s\n"
+        "• Reward: +4 downloads\n\n"
+        "To test: Use /testad - shows ad placement instantly!",
+        parse_mode="Markdown"
+    )
+
 def run_telegram_bot():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -1549,6 +1591,8 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("language", language_command))
         app.add_handler(CommandHandler("stats", stats))
         app.add_handler(CommandHandler("status", status_command))
+        app.add_handler(CommandHandler("testad", test_ad_command))
+        app.add_handler(CommandHandler("adinfo", ad_info_command))
         app.add_handler(CommandHandler("toggleads", toggle_ads_command))
         app.add_handler(CommandHandler("broadcast", broadcast_command))
         app.add_handler(CommandHandler("ban", ban_command))
