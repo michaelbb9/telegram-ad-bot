@@ -377,11 +377,26 @@ def get_main_keyboard(lang_code, is_admin):
         keyboard.append([KeyboardButton("⚡ Create Flash Drop"), KeyboardButton("⚙️ Ad Toggle Panel")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
+def get_downloads_usage_mb():
+    try:
+        if not os.path.exists("downloads"):
+            return 0
+        total = 0
+        for fname in os.listdir("downloads"):
+            fpath = os.path.join("downloads", fname)
+            if os.path.isfile(fpath):
+                total += os.path.getsize(fpath)
+        return total // (1024*1024)
+    except:
+        return 0
+
 def get_free_disk_mb():
     try:
-        return shutil.disk_usage(".").free // (1024*1024)
+        # Render shows host free (72GB) - useless. Show real 512MB budget
+        used = get_downloads_usage_mb()
+        return max(0, 512 - used)
     except:
-        return 9999
+        return 512
 
 async def acquire_slot():
     global active_downloads
@@ -885,13 +900,16 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     adsgram_count = adsterra_count = 0
     for uid in tokens.keys():
         try:
-            net = get_global_ab_network(int(uid))
+            # Handle both int and string keys from PythonAnywhere
+            uid_int = int(str(uid).strip())
+            net = get_global_ab_network(uid_int)
             if net == "adsgram":
                 adsgram_count+=1
             else:
                 adsterra_count+=1
         except:
-            pass
+            # Fallback: count as Adsterra to keep total accurate
+            adsterra_count+=1
     sorted_users = sorted(activity.items(), key=lambda x: x[1].get("total_interactions",0), reverse=True)[:10]
     top_text = ""
     for idx,(uid,info) in enumerate(sorted_users,1):
@@ -899,11 +917,13 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not top_text:
         top_text="No activity yet"
     free_mb = get_free_disk_mb()
+    used_mb = get_downloads_usage_mb()
     cache = load_json_file(CACHE_FILE)
     flood_data = load_json_file(FLOOD_FILE)
     banned = load_json_file(BANNED_FILE)
     total_hits = sum(v.get("hits",0) for v in cache.values() if isinstance(v, dict))
-    txt = (f"📊 **ADVANCED ADMIN (via Button)**\n\n• Total: **{total_users}**\n• 24h Active: **{active_24hr}**\n• Ad Mode: **{mode}**\n\n📢 **Ad Split:**\n• Adsgram: **{adsgram_count}**\n• Adsterra: **{adsterra_count}**\n\n🖥️ **Server:**\n• Free: **{free_mb}MB**\n• Active: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\n• Queue: **{download_queue.qsize()}**\n• Cache: **{len(cache)}** files\n• Hits: **{total_hits}** saved\n• Flood: **{len(flood_data)}**\n• Banned: **{len(banned)}**\n\n🎞️ **Video Vault:** `{VIDEO_VAULT_ID}`\n🏆 **Top 10:**\n{top_text}")
+    host_free = shutil.disk_usage(".").free // (1024*1024) if os.path.exists(".") else 0
+    txt = (f"📊 **ADVANCED ADMIN (via Button)**\n\n• Total: **{total_users}**\n• 24h Active: **{active_24hr}**\n• Ad Mode: **{mode}**\n\n📢 **Ad Split:**\n• Adsgram: **{adsgram_count}**\n• Adsterra: **{adsterra_count}**\n\n🖥️ **Render 512MB Real:**\n• Used: **{used_mb}MB**\n• Free: **{free_mb}MB / 512MB**\n• Host: **{host_free}MB** (ignore)\n• Active: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\n• Queue: **{download_queue.qsize()}**\n• Cache: **{len(cache)}** files\n• Hits: **{total_hits}** saved\n• Flood: **{len(flood_data)}**\n• Banned: **{len(banned)}**\n\n🎞️ **Video Vault:** `{VIDEO_VAULT_ID}`\n🏆 **Top 10:**\n{top_text}")
     await update.message.reply_text(txt, parse_mode="Markdown")
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
