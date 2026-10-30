@@ -111,10 +111,6 @@ def get_lang(user_id):
     return langs.get(str(user_id), "en")
 
 def get_global_ab_network(user_id):
-    """
-    Global Network Selector with Admin Override Control:
-    Modes: 'auto' (24hr hash rotation), 'adsgram' (force adsgram), 'adsterra' (force adsterra)
-    """
     config = load_json_file(CONFIG_FILE)
     mode = config.get("ad_mode", "auto")
     
@@ -123,7 +119,6 @@ def get_global_ab_network(user_id):
     elif mode == "adsterra":
         return "adsterra"
     
-    # Default Auto 24-hour A/B Rotation
     day_epoch = int(time.time() // 86400)
     combined_hash = hash(f"{user_id}_{day_epoch}")
     return "adsgram" if combined_hash % 2 == 0 else "adsterra"
@@ -548,6 +543,17 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
+    # --- SECURITY CHECK: BLOCK NEW LINKS IF AD REFILL IS PENDING ---
+    tokens = load_tokens()
+    if str(user_id) in tokens:
+        token_data = tokens[str(user_id)]
+        if not token_data.get("verified", False):
+            await update.message.reply_text(
+                "⚠️ **Action Blocked!** You have reached your download limit. Please complete the sponsor ad or check button above to unlock your refill before sending new links.",
+                parse_mode="Markdown"
+            )
+            return
+
     menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🟢 Bot Status", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel"]
     if text in menu_texts:
         support_states = load_json_file(SUPPORT_STATES_FILE)
@@ -643,7 +649,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if text == "📢 Broadcast" and user_id == ADMIN_ID:
         await update.message.reply_text(
             "📢 **Broadcast Mode:**\n\n"
-            "Type `/broadcast [your message]` or reply to any photo/video with `/broadcast` to send it out.",
+            "Type `/broadcast [your message]` or reply to any photo/video with `/broadcast` to send it out!",
             parse_mode="Markdown"
         )
         return
@@ -1461,7 +1467,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         forwarded_ids = []
         try:
             for target_msg_id in range(msg_start, msg_end + 1):
-                fwd = await context.bot.copy_message(chat_id=user_id, from_chat_id=DETECTED_CHANNEL_ID, message_id=target_msg_id)
+                fwd = await context.bot.forward_message(chat_id=user_id, from_chat_id=DETECTED_CHANNEL_ID, message_id=target_msg_id)
                 forwarded_ids.append(fwd.message_id)
                 asyncio.sleep(0.2)
             warn = await context.bot.send_message(chat_id=user_id, text=f"⏳ **Auto-deletes in 9 minutes.**")
