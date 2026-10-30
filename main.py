@@ -493,13 +493,13 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         ]
         await context.bot.send_message(
             chat_id=ADMIN_ID,
-            text=f"💬 **Support Ticket [ID: {ticket_id}]**\nFrom User ID: `{user_id}`\n\nMessage:",
+            text=f"💬 **Support Ticket [ID: {ticket_id}]**\nFrom User ID: `{user_id}`\n\nAttached Media/Message:",
             parse_mode="Markdown"
         )
         await update.message.forward(chat_id=ADMIN_ID)
         await context.bot.send_message(chat_id=ADMIN_ID, text="👇 Manage this ticket:", reply_markup=InlineKeyboardMarkup(keyboard))
         
-        await update.message.reply_text("✅ **Support Message Sent!** The Admin will review your message shortly.")
+        await update.message.reply_text("✅ **Support File/Message Sent!** The Admin will review your report shortly.")
         return
 
     states = load_json_file(DRIP_STATE_FILE)
@@ -597,11 +597,16 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         try:
             await context.bot.send_message(
                 chat_id=target_user_id,
-                text=f"💬 **Admin Reply:**\n\n{text}",
-                reply_markup=InlineKeyboardMarkup(keyboard),
+                text=f"💬 **Admin Reply:**",
                 parse_mode="Markdown"
             )
-            await update.message.reply_text(f"✅ Reply successfully sent to user `{target_user_id}`!", parse_mode="Markdown")
+            await update.message.forward(chat_id=target_user_id)
+            await context.bot.send_message(
+                chat_id=target_user_id,
+                text="👇 Need to reply or send media back?",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            await update.message.reply_text(f"✅ Reply/Media successfully sent to user `{target_user_id}`!", parse_mode="Markdown")
         except Exception as e:
             await update.message.reply_text(f"❌ Failed to send reply: {e}")
         return
@@ -619,9 +624,10 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         ]
         await context.bot.send_message(
             chat_id=ADMIN_ID,
-            text=f"💬 **Support Ticket [ID: {ticket_id}]**\nFrom User ID: `{user_id}`\n\n{text}",
+            text=f"💬 **Support Ticket [ID: {ticket_id}]**\nFrom User ID: `{user_id}`",
             parse_mode="Markdown"
         )
+        await update.message.forward(chat_id=ADMIN_ID)
         await context.bot.send_message(chat_id=ADMIN_ID, text="👇 Manage this ticket:", reply_markup=InlineKeyboardMarkup(keyboard))
         await update.message.reply_text("✅ **Support Message Sent!** The Admin will review your message shortly.")
         return
@@ -1060,8 +1066,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         
         await query.answer("Support ticket mode opened!")
         await query.message.reply_text(
-            "✍️ **Send your message or question below.**\n"
-            "Your next message will be forwarded directly to the Admin as a support ticket.",
+            "✍️ **Send your message, image, video, or file below.**\n"
+            "Your next input will be forwarded directly to the Admin as part of your support ticket.",
             parse_mode="Markdown"
         )
         return
@@ -1077,7 +1083,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.answer("Reply mode activated!")
         await context.bot.send_message(
             chat_id=ADMIN_ID,
-            text=f"✍️ **Type your reply to User `{target_user_id}`:**\nYour next message in this chat will be sent directly to them as an admin reply.",
+            text=f"✍️ **Type or send media reply to User `{target_user_id}`:**\nYour next text, photo, video, or file in this chat will be sent directly to them.",
             parse_mode="Markdown"
         )
         return
@@ -1090,8 +1096,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         
         await query.answer("Reply mode opened!")
         await query.message.reply_text(
-            "✍️ **Type your follow-up message below.**\n"
-            "Your next message will be sent directly to the Admin.",
+            "✍️ **Type or send your follow-up message/media below.**\n"
+            "Your next input will be sent directly to the Admin.",
             parse_mode="Markdown"
         )
         return
@@ -1587,7 +1593,7 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("broadcast", broadcast_command))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
-        app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE, handle_user_upload))
+        app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.DOCUMENT, handle_user_upload))
         app.add_handler(CallbackQueryHandler(handle_buttons))
         
         await app.initialize()
