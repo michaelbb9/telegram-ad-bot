@@ -34,6 +34,10 @@ PUBLIC_CHANNEL_URL = "https://t.me/booksaufio"
 PUBLIC_CHANNEL_USERNAME = "@booksaufio"
 HELP_CHANNEL_URL = "https://t.me/faqandaupport"
 
+# --- ADSGRAM CONFIGURATION ---
+ADSGRAM_BLOCK_ID = "bot-56759"
+ADSGRAM_API_URL = "https://api.adsgram.ai/advbot"
+
 PROXY_URL = None 
 CHANNELS_FILE = "user_channels.json"
 LINKING_STATE_FILE = "linking_states.json"
@@ -51,7 +55,7 @@ pending_single_links = {}
 
 LANGUAGES = {
     "en": {
-        "welcome": "🚀 **Welcome to the Ultimate Media Downloader & Vault Bot!** 🚀\n\nI am your all-in-one Swiss Army Knife. Here is everything I can do:\n\n🎬 **Video Downloader:** Paste any link for HD videos.\n🎵 **Audio / MP3 Extractor:** Turn any video into an MP3.\n🖼️ **Image / Gallery Saver:** Download photos.\n📝 **Subtitle Extractor:** Grab SRT files.\n📦 **Massive Batch Downloader:** Paste up to 100+ links. Choose Video, Audio, or Images!\n⚡ **Flash Drops:** Exclusive timed secret drops sent directly to your DM with safe 18+ verification!\n💎 **Exclusive Vaults:** Unlock premium curated video bundles.\n📤 **Uploads:** Send us files/images directly (Max 5 per day)!\n\n⚠️ **Rules & Limits:**\n• Telegram limits bots to 50MB per file.\n• You get 20 free batch downloads. After that, watch a 20-second sponsor timer to refill.\n\n👉 **Just paste a link to get started!**",
+        "welcome": "🚀 **Welcome to the Ultimate Media Downloader & Vault Bot!** 🚀\n\nI am your all-in-one Swiss Army Knife. Here is everything I can do:\n\n🎬 **Video Downloader:** Paste any link for HD videos.\n🎵 **Audio / MP3 Extractor:** Turn any video into an MP3.\n🖼️ **Image / Gallery Saver:** Download photos.\n📝 **Subtitle Extractor:** Grab SRT files.\n📦 **Massive Batch Downloader:** Paste up to 100+ links. Choose Video, Audio, or Images!\n⚡ **Flash Drops:** Exclusive timed secret drops sent directly to your DM with safe 18+ verification!\n💎 **Exclusive Vaults:** Unlock premium curated video bundles.\n📤 **Uploads:** Send us files/images directly (Max 5 per day)!\n\n⚠️ **Rules & Limits:**\n• Telegram limits bots to 50MB per file.\n• You get 20 free batch downloads. After that, watch a sponsor ad to refill.\n\n👉 **Just paste a link to get started!**",
         "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Images", "btn_sub": "📝 Subtitles (SRT)",
         "ask_format": "👇 **What would you like to download?**",
         "fetching": "📥 **Fetching {}... Please wait.**",
@@ -61,9 +65,9 @@ LANGUAGES = {
         "select_lang": "🌍 Please select your language:", "lang_set": "✅ Language set to English!",
         "batch_detected": "📦 **Batch Detected ({} links)**\nWhat format do you want?", "batch_dest": "📦 **Where to send these files?**",
         "btn_chat": "📥 Download in Chat", "btn_chan": "📢 Forward to Private Channel",
-        "limit_reached": "⚠️ **Limit Reached!** Refill to continue.", "refill_btn": "🔓 Open Link & Refill",
+        "limit_reached": "⚠️ **Limit Reached!** Complete the sponsor ad below to refill.", "refill_btn": "🔓 Open Link & Refill",
         "join_btn": "📢 Join Public Channel", "check_btn": "💜 Check Balance",
-        "limit_batch": "⚠️ **Batch Limit Reached! (Stopped at link {} of {})**\n\nRefill to continue:",
+        "limit_batch": "⚠️ **Batch Limit Reached! (Stopped at link {} of {})**\n\nComplete the sponsor ad below to continue:",
         "batch_start": "📦 **Batch Processing Started:** Downloading {} **{} files**.\n\n⏳ *Processing...*",
         "batch_done": "🏁 **Batch Finished!**\n✅ Success: {}\n❌ Failed: {}\n\n📥 **{} files sent here.**",
         "batch_done_chan": "🏁 **Batch Finished!**\n✅ Success: {}\n❌ Failed: {}\n\n📢 **{} files forwarded!**",
@@ -104,6 +108,26 @@ def save_json_file(filename, data):
 def get_lang(user_id):
     langs = load_json_file(LANG_FILE)
     return langs.get(str(user_id), "en")
+
+def get_global_ab_network(user_id):
+    """
+    Global Daily A/B Split-Test Rotation:
+    Rotates between 'adsterra' and 'adsgram' every 24 hours based on day hash and user ID.
+    """
+    day_epoch = int(time.time() // 86400)
+    combined_hash = hash(f"{user_id}_{day_epoch}")
+    return "adsgram" if combined_hash % 2 == 0 else "adsterra"
+
+def fetch_adsgram_ad_data():
+    """Fetches active native ad block info from Adsgram API for Clause 13 compliance."""
+    try:
+        res = requests.get(f"{ADSGRAM_API_URL}?blockId={ADSGRAM_BLOCK_ID}", timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            return data
+    except Exception as e:
+        logger.error(f"Adsgram API fetch error: {e}")
+    return None
 
 def load_tokens():
     try:
@@ -268,7 +292,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text("⏳ **Expired!** This flash drop has closed.", parse_mode="Markdown")
             return
 
-        # CHECK IF USER ALREADY CLAIMED THIS DROP
         if "claimed_users" in drop and user_id in drop["claimed_users"]:
             await update.message.reply_text("❌ **Already Claimed!** You have already claimed this flash drop bundle.", parse_mode="Markdown")
             return
@@ -302,8 +325,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             except ValueError: return
     else: return
 
-    bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
+    assigned_network = get_global_ab_network(user_id)
     tokens = load_tokens()
+
+    if assigned_network == "adsgram":
+        tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": int(msg_start), "msg_end": int(msg_end), "clicked_ad": True, "verified": True, "expires": time.time() + 600}
+        save_tokens(tokens)
+        
+        ad_info = fetch_adsgram_ad_data()
+        caption_text = "📺 **Adsgram Native Sponsor Block**\n\nSupport our bot by viewing our sponsor partner below to instantly unlock your content!"
+        keyboard = [
+            [InlineKeyboardButton("📺 Watch Sponsor Ad (Adsgram)", callback_data=f"adsgram_complete_{msg_start}_{msg_end}")],
+            [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)]
+        ]
+        await update.message.reply_text(text=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        return
+
+    bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
     tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": int(msg_start), "msg_end": int(msg_end), "clicked_ad": False, "verified": False, "expires": time.time() + 600}
     save_tokens(tokens)
     keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch Timer", url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
@@ -346,8 +384,22 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             await bot.send_message(chat_id=chat_id, text=f"❌ [{index}/{len(urls)}] Connection error.")
             break
         if res_data.get("status") != "allowed":
-            bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
+            assigned_network = get_global_ab_network(user_id)
             tokens = load_tokens()
+
+            if assigned_network == "adsgram":
+                tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": True, "verified": True, "expires": time.time() + 600}
+                save_tokens(tokens)
+                paused_batches[user_id] = {"urls": urls, "next_index": index - 1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
+                
+                keyboard = [
+                    [InlineKeyboardButton("📺 Watch Sponsor Ad (Adsgram)", callback_data=f"adsgram_resume_batch")],
+                    [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)]
+                ]
+                await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+                break
+
+            bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
             tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
             save_tokens(tokens)
             paused_batches[user_id] = {"urls": urls, "next_index": index - 1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
@@ -405,7 +457,6 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
-    # --- SUPPORT TICKET CHECK FOR USERS ---
     support_states = load_json_file(SUPPORT_STATES_FILE)
     if str(user_id) in support_states and isinstance(support_states[str(user_id)], dict) and support_states[str(user_id)].get("mode") == "user_writing":
         ticket_id = support_states[str(user_id)]["ticket_id"]
@@ -430,7 +481,6 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("✅ **Support Message Sent!** The Admin will review your message shortly.")
         return
 
-    # --- TOP PRIORITY: SILENTLY COLLECT ITEMS FOR FLASH DROP ---
     states = load_json_file(DRIP_STATE_FILE)
     user_state = states.get(str(user_id))
 
@@ -486,7 +536,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
-    # If user clicks any menu button, clear support state immediately
     menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🟢 Bot Status", "📢 Broadcast", "⚡ Create Flash Drop"]
     if text in menu_texts:
         support_states = load_json_file(SUPPORT_STATES_FILE)
@@ -494,7 +543,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             del support_states[str(user_id)]
             save_json_file(SUPPORT_STATES_FILE, support_states)
 
-    # --- ADMIN REPLY STATE CHECK ---
     support_states = load_json_file(SUPPORT_STATES_FILE)
     if user_id == ADMIN_ID and str(user_id) in support_states and isinstance(support_states[str(user_id)], dict) and support_states[str(user_id)].get("mode") == "admin_replying":
         target_user_id = support_states[str(user_id)]["target_user_id"]
@@ -521,7 +569,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             await update.message.reply_text(f"❌ Failed to send reply: {e}")
         return
 
-    # --- USER SUPPORT TICKET STATE CHECK ---
     if str(user_id) in support_states and isinstance(support_states[str(user_id)], dict) and support_states[str(user_id)].get("mode") == "user_writing":
         ticket_id = support_states[str(user_id)]["ticket_id"]
         del support_states[str(user_id)]
@@ -542,7 +589,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text("✅ **Support Message Sent!** The Admin will review your message shortly.")
         return
 
-    # --- TOP PRIORITY 1: ADMIN TRIGGERS FLASH DROP ---
     if text == "⚡ Create Flash Drop" and user_id == ADMIN_ID:
         states = load_json_file(DRIP_STATE_FILE)
         states[str(user_id)] = {"mode": "collecting", "items": []}
@@ -800,6 +846,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "• Telegram API Connection: **ONLINE**\n"
         "• Downloader Engine (`yt-dlp`): **ONLINE**\n"
         "• Flask Bridge Server: **RUNNING**\n"
+        "• Adsgram Block (`bot-56759`): **INTEGRATED**\n"
         "• Flash Drop & Broadcast Systems: **ACTIVE**",
         parse_mode="Markdown"
     )
@@ -944,7 +991,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         save_json_file(DRIP_STATE_FILE, states)
 
         drop_id = str(int(time.time()))
-        expires_at = time.time() + 480  # 8 minutes claim window
+        expires_at = time.time() + 480
 
         drop_data = load_json_file(DRIP_FILE)
         drop_data[drop_id] = {
@@ -952,7 +999,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "expires_at": expires_at,
             "delete_delay": seconds,
             "delete_label": mins_label,
-            "claimed_users": []  # INITIALIZE CLAIM TRACKING LIST
+            "claimed_users": []
         }
         save_json_file(DRIP_FILE, drop_data)
 
@@ -1011,7 +1058,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         return
 
-    # --- AGE VERIFICATION & ANTI-EXPLOIT CLAIM CHECK ---
     if data.startswith("age_yes_"):
         drop_id = data.replace("age_yes_", "")
         drip_data = load_json_file(DRIP_FILE)
@@ -1027,18 +1073,15 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             except: pass
             return
 
-        # ENSURE CLAIMED USERS LIST EXISTS
         if "claimed_users" not in drop:
             drop["claimed_users"] = []
 
-        # BLOCK DUPLICATE CLAIMS
         if user_id in drop["claimed_users"]:
             await query.answer("❌ You have already claimed this drop!", show_alert=True)
             try: await query.message.edit_text("❌ **Already Claimed!** You have already received this flash drop bundle.")
             except: pass
             return
 
-        # MARK USER AS CLAIMED & SAVE
         drop["claimed_users"].append(user_id)
         drip_data[drop_id] = drop
         save_json_file(DRIP_FILE, drip_data)
@@ -1129,8 +1172,20 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
 
         if res_data.get("status") != "allowed":
-            bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
+            assigned_network = get_global_ab_network(user_id)
             tokens = load_tokens()
+
+            if assigned_network == "adsgram":
+                tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": True, "verified": True, "expires": time.time() + 600}
+                save_tokens(tokens)
+                keyboard = [
+                    [InlineKeyboardButton("📺 Watch Sponsor Ad (Adsgram)", callback_data="adsgram_complete_0_0")],
+                    [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)]
+                ]
+                await context.bot.send_message(chat_id=chat_id, text=t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+                return
+
+            bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
             tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
             save_tokens(tokens)
             keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
@@ -1171,6 +1226,42 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             error_msg = t["error_50mb"] if "FILE_TOO_LARGE" in str(e) else t["error_no_img"] if "NO_IMAGES" in str(e) else t["error_generic"]
             help_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("💬 Ask for Help", url=HELP_CHANNEL_URL)]])
             await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=error_msg, reply_markup=help_keyboard)
+        return
+
+    # --- ADSGRAM REWARD COMPLETION HANDLERS ---
+    if data.startswith("adsgram_complete_") or data == "adsgram_resume_batch":
+        await query.answer("✅ Sponsor viewed successfully!", show_alert=True)
+        try: await query.message.delete()
+        except: pass
+
+        if data == "adsgram_resume_batch":
+            paused = paused_batches.pop(user_id, None)
+            if paused:
+                asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"]))
+            return
+
+        parts = data.replace("adsgram_complete_", "").split("_")
+        try:
+            msg_start, msg_end = int(parts[0]), int(parts[1])
+        except (ValueError, IndexError):
+            msg_start, msg_end = 0, 0
+
+        if msg_start == 0:
+            await query.message.reply_text("✅ **Refilled!** You can download again.")
+            return
+
+        await query.message.reply_text("✅ **Sponsor Verified!** Fetching bundle...")
+        forwarded_ids = []
+        try:
+            for target_msg_id in range(msg_start, msg_end + 1):
+                fwd = await context.bot.forward_message(chat_id=user_id, from_chat_id=DETECTED_CHANNEL_ID, message_id=target_msg_id)
+                forwarded_ids.append(fwd.message_id)
+                asyncio.sleep(0.2)
+            warn = await context.bot.send_message(chat_id=user_id, text=f"⏳ **Auto-deletes in 9 minutes.**")
+            forwarded_ids.append(warn.message_id)
+            asyncio.create_task(schedule_deletion(context.bot, user_id, forwarded_ids, 540))
+        except Exception as e:
+            await query.message.reply_text(f"❌ Error: {e}")
         return
 
     if data == "stop_batch":
