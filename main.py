@@ -136,15 +136,6 @@ def get_global_ab_network(user_id):
     combined_hash = hash(f"{user_id}_{day_epoch}")
     return "adsgram" if combined_hash % 2 == 0 else "adsterra"
 
-def fetch_adsgram_ad_data():
-    try:
-        res = requests.get(f"{ADSGRAM_API_URL}?blockId={ADSGRAM_BLOCK_ID}", timeout=5)
-        if res.status_code == 200:
-            return res.json()
-    except Exception as e:
-        logger.error(f"Adsgram API fetch error: {e}")
-    return None
-
 def load_tokens():
     try:
         response = requests.get(f"{WEB_BASE_URL}/get_tokens", timeout=5)
@@ -859,26 +850,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text("❌ YouTube is paused.")
         return
 
-    # --- SMART DUPLICATE LINK CACHE CHECK ---
-    cache = load_json_file(CACHE_FILE)
-    if url in cache and time.time() - cache[url]["timestamp"] < 3600:
-        cached_file_id = cache[url]["file_id"]
-        media_type = cache[url]["type"]
-        await update.message.reply_text("⚡ **Duplicate Link Detected (Cached):** Sending your recent file instantly!")
-        try:
-            if media_type == 'video':
-                sent_msg = await context.bot.send_video(chat_id=chat_id, video=cached_file_id, caption="✨ **Video (Cached)**")
-            elif media_type == 'audio':
-                sent_msg = await context.bot.send_audio(chat_id=chat_id, audio=cached_file_id, caption="🎵 **Audio (Cached)**")
-            else:
-                sent_msg = await context.bot.send_photo(chat_id=chat_id, photo=cached_file_id, caption="🖼️ **Image (Cached)**")
-            
-            warn = await context.bot.send_message(chat_id=chat_id, text="⏳ **Auto-deletes in 9 minutes.**")
-            asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent_msg.message_id, warn.message_id], 540))
-            return
-        except Exception:
-            pass # fallback to regular download if cached file reference expired
-
     status_preview = await update.message.reply_text("🔍 Inspecting link metadata...")
     title, duration_str = fetch_url_metadata(url)
     try:
@@ -1412,6 +1383,12 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         try: await query.message.delete()
         except: pass
 
+        # CLEAR TOKEN IMMEDIATELY UPON SUCCESSFUL AD VIEW
+        tokens = load_tokens()
+        if str(user_id) in tokens:
+            del tokens[str(user_id)]
+            save_tokens(tokens)
+
         if data == "adsgram_resume_batch":
             paused = paused_batches.pop(user_id, None)
             if paused:
@@ -1419,13 +1396,12 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
 
         if data == "adsgram_complete_single":
-            tokens = load_tokens()
             token_data = tokens.get(str(user_id), {})
             url = token_data.get("url")
             dl_type = token_data.get("dl_type", "video")
             
             if not url:
-                await query.message.reply_text("✅ **Refilled!** Please send your link again to download.")
+                await query.message.reply_text("✅ **Refilled & Unlocked!** Please send your link again to download.")
                 return
 
             status_msg = await context.bot.send_message(chat_id=chat_id, text=t["fetching"].format(dl_type))
@@ -1475,7 +1451,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             msg_start, msg_end = 0, 0
 
         if msg_start == 0:
-            await query.message.reply_text("✅ **Refilled!** You can download again.")
+            await query.message.reply_text("✅ **Refilled & Unlocked!** You can download again.")
             return
 
         await query.message.reply_text("✅ **Sponsor Verified!** Fetching bundle...")
