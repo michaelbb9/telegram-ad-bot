@@ -392,11 +392,28 @@ def get_downloads_usage_mb():
 
 def get_free_disk_mb():
     try:
-        # Render shows host free (72GB) - useless. Show real 512MB budget
         used = get_downloads_usage_mb()
         return max(0, 512 - used)
     except:
         return 512
+
+def deduct_download_counter(user_id, is_batch=False):
+    try:
+        import requests
+        requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": is_batch}, timeout=3)
+    except:
+        pass
+    try:
+        tokens = load_tokens()
+        uid = str(user_id)
+        if uid in tokens:
+            if is_batch:
+                tokens[uid]["batch_downloads_left"] = max(0, tokens[uid].get("batch_downloads_left", 20) - 1)
+            else:
+                tokens[uid]["downloads_left"] = max(0, tokens[uid].get("downloads_left", 4) - 1)
+            save_tokens(tokens)
+    except:
+        pass
 
 async def acquire_slot():
     global active_downloads
@@ -793,7 +810,17 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 pass
         return
     extracted_urls = re.findall(r'https?://[^\s]+', text)
+    # Ignore own bot start links - user should click buttons, not paste link
+    filtered = []
+    for u in extracted_urls:
+        if "t.me/" in u and "start=" in u:
+            continue
+        filtered.append(u)
+    extracted_urls = filtered
     if not extracted_urls:
+        # If user pasted only bot start link, guide them
+        if "t.me/" in text and "start=" in text:
+            await update.message.reply_text("👆 Please use the buttons above (Open Link & Watch → Check Balance) instead of pasting the link.", parse_mode="Markdown")
         return
     if user_id != ADMIN_ID:
         tokens = load_tokens()
@@ -1025,7 +1052,9 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
             c_type = cached.get("type", "video")
             if file_id:
                 if c_type == "video":
-                    sent = await bot.send_video(chat_id=chat_id, video=file_id, caption=f"⚡ **Cached Instant** `{ckey}`")
+                    qual = cached.get("quality", "HD")
+                    sz = cached.get("size", "")
+                    sent = await bot.send_video(chat_id=chat_id, video=file_id, caption=f"Cached Instant {qual} Size {sz} {ckey}")
                 elif c_type == "audio":
                     sent = await bot.send_audio(chat_id=chat_id, audio=file_id, caption=f"⚡ **Cached Instant** `{ckey}`")
                 elif c_type == "image":
@@ -1036,6 +1065,7 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
                 asyncio.create_task(schedule_deletion(bot, chat_id, [sent.message_id, warn.message_id], 540))
                 cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
                 save_json_file(CACHE_FILE, cache)
+                deduct_download_counter(chat_id, is_batch=False)
                 return True
         except Exception as e:
             logger.error(f"Cache send fail {ckey}: {e}")
@@ -1047,6 +1077,7 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
                     asyncio.create_task(schedule_deletion(bot, chat_id, [fwd.message_id, warn.message_id], 540))
                     cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
                     save_json_file(CACHE_FILE, cache)
+                    deduct_download_counter(chat_id, is_batch=False)
                     return True
             except Exception as e2:
                 logger.error(f"Vault fallback fail: {e2}")
@@ -1096,6 +1127,7 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
             os.remove(file_paths[0])
         save_json_file(CACHE_FILE, cache)
         await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+        deduct_download_counter(chat_id, is_batch=False)
         return True
     except Exception as e:
         logger.error(f"DL {ckey}: {e}")
@@ -1377,8 +1409,18 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         fwd_ids=[]
         try:
             for tid in range(msg_start, msg_end+1):
-                fwd = await context.bot.forward_message(chat_id=user_id, from_chat_id=DETECTED_CHANNEL_ID, message_id=tid)
-                fwd_ids.append(fwd.message_id)
+                try:
+                    fwd = await context.bot.forward_message(chat_id=user_id, from_chat_id=DETECTED_CHANNEL_ID, message_id=tid)
+                    fwd_ids.append(fwd.message_id)
+                    await asyncio.sleep(0.2)
+                except:
+                    continue
+            if TUTORIAL_MESSAGE_ID not in range(msg_start, msg_end+1):
+                try:
+                    tut = await context.bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+                    fwd_ids.append(tut.message_id)
+                except:
+                    pass
             warn = await context.bot.send_message(chat_id=user_id, text="⏳ Auto-deletes in 9 mins")
             fwd_ids.append(warn.message_id)
             asyncio.create_task(schedule_deletion(context.bot, user_id, fwd_ids, 540))
@@ -1465,14 +1507,27 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.message.reply_text("✅ Verified! Fetching bundle...")
         fwd_ids=[]
         try:
+            # Forward requested bundle range
             for tid in range(msg_start, msg_end+1):
-                fwd = await context.bot.forward_message(chat_id=user_id, from_chat_id=DETECTED_CHANNEL_ID, message_id=tid)
-                fwd_ids.append(fwd.message_id)
+                try:
+                    fwd = await context.bot.forward_message(chat_id=user_id, from_chat_id=DETECTED_CHANNEL_ID, message_id=tid)
+                    fwd_ids.append(fwd.message_id)
+                    await asyncio.sleep(0.2)
+                except Exception as inner_e:
+                    logger.error(f"Forward {tid} fail: {inner_e}")
+                    continue
+            # Always forward tutorial 108 with bundle if different
+            if TUTORIAL_MESSAGE_ID not in range(msg_start, msg_end+1):
+                try:
+                    tut = await context.bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+                    fwd_ids.append(tut.message_id)
+                except Exception as tut_e:
+                    logger.error(f"Tutorial forward fail: {tut_e}")
             warn = await context.bot.send_message(chat_id=user_id, text="⏳ Auto-deletes in 9 mins")
             fwd_ids.append(warn.message_id)
             asyncio.create_task(schedule_deletion(context.bot, user_id, fwd_ids, 540))
         except Exception as e:
-            await query.message.reply_text(f"❌ {e}")
+            await query.message.reply_text(f"❌ {e} (Bundle {msg_start}-{msg_end} + Tutorial {TUTORIAL_MESSAGE_ID})")
 
 def run_telegram_bot():
     loop = asyncio.new_event_loop()
