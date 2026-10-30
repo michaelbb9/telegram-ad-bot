@@ -268,6 +268,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text("⏳ **Expired!** This flash drop has closed.", parse_mode="Markdown")
             return
 
+        # CHECK IF USER ALREADY CLAIMED THIS DROP
+        if "claimed_users" in drop and user_id in drop["claimed_users"]:
+            await update.message.reply_text("❌ **Already Claimed!** You have already claimed this flash drop bundle.", parse_mode="Markdown")
+            return
+
         keyboard = [
             [
                 InlineKeyboardButton("✅ Yes, I am 18+", callback_data=f"age_yes_{drop_id}"),
@@ -498,7 +503,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         del support_states[str(user_id)]
         save_json_file(SUPPORT_STATES_FILE, support_states)
 
-        # ATTACH BOTH BUTTONS SO USER CAN EITHER REPLY BACK OR CLOSE TICKET
         keyboard = [
             [
                 InlineKeyboardButton("💬 Reply to Admin", callback_data=f"user_reply_ticket_{ticket_id}"),
@@ -559,12 +563,10 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
         return
 
-    # --- TOP PRIORITY 1.2: BOT STATUS BUTTON ---
     if text == "🟢 Bot Status":
         await status_command(update, context)
         return
 
-    # --- TOP PRIORITY 1.3: BROADCAST BUTTON ---
     if text == "📢 Broadcast" and user_id == ADMIN_ID:
         await update.message.reply_text(
             "📢 **Broadcast Mode:**\n\n"
@@ -573,7 +575,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
         return
 
-    # --- TOP PRIORITY 1.5: CANCEL / EXIT CREATOR MODE ---
     if text == "❌ Cancel / Exit" and user_id == ADMIN_ID:
         states = load_json_file(DRIP_STATE_FILE)
         if str(user_id) in states:
@@ -587,7 +588,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
         return
 
-    # --- TOP PRIORITY 2: ADMIN CLICKS FINISH BUTTON ---
     if text == "🚀 Finish & Broadcast Drop" and user_id == ADMIN_ID:
         states = load_json_file(DRIP_STATE_FILE)
         user_state = states.get(str(user_id))
@@ -606,7 +606,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         user_state["mode"] = "waiting_for_timer"
         save_json_file(DRIP_STATE_FILE, states)
 
-        # PREMADE INLINE TIMER BUTTONS
         keyboard = [
             [
                 InlineKeyboardButton("⚡ 30 Seconds", callback_data="drop_time_30"),
@@ -631,7 +630,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
         return
 
-    # Catch text messages if still collecting items
     states = load_json_file(DRIP_STATE_FILE)
     user_state = states.get(str(user_id))
     if user_state and isinstance(user_state, dict) and user_state.get("mode") == "collecting":
@@ -737,7 +735,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text("❌ YouTube is paused.")
         return
 
-    # --- SMART URL PRE-FLIGHT INSPECTION ---
     status_preview = await update.message.reply_text("🔍 Inspecting link metadata...")
     title, duration_str = fetch_url_metadata(url)
     try:
@@ -809,8 +806,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
-    if user_id != ADMIN_ID:
-        return  # Silently ignore non-admins
+    if user_id != ADMIN_ID: return
 
     args = context.args
     reply_msg = update.message.reply_to_message
@@ -840,8 +836,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     fail_count = 0
 
     for uid in all_users:
-        if uid == ADMIN_ID:
-            continue
+        if uid == ADMIN_ID: continue
         try:
             if reply_msg:
                 await context.bot.copy_message(chat_id=uid, from_chat_id=update.message.chat_id, message_id=reply_msg.message_id)
@@ -933,7 +928,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await context.bot.send_message(chat_id=chat_id, text="❌ Flash drop cancelled.", reply_markup=get_main_keyboard(lang, True))
         return
 
-    # --- HANDLE PREMADE TIMER SELECTION BUTTONS & ROBUST BROADCAST ---
     if data.startswith("drop_time_") and user_id == ADMIN_ID:
         seconds = int(data.replace("drop_time_", ""))
         mins_label = "30 Seconds" if seconds == 30 else f"{seconds // 60} Minutes"
@@ -957,7 +951,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "items": items_to_drop,
             "expires_at": expires_at,
             "delete_delay": seconds,
-            "delete_label": mins_label
+            "delete_label": mins_label,
+            "claimed_users": []  # INITIALIZE CLAIM TRACKING LIST
         }
         save_json_file(DRIP_FILE, drop_data)
 
@@ -1016,7 +1011,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         return
 
-    # --- AGE VERIFICATION FOR MULTI-FILE FLASH DROPS ---
+    # --- AGE VERIFICATION & ANTI-EXPLOIT CLAIM CHECK ---
     if data.startswith("age_yes_"):
         drop_id = data.replace("age_yes_", "")
         drip_data = load_json_file(DRIP_FILE)
@@ -1031,6 +1026,22 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             try: await query.message.edit_text("⏳ **Expired!** This flash drop has closed.")
             except: pass
             return
+
+        # ENSURE CLAIMED USERS LIST EXISTS
+        if "claimed_users" not in drop:
+            drop["claimed_users"] = []
+
+        # BLOCK DUPLICATE CLAIMS
+        if user_id in drop["claimed_users"]:
+            await query.answer("❌ You have already claimed this drop!", show_alert=True)
+            try: await query.message.edit_text("❌ **Already Claimed!** You have already received this flash drop bundle.")
+            except: pass
+            return
+
+        # MARK USER AS CLAIMED & SAVE
+        drop["claimed_users"].append(user_id)
+        drip_data[drop_id] = drop
+        save_json_file(DRIP_FILE, drip_data)
 
         await query.answer("✅ Verified! Delivering bundle...")
         try:
