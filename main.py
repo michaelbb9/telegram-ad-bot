@@ -743,6 +743,50 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if text == "🟢 Bot Status":
         await status_command(update, context)
         return
+
+    if "Test Ad" in text or text.strip() == "🧪 Test Ad":
+        bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
+        keyboard = [
+            [InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s (Ad)", url=bridge_link)],
+            [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
+            [InlineKeyboardButton("💜 Check & Get Files ✅", callback_data="verify_user")]
+        ]
+        await update.message.reply_text(
+            "🧪 **AD PLACEMENT TEST - FOR ADSGRAM REVIEWER (Clause 13)**\n\n"
+            "📍 **WHERE AD IS PLACED:**\n"
+            "1️⃣ User pastes ANY link: TikTok, Facebook, Instagram, Twitter/X, YouTube - ALL MEDIA!\n"
+            "2️⃣ User downloads 4 videos FREE\n"
+            "3️⃣ On 5th download, LIMIT REACHED wall shows\n"
+            "4️⃣ **AD APPEARS HERE:** This message with 3 buttons below!\n"
+            "5️⃣ Click Open Link & Watch Timer 20s -> Watch ad\n"
+            "6️⃣ Click Check & Get Files -> Gets +4 downloads\n\n"
+            "🔗 **Ad Types:** Adsgram Rewarded + Adsterra Direct Link 20s\n"
+            "⏰ **Timer:** 20 seconds\n"
+            "📍 **Also:** /testad command, batch limit\n\n"
+            "👇 **TRY AD NOW - CLICK BELOW:**",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+        return
+
+    if "Ad Info" in text:
+        await update.message.reply_text(
+            "📢 **AD INFO - ALL MEDIA DOWNLOADER - Clause 13 Fix**\n\n"
+            "Bot: @Michaelbbcvaultbot\n"
+            "Bot ID: 8863904451\n"
+            "PlatformID: 53875\n\n"
+            "📍 **Exact Ad Placement:**\n"
+            "• Screen: After 4 free downloads, 5th attempt\n"
+            "• Supports: TikTok, FB, Insta, Twitter/X, YouTube - ALL MEDIA!\n"
+            "• Message: Limit Reached! Watch ad to refill\n"
+            "• Buttons: Open Link 20s, Join Channel, Check & Get Files\n"
+            "• Type: Rewarded Interstitial 20s\n"
+            "• Reward: +4 downloads\n"
+            "• Test: Tap 🧪 Test Ad button or /testad\n\n"
+            "✅ Fixes Clause 13: Clear indication provided!",
+            parse_mode="Markdown"
+        )
+        return
     if text == "📢 Broadcast" and user_id == ADMIN_ID:
         await update.message.reply_text("📢 /broadcast [message] or reply with /broadcast", parse_mode="Markdown")
         return
