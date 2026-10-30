@@ -520,14 +520,38 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch", url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
     if user_id == ADMIN_ID:
         keyboard.append([InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")])
-    # Forward tutorial video 108 for Adsterra bypass (IMPORTANT!)
+    # Forward tutorial video 108 for Adsterra bypass (IMPORTANT!) - ROBUST VERSION
+    tutorial_sent = False
     try:
-        tut = await context.bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+        tut = await context.bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+        tutorial_sent = True
         await asyncio.sleep(0.2)
-    except Exception as e:
-        logger.error(f"Tutorial video forward failed: {e}")
+    except Exception as e1:
+        logger.error(f"Forward failed: {e1}")
+        try:
+            # Fallback: copy instead of forward
+            tut = await context.bot.copy_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+            tutorial_sent = True
+        except Exception as e2:
+            logger.error(f"Copy failed: {e2}")
+            # Last fallback: send explanation text as tutorial
+            try:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text="📺 **TUTORIAL: How to bypass Adsterra link (20s)**\n\n"
+                    "1️⃣ Click **Open Link & Watch** button below\n"
+                    "2️⃣ Click **OPEN** on popup\n"
+                    "3️⃣ Stay 20 seconds on ad page (don't close!)\n"
+                    "4️⃣ Come back to bot\n"
+                    "5️⃣ Click **Check Balance** → Get +4 downloads!\n\n"
+                    "⚠️ If tutorial video 108 missing from private channel -1004347828512, re-upload it! This text is fallback.",
+                    parse_mode="Markdown"
+                )
+                tutorial_sent = True
+            except:
+                pass
 
-    await update.message.reply_text("👇 **CONTENT LOCKED 🔒**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await update.message.reply_text("👇 **CONTENT LOCKED 🔒 - Tutorial video above! Watch how to bypass!**" + ("" if tutorial_sent else "\n\n⚠️ Tutorial video 108 missing! Make bot admin in -1004347828512 and ensure message 108 exists!"), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0):
     if not urls:
@@ -896,7 +920,10 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                     tut = await context.bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
                     await asyncio.sleep(0.2)
                 except:
-                    pass
+                    try:
+                        tut = await context.bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+                    except:
+                        await context.bot.send_message(chat_id=chat_id, text="📺 TUTORIAL: Open Link & Watch 20s → Stay 20s → Come back → Check Balance = +4 downloads! If video missing, re-upload message 108 to -1004347828512", parse_mode="Markdown")
                 bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
                 keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s ⏰ 20s", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get Files ✅", callback_data="verify_user")]]
                 await update.message.reply_text(t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
