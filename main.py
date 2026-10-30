@@ -13,7 +13,6 @@ from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
-# --- FIX FFMPEG EXECUTION PERMISSIONS FOR RENDER ---
 ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 try:
     os.chmod(ffmpeg_path, 0o755)
@@ -33,11 +32,8 @@ BRIDGE_URL = f"{WEB_BASE_URL}/bridge"
 PUBLIC_CHANNEL_URL = "https://t.me/booksaufio"
 PUBLIC_CHANNEL_USERNAME = "@booksaufio"
 HELP_CHANNEL_URL = "https://t.me/faqandaupport"
-
-# --- ADSGRAM CONFIGURATION ---
 ADSGRAM_BLOCK_ID = "bot-56842"
 ADSGRAM_API_URL = "https://api.adsgram.ai/advbot"
-
 PROXY_URL = None 
 CHANNELS_FILE = "user_channels.json"
 LINKING_STATE_FILE = "linking_states.json"
@@ -126,12 +122,10 @@ def get_lang(user_id):
 def get_global_ab_network(user_id):
     config = load_json_file(CONFIG_FILE)
     mode = config.get("ad_mode", "auto")
-    
     if mode == "adsgram":
         return "adsgram"
     elif mode == "adsterra":
         return "adsterra"
-    
     day_epoch = int(time.time() // 86400)
     combined_hash = hash(f"{user_id}_{day_epoch}")
     return "adsgram" if combined_hash % 2 == 0 else "adsterra"
@@ -206,10 +200,8 @@ def download_media_engine(url: str, download_type: str):
     elif "facebook.com" in url_lower: cookiefile = "facebook_cookies.txt" if os.path.exists("facebook_cookies.txt") else None
     elif "naijafap.com" in url_lower: cookiefile = "naijafap_cookies.txt" if os.path.exists("naijafap_cookies.txt") else None
     elif os.path.exists("cookies.txt"): cookiefile = "cookies.txt"
-
     ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL}
     if cookiefile: ydl_opts['cookiefile'] = cookiefile
-
     if download_type == 'audio':
         ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path})
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -281,44 +273,27 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     args = context.args
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
-
     if not args:
         await update.message.reply_text(t["welcome"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID), parse_mode="Markdown")
         return
-
     arg_code = args[0]
-
     if arg_code.startswith("drip_"):
         drop_id = arg_code.replace("drip_", "")
         drip_data = load_json_file(DRIP_FILE)
         drop = drip_data.get(drop_id)
-
         if not drop:
             await update.message.reply_text("❌ This flash drop link is invalid.")
             return
-
         if time.time() > drop["expires_at"]:
             await update.message.reply_text("⏳ **Expired!** This flash drop has closed.", parse_mode="Markdown")
             return
-
         if "claimed_users" in drop and user_id in drop["claimed_users"]:
             await update.message.reply_text("❌ **Already Claimed!** You have already claimed this flash drop bundle.", parse_mode="Markdown")
             return
-
-        keyboard = [
-            [
-                InlineKeyboardButton("✅ Yes, I am 18+", callback_data=f"age_yes_{drop_id}"),
-                InlineKeyboardButton("❌ No", callback_data="age_no")
-            ]
-        ]
+        keyboard = [[InlineKeyboardButton("✅ Yes, I am 18+", callback_data=f"age_yes_{drop_id}"), InlineKeyboardButton("❌ No", callback_data="age_no")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
-            "🔞 **Age Verification Required**\n\nThis flash drop contains restricted or 18+ content. Are you 18 years of age or older?",
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
-        )
+        await update.message.reply_text("🔞 **Age Verification Required**\n\nThis flash drop contains restricted or 18+ content. Are you 18 years of age or older?", reply_markup=reply_markup, parse_mode="Markdown")
         return
-
     video_code = arg_code
     if video_code.startswith("vid"):
         clean_code = video_code.replace("vid", "")
@@ -333,24 +308,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 msg_end = msg_start
             except ValueError: return
     else: return
-
     assigned_network = get_global_ab_network(user_id)
     tokens = load_tokens()
-
     if assigned_network == "adsgram":
         tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": int(msg_start), "msg_end": int(msg_end), "clicked_ad": True, "verified": True, "expires": time.time() + 600}
         save_tokens(tokens)
-        
         caption_text = "📺 **Adsgram Native Sponsor Block**\n\nSupport our bot by viewing our sponsor partner below to instantly unlock your content!"
-        keyboard = [
-            [InlineKeyboardButton("📺 Watch Sponsor Ad (Adsgram)", callback_data=f"adsgram_complete_{msg_start}_{msg_end}")],
-            [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)]
-        ]
+        keyboard = [[InlineKeyboardButton("📺 Watch Sponsor Ad (Adsgram)", callback_data=f"adsgram_complete_{msg_start}_{msg_end}")],[InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)]]
         if user_id == ADMIN_ID:
             keyboard.append([InlineKeyboardButton("❌ Skip / Close (Admin)", callback_data="admin_skip_ad")])
         await update.message.reply_text(text=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
-
     bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
     tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": int(msg_start), "msg_end": int(msg_end), "clicked_ad": False, "verified": False, "expires": time.time() + 600}
     save_tokens(tokens)
@@ -368,16 +336,12 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
     if not urls: return
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
-
     success_count = 0
     fail_count = 0
     active_batch_sessions[user_id] = True
-
     stop_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop Batch", callback_data="stop_batch")]])
     batch_notice = await bot.send_message(chat_id=chat_id, text=t["batch_start"].format(download_type.upper(), len(urls)), reply_markup=stop_markup, parse_mode="Markdown")
-
     consecutive_fails = 0
-
     for index, url in enumerate(urls[start_index:], start=start_index + 1):
         if not active_batch_sessions.get(user_id, False): break
         if "youtube.com" in url.lower() or "youtu.be" in url.lower():
@@ -394,42 +358,31 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             res_data = response.json() if response.status_code == 200 else {}
         except Exception:
             res_data = {"status": "allowed"}
-
         tokens = load_tokens()
         user_profile = tokens.get(str(user_id), {})
         d_left = user_profile.get("downloads_left", 4)
-
         if res_data.get("status") != "allowed" and d_left <= 0 and user_id != ADMIN_ID:
             assigned_network = get_global_ab_network(user_id)
-
             if assigned_network == "adsgram":
                 tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": True, "verified": True, "expires": time.time() + 600}
                 save_tokens(tokens)
                 paused_batches[user_id] = {"urls": urls, "next_index": index - 1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
-                
-                keyboard = [
-                    [InlineKeyboardButton("📺 Watch Sponsor Ad (Adsgram)", callback_data=f"adsgram_resume_batch")],
-                    [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)]
-                ]
+                keyboard = [[InlineKeyboardButton("📺 Watch Sponsor Ad (Adsgram)", callback_data=f"adsgram_resume_batch")],[InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)]]
                 await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 break
-
             bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
             tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
             save_tokens(tokens)
             paused_batches[user_id] = {"urls": urls, "next_index": index - 1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
             keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
-            
             caption_text = t["limit_batch"].format(index, len(urls))
             try:
                 await bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID, caption=caption_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
             except Exception:
                 await bot.send_message(chat_id=chat_id, text=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             break 
-
         status_text = t["dl_video"] if download_type == 'video' else t["dl_audio"] if download_type == 'audio' else t["dl_image"]
         status_msg = await bot.send_message(chat_id=chat_id, text=f"📥 [{index}/{len(urls)}] {status_text}")
-
         try:
             file_paths, resolution, size_str = download_media_engine(url, download_type)
             if file_paths and os.path.exists(file_paths[0]):
@@ -440,11 +393,9 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     with open(file_path, 'rb') as f: sent_media = await bot.send_photo(chat_id=target_destination_id, photo=f, caption=f"🖼️ **Item {index}/{len(urls)}**\n📦 Size: {size_str}")
                 else:
                     with open(file_path, 'rb') as f: sent_media = await bot.send_video(chat_id=target_destination_id, video=f, caption=f"✨ **Item {index}/{len(urls)}**\n📐 Quality: {resolution}\n📦 Size: {size_str}")
-                
                 if target_destination_id == chat_id:
                     warning_msg = await bot.send_message(chat_id=target_destination_id, text=f"⏳ **Auto-deletes in 9 minutes.**")
                     asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent_media.message_id, warning_msg.message_id], 540))
-                
                 os.remove(file_path)
                 await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
                 success_count += 1
@@ -461,61 +412,59 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             except Exception: pass
             fail_count += 1
         await asyncio.sleep(4) 
-
     if user_id in active_batch_sessions: del active_batch_sessions[user_id]
     try: await bot.delete_message(chat_id=chat_id, message_id=batch_notice.message_id)
     except: pass
-
     if user_id not in paused_batches:
         dest_text = t["batch_done_chan"].format(success_count, fail_count, success_count) if target_destination_id != chat_id else t["batch_done"].format(success_count, fail_count, success_count)
         await bot.send_message(chat_id=chat_id, text=dest_text, parse_mode="Markdown")
 
-
+# === UPDATED: MULTI-MEDIA SUPPORT ===
 async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
     track_user_activity(user_id)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
-
     support_states = load_json_file(SUPPORT_STATES_FILE)
+    # USER sending media in support ticket
     if str(user_id) in support_states and isinstance(support_states[str(user_id)], dict) and support_states[str(user_id)].get("mode") == "user_writing":
         ticket_id = support_states[str(user_id)]["ticket_id"]
-        
         del support_states[str(user_id)]
         save_json_file(SUPPORT_STATES_FILE, support_states)
-        
-        keyboard = [
-            [
-                InlineKeyboardButton("💬 Reply to User", callback_data=f"support_reply_{user_id}"),
-                InlineKeyboardButton("🔒 Close Ticket", callback_data=f"support_close_{ticket_id}")
-            ]
-        ]
-        await context.bot.send_message(
-            chat_id=ADMIN_ID,
-            text=f"💬 **Support Ticket [ID: {ticket_id}]**\nFrom User ID: `{user_id}`\n\nAttached Media/Message:",
-            parse_mode="Markdown"
-        )
-        await update.message.forward(chat_id=ADMIN_ID)
+        keyboard = [[InlineKeyboardButton("💬 Reply to User", callback_data=f"support_reply_{user_id}"), InlineKeyboardButton("🔒 Close Ticket", callback_data=f"support_close_{ticket_id}")]]
+        await context.bot.send_message(chat_id=ADMIN_ID, text=f"💬 **Support Ticket [ID: {ticket_id}]**\nFrom User ID: `{user_id}`\n\n📎 *Media below:*", parse_mode="Markdown")
+        try:
+            await update.message.forward(chat_id=ADMIN_ID)
+        except:
+            await context.bot.copy_message(chat_id=ADMIN_ID, from_chat_id=chat_id, message_id=update.message.message_id)
         await context.bot.send_message(chat_id=ADMIN_ID, text="👇 Manage this ticket:", reply_markup=InlineKeyboardMarkup(keyboard))
-        
-        await update.message.reply_text("✅ **Support File/Message Sent!** The Admin will review your report shortly.")
+        await update.message.reply_text("✅ **Support Message Sent!** The Admin will review your media shortly.")
         return
-
+    # ADMIN replying with media to user
+    if user_id == ADMIN_ID and str(ADMIN_ID) in support_states and isinstance(support_states[str(ADMIN_ID)], dict) and support_states[str(ADMIN_ID)].get("mode") == "admin_replying":
+        target_user_id = support_states[str(ADMIN_ID)]["target_user_id"]
+        ticket_id = support_states[str(ADMIN_ID)]["ticket_id"]
+        del support_states[str(ADMIN_ID)]
+        save_json_file(SUPPORT_STATES_FILE, support_states)
+        keyboard = [[InlineKeyboardButton("💬 Reply to Admin", callback_data=f"user_reply_ticket_{ticket_id}"), InlineKeyboardButton("🔒 Close Ticket", callback_data=f"support_close_{ticket_id}")]]
+        try:
+            await context.bot.copy_message(chat_id=target_user_id, from_chat_id=chat_id, message_id=update.message.message_id, reply_markup=InlineKeyboardMarkup(keyboard))
+            await update.message.reply_text(f"✅ Media reply sent to `{target_user_id}`!", parse_mode="Markdown")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Failed to send media reply: {e}")
+        return
     states = load_json_file(DRIP_STATE_FILE)
     user_state = states.get(str(user_id))
-
     if user_id == ADMIN_ID and user_state and isinstance(user_state, dict) and user_state.get("mode") == "collecting":
         user_state["items"].append({"chat_id": chat_id, "message_id": update.message.message_id})
         save_json_file(DRIP_STATE_FILE, states)
-        
         count = len(user_state["items"])
         msg = await update.message.reply_text(f"📥 Item #{count} added to bundle.")
         await asyncio.sleep(1.5)
         try: await msg.delete()
         except: pass
         return
-
     if user_id == ADMIN_ID:
         try:
             await update.message.forward(chat_id=PRIVATE_CHANNEL_ID)
@@ -526,7 +475,6 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         limits = load_json_file(UPLOAD_LIMITS_FILE)
         user_str = str(user_id)
         now = time.time()
-        
         if user_str in limits and now - limits[user_str]["timestamp"] < 86400:
             if limits[user_str]["count"] >= 5:
                 await update.message.reply_text(t["upload_limit_reached"])
@@ -534,21 +482,17 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
             limits[user_str]["count"] += 1
         else:
             limits[user_str] = {"count": 1, "timestamp": now}
-        
         save_json_file(UPLOAD_LIMITS_FILE, limits)
-
         try:
             uploads = load_json_file(UPLOADS_FILE)
             upload_id = str(int(time.time()))
             uploads[upload_id] = {"user_id": user_id, "msg_id": update.message.message_id}
             save_json_file(UPLOADS_FILE, uploads)
-
             await update.message.forward(chat_id=ADMIN_ID)
             await context.bot.send_message(chat_id=ADMIN_ID, text=f"📥 **New Anonymous Upload**\nFrom ID: {user_id}\n\n*(Saved to your 🍿 Fan Uploads folder)*")
             await update.message.reply_text(t["upload_success_user"])
         except Exception:
             await update.message.reply_text("❌ Failed to send file.")
-
 
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text if update.message.text else ""
@@ -557,168 +501,74 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     track_user_activity(user_id)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
-
     menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🟢 Bot Status", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel"]
     if text in menu_texts:
         support_states = load_json_file(SUPPORT_STATES_FILE)
         if str(user_id) in support_states:
             del support_states[str(user_id)]
             save_json_file(SUPPORT_STATES_FILE, support_states)
-
     if text == "⚙️ Ad Toggle Panel" and user_id == ADMIN_ID:
         config = load_json_file(CONFIG_FILE)
         current_mode = config.get("ad_mode", "auto").upper()
-        keyboard = [
-            [InlineKeyboardButton("🔄 Auto A/B Rotation", callback_data="set_ad_auto")],
-            [InlineKeyboardButton("📺 Force Adsgram Only", callback_data="set_ad_adsgram")],
-            [InlineKeyboardButton("🌐 Force Adsterra Only", callback_data="set_ad_adsterra")]
-        ]
-        await update.message.reply_text(
-            f"⚙️ **Ad Network Toggle Panel**\n\nCurrent Mode: **{current_mode}**\n\nChoose which ad network system your bot should serve to users:",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
-        )
+        keyboard = [[InlineKeyboardButton("🔄 Auto A/B Rotation", callback_data="set_ad_auto")],[InlineKeyboardButton("📺 Force Adsgram Only", callback_data="set_ad_adsgram")],[InlineKeyboardButton("🌐 Force Adsterra Only", callback_data="set_ad_adsterra")]]
+        await update.message.reply_text(f"⚙️ **Ad Network Toggle Panel**\n\nCurrent Mode: **{current_mode}**\n\nChoose which ad network system your bot should serve to users:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
-
     support_states = load_json_file(SUPPORT_STATES_FILE)
     if user_id == ADMIN_ID and str(user_id) in support_states and isinstance(support_states[str(user_id)], dict) and support_states[str(user_id)].get("mode") == "admin_replying":
         target_user_id = support_states[str(user_id)]["target_user_id"]
         ticket_id = support_states[str(user_id)]["ticket_id"]
-        
         del support_states[str(user_id)]
         save_json_file(SUPPORT_STATES_FILE, support_states)
-
-        keyboard = [
-            [
-                InlineKeyboardButton("💬 Reply to Admin", callback_data=f"user_reply_ticket_{ticket_id}"),
-                InlineKeyboardButton("🔒 Close Ticket", callback_data=f"support_close_{ticket_id}")
-            ]
-        ]
+        keyboard = [[InlineKeyboardButton("💬 Reply to Admin", callback_data=f"user_reply_ticket_{ticket_id}"), InlineKeyboardButton("🔒 Close Ticket", callback_data=f"support_close_{ticket_id}")]]
         try:
-            await context.bot.send_message(
-                chat_id=target_user_id,
-                text=f"💬 **Admin Reply:**",
-                parse_mode="Markdown"
-            )
-            await update.message.forward(chat_id=target_user_id)
-            await context.bot.send_message(
-                chat_id=target_user_id,
-                text="👇 Need to reply or send media back?",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            await update.message.reply_text(f"✅ Reply/Media successfully sent to user `{target_user_id}`!", parse_mode="Markdown")
+            await context.bot.send_message(chat_id=target_user_id, text=f"💬 **Admin Reply:**\n\n{text}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            await update.message.reply_text(f"✅ Reply sent to user `{target_user_id}`!", parse_mode="Markdown")
         except Exception as e:
             await update.message.reply_text(f"❌ Failed to send reply: {e}")
         return
-
     if str(user_id) in support_states and isinstance(support_states[str(user_id)], dict) and support_states[str(user_id)].get("mode") == "user_writing":
         ticket_id = support_states[str(user_id)]["ticket_id"]
         del support_states[str(user_id)]
         save_json_file(SUPPORT_STATES_FILE, support_states)
-        
-        keyboard = [
-            [
-                InlineKeyboardButton("💬 Reply to User", callback_data=f"support_reply_{user_id}"),
-                InlineKeyboardButton("🔒 Close Ticket", callback_data=f"support_close_{ticket_id}")
-            ]
-        ]
-        await context.bot.send_message(
-            chat_id=ADMIN_ID,
-            text=f"💬 **Support Ticket [ID: {ticket_id}]**\nFrom User ID: `{user_id}`",
-            parse_mode="Markdown"
-        )
-        await update.message.forward(chat_id=ADMIN_ID)
+        keyboard = [[InlineKeyboardButton("💬 Reply to User", callback_data=f"support_reply_{user_id}"), InlineKeyboardButton("🔒 Close Ticket", callback_data=f"support_close_{ticket_id}")]]
+        await context.bot.send_message(chat_id=ADMIN_ID, text=f"💬 **Support Ticket [ID: {ticket_id}]**\nFrom User ID: `{user_id}`\n\n{text}", parse_mode="Markdown")
         await context.bot.send_message(chat_id=ADMIN_ID, text="👇 Manage this ticket:", reply_markup=InlineKeyboardMarkup(keyboard))
         await update.message.reply_text("✅ **Support Message Sent!** The Admin will review your message shortly.")
         return
-
     if text == "⚡ Create Flash Drop" and user_id == ADMIN_ID:
         states = load_json_file(DRIP_STATE_FILE)
         states[str(user_id)] = {"mode": "collecting", "items": []}
         save_json_file(DRIP_STATE_FILE, states)
-        
-        keyboard = [
-            [KeyboardButton("🚀 Finish & Broadcast Drop")],
-            [KeyboardButton("❌ Cancel / Exit")]
-        ]
+        keyboard = [[KeyboardButton("🚀 Finish & Broadcast Drop")],[KeyboardButton("❌ Cancel / Exit")]]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
-        await update.message.reply_text(
-            "⚡ **Flash Drop Creator Mode Activated**\n\n"
-            "Now send **one or multiple files, photos, or videos** back-to-back. They will be collected silently.\n"
-            "When finished, tap **🚀 Finish & Broadcast Drop** or **❌ Cancel / Exit** to abort.",
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
-        )
+        await update.message.reply_text("⚡ **Flash Drop Creator Mode Activated**\n\nNow send **one or multiple files, photos, or videos** back-to-back. They will be collected silently.\nWhen finished, tap **🚀 Finish & Broadcast Drop** or **❌ Cancel / Exit** to abort.", reply_markup=reply_markup, parse_mode="Markdown")
         return
-
     if text == "🟢 Bot Status":
         await status_command(update, context)
         return
-
     if text == "📢 Broadcast" and user_id == ADMIN_ID:
-        await update.message.reply_text(
-            "📢 **Broadcast Mode:**\n\n"
-            "Type `/broadcast [your message]` or reply to any photo/video with `/broadcast` to send it out!",
-            parse_mode="Markdown"
-        )
+        await update.message.reply_text("📢 **Broadcast Mode:**\n\nType `/broadcast [your message]` or reply to any photo/video with `/broadcast` to send it out!", parse_mode="Markdown")
         return
-
     if text == "❌ Cancel / Exit" and user_id == ADMIN_ID:
         states = load_json_file(DRIP_STATE_FILE)
         if str(user_id) in states:
             del states[str(user_id)]
             save_json_file(DRIP_STATE_FILE, states)
-
-        await update.message.reply_text(
-            "❌ **Flash Drop Cancelled.** Returned to normal menu.",
-            reply_markup=get_main_keyboard(lang, True),
-            parse_mode="Markdown"
-        )
+        await update.message.reply_text("❌ **Flash Drop Cancelled.** Returned to normal menu.", reply_markup=get_main_keyboard(lang, True), parse_mode="Markdown")
         return
-
     if text == "🚀 Finish & Broadcast Drop" and user_id == ADMIN_ID:
         states = load_json_file(DRIP_STATE_FILE)
         user_state = states.get(str(user_id))
-
         if not user_state or not user_state.get("items"):
-            keyboard = [
-                [KeyboardButton("🚀 Finish & Broadcast Drop")],
-                [KeyboardButton("❌ Cancel / Exit")]
-            ]
-            await update.message.reply_text(
-                "⚠️ You haven't added any items yet! Send files first, or tap Cancel:",
-                reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-            )
+            keyboard = [[KeyboardButton("🚀 Finish & Broadcast Drop")],[KeyboardButton("❌ Cancel / Exit")]]
+            await update.message.reply_text("⚠️ You haven't added any items yet! Send files first, or tap Cancel:", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
             return
-
         user_state["mode"] = "waiting_for_timer"
         save_json_file(DRIP_STATE_FILE, states)
-
-        keyboard = [
-            [
-                InlineKeyboardButton("⚡ 30 Seconds", callback_data="drop_time_30"),
-                InlineKeyboardButton("⏱️ 2 Minutes", callback_data="drop_time_120")
-            ],
-            [
-                InlineKeyboardButton("⏱️ 5 Minutes", callback_data="drop_time_300"),
-                InlineKeyboardButton("⏱️ 10 Minutes", callback_data="drop_time_600")
-            ],
-            [
-                InlineKeyboardButton("❌ Cancel Drop", callback_data="drop_cancel")
-            ]
-        ]
+        keyboard = [[InlineKeyboardButton("⚡ 30 Seconds", callback_data="drop_time_30"), InlineKeyboardButton("⏱️ 2 Minutes", callback_data="drop_time_120")],[InlineKeyboardButton("⏱️ 5 Minutes", callback_data="drop_time_300"), InlineKeyboardButton("⏱️ 10 Minutes", callback_data="drop_time_600")],[InlineKeyboardButton("❌ Cancel Drop", callback_data="drop_cancel")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await update.message.reply_text(
-            f"⏱️ **Select Auto-Deletion Timer**\n\n"
-            f"Bundle contains **{len(user_state['items'])} items**.\n"
-            f"Choose how long these dropped files should stay before auto-deleting for users:",
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
-        )
+        await update.message.reply_text(f"⏱️ **Select Auto-Deletion Timer**\n\nBundle contains **{len(user_state['items'])} items**.\nChoose how long these dropped files should stay before auto-deleting for users:", reply_markup=reply_markup, parse_mode="Markdown")
         return
-
     states = load_json_file(DRIP_STATE_FILE)
     user_state = states.get(str(user_id))
     if user_state and isinstance(user_state, dict) and user_state.get("mode") == "collecting":
@@ -730,7 +580,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         try: await msg.delete()
         except: pass
         return
-
     if text == t["menu_stats"]:
         tokens = load_tokens()
         profile = tokens.get(str(user_id), {})
@@ -739,38 +588,25 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if user_id == ADMIN_ID: d_left, b_left = "∞", "∞"
         await update.message.reply_text(t["stats_msg"].format(d_left, b_left), parse_mode="Markdown")
         return
-
     if text == t["menu_join"]:
         await update.message.reply_text(f"📢 [Click here to join the channel]({PUBLIC_CHANNEL_URL})", parse_mode="Markdown", disable_web_page_preview=True)
         return
-
     if text == t["menu_help"]:
         keyboard = [[InlineKeyboardButton("💬 Open Support Ticket", callback_data="open_support")]]
-        await update.message.reply_text(
-            f"💬 **FAQ & Support Hub**\n\n"
-            f"• Check out our help channel: [Click Here]({HELP_CHANNEL_URL})\n"
-            f"• Need direct help? Tap below to send a message to the Admin:",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown",
-            disable_web_page_preview=True
-        )
+        await update.message.reply_text(f"💬 **FAQ & Support Hub**\n\n• Check out our help channel: [Click Here]({HELP_CHANNEL_URL})\n• Need direct help? Tap below to send a message to the Admin:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown", disable_web_page_preview=True)
         return
-        
     if text == t["menu_lang"]:
         await language_command(update, context)
         return
-
     if text == t["menu_upload"]:
         prompt = t["admin_upload_prompt"] if user_id == ADMIN_ID else t["user_upload_prompt"]
         await update.message.reply_text(prompt, parse_mode="Markdown")
         return
-
     if text == t["menu_uploads"] and user_id == ADMIN_ID:
         uploads = load_json_file(UPLOADS_FILE)
         if not uploads:
             await update.message.reply_text(t["no_uploads"])
             return
-            
         await update.message.reply_text(t["admin_upload_prompt"])
         for key, data in list(uploads.items())[-20:]:
             try:
@@ -778,46 +614,29 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             except Exception:
                 pass
         return
-
     extracted_urls = re.findall(r'https?://[^\s]+', text)
     if not extracted_urls: return
-
-    # --- SECURITY CHECK: RESEND AD WALL IF PENDING LIMIT (ONLY IF 0 DOWNLOADS LEFT) ---
     if user_id != ADMIN_ID:
         tokens = load_tokens()
         user_profile = tokens.get(str(user_id), {})
         d_left = user_profile.get("downloads_left", 4)
-
         if str(user_id) in tokens and not user_profile.get("verified", False) and d_left <= 0:
             assigned_network = get_global_ab_network(user_id)
             msg_start = user_profile.get("msg_start", 0)
             msg_end = user_profile.get("msg_end", 0)
-            
             if assigned_network == "adsgram":
-                keyboard = [
-                    [InlineKeyboardButton("📺 Watch Sponsor Ad (Adsgram)", callback_data="adsgram_complete_single" if msg_start == 0 else f"adsgram_complete_{msg_start}_{msg_end}")],
-                    [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)]
-                ]
-                await update.message.reply_text(
-                    t["limit_reached"],
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode="Markdown"
-                )
+                keyboard = [[InlineKeyboardButton("📺 Watch Sponsor Ad (Adsgram)", callback_data="adsgram_complete_single" if msg_start == 0 else f"adsgram_complete_{msg_start}_{msg_end}")],[InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)]]
+                await update.message.reply_text(t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 return
             else:
                 bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
-                keyboard = [
-                    [InlineKeyboardButton(t["refill_btn"], url=bridge_link)],
-                    [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)],
-                    [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]
-                ]
+                keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)],[InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)],[InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
                 caption_text = t["limit_reached"]
                 try:
                     await context.bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID, caption=caption_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
                 except Exception:
                     await update.message.reply_text(text=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 return
-
     if active_batch_sessions.get(user_id, False): return
     linking_states = load_linking_states()
     if linking_states.get(str(user_id)) == "waiting_for_channel":
@@ -834,7 +653,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         else:
             await update.message.reply_text("❌ Forward a message from your channel to link it.")
             return
-
     if update.message.forward_origin and getattr(update.message.forward_origin, 'type', None) == 'channel':
         f_chat = update.message.forward_origin.chat
         user_channels = load_user_channels()
@@ -843,58 +661,46 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         keyboard = [[InlineKeyboardButton("🔄 Change Linked Channel", callback_data="change_channel")]]
         await update.message.reply_text(f"✅ **Channel Linked!**\n📢 {f_chat.title}\n🆔 `{f_chat.id}`", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
-
     if len(extracted_urls) > 1:
         payload_key = f"batch_{user_id}_{int(time.time())}"
         pending_batch_payloads[payload_key] = extracted_urls
-        keyboard = [
-            [InlineKeyboardButton(t["btn_video"], callback_data=f"batchtype_video_{payload_key}")],
-            [InlineKeyboardButton(t["btn_image"], callback_data=f"batchtype_images_{payload_key}")],
-            [InlineKeyboardButton(t["btn_audio"], callback_data=f"batchtype_audio_{payload_key}")]
-        ]
+        keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"batchtype_video_{payload_key}")],[InlineKeyboardButton(t["btn_image"], callback_data=f"batchtype_images_{payload_key}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"batchtype_audio_{payload_key}")]]
         await update.message.reply_text(t["batch_detected"].format(len(extracted_urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
-
     url = extracted_urls[0]
     if "youtube.com" in url.lower() or "youtu.be" in url.lower():
         await update.message.reply_text("❌ YouTube is paused.")
         return
-
     status_preview = await update.message.reply_text("🔍 Inspecting link metadata...")
     title, duration_str = fetch_url_metadata(url)
     try:
         await status_preview.delete()
     except:
         pass
-
     payload_key = f"single_{user_id}_{int(time.time())}"
     pending_single_links[payload_key] = url
-
-    keyboard = [
-        [InlineKeyboardButton(t["btn_video"], callback_data=f"fmt_vid_{payload_key}")],
-        [InlineKeyboardButton(t["btn_audio"], callback_data=f"fmt_aud_{payload_key}")],
-        [InlineKeyboardButton(t["btn_image"], callback_data=f"fmt_img_{payload_key}")],
-        [InlineKeyboardButton(t["btn_sub"], callback_data=f"fmt_sub_{payload_key}")]
-    ]
-    
+    keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"fmt_vid_{payload_key}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"fmt_aud_{payload_key}")],[InlineKeyboardButton(t["btn_image"], callback_data=f"fmt_img_{payload_key}")],[InlineKeyboardButton(t["btn_sub"], callback_data=f"fmt_sub_{payload_key}")]]
     preview_text = f"🎬 **Found:** {title}\n⏱️ **Duration:** {duration_str}\n\n{t['ask_format']}"
     await update.message.reply_text(preview_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
-
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    document = update.message.document
+    support_states = load_json_file(SUPPORT_STATES_FILE)
     user_id = update.message.from_user.id
+    if str(user_id) in support_states and support_states[str(user_id)].get("mode") == "user_writing":
+        await handle_user_upload(update, context)
+        return
+    if user_id == ADMIN_ID and str(ADMIN_ID) in support_states and support_states[str(ADMIN_ID)].get("mode") == "admin_replying":
+        await handle_user_upload(update, context)
+        return
+    document = update.message.document
     chat_id = update.message.chat_id
     track_user_activity(user_id)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
-
     if not document.file_name or not document.file_name.endswith('.txt'):
         await handle_user_upload(update, context)
         return
-
     if active_batch_sessions.get(user_id, False): return
-
     try:
         file = await context.bot.get_file(document.file_id)
         file_bytes = await file.download_as_bytearray()
@@ -902,14 +708,9 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if not extracted_urls:
             await update.message.reply_text("❌ No links found inside.")
             return
-
         payload_key = f"batch_{user_id}_{int(time.time())}"
         pending_batch_payloads[payload_key] = extracted_urls
-        keyboard = [
-            [InlineKeyboardButton(t["btn_video"], callback_data=f"batchtype_video_{payload_key}")],
-            [InlineKeyboardButton(t["btn_image"], callback_data=f"batchtype_images_{payload_key}")],
-            [InlineKeyboardButton(t["btn_audio"], callback_data=f"batchtype_audio_{payload_key}")]
-        ]
+        keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"batchtype_video_{payload_key}")],[InlineKeyboardButton(t["btn_image"], callback_data=f"batchtype_images_{payload_key}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"batchtype_audio_{payload_key}")]]
         await update.message.reply_text(t["batch_detected"].format(len(extracted_urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     except Exception as e:
         logger.error(f"File error: {e}")
@@ -917,78 +718,51 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID: return
-    
     tokens = load_tokens()
     activity = load_json_file(ACTIVITY_FILE)
+    config = load_json_file(CONFIG_FILE)
     now = time.time()
-    
+    total_users = len(tokens)
     active_24hr = sum(1 for data in activity.values() if now - data.get("last_active", 0) < 86400)
-    
+    mode = config.get("ad_mode", "auto").upper()
+    adsgram_count = 0
+    adsterra_count = 0
+    for uid in tokens.keys():
+        try:
+            net = get_global_ab_network(int(uid))
+            if net == "adsgram": adsgram_count += 1
+            else: adsterra_count += 1
+        except: pass
     sorted_users = sorted(activity.items(), key=lambda x: x[1].get("total_interactions", 0), reverse=True)[:10]
     top_users_text = ""
     for idx, (uid, info) in enumerate(sorted_users, 1):
-        top_users_text += f"{idx}. ID: `{uid}` — Interacted: {info.get('total_interactions', 0)} times\n"
+        top_users_text += f"{idx}. ID: `{uid}` — {info.get('total_interactions', 0)} interactions\n"
     if not top_users_text:
         top_users_text = "No user activity recorded yet."
-
-    config = load_json_file(CONFIG_FILE)
-    mode = config.get("ad_mode", "auto").upper()
-
-    stats_text = (
-        f"📊 **ADVANCED ADMIN ANALYTICS**\n\n"
-        f"• Total Users Registered: **{len(tokens)}**\n"
-        f"• Active Users (Last 24h): **{active_24hr}**\n"
-        f"• Current Ad Network Mode: **{mode}**\n\n"
-        f"🏆 **Top 10 Most Active Users:**\n{top_users_text}"
-    )
+    stats_text = (f"📊 **ADVANCED ADMIN ANALYTICS (/stats)**\n\n• Total Users: **{total_users}**\n• Active Users (24h): **{active_24hr}**\n• Current Ad Mode Setting: **{mode}**\n\n📢 **Active Ad Modes:**\n• Adsgram Assigned: **{adsgram_count}**\n• Adsterra Assigned: **{adsterra_count}**\n\n🏆 **Top 10 Most Active Users:**\n{top_users_text}")
     await update.message.reply_text(stats_text, parse_mode="Markdown")
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     track_user_activity(update.message.from_user.id)
     config = load_json_file(CONFIG_FILE)
     mode = config.get("ad_mode", "auto").upper()
-    await update.message.reply_text(
-        f"🟢 **Bot Status Dashboard**\n\n"
-        f"• Active Ad Mode: **{mode}**\n"
-        f"• Telegram API Connection: **ONLINE**\n"
-        f"• Downloader Engine (`yt-dlp`): **ONLINE**\n"
-        f"• Flask Bridge Server: **RUNNING**\n"
-        f"• Adsgram Block (`bot-56842`): **INTEGRATED**\n"
-        f"• Flash Drop & Broadcast Systems: **ACTIVE**",
-        parse_mode="Markdown"
-    )
+    await update.message.reply_text(f"🟢 **Bot Status Dashboard**\n\n• Active Ad Mode: **{mode}**\n• Telegram API Connection: **ONLINE**\n• Downloader Engine (`yt-dlp`): **ONLINE**\n• Flask Bridge Server: **RUNNING**\n• Adsgram Block (`bot-56842`): **INTEGRATED**\n• Flash Drop & Broadcast Systems: **ACTIVE**\n• Multi-Media Support Tickets: **ACTIVE**\n• Advanced /stats: **ACTIVE**", parse_mode="Markdown")
 
 async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID: return
     config = load_json_file(CONFIG_FILE)
     current_mode = config.get("ad_mode", "auto").upper()
-    keyboard = [
-        [InlineKeyboardButton("🔄 Auto A/B Rotation", callback_data="set_ad_auto")],
-        [InlineKeyboardButton("📺 Force Adsgram Only", callback_data="set_ad_adsgram")],
-        [InlineKeyboardButton("🌐 Force Adsterra Only", callback_data="set_ad_adsterra")]
-    ]
-    await update.message.reply_text(
-        f"⚙️ **Ad Network Toggle Panel**\n\nCurrent Mode: **{current_mode}**\n\nChoose which ad network system your bot should serve to users:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown"
-    )
+    keyboard = [[InlineKeyboardButton("🔄 Auto A/B Rotation", callback_data="set_ad_auto")],[InlineKeyboardButton("📺 Force Adsgram Only", callback_data="set_ad_adsgram")],[InlineKeyboardButton("🌐 Force Adsterra Only", callback_data="set_ad_adsterra")]]
+    await update.message.reply_text(f"⚙️ **Ad Network Toggle Panel**\n\nCurrent Mode: **{current_mode}**\n\nChoose which ad network system your bot should serve to users:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
     if user_id != ADMIN_ID: return
-
     args = context.args
     reply_msg = update.message.reply_to_message
-
     if not args and not reply_msg:
-        await update.message.reply_text(
-            "📢 **Broadcast Usage:**\n\n"
-            "• Type: `/broadcast Your message here`\n"
-            "• Or **reply to any photo/video/message** with `/broadcast` to send it out!",
-            parse_mode="Markdown"
-        )
+        await update.message.reply_text("📢 **Broadcast Usage:**\n\n• Type: `/broadcast Your message here`\n• Or **reply to any photo/video/message** with `/broadcast` to send it out!", parse_mode="Markdown")
         return
-
     all_users = set()
     lang_data = load_json_file(LANG_FILE)
     token_data = load_tokens()
@@ -998,12 +772,9 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     for uid in token_data.keys():
         try: all_users.add(int(uid))
         except: pass
-
     status_msg = await update.message.reply_text(f"🚀 Starting broadcast to **{len(all_users)} users**...", parse_mode="Markdown")
-
     success_count = 0
     fail_count = 0
-
     for uid in all_users:
         if uid == ADMIN_ID: continue
         try:
@@ -1012,18 +783,11 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             else:
                 broadcast_text = " ".join(args)
                 await context.bot.send_message(chat_id=uid, text=broadcast_text, parse_mode="Markdown")
-            
             success_count += 1
             await asyncio.sleep(0.05)
         except Exception:
             fail_count += 1
-
-    await status_msg.edit_text(
-        f"✅ **Broadcast Finished!**\n\n"
-        f"📬 Successfully sent: **{success_count}**\n"
-        f"❌ Failed / Blocked: **{fail_count}**",
-        parse_mode="Markdown"
-    )
+    await status_msg.edit_text(f"✅ **Broadcast Finished!**\n\n📬 Successfully sent: **{success_count}**\n❌ Failed / Blocked: **{fail_count}**", parse_mode="Markdown")
 
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
@@ -1033,7 +797,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     chat_id = query.message.chat_id
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
-
     if data == "admin_skip_ad" and user_id == ADMIN_ID:
         tokens = load_tokens()
         if str(user_id) in tokens:
@@ -1042,10 +805,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.answer("✅ Admin Ad Skipped Successfully!", show_alert=True)
         try:
             await query.message.edit_text("✅ **Admin Bypass Activated:** Ad wall dismissed. You can continue sending links.")
-        except:
-            pass
+        except: pass
         return
-
     if data.startswith("set_ad_") and user_id == ADMIN_ID:
         mode = data.replace("set_ad_", "")
         config = load_json_file(CONFIG_FILE)
@@ -1054,63 +815,39 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.answer(f"Ad mode updated to {mode.upper()}!", show_alert=True)
         try:
             await query.message.edit_text(f"✅ **Ad Network Mode Updated Successfully!**\n\nCurrent Active Mode: **{mode.upper()}**", parse_mode="Markdown")
-        except:
-            pass
+        except: pass
         return
-
     if data == "open_support":
         support_states = load_json_file(SUPPORT_STATES_FILE)
         ticket_id = str(int(time.time()))
         support_states[str(user_id)] = {"mode": "user_writing", "ticket_id": ticket_id}
         save_json_file(SUPPORT_STATES_FILE, support_states)
-        
         await query.answer("Support ticket mode opened!")
-        await query.message.reply_text(
-            "✍️ **Send your message, image, video, or file below.**\n"
-            "Your next input will be forwarded directly to the Admin as part of your support ticket.",
-            parse_mode="Markdown"
-        )
+        await query.message.reply_text("✍️ **Send your message, photo, video, voice note, or file below.**\nYour next message (including media) will be forwarded directly to the Admin.", parse_mode="Markdown")
         return
-
     if data.startswith("support_reply_"):
         target_user_id = data.replace("support_reply_", "")
         ticket_id = str(int(time.time()))
-        
         support_states = load_json_file(SUPPORT_STATES_FILE)
         support_states[str(ADMIN_ID)] = {"mode": "admin_replying", "target_user_id": int(target_user_id), "ticket_id": ticket_id}
         save_json_file(SUPPORT_STATES_FILE, support_states)
-        
         await query.answer("Reply mode activated!")
-        await context.bot.send_message(
-            chat_id=ADMIN_ID,
-            text=f"✍️ **Type or send media reply to User `{target_user_id}`:**\nYour next text, photo, video, or file in this chat will be sent directly to them.",
-            parse_mode="Markdown"
-        )
+        await context.bot.send_message(chat_id=ADMIN_ID, text=f"✍️ **Type your reply to User `{target_user_id}`:**\nYour next message (text, photo, video, audio, voice, doc) will be sent directly to them.", parse_mode="Markdown")
         return
-
     if data.startswith("user_reply_ticket_"):
         ticket_id = data.replace("user_reply_ticket_", "")
         support_states = load_json_file(SUPPORT_STATES_FILE)
         support_states[str(user_id)] = {"mode": "user_writing", "ticket_id": ticket_id}
         save_json_file(SUPPORT_STATES_FILE, support_states)
-        
         await query.answer("Reply mode opened!")
-        await query.message.reply_text(
-            "✍️ **Type or send your follow-up message/media below.**\n"
-            "Your next input will be sent directly to the Admin.",
-            parse_mode="Markdown"
-        )
+        await query.message.reply_text("✍️ **Type your follow-up message (you can include photos/videos/files) below.**", parse_mode="Markdown")
         return
-
     if data.startswith("support_close_"):
-        ticket_id = data.replace("support_close_", "")
         await query.answer("Ticket closed successfully!", show_alert=True)
         try:
             await query.message.edit_text("🔒 **Ticket Closed & Resolved**")
-        except:
-            pass
+        except: pass
         return
-
     if data == "drop_cancel" and user_id == ADMIN_ID:
         states = load_json_file(DRIP_STATE_FILE)
         if str(user_id) in states:
@@ -1121,42 +858,27 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except: pass
         await context.bot.send_message(chat_id=chat_id, text="❌ Flash drop cancelled.", reply_markup=get_main_keyboard(lang, True))
         return
-
     if data.startswith("drop_time_") and user_id == ADMIN_ID:
         seconds = int(data.replace("drop_time_", ""))
         mins_label = "30 Seconds" if seconds == 30 else f"{seconds // 60} Minutes"
-
         states = load_json_file(DRIP_STATE_FILE)
         user_state = states.get(str(user_id))
-
         if not user_state or not user_state.get("items"):
             await query.answer("⚠️ No items found!", show_alert=True)
             return
-
         items_to_drop = user_state["items"]
         del states[str(user_id)]
         save_json_file(DRIP_STATE_FILE, states)
-
         drop_id = str(int(time.time()))
         expires_at = time.time() + 480
-
         drop_data = load_json_file(DRIP_FILE)
-        drop_data[drop_id] = {
-            "items": items_to_drop,
-            "expires_at": expires_at,
-            "delete_delay": seconds,
-            "delete_label": mins_label,
-            "claimed_users": []
-        }
+        drop_data[drop_id] = {"items": items_to_drop, "expires_at": expires_at, "delete_delay": seconds, "delete_label": mins_label, "claimed_users": []}
         save_json_file(DRIP_FILE, drop_data)
-
         await query.answer(f"Timer set to {mins_label}! Broadcasting...")
         try: await query.message.delete()
         except: pass
-
         bot_username = context.bot.username
         claim_url = f"https://t.me/{bot_username}?start=drip_{drop_id}"
-
         all_users = set()
         lang_data = load_json_file(LANG_FILE)
         token_data = load_tokens()
@@ -1166,105 +888,65 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         for uid in token_data.keys():
             try: all_users.add(int(uid))
             except: pass
-
         await context.bot.send_message(chat_id=chat_id, text=f"🚀 Broadcasting flash drop bundle ({len(items_to_drop)} items, auto-deletes in {mins_label}) to **{len(all_users)} users**...", parse_mode="Markdown")
-
         success_broadcasts = 0
         keyboard = [[InlineKeyboardButton("🎁 Claim Flash Drop Now", url=claim_url)]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-
-        broadcast_text = (
-            "🚨 **EXCLUSIVE FLASH DROP UNLOCKED!** 🚨\n\n"
-            "✨ *What is this?* A safe, surprise media bundle sent directly to your DM by the admin.\n"
-            "⏳ **Auto-Destruct:** Files will automatically disappear **{mins_label}** after viewing!\n\n"
-            "👇 Tap the button below to verify and claim your bundle:".format(mins_label=mins_label)
-        )
-
+        broadcast_text = ("🚨 **EXCLUSIVE FLASH DROP UNLOCKED!** 🚨\n\n✨ *What is this?* A safe, surprise media bundle sent directly to your DM by the admin.\n⏳ **Auto-Destruct:** Files will automatically disappear **{mins_label}** after viewing!\n\n👇 Tap the button below to verify and claim your bundle:".format(mins_label=mins_label))
         for uid in all_users:
             if uid == ADMIN_ID: continue
             try:
-                await context.bot.send_message(
-                    chat_id=uid,
-                    text=broadcast_text,
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
-                )
+                await context.bot.send_message(chat_id=uid, text=broadcast_text, reply_markup=reply_markup, parse_mode="Markdown")
                 success_broadcasts += 1
                 await asyncio.sleep(0.05)
             except Exception as e:
                 logger.error(f"Failed to broadcast to {uid}: {e}")
-
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=f"✅ **Flash Drop Broadcast Complete!**\n\n"
-                 f"📬 Delivered to: **{success_broadcasts} users**\n"
-                 f"📦 Items in bundle: **{len(items_to_drop)}**\n"
-                 f"⏱️ Deletion Timer: **{mins_label}**",
-            reply_markup=get_main_keyboard(lang, True),
-            parse_mode="Markdown"
-        )
+        await context.bot.send_message(chat_id=chat_id, text=f"✅ **Flash Drop Broadcast Complete!**\n\n📬 Delivered to: **{success_broadcasts} users**\n📦 Items in bundle: **{len(items_to_drop)}**\n⏱️ Deletion Timer: **{mins_label}**", reply_markup=get_main_keyboard(lang, True), parse_mode="Markdown")
         return
-
     if data.startswith("age_yes_"):
         drop_id = data.replace("age_yes_", "")
         drip_data = load_json_file(DRIP_FILE)
         drop = drip_data.get(drop_id)
-
         if not drop:
             await query.answer("❌ Session expired or drop invalid.", show_alert=True)
             return
-
         if time.time() > drop["expires_at"]:
             await query.answer("⏳ Expired! This drop has closed.", show_alert=True)
             try: await query.message.edit_text("⏳ **Expired!** This flash drop has closed.")
             except: pass
             return
-
         if "claimed_users" not in drop:
             drop["claimed_users"] = []
-
         if user_id in drop["claimed_users"]:
             await query.answer("❌ You have already claimed this drop!", show_alert=True)
             try: await query.message.edit_text("❌ **Already Claimed!** You have already received this flash drop bundle.")
             except: pass
             return
-
         drop["claimed_users"].append(user_id)
         drip_data[drop_id] = drop
         save_json_file(DRIP_FILE, drip_data)
-
         await query.answer("✅ Verified! Delivering bundle...")
         try:
             await query.message.delete()
             sent_message_ids = []
-            
             for item in drop["items"]:
-                fwd = await context.bot.copy_message(
-                    chat_id=user_id,
-                    from_chat_id=item["chat_id"],
-                    message_id=item["message_id"]
-                )
+                fwd = await context.bot.copy_message(chat_id=user_id, from_chat_id=item["chat_id"], message_id=item["message_id"])
                 sent_message_ids.append(fwd.message_id)
                 await asyncio.sleep(0.2)
-
             del_label = drop.get("delete_label", "9 Minutes")
             del_seconds = drop.get("delete_delay", 540)
-
             warn = await context.bot.send_message(chat_id=user_id, text=f"⏳ **Auto-deletes in {del_label}.**")
             sent_message_ids.append(warn.message_id)
             asyncio.create_task(schedule_deletion(context.bot, user_id, sent_message_ids, del_seconds))
         except Exception as e:
             await context.bot.send_message(chat_id=user_id, text=f"❌ Error delivering bundle: {e}")
         return
-
     if data == "age_no":
         await query.answer("Access denied.", show_alert=True)
         try:
             await query.message.edit_text("❌ **Access Denied.** You must be 18 or older to view this flash drop.")
-        except:
-            pass
+        except: pass
         return
-
     if data.startswith("lang_"):
         new_lang = data.split("_")[1]
         langs = load_json_file(LANG_FILE)
@@ -1278,7 +960,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except Exception as e:
             logger.error(f"Error updating language message: {e}")
         return
-
     if data.startswith("batchtype_"):
         parts = data.split("_", 2) 
         dl_type = parts[1] 
@@ -1287,15 +968,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if not urls:
             await query.answer("❌ Session expired.", show_alert=True)
             return
-        
         await query.message.delete()
-        keyboard = [
-            [InlineKeyboardButton(t["btn_chat"], callback_data=f"dest_chat_{dl_type}_{payload_key}")],
-            [InlineKeyboardButton(t["btn_chan"], callback_data=f"dest_chan_{dl_type}_{payload_key}")]
-        ]
+        keyboard = [[InlineKeyboardButton(t["btn_chat"], callback_data=f"dest_chat_{dl_type}_{payload_key}")],[InlineKeyboardButton(t["btn_chan"], callback_data=f"dest_chan_{dl_type}_{payload_key}")]]
         await context.bot.send_message(chat_id=chat_id, text=t["batch_dest"].format(len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
-
     if data.startswith("fmt_"):
         parts = data.split("_", 2)
         fmt_type, payload_key = parts[1], parts[2]
@@ -1305,56 +981,42 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
         await query.answer("Processing...")
         await query.message.delete()
-
         dl_type = 'video'
         if fmt_type == 'aud': dl_type = 'audio'
         elif fmt_type == 'img': dl_type = 'images'
         elif fmt_type == 'sub': dl_type = 'subtitles'
-
         if user_id != ADMIN_ID:
             try:
                 response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": False}, timeout=5)
                 res_data = response.json() if response.status_code == 200 else {}
             except Exception:
                 res_data = {"status": "allowed"}
-
             tokens = load_tokens()
             user_profile = tokens.get(str(user_id), {})
             d_left = user_profile.get("downloads_left", 4)
-
             if res_data.get("status") != "allowed" and d_left <= 0:
                 assigned_network = get_global_ab_network(user_id)
-
                 if assigned_network == "adsgram":
                     tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "url": url, "dl_type": dl_type, "clicked_ad": True, "verified": True, "expires": time.time() + 600}
                     save_tokens(tokens)
-                    keyboard = [
-                        [InlineKeyboardButton("📺 Watch Sponsor Ad (Adsgram)", callback_data="adsgram_complete_single")],
-                        [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)]
-                    ]
+                    keyboard = [[InlineKeyboardButton("📺 Watch Sponsor Ad (Adsgram)", callback_data="adsgram_complete_single")],[InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)]]
                     await context.bot.send_message(chat_id=chat_id, text=t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                     return
-
                 bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
                 tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
                 save_tokens(tokens)
                 keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
-                
                 caption_text = t["limit_reached"]
                 try:
                     await context.bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID, caption=caption_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
                 except Exception:
                     await context.bot.send_message(chat_id=chat_id, text=caption_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 return
-
         status_msg = await context.bot.send_message(chat_id=chat_id, text=t["fetching"].format(dl_type))
-
         try:
             file_paths, resolution, size_str = download_media_engine(url, dl_type)
             if not file_paths: raise ValueError("FILE_NOT_FOUND")
-
             cache = load_json_file(CACHE_FILE)
-
             if dl_type == 'images':
                 media_group = [InputMediaPhoto(media=open(p, 'rb')) for p in file_paths]
                 sent_media = await context.bot.send_media_group(chat_id=chat_id, media=media_group)
@@ -1379,7 +1041,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent_media.message_id, warning_msg.message_id], 540))
                 cache[url] = {"file_id": sent_media.video.file_id, "type": "video", "timestamp": time.time()}
                 os.remove(file_paths[0])
-
             save_json_file(CACHE_FILE, cache)
             await context.bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
         except Exception as e:
@@ -1388,40 +1049,31 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             help_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("💬 Ask for Help", url=HELP_CHANNEL_URL)]])
             await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=error_msg, reply_markup=help_keyboard)
         return
-
-    # --- ADSGRAM REWARD COMPLETION HANDLERS ---
     if data.startswith("adsgram_complete_") or data == "adsgram_resume_batch":
         await query.answer("✅ Sponsor viewed successfully!", show_alert=True)
         try: await query.message.delete()
         except: pass
-
         tokens = load_tokens()
         if str(user_id) in tokens:
             del tokens[str(user_id)]
             save_tokens(tokens)
-
         if data == "adsgram_resume_batch":
             paused = paused_batches.pop(user_id, None)
             if paused:
                 asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"]))
             return
-
         if data == "adsgram_complete_single":
             token_data = tokens.get(str(user_id), {})
             url = token_data.get("url")
             dl_type = token_data.get("dl_type", "video")
-            
             if not url:
                 await query.message.reply_text("✅ **Refilled & Unlocked!** Please send your link again to download.")
                 return
-
             status_msg = await context.bot.send_message(chat_id=chat_id, text=t["fetching"].format(dl_type))
             try:
                 file_paths, resolution, size_str = download_media_engine(url, dl_type)
                 if not file_paths: raise ValueError("FILE_NOT_FOUND")
-
                 cache = load_json_file(CACHE_FILE)
-
                 if dl_type == 'images':
                     media_group = [InputMediaPhoto(media=open(p, 'rb')) for p in file_paths]
                     sent_media = await context.bot.send_media_group(chat_id=chat_id, media=media_group)
@@ -1446,7 +1098,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent_media.message_id, warning_msg.message_id], 540))
                     cache[url] = {"file_id": sent_media.video.file_id, "type": "video", "timestamp": time.time()}
                     os.remove(file_paths[0])
-
                 save_json_file(CACHE_FILE, cache)
                 await context.bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
             except Exception as e:
@@ -1454,17 +1105,14 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 error_msg = t["error_50mb"] if "FILE_TOO_LARGE" in str(e) else t["error_no_img"] if "NO_IMAGES" in str(e) else t["error_generic"]
                 await context.bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=error_msg)
             return
-
         parts = data.replace("adsgram_complete_", "").split("_")
         try:
             msg_start, msg_end = int(parts[0]), int(parts[1])
         except (ValueError, IndexError):
             msg_start, msg_end = 0, 0
-
         if msg_start == 0:
             await query.message.reply_text("✅ **Refilled & Unlocked!** You can download again.")
             return
-
         await query.message.reply_text("✅ **Sponsor Verified!** Fetching bundle...")
         forwarded_ids = []
         try:
@@ -1478,14 +1126,12 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except Exception as e:
             await query.message.reply_text(f"❌ Error: {e}")
         return
-
     if data == "stop_batch":
         active_batch_sessions[user_id] = False
         await query.answer("🛑 Stopping...", show_alert=True)
         try: await query.edit_message_text("🛑 **Batch Stopped.**")
         except: pass
         return
-
     if data == "resume_batch":
         paused = paused_batches.pop(user_id, None)
         if not paused:
@@ -1495,18 +1141,15 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.message.delete()
         asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"]))
         return
-
     if data.startswith("dest_chat_") or data.startswith("dest_chan_"):
         parts = data.split("_", 3)
         action_type = parts[1]
         dl_type = parts[2]
         payload_key = parts[3]
-        
         urls = pending_batch_payloads.pop(payload_key, None)
         if not urls:
             await query.answer("❌ Session expired. Please send the links again.", show_alert=True)
             return
-
         if action_type == "chat":
             await query.answer("📥 Loading...")
             await query.message.delete()
@@ -1525,7 +1168,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.message.delete()
             asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, target_channel_id, urls, dl_type))
         return
-
     if data == "change_channel":
         linking_states = load_linking_states()
         linking_states[str(user_id)] = "waiting_for_channel"
@@ -1533,7 +1175,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.answer("🔄 Mode activated!")
         await query.message.reply_text("🔄 **Change Channel**\n\nForward a message from your new channel here.", parse_mode="Markdown")
         return
-
     if data == "verify_user":
         try:
             member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_USERNAME, user_id=user_id)
@@ -1543,7 +1184,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except Exception:
             await query.answer("⚠️ Join the channel first!", show_alert=True)
             return
-
         tokens = load_tokens()
         user_str = str(user_id)
         if user_str not in tokens: return
@@ -1551,21 +1191,17 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if not token_data.get("verified", False):
             await query.answer("❌ Finish the timer first!", show_alert=True)
             return
-
         msg_start, msg_end = token_data.get("msg_start", 0), token_data.get("msg_end", 0)
         del tokens[user_str]
         save_tokens(tokens)
         await query.answer("✅ Verified!")
-
         if user_id in paused_batches:
             keyboard = [[InlineKeyboardButton("▶️ Resume Batch", callback_data="resume_batch")]]
             await query.message.reply_text("✅ **Verified!** Refilled.\nClick below to resume!", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             return
-
         if msg_start == 0:
             await query.message.reply_text("✅ **Refilled!** You can download again.")
             return
-
         await query.message.reply_text("✅ **Verified!** Fetching bundle...")
         forwarded_ids = []
         try:
@@ -1578,7 +1214,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             asyncio.create_task(schedule_deletion(context.bot, user_id, forwarded_ids, 540))
         except Exception as e:
             await query.message.reply_text(f"❌ Error: {e}")
-
 
 def run_telegram_bot():
     loop = asyncio.new_event_loop()
@@ -1593,9 +1228,8 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("broadcast", broadcast_command))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
-        app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.DOCUMENT, handle_user_upload))
+        app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.ATTACHMENT, handle_user_upload))
         app.add_handler(CallbackQueryHandler(handle_buttons))
-        
         await app.initialize()
         await app.start()
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
