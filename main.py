@@ -35,7 +35,7 @@ PUBLIC_CHANNEL_USERNAME = "@booksaufio"
 HELP_CHANNEL_URL = "https://t.me/faqandaupport"
 
 # --- ADSGRAM CONFIGURATION ---
-ADSGRAM_BLOCK_ID = "bot-56759"
+ADSGRAM_BLOCK_ID = "bot-56842"
 ADSGRAM_API_URL = "https://api.adsgram.ai/advbot"
 
 PROXY_URL = None 
@@ -846,7 +846,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "• Telegram API Connection: **ONLINE**\n"
         "• Downloader Engine (`yt-dlp`): **ONLINE**\n"
         "• Flask Bridge Server: **RUNNING**\n"
-        "• Adsgram Block (`bot-56759`): **INTEGRATED**\n"
+        "• Adsgram Block (`bot-56842`): **INTEGRATED**\n"
         "• Flash Drop & Broadcast Systems: **ACTIVE**",
         parse_mode="Markdown"
     )
