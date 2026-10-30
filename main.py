@@ -1591,7 +1591,7 @@ def run_telegram_bot():
         app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE, handle_user_upload))
         app.add_handler(CallbackQueryHandler(handle_buttons))
         
-        app.initialize()
+        await app.initialize()
         await app.start()
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
         await asyncio.Event().wait()
