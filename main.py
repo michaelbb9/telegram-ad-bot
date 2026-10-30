@@ -109,18 +109,14 @@ def save_json_file(filename, data):
     except Exception as e:
         logger.error(f"Error saving {filename}: {e}")
 
-def track_user_activity(user_id, feature_name="general"):
+def track_user_activity(user_id):
     activity = load_json_file(ACTIVITY_FILE)
     user_str = str(user_id)
     now = time.time()
     if user_str not in activity:
-        activity[user_str] = {"total_interactions": 0, "last_active": now, "features": {}}
-    if "features" not in activity[user_str]:
-        activity[user_str]["features"] = {}
-    
+        activity[user_str] = {"total_interactions": 0, "last_active": now}
     activity[user_str]["total_interactions"] += 1
     activity[user_str]["last_active"] = now
-    activity[user_str]["features"][feature_name] = activity[user_str]["features"].get(feature_name, 0) + 1
     save_json_file(ACTIVITY_FILE, activity)
 
 def get_lang(user_id):
@@ -269,7 +265,7 @@ def get_main_keyboard(lang_code, is_admin):
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    track_user_activity(update.message.from_user.id, "language")
+    track_user_activity(update.message.from_user.id)
     lang = get_lang(update.message.from_user.id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
     keyboard = [
@@ -281,7 +277,7 @@ async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
-    track_user_activity(user_id, "start")
+    track_user_activity(user_id)
     args = context.args
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
@@ -478,33 +474,11 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
 async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
-    track_user_activity(user_id, "upload")
+    track_user_activity(user_id)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
     support_states = load_json_file(SUPPORT_STATES_FILE)
-    
-    if user_id == ADMIN_ID and str(user_id) in support_states and isinstance(support_states[str(user_id)], dict) and support_states[str(user_id)].get("mode") == "admin_replying":
-        target_user_id = support_states[str(user_id)]["target_user_id"]
-        ticket_id = support_states[str(user_id)]["ticket_id"]
-        
-        del support_states[str(user_id)]
-        save_json_file(SUPPORT_STATES_FILE, support_states)
-
-        keyboard = [
-            [
-                InlineKeyboardButton("💬 Reply to Admin", callback_data=f"user_reply_ticket_{ticket_id}"),
-                InlineKeyboardButton("🔒 Close Ticket", callback_data=f"support_close_{ticket_id}")
-            ]
-        ]
-        try:
-            await context.bot.send_message(chat_id=target_user_id, text="💬 **Admin Reply:**", parse_mode="Markdown")
-            await update.message.copy(chat_id=target_user_id, reply_markup=InlineKeyboardMarkup(keyboard))
-            await update.message.reply_text(f"✅ Reply successfully sent to user `{target_user_id}`!", parse_mode="Markdown")
-        except Exception as e:
-            await update.message.reply_text(f"❌ Failed to send reply: {e}")
-        return
-
     if str(user_id) in support_states and isinstance(support_states[str(user_id)], dict) and support_states[str(user_id)].get("mode") == "user_writing":
         ticket_id = support_states[str(user_id)]["ticket_id"]
         
@@ -525,7 +499,7 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.forward(chat_id=ADMIN_ID)
         await context.bot.send_message(chat_id=ADMIN_ID, text="👇 Manage this ticket:", reply_markup=InlineKeyboardMarkup(keyboard))
         
-        await update.message.reply_text("✅ **Support Message Sent!** The Admin will review your message shortly.")
+        await update.message.reply_text("✅ **Support File/Message Sent!** The Admin will review your report shortly.")
         return
 
     states = load_json_file(DRIP_STATE_FILE)
@@ -580,6 +554,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     text = update.message.text if update.message.text else ""
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
+    track_user_activity(user_id)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
@@ -589,36 +564,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if str(user_id) in support_states:
             del support_states[str(user_id)]
             save_json_file(SUPPORT_STATES_FILE, support_states)
-
-    if text == t["menu_stats"]:
-        track_user_activity(user_id, "stats")
-        if user_id == ADMIN_ID:
-            await stats(update, context)
-            return
-        else:
-            tokens = load_tokens()
-            profile = tokens.get(str(user_id), {})
-            d_left = profile.get("downloads_left", 4)
-            b_left = profile.get("batch_downloads_left", 20)
-            await update.message.reply_text(t["stats_msg"].format(d_left, b_left), parse_mode="Markdown")
-            return
-
-    if text == t["menu_uploads"] and user_id == ADMIN_ID:
-        track_user_activity(user_id, "menu_uploads")
-        uploads = load_json_file(UPLOADS_FILE)
-        if not uploads:
-            await update.message.reply_text(t["no_uploads"])
-            return
-            
-        await update.message.reply_text(t["admin_upload_prompt"])
-        for key, data in list(uploads.items())[-20:]:
-            try:
-                await context.bot.forward_message(chat_id=ADMIN_ID, from_chat_id=data["user_id"], message_id=data["msg_id"])
-            except Exception:
-                pass
-        return
-
-    track_user_activity(user_id, "text_input")
 
     if text == "⚙️ Ad Toggle Panel" and user_id == ADMIN_ID:
         config = load_json_file(CONFIG_FILE)
@@ -650,8 +595,18 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             ]
         ]
         try:
-            await context.bot.send_message(chat_id=target_user_id, text=f"💬 **Admin Reply:**\n\n{text}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-            await update.message.reply_text(f"✅ Reply successfully sent to user `{target_user_id}`!", parse_mode="Markdown")
+            await context.bot.send_message(
+                chat_id=target_user_id,
+                text=f"💬 **Admin Reply:**",
+                parse_mode="Markdown"
+            )
+            await update.message.forward(chat_id=target_user_id)
+            await context.bot.send_message(
+                chat_id=target_user_id,
+                text="👇 Need to reply or send media back?",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            await update.message.reply_text(f"✅ Reply/Media successfully sent to user `{target_user_id}`!", parse_mode="Markdown")
         except Exception as e:
             await update.message.reply_text(f"❌ Failed to send reply: {e}")
         return
@@ -669,9 +624,10 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         ]
         await context.bot.send_message(
             chat_id=ADMIN_ID,
-            text=f"💬 **Support Ticket [ID: {ticket_id}]**\nFrom User ID: `{user_id}`\n\n{text}",
+            text=f"💬 **Support Ticket [ID: {ticket_id}]**\nFrom User ID: `{user_id}`",
             parse_mode="Markdown"
         )
+        await update.message.forward(chat_id=ADMIN_ID)
         await context.bot.send_message(chat_id=ADMIN_ID, text="👇 Manage this ticket:", reply_markup=InlineKeyboardMarkup(keyboard))
         await update.message.reply_text("✅ **Support Message Sent!** The Admin will review your message shortly.")
         return
@@ -775,6 +731,15 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         except: pass
         return
 
+    if text == t["menu_stats"]:
+        tokens = load_tokens()
+        profile = tokens.get(str(user_id), {})
+        d_left = profile.get("downloads_left", 4)
+        b_left = profile.get("batch_downloads_left", 20)
+        if user_id == ADMIN_ID: d_left, b_left = "∞", "∞"
+        await update.message.reply_text(t["stats_msg"].format(d_left, b_left), parse_mode="Markdown")
+        return
+
     if text == t["menu_join"]:
         await update.message.reply_text(f"📢 [Click here to join the channel]({PUBLIC_CHANNEL_URL})", parse_mode="Markdown", disable_web_page_preview=True)
         return
@@ -798,6 +763,20 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if text == t["menu_upload"]:
         prompt = t["admin_upload_prompt"] if user_id == ADMIN_ID else t["user_upload_prompt"]
         await update.message.reply_text(prompt, parse_mode="Markdown")
+        return
+
+    if text == t["menu_uploads"] and user_id == ADMIN_ID:
+        uploads = load_json_file(UPLOADS_FILE)
+        if not uploads:
+            await update.message.reply_text(t["no_uploads"])
+            return
+            
+        await update.message.reply_text(t["admin_upload_prompt"])
+        for key, data in list(uploads.items())[-20:]:
+            try:
+                await context.bot.forward_message(chat_id=ADMIN_ID, from_chat_id=data["user_id"], message_id=data["msg_id"])
+            except Exception:
+                pass
         return
 
     extracted_urls = re.findall(r'https?://[^\s]+', text)
@@ -906,7 +885,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     document = update.message.document
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
-    track_user_activity(user_id, "document")
+    track_user_activity(user_id)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
@@ -937,8 +916,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text("❌ Failed to read file.")
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.message.from_user.id
-    if user_id != ADMIN_ID: return
+    if update.message.from_user.id != ADMIN_ID: return
     
     tokens = load_tokens()
     activity = load_json_file(ACTIVITY_FILE)
@@ -946,19 +924,6 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     
     active_24hr = sum(1 for data in activity.values() if now - data.get("last_active", 0) < 86400)
     
-    feature_totals = {}
-    for data in activity.values():
-        features = data.get("features", {})
-        for feat, count in features.items():
-            feature_totals[feat] = feature_totals.get(feat, 0) + count
-
-    sorted_features = sorted(feature_totals.items(), key=lambda x: x[1], reverse=True)
-    top_feature_text = ""
-    for feat, count in sorted_features[:5]:
-        top_feature_text += f"• `{feat}`: {count} uses\n"
-    if not top_feature_text:
-        top_feature_text = "No feature data recorded yet."
-
     sorted_users = sorted(activity.items(), key=lambda x: x[1].get("total_interactions", 0), reverse=True)[:10]
     top_users_text = ""
     for idx, (uid, info) in enumerate(sorted_users, 1):
@@ -974,13 +939,12 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"• Total Users Registered: **{len(tokens)}**\n"
         f"• Active Users (Last 24h): **{active_24hr}**\n"
         f"• Current Ad Network Mode: **{mode}**\n\n"
-        f"🔥 **Most Used Features:**\n{top_feature_text}\n"
         f"🏆 **Top 10 Most Active Users:**\n{top_users_text}"
     )
     await update.message.reply_text(stats_text, parse_mode="Markdown")
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    track_user_activity(update.message.from_user.id, "status")
+    track_user_activity(update.message.from_user.id)
     config = load_json_file(CONFIG_FILE)
     mode = config.get("ad_mode", "auto").upper()
     await update.message.reply_text(
@@ -1064,7 +1028,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     user_id = query.from_user.id
-    track_user_activity(user_id, "button_click")
+    track_user_activity(user_id)
     data = query.data
     chat_id = query.message.chat_id
     lang = get_lang(user_id)
@@ -1102,8 +1066,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         
         await query.answer("Support ticket mode opened!")
         await query.message.reply_text(
-            "✍️ **Send your message, image, or video below.**\n"
-            "Your next message will be forwarded directly to the Admin as a support ticket.",
+            "✍️ **Send your message, image, video, or file below.**\n"
+            "Your next input will be forwarded directly to the Admin as part of your support ticket.",
             parse_mode="Markdown"
         )
         return
@@ -1119,7 +1083,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.answer("Reply mode activated!")
         await context.bot.send_message(
             chat_id=ADMIN_ID,
-            text=f"✍️ **Send your reply (text, photo, video, or GIF) to User `{target_user_id}`:**\nYour next message in this chat will be sent directly to them as an admin reply.",
+            text=f"✍️ **Type or send media reply to User `{target_user_id}`:**\nYour next text, photo, video, or file in this chat will be sent directly to them.",
             parse_mode="Markdown"
         )
         return
@@ -1132,8 +1096,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         
         await query.answer("Reply mode opened!")
         await query.message.reply_text(
-            "✍️ **Type or send your follow-up message below.**\n"
-            "Your next message will be sent directly to the Admin.",
+            "✍️ **Type or send your follow-up message/media below.**\n"
+            "Your next input will be sent directly to the Admin.",
             parse_mode="Markdown"
         )
         return
@@ -1615,37 +1579,32 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except Exception as e:
             await query.message.reply_text(f"❌ Error: {e}")
 
-# --- ROBUST THREAD STARTUP FOR RENDER ---
+
 def run_telegram_bot():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    
-    app = Application.builder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("language", language_command))
-    app.add_handler(CommandHandler("stats", stats))
-    app.add_handler(CommandHandler("status", status_command))
-    app.add_handler(CommandHandler("toggleads", toggle_ads_command))
-    app.add_handler(CommandHandler("broadcast", broadcast_command))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
-    app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
-    app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.ANIMATION | filters.DOCUMENT, handle_user_upload))
-    app.add_handler(CallbackQueryHandler(handle_buttons))
-    
-    async def main():
+    async def start_bot():
+        app = Application.builder().token(BOT_TOKEN).build()
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(CommandHandler("language", language_command))
+        app.add_handler(CommandHandler("stats", stats))
+        app.add_handler(CommandHandler("status", status_command))
+        app.add_handler(CommandHandler("toggleads", toggle_ads_command))
+        app.add_handler(CommandHandler("broadcast", broadcast_command))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
+        app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+        app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.DOCUMENT, handle_user_upload))
+        app.add_handler(CallbackQueryHandler(handle_buttons))
+        
         await app.initialize()
         await app.start()
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
         await asyncio.Event().wait()
-
-    try:
-        loop.run_until_complete(main())
-    except Exception as e:
-        logger.error(f"Telegram bot thread exception: {e}")
+    loop.run_until_complete(start_bot())
 
 if not getattr(web_app, '_bot_started', False):
     web_app._bot_started = True
-    print("Starting Telegram bot thread on Render...")
+    print("Starting Telegram bot thread...")
     threading.Thread(target=run_telegram_bot, daemon=True).start()
 
 if __name__ == "__main__":
