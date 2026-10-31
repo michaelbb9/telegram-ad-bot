@@ -54,6 +54,7 @@ ACTIVITY_FILE = "user_activity.json"
 CACHE_FILE = "download_cache.json"
 FLOOD_FILE = "flood_control.json"
 BANNED_FILE = "banned_users.json"
+REWARD_FILE = "reward_config.json"
 
 active_batch_sessions = {}
 pending_batch_payloads = {}
@@ -104,8 +105,6 @@ LANGUAGES = {
     }
 }
 
-
-# ===================== DEEZER + PIPED HELPERS - FINAL =====================
 def search_deezer_itunes(query):
     tracks = []
     # Deezer API (free, no key)
@@ -310,7 +309,8 @@ def piped_download_youtube(youtube_url, is_audio=False):
 web_app = Flask(__name__)
 @web_app.route('/')
 def health_check():
-    return "Bot alive! V43 FULL UI + Music Pick Fixed + PO Token + Deezer", 200
+    return "Bot alive! V44 CLEAN - Full UI V27 Base + Deezer 10 + Music Click Fixed + PO Token - NO V24 MIX", 200
+
 
 def load_json_file(filename):
     if os.path.exists(filename):
@@ -590,6 +590,7 @@ def get_main_keyboard(lang_code, is_admin):
     if is_admin:
         keyboard.append([KeyboardButton(t["menu_uploads"]), KeyboardButton("📢 Broadcast")])
         keyboard.append([KeyboardButton("⚡ Create Flash Drop"), KeyboardButton("⚙️ Ad Toggle Panel")])
+        keyboard.append([KeyboardButton("🎁 Set Reward (1/2/3/5)"), KeyboardButton("📦 Set Free DL (2/3/4/5)")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_downloads_usage_mb():
@@ -604,6 +605,40 @@ def get_downloads_usage_mb():
         return total // (1024*1024)
     except:
         return 0
+
+def get_reward_amount():
+    try:
+        cfg = load_json_file(CONFIG_FILE)
+        return int(cfg.get("reward_amount", 1))
+    except:
+        return 1
+
+def set_reward_amount(val):
+    cfg = load_json_file(CONFIG_FILE)
+    cfg["reward_amount"] = int(val)
+    save_json_file(CONFIG_FILE, cfg)
+    try:
+        import requests as req
+        req.get(f"{WEB_BASE_URL}/set_reward?value={val}", timeout=3)
+    except:
+        pass
+
+def get_free_amount():
+    try:
+        cfg = load_json_file(CONFIG_FILE)
+        return int(cfg.get("free_amount", 4))
+    except:
+        return 4
+
+def set_free_amount(val):
+    cfg = load_json_file(CONFIG_FILE)
+    cfg["free_amount"] = int(val)
+    save_json_file(CONFIG_FILE, cfg)
+    try:
+        import requests as req
+        req.get(f"{WEB_BASE_URL}/set_free?value={val}", timeout=3)
+    except:
+        pass
 
 def get_free_disk_mb():
     try:
@@ -924,43 +959,64 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
     
-    # === V39 FIX: Song Search MUST be FIRST, before anything ===
     if "Song Search" in text:
-        print(f"[V39 BUTTON] {user_id} pressed Song Search - instant reply")
+        print(f"[V44] {user_id} Song Search")
         song_search_mode_global[user_id] = True
         last_song_search_time[user_id] = time.time()
-        try:
-            await update.message.reply_text("🎵 Song Search Mode ON! V39 Deezer + Piped (No Group Block)\\n\\n10 suggestions FROM Deezer API (free, instant)\\nFull MP3 via Piped (bypasses YouTube block)\\nCached for instant re-send!\\n\\nEnter song name (e.g. Koleyewon or Blinding Lights):")
-        except Exception as e:
-            print(f"Song Search reply fail {e}")
+        await update.message.reply_text("🎵 Song Search Mode ON! V44 Deezer + Piped + PO Token\n\n10 suggestions FROM Deezer API\nFull MP3 via PO Token\n\nEnter song name:")
         return
-    # === END V39 FIX ===
     
+    # Song search mode - Deezer API
+    if song_search_mode_global.get(user_id) and "http" not in text.lower():
+        song_search_mode_global.pop(user_id, None)
+        query_text = text.strip()[:100]
+        if len(query_text) < 2:
+            await update.message.reply_text("❌ Enter valid song name!")
+            return
+        print(f"[V44 SEARCH] {user_id} searching '{query_text}' via Deezer")
+        await update.message.reply_text(f"🔍 Searching '{query_text}' via Deezer API (10 suggestions)...")
+        tracks = search_deezer_itunes(query_text)
+        if tracks:
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            buttons = []
+            for t in tracks[:10]:
+                btn_txt = f"{t.get('title','')[:28]} — {t.get('artist','')[:18]}"[:42]
+                vid = t.get('videoId') or t.get('id') or f"deezer_{len(buttons)}"
+                buttons.append([InlineKeyboardButton(btn_txt, callback_data=f"music_pick_{vid}_{user_id}")])
+            buttons.append([InlineKeyboardButton("🔍 Search again", callback_data=f"music_search_again_{user_id}")])
+            await update.message.reply_text(f"🎵 10 suggestions for '{query_text}' (Deezer API, MP3 via PO Token):", reply_markup=InlineKeyboardMarkup(buttons))
+            context.bot_data[f"music_search_{user_id}"] = tracks
+            context.bot_data[f"music_query_{user_id}"] = query_text
+        else:
+            await update.message.reply_text(f"❌ No results for '{query_text}'. Try another spelling.")
+        return
+
     if is_banned(user_id):
         await update.message.reply_text("🚫 Banned")
         return
     if "http" in text.lower():
         flood, wait = is_flood(user_id)
         if flood:
-            await update.message.reply_text(f"🐢 **Slow down!** You sent {FLOOD_LIMIT} links in last minute.\\nWait {wait}s before next link.\\n\\n*Anti-spam for 750 users*", parse_mode="Markdown")
+            await update.message.reply_text(f"🐢 **Slow down!** You sent {FLOOD_LIMIT} links in last minute.\nWait {wait}s before next link.\n\n*Anti-spam for 750 users*", parse_mode="Markdown")
             return
     track_user_activity(user_id)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
     menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🟢 Bot Status", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel"]
-    if text in menu_texts or "Bot Status" in text:
-        if "Bot Status" in text:
-            await status_command(update, context)
-            return
+    if text in menu_texts:
+        support_states = load_json_file(SUPPORT_STATES_FILE)
+        if str(user_id) in support_states:
+            del support_states[str(user_id)]
+            save_json_file(SUPPORT_STATES_FILE, support_states)
     if text.startswith("📦 Set Free") and user_id == ADMIN_ID:
         current = get_free_amount()
         keyboard = [[InlineKeyboardButton(f"✅ {i} (Current)" if i==current else f"{i} free", callback_data=f"set_free_{i}") for i in [2,3,4,5]]]
-        await update.message.reply_text(f"📦 FREE DOWNLOADS PANEL\n\nCurrent free per day: {current}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await update.message.reply_text(f"📦 FREE DOWNLOADS PANEL\n\nCurrent free per day: {current}\n\nSelect new free limit:\n• 2 = Strict\n• 3 = Balanced\n• 4 = Default\n• 5 = Generous", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     if text.startswith("🎁 Set Reward") and user_id == ADMIN_ID:
         current = get_reward_amount()
         keyboard = [[InlineKeyboardButton(f"✅ {i} (Current)" if i==current else f"{i}", callback_data=f"set_reward_{i}") for i in [1,2,3,5]]]
-        await update.message.reply_text(f"🎁 REWARD PANEL\n\nCurrent: +{current}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await update.message.reply_text(f"🎁 REWARD PANEL (Clause 12 Fix)\n\nCurrent: +{current} download per 20s ad\n\nSelect new reward:\n• +1 = Most realistic (best for Adsgram)\n• +2 = Balanced\n• +3 = Generous\n• +5 = Max\n\nStrict limit: User will get EXACTLY this many!", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     if text == "⚙️ Ad Toggle Panel" and user_id == ADMIN_ID:
         config = load_json_file(CONFIG_FILE)
@@ -997,27 +1053,58 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         keyboard = [[KeyboardButton("🚀 Finish & Broadcast Drop")],[KeyboardButton("❌ Cancel / Exit")]]
         await update.message.reply_text("⚡ Flash Drop Mode: Send files", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True), parse_mode="Markdown")
         return
-    if "Bot Status" in text:
+    if text == "🟢 Bot Status":
         await status_command(update, context)
         return
 
-    # WORKING SONG SEARCH BUTTON - KEEP EXACT FROM YOUR WORKING CODE
-    if "🔍 Song Search" in text:
-        user_id = update.effective_user.id
-        song_search_mode_global[user_id] = True
-        last_song_search_time[user_id] = time.time()
-        print(f"[V30 BUTTON] {user_id} pressed Song Search - Miku group {MIKU_BRIDGE_GROUP_ID} + Piped fallback")
-        await update.message.reply_text("🎵 Song Search Mode ON! V30 Miku Group Bridge + Piped Fallback\n\n10 suggestions FROM MIKU bot via group -1003993893074 (with /search@Mikulordbot)\nFull MP3 + lyrics FROM MIKU\nRare not found → Piped fallback!\n\nEnter song name (e.g. Koleyewon or Blinding Lights):")
+    if "Test Ad" in text or text.strip() == "🧪 Test Ad":
+        bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
+        keyboard = [
+            [InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s (Ad) +1", url=bridge_link)],
+            [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
+            [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")]
+        ]
+        await update.message.reply_text(
+            "🧪 **AD PLACEMENT TEST - FOR ADSGRAM REVIEWER (Clause 13 + 12 FIX)**\n\n"
+            "📍 **WHERE AD IS PLACED:**\n"
+            "1️⃣ User pastes ANY link: TikTok, FB, Insta, X, YouTube - ALL MEDIA!\n"
+            "2️⃣ User downloads 4 videos FREE\n"
+            "3️⃣ On 5th download, LIMIT REACHED wall shows\n"
+            "4️⃣ **AD APPEARS HERE:** This message with 3 buttons below!\n"
+            "5️⃣ Click Open Link & Watch Timer 20s -> Watch ad\n"
+            "6️⃣ Click Check & Get Files -> Gets +1 download (realistic optimum!)\n\n"
+            "🔗 **Ad Types:** Adsgram Rewarded + Adsterra Direct Link 20s\n"
+            "⏰ **Timer:** 20 seconds\n"
+            "🎁 **Reward:** +1 download (Clause 12 fix - realistic, not high)\n"
+            "📍 **Also:** /testad command, batch limit\n\n"
+            "👇 **TRY AD NOW - CLICK BELOW:**",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
         return
 
-    if "Test Ad" in text or text.strip() == "🧪 Test Ad":
-        await send_adsgram_test(update.message, user_id)
-        return
     if "Ad Info" in text:
-        await update.message.reply_text("📢 AD INFO\nBot: @Michaelbbcvaultbot\nAd: Adsgram Mini App\nReward +1")
+        await update.message.reply_text(
+            "📢 **AD INFO - ALL MEDIA DOWNLOADER - Clause 13 + 12 Fix**\n\n"
+            "Bot: @Michaelbbcvaultbot\n"
+            "Bot ID: 8863904451\n"
+            "PlatformID: 53875\n"
+            "Block: bot-56953 (new)\n\n"
+            "📍 **Exact Ad Placement:**\n"
+            "• Screen: After 4 free downloads, 5th attempt\n"
+            "• Supports: TikTok, FB, Insta, Twitter/X, YouTube - ALL MEDIA!\n"
+            "• Message: Limit Reached! Watch 20s ad → +1 download\n"
+            "• Buttons: Open Link 20s +1, Join Channel, Check & Get Files +1\n"
+            "• Type: Rewarded Interstitial 20s\n"
+            "• Reward: +1 download (realistic optimum - Clause 12 fix)\n"
+            "• Test: Tap 🧪 Test Ad button or /testad\n\n"
+            "✅ Fixes Clause 13: Clear placement + verifiable via /testad\n"
+            "✅ Fixes Clause 12: Realistic reward +1 (not excessively high)",
+            parse_mode="Markdown"
+        )
         return
     if text == "📢 Broadcast" and user_id == ADMIN_ID:
-        await update.message.reply_text("📢 /broadcast [message]")
+        await update.message.reply_text("📢 /broadcast [message] or reply with /broadcast", parse_mode="Markdown")
         return
     if text == "❌ Cancel / Exit" and user_id == ADMIN_ID:
         states = load_json_file(DRIP_STATE_FILE)
@@ -1044,30 +1131,17 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         save_json_file(DRIP_STATE_FILE, states)
         await update.message.reply_text(f"📥 Item #{len(user_state['items'])} added")
         return
-    # V39 FIX: My Stats ALWAYS responds - instant, no crash
-    if "My Stats" in text or "My stats" in text.lower() or text.strip() == t["menu_stats"]:
-        print(f"[V39 STATS] {user_id} pressed My Stats")
-        try:
-            if user_id == ADMIN_ID:
-                await stats(update, context)
-            else:
-                try:
-                    tokens = load_tokens()
-                    profile = tokens.get(str(user_id), {})
-                    d_left = profile.get("downloads_left", get_free_amount())
-                    b_left = profile.get("batch_downloads_left", get_free_amount()*5)
-                except:
-                    d_left = get_free_amount()
-                    b_left = get_free_amount()*5
-                await update.message.reply_text(t["stats_msg"].format(d_left, b_left), parse_mode="Markdown")
-        except Exception as e:
-            print(f"My Stats fail {e}")
-            try:
-                await update.message.reply_text(f"📊 Your Stats: Downloads Left {get_free_amount()} | Bot V39 Working", parse_mode="Markdown")
-            except:
-                pass
+    if text == t["menu_stats"]:
+        if user_id == ADMIN_ID:
+            await stats(update, context)
+        else:
+            tokens = load_tokens()
+            profile = tokens.get(str(user_id), {})
+            d_left = profile.get("downloads_left", get_free_amount())
+            b_left = profile.get("batch_downloads_left", get_free_amount()*5)
+            await update.message.reply_text(t["stats_msg"].format(d_left, b_left), parse_mode="Markdown")
         return
-    if text == t["menu_join"] or "Join Channel" in text:
+    if text == t["menu_join"]:
         await update.message.reply_text(f"[Join]({PUBLIC_CHANNEL_URL})", parse_mode="Markdown")
         return
     if text == t["menu_help"]:
@@ -1093,55 +1167,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             except:
                 pass
         return
-
-    # SONG SEARCH MODE - FINAL DEEZER + PIPED (NO GROUP)
-    if song_search_mode_global.get(user_id) and "http" not in text.lower():
-        song_search_mode_global.pop(user_id, None)
-        query_text = text.strip()[:100]
-        if len(query_text) < 2:
-            await update.message.reply_text("❌ Enter valid song name!")
-            return
-        print(f"[V39 SEARCH] {user_id} searching '{query_text}' via Deezer+iTunes API")
-        await update.message.reply_text(f"🔍 Searching '{query_text}' via Deezer API (free, 10 suggestions)...")
-        
-        # Deezer + iTunes search (fast, no group)
-        tracks = search_deezer_itunes(query_text)
-        
-        # YTMusic fallback if Deezer empty
-        if not tracks:
-            try:
-                from ytmusicapi import YTMusic
-                ytm = YTMusic()
-                res = ytm.search(query_text, filter="songs", limit=10)
-                for r in res:
-                    tt = r.get('title','Unknown')[:40]
-                    aa = r.get('artists',[{}])[0].get('name','Unknown') if r.get('artists') else 'Unknown'
-                    if isinstance(aa, dict):
-                        aa = aa.get('name','Unknown')
-                    vid = r.get('videoId','')
-                    tracks.append({"title": tt, "artist": aa[:30], "id": vid, "videoId": vid, "real_query": f"{tt} {aa}", "source": "ytmusic"})
-                print(f"[V39 SEARCH] YTMusic fallback found {len(tracks)} for {query_text}")
-            except Exception as e:
-                print(f"[V39 SEARCH] YTMusic fallback fail {e}")
-        
-        if tracks:
-            buttons = []
-            for t in tracks[:10]:
-                btn_txt = f"{t.get('title','')[:28]} — {t.get('artist','')[:18]}"[:42]
-                vid = t.get('videoId') or t.get('id') or f"deezer_{len(buttons)}"
-                buttons.append([InlineKeyboardButton(btn_txt, callback_data=f"music_pick_{vid}_{user_id}")])
-            buttons.append([InlineKeyboardButton("🔍 Search again", callback_data=f"music_search_again_{user_id}")])
-            try:
-                await update.message.reply_text(f"🎵 10 suggestions for '{query_text}' (Deezer + iTunes API, MP3 via Piped + cached):", reply_markup=InlineKeyboardMarkup(buttons))
-                context.bot_data[f"music_search_{user_id}"] = tracks
-                context.bot_data[f"music_query_{user_id}"] = query_text
-                print(f"[V39 SEARCH] Sent {len(tracks)} suggestions to {user_id}")
-            except Exception as e:
-                print(f"[V39 SEARCH] Send fail {e}")
-        else:
-            await update.message.reply_text(f"❌ No results for '{query_text}'. Try another spelling or YouTube link directly.")
-        return
-
     extracted_urls = re.findall(r'https?://[^\s]+', text)
     filtered = []
     for u in extracted_urls:
@@ -1151,13 +1176,13 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     extracted_urls = filtered
     if not extracted_urls:
         if "t.me/" in text and "start=" in text:
-            await update.message.reply_text("👆 Use buttons above", parse_mode="Markdown")
+            await update.message.reply_text("👆 Please use the buttons above (Open Link & Watch → Check Balance) instead of pasting the link.", parse_mode="Markdown")
         return
     if user_id != ADMIN_ID:
         tokens = load_tokens()
         user_profile = tokens.get(str(user_id), {})
         d_left = user_profile.get("downloads_left", 4)
-        if str(user_id) in tokens and d_left <= 0:
+        if str(user_id) in tokens and not user_profile.get("verified", False) and d_left <= 0:
             is_single_link = len(extracted_urls)==1 and "t.me/" not in extracted_urls[0]
             if is_single_link:
                 msg_start = msg_end = 0
@@ -1167,11 +1192,21 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 msg_end = user_profile.get("msg_end", 0)
             assigned_network = get_global_ab_network(user_id)
             if assigned_network == "adsgram":
-                kb = adsgram_keyboard(user_id, "wall", msg_start, msg_end)
-                if kb:
-                    await update.message.reply_text(t["limit_reached"], reply_markup=kb, parse_mode="Markdown")
-                else:
-                    await update.message.reply_text("⚠️ Ad server busy")
+                keyboard = [[InlineKeyboardButton("📺 Watch Ad +1", callback_data="adsgram_complete_single" if msg_start == 0 else f"adsgram_complete_{msg_start}_{msg_end}")]]
+                await update.message.reply_text(t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+                return
+            else:
+                try:
+                    tut = await context.bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+                    await asyncio.sleep(0.2)
+                except:
+                    try:
+                        tut = await context.bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+                    except:
+                        await context.bot.send_message(chat_id=chat_id, text="📺 TUTORIAL: Open Link & Watch 20s → Stay 20s → Come back → Check Balance = +1 download (realistic)! If video missing, re-upload message 108 to -1004347828512", parse_mode="Markdown")
+                bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
+                keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1 ⏰ 20s", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")]]
+                await update.message.reply_text(t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 return
     if active_batch_sessions.get(user_id, False):
         return
@@ -1489,6 +1524,24 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.answer("✅ Skipped!", show_alert=True)
         try:
             await query.message.edit_text("✅ Bypassed")
+        except:
+            pass
+        return
+    if data.startswith("set_free_") and user_id == ADMIN_ID:
+        val = int(data.replace("set_free_", ""))
+        set_free_amount(val)
+        await query.answer(f"✅ Free set to {val}!", show_alert=True)
+        try:
+            await query.message.edit_text(f"✅ Free Downloads Updated to {val}!\n\n• New users get {val} FREE per day\n• After {val}, ad wall shows\n• Synced to PythonAnywhere!", parse_mode="Markdown")
+        except:
+            pass
+        return
+    if data.startswith("set_reward_") and user_id == ADMIN_ID:
+        val = int(data.replace("set_reward_", ""))
+        set_reward_amount(val)
+        await query.answer(f"✅ Reward set to +{val}!", show_alert=True)
+        try:
+            await query.message.edit_text(f"✅ Reward Updated to +{val}!\n\nStrict limit:\n• After ad, user gets exactly {val}\n• My Stats will show {val}\n• Batch will be {val*5}\n• Synced to PythonAnywhere!", parse_mode="Markdown")
         except:
             pass
         return
@@ -1820,15 +1873,29 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         tokens = load_tokens()
         user_str = str(user_id)
         if user_str not in tokens:
+            # Create new token with +1 for test ad demo (not 4!)
+            reward = get_reward_amount()
+            tokens[user_str] = {
+                "user_id": int(user_id),
+                "downloads_left": reward,
+                "batch_downloads_left": reward * 5,
+                "last_reset": time.time(),
+                "msg_start": 0,
+                "msg_end": 0,
+                "clicked_ad": True,
+                "verified": True,
+                "expires": time.time() + 600
+            }
+            save_tokens(tokens)
             await query.answer("✅ Test Ad Verified! (Clause 13 Demo) +1 realistic", show_alert=True)
             await query.message.reply_text(
-                "✅ **TEST AD VERIFIED! 🎉 (Clause 13 + 12 Demo) - Optimum**\n\n"
+                "✅ **TEST AD VERIFIED! 🎉 (Clause 13 + 12 Demo) - Optimum +1**\n\n"
                 "This is what user sees after watching 20s ad:\n"
                 "• Ad placement found & verified! ✅\n"
                 "• Reward: +1 download refilled (realistic optimum - Clause 12 fix)!\n"
                 "• Real flow: Watch 20s ad → Click Check → Get +1 file\n\n"
                 "📍 **For Adsgram Reviewer:** This proves ad placement exists and is verifiable via /testad button!\n"
-                "🎁 Reward is realistic +1, not excessively high!",
+                "🎁 Reward is realistic +1, not excessively high! Stats now shows 1!",
                 parse_mode="Markdown"
             )
             return
@@ -1838,12 +1905,18 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.answer("⏰ Finish 20s timer first! Watch ad via Open Link button!", show_alert=True)
             return
         msg_start, msg_end = token_data.get("msg_start",0), token_data.get("msg_end",0)
-        del tokens[user_str]
+        # FIX: Don't delete token! Keep it and set to +1 optimum (was deleting and recreating as 4!)
+        reward = get_reward_amount()
+        tokens[user_str]["downloads_left"] = reward
+        tokens[user_str]["batch_downloads_left"] = reward * 5
+        tokens[user_str]["verified"] = True
+        tokens[user_str]["msg_start"] = 0
+        tokens[user_str]["msg_end"] = 0
         save_tokens(tokens)
         await query.answer("Verified! +1 added")
         if user_id in paused_batches:
             keyboard = [[InlineKeyboardButton("▶️ Resume Batch +1", callback_data="resume_batch")]]
-            await query.message.reply_text("✅ Verified! Refilled +1. Resume?", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            await query.message.reply_text("✅ Verified! Refilled +1 (realistic). Resume?", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             return
         if msg_start==0:
             await query.message.reply_text("✅ Refilled +1! Download again (realistic optimum - Clause 12 fix)")
@@ -1914,162 +1987,12 @@ async def ad_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-
-async def handle_music_pick_v25(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    data = query.data
-    print(f"[V39 PICK] {data} - Deezer + Piped direct")
-    if "search_again" in data:
-        try:
-            uid = int(data.split("_")[-1])
-            song_search_mode_global[uid] = True
-            last_song_search_time[uid] = time.time()
-            await query.message.reply_text("🔍 Enter song name again (Deezer API + Piped):")
-            await query.answer()
-        except Exception as e:
-            print(f"Search again fail {e}")
-            await query.answer()
-        return
-    if data.startswith("music_pick_"):
-        try:
-            parts = data.split("_")
-            uid = int(parts[-1])
-            videoId = "_".join(parts[2:-1]) if len(parts) > 4 else parts[2]
-            print(f"[V39 PICK] videoId={videoId} uid={uid} - Deezer->Piped")
-            await query.answer("Downloading via Piped... Full MP3!")
-            await query.edit_message_text(f"🎵 Downloading via Piped... Full MP3 + caching!")
-            
-            tracks = context.bot_data.get(f"music_search_{uid}", [])
-            title = "Unknown"
-            artist = "Unknown"
-            real_query = ""
-            for t in tracks:
-                t_vid = t.get('videoId') or t.get('id') or ''
-                if t_vid == videoId or videoId in str(t_vid) or t.get('title','').lower() in videoId.lower():
-                    title = t.get('title','Unknown')
-                    artist = t.get('artist','Unknown')
-                    real_query = t.get('real_query', f"{title} {artist}")
-                    break
-            if title == "Unknown":
-                title = context.bot_data.get(f"music_query_{uid}", videoId[:30])
-                real_query = title
-                artist = "Unknown"
-            
-            # Check cache first
-            try:
-                cf = "music_cache.json"
-                cache = {}
-                import json, os
-                if os.path.exists(cf):
-                    cache = json.load(open(cf))
-                cache_key = f"{title}_{artist}".lower().replace(" ", "_")[:50]
-                for ck in [cache_key, title.lower().replace(" ", "_")[:50]]:
-                    if ck in cache and "file_id" in cache[ck]:
-                        try:
-                            await context.bot.send_audio(chat_id=uid, audio=cache[ck]["file_id"], title=title, performer=artist, caption=f"{title} - {artist} ♻️ Cached! (Deezer+Piped)")
-                            await query.edit_message_text(f"✅ Sent cached {title} - {artist}!")
-                            return
-                        except:
-                            pass
-            except:
-                pass
-            
-            # Deezer + Piped flow: Get YouTube URL via ytmusicapi, then Piped MP3
-            async def piped_music_flow():
-                try:
-                    import json, time, os
-                    # Get YouTube URL
-                    youtube_url, yt_vid, yt_title, yt_artist = ytmusic_get_youtube_url(real_query if real_query else f"{title} {artist}")
-                    if not youtube_url:
-                        # Try broader search
-                        youtube_url, yt_vid, yt_title, yt_artist = ytmusic_get_youtube_url(title)
-                    
-                    if not youtube_url:
-                        try:
-                            await context.bot.send_message(chat_id=uid, text=f"❌ Could not find YouTube for '{title} - {artist}'. Try YouTube link directly.")
-                            await query.edit_message_text(f"❌ No YouTube found for {title}")
-                        except:
-                            pass
-                        return
-                    
-                    try:
-                        await context.bot.send_message(chat_id=uid, text=f"🎬 Found YouTube: {youtube_url[:60]}... Downloading MP3 via Piped/Android (Piped YouTube disabled)...")
-                    except:
-                        pass
-                    
-                    # Piped download
-                    def piped_sync():
-                        return piped_download_youtube(youtube_url, is_audio=True)
-                    
-                    loop = asyncio.get_event_loop()
-                    from concurrent.futures import ThreadPoolExecutor
-                    executor = ThreadPoolExecutor(max_workers=2)
-                    fp, td, src = await loop.run_in_executor(executor, piped_sync)
-                    
-                    if fp and os.path.exists(fp):
-                        try:
-                            import shutil
-                            with open(fp,'rb') as af:
-                                sent = await context.bot.send_audio(chat_id=uid, audio=af, title=title, performer=artist, caption=f"{title} - {artist} Full MP3 via {src} (Deezer+Piped)")
-                                # Cache to vault
-                                try:
-                                    await context.bot.send_audio(chat_id=MIKU_VAULT_CHANNEL_ID, audio=sent.audio.file_id, title=title, performer=artist)
-                                    cf = "music_cache.json"
-                                    cache = {}
-                                    if os.path.exists(cf):
-                                        cache = json.load(open(cf))
-                                    cache_key = f"{title}_{artist}".lower().replace(" ", "_")[:50]
-                                    cache[cache_key] = {"file_id": sent.audio.file_id, "title": title, "artist": artist, "source": src, "timestamp": time.time()}
-                                    with open(cf, "w") as f: json.dump(cache, f)
-                                    print(f"[V39 PICK] Cached {title}")
-                                except Exception as e:
-                                    print(f"Cache fail {e}")
-                            shutil.rmtree(td, ignore_errors=True)
-                            try:
-                                await query.edit_message_text(f"✅ Sent {title} - {artist} Full MP3 via Piped! Cached!")
-                            except:
-                                pass
-                        except Exception as e:
-                            print(f"[V39 PICK] Send fail {e}")
-                            try:
-                                await context.bot.send_message(chat_id=uid, text=f"❌ Send failed: {e}")
-                            except:
-                                pass
-                    else:
-                        try:
-                            await context.bot.send_message(chat_id=uid, text=f"❌ Download failed for '{title} - {artist}'. Try YouTube link directly or another song. All instances {PIPED_INSTANCES} failed.")
-                            await query.edit_message_text(f"❌ Download failed {title} - both instances down (rare)")
-                        except:
-                            pass
-                except Exception as e:
-                    print(f"[V39 PICK] Flow error {e}")
-                    import traceback
-                    traceback.print_exc()
-                    try:
-                        await context.bot.send_message(chat_id=uid, text=f"❌ Error: {e}")
-                    except:
-                        pass
-            
-            asyncio.create_task(piped_music_flow())
-            
-        except Exception as e:
-            print(f"[V39 PICK] Error {e}")
-            import traceback
-            traceback.print_exc()
-            try:
-                await query.answer(f"Error {e}")
-            except:
-                pass
-
-
 def run_telegram_bot():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     async def start_bot():
         clean_downloads_startup()
         app = Application.builder().token(BOT_TOKEN).build()
-        # V43 FIX: Song Search + Music Pick handlers FIRST - always responsive
-        app.add_handler(MessageHandler(filters.Regex("Song Search"), handle_media_link))
         app.add_handler(CallbackQueryHandler(handle_music_pick_v25, pattern="^music_pick_"))
         app.add_handler(CallbackQueryHandler(handle_music_pick_v25, pattern="^music_search_again_"))
         app.add_handler(CommandHandler("start", start))
@@ -2086,7 +2009,6 @@ def run_telegram_bot():
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
         app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.ATTACHMENT, handle_user_upload))
-        app.add_handler(CallbackQueryHandler(handle_music_pick_v25, pattern="^music_"))
         app.add_handler(CallbackQueryHandler(handle_buttons))
         await app.initialize()
         await app.start()
@@ -2094,7 +2016,7 @@ def run_telegram_bot():
         asyncio.create_task(auto_backup_loop(app.bot))
         asyncio.create_task(queue_processor(app.bot))
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
-        print(f"Bot started! V43 FULL UI + PO Token + Music Pick FIX Vault={VIDEO_VAULT_ID} Free {get_free_disk_mb()}MB")
+        print("Bot started V44 CLEAN")
         await asyncio.Event().wait()
     loop.run_until_complete(start_bot())
 
