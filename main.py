@@ -70,18 +70,18 @@ FLOOD_COOLDOWN = 30
 
 LANGUAGES = {
     "en": {
-        "welcome": "🚀 **WELCOME TO MICHAELBBC VAULT - ALL MEDIA DOWNLOADER! 🚀✨**\n\n👉 **PASTE LINK TO START!** 👇",
+        "welcome": "🚀 **WELCOME TO MICHAELBBC VAULT - ALL MEDIA DOWNLOADER! 🚀✨ FB, INSTA, TIKTOK, X, YOUTUBE! 🚀✨\n\n🔥 WHAT I CAN DO:\n🎬 VIDEOS HD No Watermark!\n🎵 AUDIO MP3 192kbps!\n🖼️ IMAGES Scrape ALL!\n📝 SUBTITLES Auto!\n📦 BATCH 100+ Links!\n⚡ CACHE 1 Sec!\n💎 VAULT Forever!\n📤 FAN UPLOADS 5/day!\n\n👉 PASTE LINK TO START! 👇**",
         "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Images", "btn_sub": "📝 Subtitles (SRT)",
-        "ask_format": "👇 **Select your format!**",
-        "fetching": "📥 **Fetching your {}...**",
-        "error_generic": "❌ Oops! Failed! Try a public link.",
-        "error_50mb": "❌ File too large (>50MB limit).", 
+        "ask_format": "👇 **AWESOME! What format you want? Pick below! 🎯**",
+        "fetching": "📥 **Fetching your {}... Hang tight! ⏳✨**",
+        "error_generic": "❌ Oops! Failed! 😢 Link private/blocked. Try public link! 🔓💡",
+        "error_50mb": "❌ Too Big! 😅 >50MB limit.", "error_no_img": "❌ No images found! 😢",
         "images_received": "⏳ **{} Images received.**",
-        "select_lang": "🌍 Select your language:", "lang_set": "✅ Language set!",
+        "select_lang": "🌍 Select your language! 👇", "lang_set": "✅ Language set! 🎉✨",
         "batch_detected": "📦 **Batch Detected ({} links)**\nWhat format?",
         "batch_dest": "📦 **Where to send?**",
         "btn_chat": "📥 In Chat", "btn_chan": "📢 To Channel",
-        "limit_reached": "⚠️ **Limit Reached!**\nWatch Adsgram ad to get +1 download!",
+        "limit_reached": "⚠️ **Limit Reached! 🚧😅 Watch Adsgram ad → Get +1 download! ♻️✨**",
         "refill_btn": "📺 Watch Adsgram Ad (+1)",
         "join_btn": "📢 Join Channel", "check_btn": "💜 Check Balance",
         "limit_batch": "⚠️ **Batch Limit Reached at {} of {}**\nWatch Adsgram ad to continue.",
@@ -89,10 +89,10 @@ LANGUAGES = {
         "batch_done": "🏁 **Done!** ✅ {} ❌ {}\n📥 {} files here.",
         "batch_done_chan": "🏁 **Done!** ✅ {} ❌ {}\n📢 {} files forwarded!",
         "dl_video": "📥 Downloading video...", "dl_audio": "📥 Extracting audio...", "dl_image": "📥 Scraping images...",
-        "menu_lang": "🌍 Language", "menu_stats": "📊 My Stats", "menu_help": "💬 Support", "menu_join": "📢 Join Channel",
+        "menu_lang": "🌍 Language", "menu_stats": "📊 My Stats", "menu_help": "💬 Support / FAQ", "menu_join": "📢 Join Channel",
         "menu_uploads": "🍿 Fan Uploads", "menu_upload": "📤 Upload File",
         "admin_upload_prompt": "📂 **Fan Uploads Inbox**",
-        "user_upload_prompt": "📤 **Upload File**\nSend media to Admin.",
+        "user_upload_prompt": "📤 **Upload File**\nSend media to Admin (anon). Limit 5/24h.",
         "upload_success_user": "✅ Sent to Admin!",
         "upload_limit_reached": "⚠️ Upload limit 5/24h reached.",
         "no_uploads": "📭 No uploads yet.",
@@ -103,7 +103,7 @@ LANGUAGES = {
 web_app = Flask(__name__)
 @web_app.route('/')
 def health_check():
-    return "Bot alive! Adsgram Only", 200
+    return "Bot alive! Adsgram Native V24", 200
 
 def load_json_file(filename):
     if os.path.exists(filename):
@@ -145,7 +145,7 @@ async def backup_to_channel(bot):
     try:
         ts = time.strftime("%Y-%m-%d %H:%M")
         free_mb = shutil.disk_usage(".").free // (1024*1024)
-        cap = f"📦 AUTO-BACKUP {ts}\nFree: {free_mb}MB"
+        cap = f"📦 AUTO-BACKUP {ts}\nFree: {free_mb}MB | Vault: {VIDEO_VAULT_ID}"
         first = True
         for fname in BACKUP_FILES:
             if os.path.exists(fname):
@@ -326,6 +326,7 @@ def get_main_keyboard(lang_code, is_admin):
     if is_admin:
         keyboard.append([KeyboardButton(t["menu_uploads"]), KeyboardButton("📢 Broadcast")])
         keyboard.append([KeyboardButton("⚡ Create Flash Drop")])
+        keyboard.append([KeyboardButton("🎁 Set Reward (1/2/3/5)"), KeyboardButton("📦 Set Free DL (2/3/4/5)")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_downloads_usage_mb():
@@ -337,13 +338,26 @@ def get_downloads_usage_mb():
         return 0
 
 def get_reward_amount():
-    return 1
+    try:
+        return int(load_json_file(CONFIG_FILE).get("reward_amount", 1))
+    except:
+        return 1
+
+def set_reward_amount(val):
+    cfg = load_json_file(CONFIG_FILE)
+    cfg["reward_amount"] = int(val)
+    save_json_file(CONFIG_FILE, cfg)
 
 def get_free_amount():
     try:
         return int(load_json_file(CONFIG_FILE).get("free_amount", 4))
     except:
         return 4
+
+def set_free_amount(val):
+    cfg = load_json_file(CONFIG_FILE)
+    cfg["free_amount"] = int(val)
+    save_json_file(CONFIG_FILE, cfg)
 
 def get_free_disk_mb():
     return max(0, 512 - get_downloads_usage_mb())
@@ -424,22 +438,26 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             res_data = {"status": "allowed"}
         
         tokens = load_tokens()
-        d_left = tokens.get(str(user_id), {}).get("downloads_left", 4)
+        d_left = tokens.get(str(user_id), {}).get("downloads_left", get_free_amount())
         if res_data.get("status") != "allowed" and d_left <= 0 and user_id != ADMIN_ID:
             paused_batches[user_id] = {"urls": urls, "next_index": index-1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
-            # Pure Adsgram trigger button
+            
+            # Native Adsgram WebApp Button
             adsgram_url = f"https://api.adsgram.ai/advbot?blockId={ADSGRAM_BLOCK_ID}"
-            keyboard = [[InlineKeyboardButton("📺 Watch Adsgram Ad (+1)", web_app={"url": adsgram_url})], [InlineKeyboardButton("✅ Check Reward Balance", callback_data="adsgram_verify_batch")]]
+            reward = get_reward_amount()
+            keyboard = [
+                [InlineKeyboardButton(f"📺 Watch Adsgram Ad (+{reward})", web_app={"url": adsgram_url})],
+                [InlineKeyboardButton("✅ Check Reward Balance", callback_data="adsgram_verify_batch")]
+            ]
             await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             break
         
         status_msg = await bot.send_message(chat_id=chat_id, text=f"📥 [{index}/{len(urls)}] {t['dl_video']}")
         try:
-            ckey = get_canonical_key(url)
             file_paths, res, size = download_media_engine(url, download_type)
             if file_paths and os.path.exists(file_paths[0]):
                 with open(file_paths[0], 'rb') as f:
-                    sent = await bot.send_video(chat_id=target_destination_id, video=f, caption=f"Item {index}/{len(urls)} Size {size}")
+                    await bot.send_video(chat_id=target_destination_id, video=f, caption=f"Item {index}/{len(urls)} Size {size}")
                 os.remove(file_paths[0])
                 await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
                 success_count += 1
@@ -474,15 +492,28 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
+    if text.startswith("📦 Set Free") and user_id == ADMIN_ID:
+        current = get_free_amount()
+        keyboard = [[InlineKeyboardButton(f"✅ {i} (Current)" if i==current else f"{i}", callback_data=f"set_free_{i}") for i in [2,3,4,5]]]
+        await update.message.reply_text(f"📦 **FREE DOWNLOADS PANEL**\nCurrent: {current}\nSelect new free limit:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        return
+
+    if text.startswith("🎁 Set Reward") and user_id == ADMIN_ID:
+        current = get_reward_amount()
+        keyboard = [[InlineKeyboardButton(f"✅ +{i} (Current)" if i==current else f"+{i}", callback_data=f"set_reward_{i}") for i in [1,2,3,5]]]
+        await update.message.reply_text(f"🎁 **REWARD PANEL**\nCurrent: +{current}\nSelect new ad reward value:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        return
+
     if text == "🟢 Bot Status":
-        await update.message.reply_text(f"🟢 **Status: Adsgram Only Mode**\nFree Disk: {get_free_disk_mb()}MB\nActive Downloads: {active_downloads}", parse_mode="Markdown")
+        await update.message.reply_text(f"🟢 **Status: Adsgram Native Mode**\nFree Limit: {get_free_amount()}\nReward Value: +{get_reward_amount()}\nFree Disk: {get_free_disk_mb()}MB", parse_mode="Markdown")
         return
 
     if "Test Adsgram Ad" in text or text.strip() == "🧪 Test Adsgram Ad":
         adsgram_url = f"https://api.adsgram.ai/advbot?blockId={ADSGRAM_BLOCK_ID}"
+        reward = get_reward_amount()
         keyboard = [
             [InlineKeyboardButton("📺 Watch Adsgram Rewarded Ad", web_app={"url": adsgram_url})],
-            [InlineKeyboardButton("✅ Verify & Refill +1 Download", callback_data="adsgram_verify_test")]
+            [InlineKeyboardButton(f"✅ Verify & Refill +{reward} Download", callback_data="adsgram_verify_test")]
         ]
         await update.message.reply_text(
             "🧪 **ADSGRAM AD PLACEMENT TEST (Clause 13 Compliance)**\n\n"
@@ -500,12 +531,13 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if user_id != ADMIN_ID:
         tokens = load_tokens()
         user_profile = tokens.get(str(user_id), {})
-        d_left = user_profile.get("downloads_left", 4)
+        d_left = user_profile.get("downloads_left", get_free_amount())
         if str(user_id) in tokens and not user_profile.get("verified", False) and d_left <= 0:
-            # Pure Adsgram Native WebApp Trigger Button
+            # Native Adsgram WebApp Trigger Button
             adsgram_url = f"https://api.adsgram.ai/advbot?blockId={ADSGRAM_BLOCK_ID}"
+            reward = get_reward_amount()
             keyboard = [
-                [InlineKeyboardButton("📺 Watch Adsgram Ad (+1 Download)", web_app={"url": adsgram_url})],
+                [InlineKeyboardButton(f"📺 Watch Adsgram Ad (+{reward} Download)", web_app={"url": adsgram_url})],
                 [InlineKeyboardButton("📢 Join Channel", url=PUBLIC_CHANNEL_URL)],
                 [InlineKeyboardButton("✅ Check Balance & Refill", callback_data="adsgram_verify_single")]
             ]
@@ -530,7 +562,7 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
     try:
         file_paths, res, size = download_media_engine(url, dl_type)
         with open(file_paths[0], 'rb') as f:
-            sent = await bot.send_video(chat_id=chat_id, video=f, caption=f"✨ {res} Size {size}")
+            await bot.send_video(chat_id=chat_id, video=f, caption=f"✨ {res} Size {size}")
         os.remove(file_paths[0])
         await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
         deduct_download_counter(chat_id, is_batch=False)
@@ -547,6 +579,26 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
+    if data.startswith("set_free_") and user_id == ADMIN_ID:
+        val = int(data.replace("set_free_", ""))
+        set_free_amount(val)
+        await query.answer(f"✅ Free limit set to {val}!", show_alert=True)
+        try:
+            await query.message.edit_text(f"✅ **Free Downloads Updated to {val}!**", parse_mode="Markdown")
+        except:
+            pass
+        return
+
+    if data.startswith("set_reward_") and user_id == ADMIN_ID:
+        val = int(data.replace("set_reward_", ""))
+        set_reward_amount(val)
+        await query.answer(f"✅ Reward set to +{val}!", show_alert=True)
+        try:
+            await query.message.edit_text(f"✅ **Reward Updated to +{val} downloads per ad!**", parse_mode="Markdown")
+        except:
+            pass
+        return
+
     if data.startswith("adsgram_verify_") or data == "adsgram_verify_batch" or data == "adsgram_verify_test":
         tokens = load_tokens()
         reward = get_reward_amount()
@@ -558,9 +610,9 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "expires": time.time() + 600
         }
         save_tokens(tokens)
-        await query.answer("✅ Adsgram Reward Verified! +1 Download Added.", show_alert=True)
+        await query.answer(f"✅ Adsgram Reward Verified! +{reward} Download Added.", show_alert=True)
         try:
-            await query.message.edit_text("✅ **Adsgram Reward Verified Successfully!**\n\nYour download limit has been refilled. You can now continue sending links.", parse_mode="Markdown")
+            await query.message.edit_text(f"✅ **Adsgram Reward Verified Successfully!**\n\nYour download limit has been refilled by +{reward}.", parse_mode="Markdown")
         except:
             pass
         if user_id in paused_batches:
@@ -608,7 +660,7 @@ def run_telegram_bot():
         asyncio.create_task(auto_backup_loop(app.bot))
         asyncio.create_task(queue_processor(app.bot))
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
-        print("Bot started with Adsgram Only WebApp Integration!")
+        print("Bot started with Adsgram Native WebApp Integration & Admin Panels!")
         await asyncio.Event().wait()
     loop.run_until_complete(start_bot())
 
