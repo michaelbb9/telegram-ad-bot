@@ -1764,6 +1764,134 @@ async def ad_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• Basic use stays free: 4 downloads per day without any ad\n\n"
             "🧪 To test: tap 🧪 Test Ad or send /testad")
 
+
+# ===== MUSIC MODULE - ISOLATED, DOES NOT TOUCH MAIN DOWNLOADER =====
+# This only adds music download via Render, no changes to your working FB/TikTok/Insta logic!
+import tempfile
+
+MUSIC_CACHE_FILE = "music_cache.json"
+
+def load_music_cache():
+    if os.path.exists(MUSIC_CACHE_FILE):
+        try:
+            with open(MUSIC_CACHE_FILE, "r") as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+def save_music_cache(cache):
+    try:
+        with open(MUSIC_CACHE_FILE, "w") as f:
+            json.dump(cache, f)
+    except:
+        pass
+
+async def download_music_and_send(bot, user_id, title, artist, track_id):
+    try:
+        search_query = f"{title} {artist} official audio"
+        print(f"Music download: {search_query} for {user_id}")
+        
+        cache = load_music_cache()
+        cache_key = f"{title}_{artist}".lower().replace(" ", "_")[:50]
+        if cache_key in cache and "file_id" in cache[cache_key]:
+            try:
+                await bot.send_audio(chat_id=user_id, audio=cache[cache_key]["file_id"], title=title, performer=artist, caption=f"🎵 {title} - {artist}\n♻️ Cached 1-sec!")
+                return True
+            except:
+                pass
+        
+        tmpdir = tempfile.mkdtemp()
+        output_template = os.path.join(tmpdir, "%(title)s.%(ext)s")
+        
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'outtmpl': output_template,
+            'noplaylist': True,
+            'quiet': True,
+            'no_warnings': True,
+            'default_search': 'ytsearch1',
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }],
+        }
+        if os.path.exists("youtube_cookies.txt"):
+            ydl_opts['cookiefile'] = "youtube_cookies.txt"
+        elif os.path.exists("tiktok_cookies.txt"):
+            ydl_opts['cookiefile'] = "tiktok_cookies.txt"
+        elif os.path.exists("cookies.txt"):
+            ydl_opts['cookiefile'] = "cookies.txt"
+        
+        downloaded_file = None
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(f"ytsearch1:{search_query}", download=True)
+                if 'entries' in info:
+                    info = info['entries'][0]
+                for f in os.listdir(tmpdir):
+                    if f.endswith('.mp3'):
+                        downloaded_file = os.path.join(tmpdir, f)
+                        break
+        except Exception as e:
+            print(f"YT music error: {e}")
+        
+        if not downloaded_file or not os.path.exists(downloaded_file):
+            await bot.send_message(chat_id=user_id, text=f"❌ Could not download {title} - {artist}. Try pasting YouTube link directly.")
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            return False
+        
+        try:
+            with open(downloaded_file, 'rb') as af:
+                sent = await bot.send_audio(chat_id=user_id, audio=af, title=title, performer=artist, caption=f"🎵 {title} - {artist}\n✅ Downloaded via Music Explorer\n💾 Cached for next time!")
+                try:
+                    file_id = sent.audio.file_id
+                    cache[cache_key] = {"file_id": file_id, "title": title, "artist": artist, "timestamp": time.time()}
+                    save_music_cache(cache)
+                    try:
+                        await bot.send_audio(chat_id=VIDEO_VAULT_ID, audio=file_id, title=title, performer=artist)
+                    except:
+                        pass
+                except:
+                    pass
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            return True
+        except Exception as e:
+            print(f"Send audio error: {e}")
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            return False
+    except Exception as e:
+        print(f"Music error: {e}")
+        return False
+
+async def music_poller_loop(bot):
+    # Polls Flask pending_music endpoint - runs on Render where yt-dlp works, no bash needed!
+    await asyncio.sleep(10)
+    while True:
+        try:
+            resp = requests.get(f"{WEB_BASE_URL}/api/pending_music", headers=API_HEADERS, timeout=10)
+            if resp.status_code == 200:
+                pending = resp.json().get("pending", [])
+                for item in pending:
+                    user_id = item.get("user_id")
+                    title = item.get("title")
+                    artist = item.get("artist")
+                    track_id = item.get("track_id")
+                    if user_id and title:
+                        print(f"Processing pending music: {title} for {user_id}")
+                        await download_music_and_send(bot, int(user_id), title, artist, track_id)
+                        try:
+                            requests.post(f"{WEB_BASE_URL}/api/clear_pending", json={"user_id": user_id, "track_id": track_id}, headers=API_HEADERS, timeout=5)
+                        except:
+                            pass
+                        await asyncio.sleep(2)
+        except Exception as e:
+            print(f"Music poller error: {e}")
+        await asyncio.sleep(15)
+
+
+
 def run_telegram_bot():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -1790,6 +1918,7 @@ def run_telegram_bot():
         asyncio.create_task(disk_cleaner_loop())
         asyncio.create_task(auto_backup_loop(app.bot))
         asyncio.create_task(queue_processor(app.bot))
+        asyncio.create_task(music_poller_loop(app.bot))
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
         print(f"Bot started! V24 Optimum +1 Vault={VIDEO_VAULT_ID} Backup={PRIVATE_CHANNEL_ID} Free {get_free_disk_mb()}MB")
         await asyncio.Event().wait()
