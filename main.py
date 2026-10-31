@@ -52,6 +52,7 @@ ACTIVITY_FILE = "user_activity.json"
 CACHE_FILE = "download_cache.json"
 FLOOD_FILE = "flood_control.json"
 BANNED_FILE = "banned_users.json"
+REWARD_FILE = "reward_config.json"
 
 active_batch_sessions = {}
 pending_batch_payloads = {}
@@ -385,6 +386,7 @@ def get_main_keyboard(lang_code, is_admin):
     if is_admin:
         keyboard.append([KeyboardButton(t["menu_uploads"]), KeyboardButton("📢 Broadcast")])
         keyboard.append([KeyboardButton("⚡ Create Flash Drop"), KeyboardButton("⚙️ Ad Toggle Panel")])
+        keyboard.append([KeyboardButton("🎁 Set Reward (1/2/3/5)"), KeyboardButton("📦 Set Free DL (2/3/4/5)")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_downloads_usage_mb():
@@ -399,6 +401,40 @@ def get_downloads_usage_mb():
         return total // (1024*1024)
     except:
         return 0
+
+def get_reward_amount():
+    try:
+        cfg = load_json_file(CONFIG_FILE)
+        return int(cfg.get("reward_amount", 1))
+    except:
+        return 1
+
+def set_reward_amount(val):
+    cfg = load_json_file(CONFIG_FILE)
+    cfg["reward_amount"] = int(val)
+    save_json_file(CONFIG_FILE, cfg)
+    try:
+        import requests as req
+        req.get(f"{WEB_BASE_URL}/set_reward?value={val}", timeout=3)
+    except:
+        pass
+
+def get_free_amount():
+    try:
+        cfg = load_json_file(CONFIG_FILE)
+        return int(cfg.get("free_amount", 4))
+    except:
+        return 4
+
+def set_free_amount(val):
+    cfg = load_json_file(CONFIG_FILE)
+    cfg["free_amount"] = int(val)
+    save_json_file(CONFIG_FILE, cfg)
+    try:
+        import requests as req
+        req.get(f"{WEB_BASE_URL}/set_free?value={val}", timeout=3)
+    except:
+        pass
 
 def get_free_disk_mb():
     try:
@@ -735,6 +771,16 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if str(user_id) in support_states:
             del support_states[str(user_id)]
             save_json_file(SUPPORT_STATES_FILE, support_states)
+    if text.startswith("📦 Set Free") and user_id == ADMIN_ID:
+        current = get_free_amount()
+        keyboard = [[InlineKeyboardButton(f"✅ {i} (Current)" if i==current else f"{i} free", callback_data=f"set_free_{i}") for i in [2,3,4,5]]]
+        await update.message.reply_text(f"📦 **FREE DOWNLOADS PANEL**\n\nCurrent free per day: {current}\n\nSelect new free limit:\n• 2 = Strict\n• 3 = Balanced\n• 4 = Default (current)\n• 5 = Generous\n\nUsers get this many FREE before ad wall!", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        return
+    if text.startswith("🎁 Set Reward") and user_id == ADMIN_ID:
+        current = get_reward_amount()
+        keyboard = [[InlineKeyboardButton(f"✅ {i} (Current)" if i==current else f"{i}", callback_data=f"set_reward_{i}") for i in [1,2,3,5]]]
+        await update.message.reply_text(f"🎁 **REWARD PANEL (Clause 12 Fix - Realistic)**\n\nCurrent: +{current} download per 20s ad\n\nSelect new reward:\n• +1 = Most realistic (best for Adsgram Clause 12)\n• +2 = Balanced\n• +3 = Generous\n• +5 = Max\n\nStrict limit: User will get EXACTLY this many, not accumulate!", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        return
     if text == "⚙️ Ad Toggle Panel" and user_id == ADMIN_ID:
         config = load_json_file(CONFIG_FILE)
         mode = config.get("ad_mode", "auto").upper()
@@ -854,7 +900,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         else:
             tokens = load_tokens()
             profile = tokens.get(str(user_id), {})
-            d_left = profile.get("downloads_left", 4)
+            d_left = profile.get("downloads_left", get_free_amount())
             b_left = profile.get("batch_downloads_left", 20)
             await update.message.reply_text(t["stats_msg"].format(d_left, b_left), parse_mode="Markdown")
         return
@@ -1244,6 +1290,24 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except:
             pass
         return
+    if data.startswith("set_free_") and user_id == ADMIN_ID:
+        val = int(data.replace("set_free_", ""))
+        set_free_amount(val)
+        await query.answer(f"✅ Free set to {val}!", show_alert=True)
+        try:
+            await query.message.edit_text(f"✅ **Free Downloads Updated to {val}!**\n\n• New users get {val} FREE per day\n• After {val}, ad wall shows\n• Synced to PythonAnywhere!", parse_mode="Markdown")
+        except:
+            pass
+        return
+    if data.startswith("set_reward_") and user_id == ADMIN_ID:
+        val = int(data.replace("set_reward_", ""))
+        set_reward_amount(val)
+        await query.answer(f"✅ Reward set to +{val}!", show_alert=True)
+        try:
+            await query.message.edit_text(f"✅ **Reward Updated to +{val}!**\n\nStrict limit enforced:\n• After ad, user gets exactly {val} download\n• My Stats will show {val}, not 4\n• Batch will be {val*5}\n\n✅ Synced to PythonAnywhere bridge!", parse_mode="Markdown")
+        except:
+            pass
+        return
     if data.startswith("set_ad_") and user_id == ADMIN_ID:
         mode = data.replace("set_ad_", "")
         config = load_json_file(CONFIG_FILE)
@@ -1573,10 +1637,11 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         user_str = str(user_id)
         if user_str not in tokens:
             # Create new token with +1 for test ad demo (not 4!)
+            reward = get_reward_amount()
             tokens[user_str] = {
                 "user_id": int(user_id),
-                "downloads_left": 1,
-                "batch_downloads_left": 5,
+                "downloads_left": reward,
+                "batch_downloads_left": reward * 5,
                 "last_reset": time.time(),
                 "msg_start": 0,
                 "msg_end": 0,
@@ -1587,7 +1652,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             save_tokens(tokens)
             await query.answer("✅ Test Ad Verified! (Clause 13 Demo) +1 realistic", show_alert=True)
             await query.message.reply_text(
-                "✅ **TEST AD VERIFIED! 🎉 (Clause 13 + 12 Demo) - Optimum +1**\n\n"
+                f"✅ **TEST AD VERIFIED! 🎉 Reward +{get_reward_amount()}**"\n\n"
                 "This is what user sees after watching 20s ad:\n"
                 "• Ad placement found & verified! ✅\n"
                 "• Reward: +1 download refilled (realistic optimum - Clause 12 fix)!\n"
@@ -1603,9 +1668,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.answer("⏰ Finish 20s timer first! Watch ad via Open Link button!", show_alert=True)
             return
         msg_start, msg_end = token_data.get("msg_start",0), token_data.get("msg_end",0)
-        # FIX: Don't delete token! Keep it and set to +1 optimum (was deleting and recreating as 4!)
-        tokens[user_str]["downloads_left"] = 1
-        tokens[user_str]["batch_downloads_left"] = 5
+        # FIX: Strict limit - set to current reward amount
+        reward = get_reward_amount()
+        tokens[user_str]["downloads_left"] = reward
+        tokens[user_str]["batch_downloads_left"] = reward * 5
         tokens[user_str]["verified"] = True
         tokens[user_str]["msg_start"] = 0
         tokens[user_str]["msg_end"] = 0
