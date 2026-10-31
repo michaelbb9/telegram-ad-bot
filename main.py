@@ -12,7 +12,7 @@ import imageio_ffmpeg
 import yt_dlp
 from bs4 import BeautifulSoup
 from flask import Flask
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
@@ -82,6 +82,7 @@ LANGUAGES = {
         "batch_detected": "📦 **Batch Detected ({} links)**\nWhat format?",
         "batch_dest": "📦 **Where to send?**",
         "btn_chat": "📥 In Chat", "btn_chan": "📢 To Channel",
+        # CLAUSE 12 FIX: Changed 30s to 20s and +4 to +1 optimum realistic reward
         "limit_reached": "⚠️ **Limit Reached! 🚧😅 You used 4 FREE! 🎬 Watch 20s ad → Get +1 download! Realistic reward ♻️✨**",
         "refill_btn": "🔓 Open Link & Refill +1",
         "join_btn": "📢 Join Channel", "check_btn": "💜 Check Balance",
@@ -443,6 +444,7 @@ def get_free_disk_mb():
         return 512
 
 def deduct_download_counter(user_id, is_batch=False):
+    # FIX: Only call server once - no local double save - prevents -2 bug
     try:
         requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": is_batch}, timeout=3)
     except:
@@ -544,11 +546,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if assigned_network == "adsgram":
         tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": int(msg_start), "msg_end": int(msg_end), "clicked_ad": True, "verified": True, "expires": time.time() + 600}
         save_tokens(tokens)
-        adsgram_webapp_url = f"https://api.adsgram.ai/advbot?blockId={ADSGRAM_BLOCK_ID}"
-        keyboard = [
-            [InlineKeyboardButton("📺 Watch Ad (Adsgram)", web_app=WebAppInfo(url=adsgram_webapp_url))],
-            [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)]
-        ]
+        keyboard = [[InlineKeyboardButton("📺 Watch Ad (Adsgram)", callback_data=f"adsgram_complete_{msg_start}_{msg_end}")],[InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)]]
         if user_id == ADMIN_ID:
             keyboard.append([InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")])
         await update.message.reply_text("📺 **Adsgram Sponsor**\nWatch to unlock!", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
@@ -559,6 +557,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch", url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
     if user_id == ADMIN_ID:
         keyboard.append([InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")])
+    # Forward tutorial video 108 for Adsterra bypass - ROBUST VERSION - CLAUSE 13 + 12 FIX
     tutorial_sent = False
     try:
         tut = await context.bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
@@ -616,8 +615,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                 tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": True, "verified": True, "expires": time.time() + 600}
                 save_tokens(tokens)
                 paused_batches[user_id] = {"urls": urls, "next_index": index-1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
-                adsgram_webapp_url = f"https://api.adsgram.ai/advbot?blockId={ADSGRAM_BLOCK_ID}"
-                keyboard = [[InlineKeyboardButton("📺 Watch Ad", web_app=WebAppInfo(url=adsgram_webapp_url))]]
+                keyboard = [[InlineKeyboardButton("📺 Watch Ad", callback_data="adsgram_resume_batch")]]
                 await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 break
             bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
@@ -957,8 +955,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 msg_end = user_profile.get("msg_end", 0)
             assigned_network = get_global_ab_network(user_id)
             if assigned_network == "adsgram":
-                adsgram_webapp_url = f"https://api.adsgram.ai/advbot?blockId={ADSGRAM_BLOCK_ID}"
-                keyboard = [[InlineKeyboardButton("📺 Watch Ad +1", web_app=WebAppInfo(url=adsgram_webapp_url))]]
+                keyboard = [[InlineKeyboardButton("📺 Watch Ad +1", callback_data="adsgram_complete_single" if msg_start == 0 else f"adsgram_complete_{msg_start}_{msg_end}")]]
                 await update.message.reply_text(t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 return
             else:
@@ -1639,6 +1636,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         tokens = load_tokens()
         user_str = str(user_id)
         if user_str not in tokens:
+            # Create new token with +1 for test ad demo (not 4!)
             reward = get_reward_amount()
             tokens[user_str] = {
                 "user_id": int(user_id),
@@ -1670,6 +1668,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.answer("⏰ Finish 20s timer first! Watch ad via Open Link button!", show_alert=True)
             return
         msg_start, msg_end = token_data.get("msg_start",0), token_data.get("msg_end",0)
+        # FIX: Don't delete token! Keep it and set to +1 optimum (was deleting and recreating as 4!)
         reward = get_reward_amount()
         tokens[user_str]["downloads_left"] = reward
         tokens[user_str]["batch_downloads_left"] = reward * 5
