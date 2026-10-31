@@ -171,7 +171,7 @@ def ytmusic_get_youtube_url(query):
     return None, None, None, None
 
 def piped_download_youtube(youtube_url, is_audio=False):
-    """V46 - PO Token + PythonAnywhere proxy fallback for Atlantic/UMG - Research: ytdlbot uses curl-cffi + POTOKEN + residential proxy"""
+    """V45 PO Token + web client - Research: ytdlbot uses yt-dlp[default,curl-cffi]==2025.8.11 + POTOKEN, Oct 2026 vid says DON'T force android"""
     try:
         import requests, tempfile, os, shutil, glob, subprocess, sys
         video_id = ""
@@ -181,13 +181,14 @@ def piped_download_youtube(youtube_url, is_audio=False):
             video_id = youtube_url.split("youtu.be/")[1].split("?")[0]
         else:
             video_id = youtube_url.strip()[-11:]
-        print(f"[V46 DOWNLOAD] video_id={video_id} audio={is_audio}")
+        print(f"[V45 DOWNLOAD] video_id={video_id} audio={is_audio}")
 
-        # Install PO token if needed
+        # Install PO token provider if needed - fixes "Sign in to confirm you're not a bot" on Render datacenter IP
         try:
             import bgutil_ytdlp_pot_provider
         except:
             try:
+                print("[V45] Installing PO token provider...")
                 subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "bgutil-ytdlp-pot-provider"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except:
                 pass
@@ -200,13 +201,7 @@ def piped_download_youtube(youtube_url, is_audio=False):
             except:
                 pass
 
-        cookie_file = None
-        for cf in ["youtube_cookies.txt", "cookies.txt", "/opt/render/project/src/youtube_cookies.txt"]:
-            if os.path.exists(cf):
-                cookie_file = cf
-                break
-
-        # 1. PO Token + web client (main)
+        # Per research: Use default clients + PO token, NOT forced android (android needs PO token + can't use cookies)
         try:
             import yt_dlp
             ydl_opts = {
@@ -218,8 +213,15 @@ def piped_download_youtube(youtube_url, is_audio=False):
                 'extractor_retries': 3,
                 'sleep_requests': 1,
             }
+            cookie_file = None
+            for cf in ["youtube_cookies.txt", "cookies.txt", "/opt/render/project/src/youtube_cookies.txt"]:
+                if os.path.exists(cf):
+                    cookie_file = cf
+                    break
             if cookie_file:
                 ydl_opts['cookiefile'] = cookie_file
+                print(f"[V45] Using cookie {cookie_file}")
+
             if is_audio:
                 try:
                     import imageio_ffmpeg
@@ -229,12 +231,13 @@ def piped_download_youtube(youtube_url, is_audio=False):
                     })
                 except:
                     ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}]
-            print(f"[V46] Trying PO Token download {youtube_url}")
+
+            print(f"[V45] Downloading {youtube_url} with PO token")
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(youtube_url, download=True)
                 vid = info.get('id', video_id) if info else video_id
                 found = None
-                for ext in ['mp3','m4a','opus']:
+                for ext in ['mp3','m4a','opus','webm','mp4']:
                     path = os.path.join(output_dir, f"{vid}.{ext}")
                     if os.path.exists(path) and os.path.getsize(path) > 20000:
                         found = path
@@ -248,12 +251,14 @@ def piped_download_youtube(youtube_url, is_audio=False):
                     td = tempfile.mkdtemp()
                     dest = os.path.join(td, f"ytdlp.{'mp3' if is_audio else 'mp4'}")
                     shutil.move(found, dest)
-                    print(f"[V46] SUCCESS PO Token {os.path.getsize(dest)}")
+                    print(f"[V45] SUCCESS {os.path.getsize(dest)} bytes")
                     return dest, td, "ytdlp_po_token"
         except Exception as e:
-            print(f"[V46] PO Token fail {e}")
+            print(f"[V45] yt-dlp fail {e}")
+            import traceback
+            traceback.print_exc()
 
-        # 2. web_safari fallback
+        # Fallback web_safari client
         try:
             import yt_dlp
             ydl_opts = {
@@ -274,91 +279,15 @@ def piped_download_youtube(youtube_url, is_audio=False):
                         td = tempfile.mkdtemp()
                         dest = os.path.join(td, "ytdlp.mp3")
                         shutil.move(p, dest)
-                        print(f"[V46] SUCCESS web_safari")
                         return dest, td, "ytdlp_web_safari"
         except Exception as e:
-            print(f"[V46] web_safari fail {e}")
-
-        # 3. Piped instances - try many for Atlantic bypass
-        piped_instances = [
-            "https://pipedapi.kavin.rocks",
-            "https://api.piped.private.coffee",
-            "https://pipedapi.syncpundit.io",
-            "https://pipedapi.moomoo.me",
-            "https://pipedapi.adminforge.de",
-            "https://piped-api.lunar.icu",
-            "https://pipedapi.drgns.space",
-            "https://pipedapi.leptos.new",
-        ]
-        for piped_base in piped_instances:
-            try:
-                r = requests.get(f"{piped_base}/streams/{video_id}", timeout=10)
-                if r.status_code == 200:
-                    data = r.json()
-                    audio_streams = data.get("audioStreams", [])
-                    if is_audio and audio_streams:
-                        best = sorted(audio_streams, key=lambda x: x.get("bitrate",0), reverse=True)[0]
-                        dl_url = best.get("url")
-                        if dl_url:
-                            mr = requests.get(dl_url, stream=True, timeout=60)
-                            if mr.status_code == 200:
-                                td = tempfile.mkdtemp()
-                                fp = os.path.join(td, "piped.mp3")
-                                with open(fp,'wb') as f:
-                                    for ch in mr.iter_content(16384):
-                                        if ch:
-                                            f.write(ch)
-                                if os.path.exists(fp) and os.path.getsize(fp) > 20000:
-                                    print(f"[V46] SUCCESS Piped {piped_base}")
-                                    return fp, td, f"piped_{piped_base.split('//')[-1][:10]}"
-                                shutil.rmtree(td, ignore_errors=True)
-            except:
-                continue
-
-        # 4. PythonAnywhere proxy fallback - Render IP flagged, PythonAnywhere less flagged
-        # Your WEB_BASE_URL https://michaelbbc.pythonanywhere.com can run yt-dlp with residential-like IP
-        try:
-            print(f"[V46] Trying PythonAnywhere proxy for {video_id}")
-            # Try to call your PythonAnywhere bridge if it supports download
-            # This is how real bots do it: offload YouTube download to less-flagged server
-            pa_url = f"https://michaelbbc.pythonanywhere.com/download_youtube?url={youtube_url}&audio={int(is_audio)}"
-            # If your PythonAnywhere has /download endpoint, it will return file
-            # For now, try invidious as last resort
-            inv_instances = [
-                "https://inv.nadeko.net",
-                "https://invidious.private.coffee",
-                "https://iv.melmac.space",
-            ]
-            for inv_base in inv_instances:
-                try:
-                    r = requests.get(f"{inv_base}/api/v1/videos/{video_id}", timeout=10)
-                    if r.status_code == 200:
-                        data = r.json()
-                        adaptive = data.get("adaptiveFormats", [])
-                        for fmt in adaptive:
-                            if is_audio and "audio" in fmt.get("type","") and fmt.get("url"):
-                                dl_url = fmt["url"]
-                                mr = requests.get(dl_url, stream=True, timeout=60)
-                                if mr.status_code == 200:
-                                    td = tempfile.mkdtemp()
-                                    fp = os.path.join(td, "invidious.mp3")
-                                    with open(fp,'wb') as f:
-                                        for ch in mr.iter_content(16384):
-                                            if ch:
-                                                f.write(ch)
-                                    if os.path.getsize(fp) > 20000:
-                                        return fp, td, "invidious"
-                except:
-                    continue
-        except Exception as e:
-            print(f"[V46] Proxy fail {e}")
+            print(f"[V45] web_safari fail {e}")
 
     except Exception as e:
-        print(f"[V46] Outer fail {e}")
+        print(f"[V45] Outer fail {e}")
         import traceback
         traceback.print_exc()
     return None, None, "failed"
-
 
 async def handle_music_pick_v25(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle music button tap - Deezer 10 suggestions"""
@@ -473,7 +402,7 @@ async def handle_music_pick_v25(update: Update, context: ContextTypes.DEFAULT_TY
 web_app = Flask(__name__)
 @web_app.route('/')
 def health_check():
-    return "Bot alive! V46 CLEAN - From Original V24 + Deezer 10 + Music Click Fixed + PO Token + PythonAnywhere Proxy - NO V24", 200
+    return "Bot alive! V45 CLEAN - From Original V24 + Deezer 10 + Music Click Fixed + PO Token - Research Based", 200
 
 def load_json_file(filename):
     if os.path.exists(filename):
@@ -1518,7 +1447,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     mode = config.get("ad_mode","auto").upper()
     free_mb = get_free_disk_mb()
     cache = load_json_file(CACHE_FILE)
-    await update.message.reply_text(f"🟢 **Status V46 CLEAN**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic (Clause 12 fix)\nDeezer: 10 sugg\nPO Token: Active\nProxy: PythonAnywhere fallback for Atlantic/UMG\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
+    await update.message.reply_text(f"🟢 **Status V24 Optimum**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic (Clause 12 fix)\nTest: /testad (Clause 13 fix)\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
 
 async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID:
@@ -2191,7 +2120,7 @@ def run_telegram_bot():
         asyncio.create_task(auto_backup_loop(app.bot))
         asyncio.create_task(queue_processor(app.bot))
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
-        print(f"Bot started! V46 CLEAN FROM ORIGINAL V24 + Deezer + Music Fix + PO Token + Proxy Vault={VIDEO_VAULT_ID} Free {get_free_disk_mb()}MB")
+        print(f"Bot started! V45 CLEAN FROM ORIGINAL V24 + Deezer + Music Fix + PO Token Vault={VIDEO_VAULT_ID} Free {get_free_disk_mb()}MB")
         await asyncio.Event().wait()
     loop.run_until_complete(start_bot())
 
