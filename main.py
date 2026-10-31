@@ -128,8 +128,13 @@ def save_json_file(filename, data):
 def get_canonical_key(url: str):
     try:
         ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True}
+        # Separate cookies: tiktok_cookies.txt for TikTok, youtube_cookies.txt for YouTube/Spotify search
         if os.path.exists("tiktok_cookies.txt") and "tiktok.com" in url.lower():
             ydl_opts['cookiefile'] = "tiktok_cookies.txt"
+        elif os.path.exists("youtube_cookies.txt") and ("youtube.com" in url.lower() or "youtu.be" in url.lower() or "ytsearch" in url.lower() or "ytmsearch" in url.lower()):
+            ydl_opts['cookiefile'] = "youtube_cookies.txt"
+        elif os.path.exists("youtube.com_cookies.txt"):
+            ydl_opts['cookiefile'] = "youtube.com_cookies.txt"
         elif os.path.exists("cookies.txt"):
             ydl_opts['cookiefile'] = "cookies.txt"
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -333,8 +338,17 @@ def download_media_engine(url: str, download_type: str, quality: str = "best"):
         cookiefile = "tiktok_cookies.txt"
     elif os.path.exists("cookies.txt"):
         cookiefile = "cookies.txt"
+    # Check for separate YouTube cookies first
+    import os
+    yt_cookie = None
+    for cf in ["youtube_cookies.txt", "youtube.com_cookies.txt", "yt_cookies.txt"]:
+        if os.path.exists(cf):
+            yt_cookie = cf
+            break
     ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL}
-    if cookiefile:
+    if yt_cookie:
+        ydl_opts['cookiefile'] = yt_cookie
+    elif cookiefile:
         ydl_opts['cookiefile'] = cookiefile
     if download_type == 'audio':
         ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path})
@@ -479,10 +493,18 @@ def download_spotify_engine(spotify_url_or_name: str):
         f"ytsearch1:{base_term} Rema" if "rema" in base_term.lower() or "oroma" in base_term.lower() else f"ytsearch1:{base_term} lyrics",
     ]
     
+    # Use youtube_cookies.txt for Spotify -> YouTube search (Oroma Baby fix)
+    import os
+    _yt_cookie = None
+    for _cf in ["youtube_cookies.txt", "youtube.com_cookies.txt", "yt_cookies.txt", "cookies.txt"]:
+        if os.path.exists(_cf):
+            _yt_cookie = _cf
+            break
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
         'format': 'bestaudio/best',
+        **({'cookiefile': _yt_cookie} if _yt_cookie else {}),
         'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
         'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
         'ffmpeg_location': ffmpeg_path,
@@ -939,15 +961,8 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             del support_states[str(user_id)]
             save_json_file(SUPPORT_STATES_FILE, support_states)
     if text == "🔍 Song Search" or text.strip().lower() == "song search":
-        # Enter song search mode - BOTH in-memory + file for persistence (fixes silent bug)
+        # Enter song search mode - in-memory, no file, no rubbish auto-search
         pending_song_search[user_id] = time.time()
-        # Also save to file as backup
-        try:
-            states = load_json_file("search_states.json")
-            states[str(user_id)] = {"mode": "awaiting_song", "timestamp": time.time()}
-            save_json_file("search_states.json", states)
-        except:
-            pass
         # Clear old file states if any
         await update.message.reply_text(
             "🔍 **SONG SEARCH MODE**\n\n"
@@ -1702,6 +1717,32 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         keyboard = [[InlineKeyboardButton(t["btn_chat"], callback_data=f"dest_chat_{dl_type}_{payload_key}")],[InlineKeyboardButton(t["btn_chan"], callback_data=f"dest_chan_{dl_type}_{payload_key}")]]
         await context.bot.send_message(chat_id=chat_id, text=t["batch_dest"].format(len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
+    if data.startswith("do_search_"):
+        # Step 2: User tapped SEARCH button - now do YouTube search (callback = reliable, avoids silent bug)
+        payload_key = data.replace("do_search_", "")
+        song_name = pending_single_links.get(payload_key, "")
+        if not song_name:
+            await query.answer("❌ Song expired, type again!", show_alert=True)
+            return
+        await query.answer(f"🔍 Searching {song_name}...")
+        try:
+            await query.edit_message_text(f"🔍 **Searching YouTube for: {song_name}**\nPlease wait... (using youtube_cookies.txt)")
+        except:
+            pass
+        # Now create download button
+        download_key = f"songdl_{user_id}_{int(time.time())}"
+        pending_single_links[download_key] = song_name
+        keyboard = [[InlineKeyboardButton(f"🎵 Download MP3: {song_name[:35]}", callback_data=f"fmt_spotify_{download_key}")]]
+        try:
+            await query.edit_message_text(
+                f"✅ **Found: {song_name}**\n\n👇 **Tap to download MP3!**\n🎵 Searches: YouTube + YouTube Music\n💰 {get_free_amount()} FREE → Ad → +{get_reward_amount()}",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown"
+            )
+        except:
+            await context.bot.send_message(chat_id=chat_id, text=f"✅ **Found: {song_name}** - Tap to download", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        return
+
     if data.startswith("fmt_"):
         # Spotify first
         if data.startswith("fmt_spotify_"):
