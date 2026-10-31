@@ -58,7 +58,6 @@ active_batch_sessions = {}
 pending_batch_payloads = {}
 paused_batches = {}
 pending_single_links = {}
-pending_song_search = {}
 
 MAX_CONCURRENT_SHORT = 3
 MIN_FREE_DISK_MB = 150
@@ -83,6 +82,7 @@ LANGUAGES = {
         "batch_detected": "📦 **Batch Detected ({} links)**\nWhat format?",
         "batch_dest": "📦 **Where to send?**",
         "btn_chat": "📥 In Chat", "btn_chan": "📢 To Channel",
+        # CLAUSE 12 FIX: Changed 30s to 20s and +4 to +1 optimum realistic reward
         "limit_reached": "⚠️ **Limit Reached! 🚧😅 You used 4 FREE! 🎬 Watch 20s ad → Get +1 download! Realistic reward ♻️✨**",
         "refill_btn": "🔓 Open Link & Refill +1",
         "join_btn": "📢 Join Channel", "check_btn": "💜 Check Balance",
@@ -106,7 +106,7 @@ LANGUAGES = {
 web_app = Flask(__name__)
 @web_app.route('/')
 def health_check():
-    return "Bot alive! V39 Working Base + YouTube Cookies + Song Search", 200
+    return "Bot alive! V24 Optimum +1", 200
 
 def load_json_file(filename):
     if os.path.exists(filename):
@@ -124,27 +124,13 @@ def save_json_file(filename, data):
     except Exception as e:
         logger.error(f"Save {filename}: {e}")
 
-def get_cookies_file_for_url(url):
-    # NEW: Separate cookies support - won't break downloads
-    url_l = url.lower()
-    if "tiktok.com" in url_l and os.path.exists("tiktok_cookies.txt"):
-        return "tiktok_cookies.txt"
-    if ("youtube.com" in url_l or "youtu.be" in url_l or "ytsearch" in url_l or "ytmsearch" in url_l) and os.path.exists("youtube_cookies.txt"):
-        return "youtube_cookies.txt"
-    if os.path.exists("youtube_cookies.txt") and ("spotify" in url_l or "oroma" in url_l or len(url_l) < 60): # for song search
-        return "youtube_cookies.txt"
-    if os.path.exists("cookies.txt"):
-        return "cookies.txt"
-    if os.path.exists("youtube.com_cookies.txt"):
-        return "youtube.com_cookies.txt"
-    return None
-
 def get_canonical_key(url: str):
     try:
         ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True}
-        cf = get_cookies_file_for_url(url)
-        if cf:
-            ydl_opts['cookiefile'] = cf
+        if os.path.exists("tiktok_cookies.txt") and "tiktok.com" in url.lower():
+            ydl_opts['cookiefile'] = "tiktok_cookies.txt"
+        elif os.path.exists("cookies.txt"):
+            ydl_opts['cookiefile'] = "cookies.txt"
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             if not info:
@@ -211,6 +197,14 @@ async def disk_cleaner_loop():
                 logger.info(f"Cleaner deleted {deleted}")
         except Exception as e:
             logger.error(f"Cleaner: {e}")
+
+def restore_cache_info():
+    try:
+        cache = load_json_file(CACHE_FILE)
+        if len(cache)==0:
+            logger.info("Cache empty after clear/restart - vault channel has 4 vids but index reset. Use /backup to restore from private channel")
+    except:
+        pass
 
 def clean_downloads_startup():
     try:
@@ -304,9 +298,6 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
 
 def fetch_url_metadata(url):
     ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True}
-    cf = get_cookies_file_for_url(url)
-    if cf:
-        ydl_opts['cookiefile'] = cf
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -332,76 +323,15 @@ def scrape_html_images(url, cookiefile=None):
         logger.error(f"Scrape: {e}")
     return None
 
-def download_media_engine(url: str, download_type: str, quality: str = "best"):
-    # V40 QUALITY FIX - Same working engine but with quality selector! Your liked feature!
+def download_media_engine(url: str, download_type: str):
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     http_headers = {'User-Agent': 'Mozilla/5.0'}
-    cookiefile = get_cookies_file_for_url(url)
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL}
-    if cookiefile:
-        ydl_opts['cookiefile'] = cookiefile
-    
-    quality_map = {
-        "360": "bestvideo[height<=360]+bestaudio/best[height<=360]/best",
-        "480": "bestvideo[height<=480]+bestaudio/best[height<=480]/best",
-        "720": "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
-        "1080": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
-        "best": "bestvideo+bestaudio/best/best",
-    }
-    
-    if download_type == 'audio' or download_type == 'mp3':
-        ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path})
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            base = os.path.splitext(ydl.prepare_filename(info))[0]
-            path = f"{base}.mp3"
-            if os.path.exists(path):
-                return [path], "MP3 192kbps", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
-        raise ValueError("FILE_NOT_FOUND")
-    elif download_type == 'images':
-        img_url = scrape_html_images(url, cookiefile)
-        if img_url:
-            data = requests.get(img_url, headers=http_headers, timeout=15).content
-            path = os.path.join(output_dir, f"img_{int(time.time())}.jpg")
-            with open(path, 'wb') as f:
-                f.write(data)
-            if os.path.getsize(path) > 1000:
-                return [path], "Image", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
-        raise ValueError("NO_IMAGES")
-    elif download_type == 'spotify':
-        return download_spotify_fixed(url, quality)
-    else:
-        formats_to_try = []
-        if quality in quality_map:
-            formats_to_try.append(quality_map[quality])
-        formats_to_try.extend(["best", "bestvideo+bestaudio/best", "b"])
-        
-        for fmt in formats_to_try:
-            try:
-                ydl_opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path})
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    path = ydl.prepare_filename(info)
-                    if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0]+".mp4"):
-                        path = os.path.splitext(path)[0]+".mp4"
-                    if os.path.exists(path):
-                        if os.path.getsize(path) > 50*1024*1024:
-                            os.remove(path)
-                            continue
-                        height = info.get('height', 'HD')
-                        return [path], f"{height}p ({quality})", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
-            except Exception as e:
-                if "Unsupported URL" in str(e) or "403" in str(e):
-                    raise e
-                continue
-        raise ValueError("FILE_TOO_LARGE")
-
-def download_media_engine_original(url: str, download_type: str):
-    output_dir = "downloads"
-    os.makedirs(output_dir, exist_ok=True)
-    http_headers = {'User-Agent': 'Mozilla/5.0'}
-    cookiefile = get_cookies_file_for_url(url)
+    cookiefile = None
+    if "tiktok.com" in url.lower() and os.path.exists("tiktok_cookies.txt"):
+        cookiefile = "tiktok_cookies.txt"
+    elif os.path.exists("cookies.txt"):
+        cookiefile = "cookies.txt"
     ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL}
     if cookiefile:
         ydl_opts['cookiefile'] = cookiefile
@@ -443,92 +373,6 @@ def download_media_engine_original(url: str, download_type: str):
                     raise e
                 continue
         raise ValueError("FILE_TOO_LARGE")
-
-def download_spotify_engine(search_term):
-    output_dir = "downloads"
-    os.makedirs(output_dir, exist_ok=True)
-    cookies = get_cookies_file_for_url("youtube.com")
-    queries = [
-        f"ytsearch1:{search_term}",
-        f"ytmsearch1:{search_term}",
-        f"ytsearch1:{search_term} official audio",
-        f"ytsearch1:{search_term} lyrics",
-    ]
-    ydl_opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'format': 'bestaudio/best',
-        'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
-        'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
-        'ffmpeg_location': ffmpeg_path,
-        'noplaylist': True,
-    }
-    if cookies:
-        ydl_opts['cookiefile'] = cookies
-    last_err = None
-    for q in queries:
-        try:
-            time.sleep(0.5)
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(q, download=True)
-                if 'entries' in info and info['entries']:
-                    info = info['entries'][0]
-                if not info:
-                    continue
-                base_name = os.path.splitext(ydl.prepare_filename(info))[0]
-                mp3_path = f"{base_name}.mp3"
-                if os.path.exists(mp3_path) and os.path.getsize(mp3_path) > 10000:
-                    size = f"{os.path.getsize(mp3_path)/(1024*1024):.1f}MB"
-                    title = info.get('title', search_term)
-                    return [mp3_path], title, size
-        except Exception as e:
-            last_err = e
-            continue
-    raise ValueError(f"SPOTIFY_NOT_FOUND:{last_err}")
-
-def download_spotify_fixed(url_or_query: str, quality="best"):
-    output_dir = "downloads"
-    os.makedirs(output_dir, exist_ok=True)
-    cookies = get_cookies_file_for_url("youtube.com")
-    search_term = url_or_query
-    if "spotify.com" in url_or_query.lower():
-        try:
-            temp_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True}
-            if cookies:
-                temp_opts['cookiefile'] = cookies
-            with yt_dlp.YoutubeDL(temp_opts) as ydl:
-                info = ydl.extract_info(url_or_query, download=False)
-                if info:
-                    title = info.get('title') or info.get('track') or ""
-                    artist = info.get('artist') or info.get('uploader') or ""
-                    if title:
-                        search_term = f"{artist} {title}".strip() if artist else title
-        except Exception as e:
-            logger.info(f"Spotify resolve fail: {e}")
-    queries = [f"ytsearch1:{search_term}", f"ytmsearch1:{search_term}", f"ytsearch1:{search_term} official audio"]
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'noplaylist': True}
-    if cookies:
-        ydl_opts['cookiefile'] = cookies
-    last_err = None
-    for q in queries:
-        try:
-            time.sleep(0.3)
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(q, download=True)
-                if 'entries' in info and info['entries']:
-                    info = info['entries'][0]
-                if not info:
-                    continue
-                base_name = os.path.splitext(ydl.prepare_filename(info))[0]
-                mp3_path = f"{base_name}.mp3"
-                if os.path.exists(mp3_path) and os.path.getsize(mp3_path) > 5000:
-                    size = f"{os.path.getsize(mp3_path)/(1024*1024):.1f}MB"
-                    title = info.get('title', search_term)
-                    return [mp3_path], f"MP3 {title[:30]}", size
-        except Exception as e:
-            last_err = e
-            continue
-    raise ValueError(f"SPOTIFY_FAILED:{last_err}")
 
 def get_main_keyboard(lang_code, is_admin):
     t = LANGUAGES.get(lang_code, LANGUAGES["en"])
@@ -600,6 +444,7 @@ def get_free_disk_mb():
         return 512
 
 def deduct_download_counter(user_id, is_batch=False):
+    # FIX: Only call server once - no local double save - prevents -2 bug
     try:
         requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": is_batch}, timeout=3)
     except:
@@ -712,6 +557,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch", url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
     if user_id == ADMIN_ID:
         keyboard.append([InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")])
+    # Forward tutorial video 108 for Adsterra bypass - ROBUST VERSION - CLAUSE 13 + 12 FIX
     tutorial_sent = False
     try:
         tut = await context.bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
@@ -727,12 +573,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             try:
                 await context.bot.send_message(
                     chat_id=user_id,
-                    text="📺 **TUTORIAL: How to bypass Adsterra link (20s) - Optimum +1**\n\n1️⃣ Click **Open Link & Watch Timer 20s**\n2️⃣ Click **OPEN** on popup\n3️⃣ Stay 20 seconds on ad page\n4️⃣ Come back to bot\n5️⃣ Click **Check Balance** → Get +1 download (realistic)!\n\n⚠️ If tutorial video 108 missing from private channel -1004347828512, re-upload it!",
+                    text="📺 **TUTORIAL: How to bypass Adsterra link (20s) - Optimum +1**\n\n"
+                    "1️⃣ Click **Open Link & Watch Timer 20s**\n"
+                    "2️⃣ Click **OPEN** on popup\n"
+                    "3️⃣ Stay 20 seconds on ad page\n"
+                    "4️⃣ Come back to bot\n"
+                    "5️⃣ Click **Check Balance** → Get +1 download (realistic)!\n\n"
+                    "⚠️ If tutorial video 108 missing from private channel -1004347828512, re-upload it!",
                     parse_mode="Markdown"
                 )
                 tutorial_sent = True
             except:
                 pass
+
     await update.message.reply_text("👇 **CONTENT LOCKED 🔒 - Tutorial video above! Watch how to bypass!**" + ("" if tutorial_sent else "\n\n⚠️ Tutorial video 108 missing! Make bot admin in -1004347828512 and ensure message 108 exists!"), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0):
@@ -918,35 +771,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if str(user_id) in support_states:
             del support_states[str(user_id)]
             save_json_file(SUPPORT_STATES_FILE, support_states)
-    # SONG SEARCH BUTTON ONLY - 2-step to avoid silent
-    try:
-        search_states_file = load_json_file("search_states.json")
-    except:
-        search_states_file = {}
-    in_memory = user_id in pending_song_search
-    in_file = str(user_id) in search_states_file and search_states_file[str(user_id)].get("mode") == "awaiting_song"
-    if in_memory or in_file:
-        song_name = text.strip()
-        if song_name and "http" not in song_name.lower() and len(song_name) >= 2 and len(song_name) <= 60 and not song_name.startswith("/") and not song_name.startswith("✅") and not song_name.startswith("❌") and not song_name.startswith("⚠️"):
-            if user_id in pending_song_search:
-                del pending_song_search[user_id]
-            try:
-                states = load_json_file("search_states.json")
-                if str(user_id) in states:
-                    del states[str(user_id)]
-                    save_json_file("search_states.json", states)
-            except:
-                pass
-            payload_key = f"search_{user_id}_{int(time.time())}"
-            pending_single_links[payload_key] = song_name
-            keyboard = [[InlineKeyboardButton(f"🔍 Search: {song_name[:40]}", callback_data=f"do_search_{payload_key}")]]
-            await update.message.reply_text(
-                f"🎵 **Song: {song_name}**\n\n👇 **Tap to search YouTube!**\n💰 {get_free_amount()} FREE → Ad → +{get_reward_amount()} (strict)\n✅ Button = No silent bug!\n🍪 Uses youtube_cookies.txt",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="Markdown"
-            )
-            return
-    # V40: Song Search button removed - Spotify link search only
     if text.startswith("📦 Set Free") and user_id == ADMIN_ID:
         current = get_free_amount()
         keyboard = [[InlineKeyboardButton(f"✅ {i} (Current)" if i==current else f"{i} free", callback_data=f"set_free_{i}") for i in [2,3,4,5]]]
@@ -995,6 +819,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if text == "🟢 Bot Status":
         await status_command(update, context)
         return
+
     if "Test Ad" in text or text.strip() == "🧪 Test Ad":
         bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
         keyboard = [
@@ -1020,6 +845,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             parse_mode="Markdown"
         )
         return
+
     if "Ad Info" in text:
         await update.message.reply_text(
             "📢 **AD INFO - ALL MEDIA DOWNLOADER - Clause 13 + 12 Fix**\n\n"
@@ -1175,13 +1001,9 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text(t["batch_detected"].format(len(extracted_urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     url = extracted_urls[0]
-    # V40 FIX: YouTube UNPAUSED for MP3/Spotify (was blocking YT, but we need YT for MP3!)
-    # If youtube.com and youtube_cookies.txt exists, allow it!
-    if "youtube.com" in url.lower() or "youtu.be" in url.lower():
-        if not os.path.exists("youtube_cookies.txt") and not os.path.exists("cookies.txt"):
-            await update.message.reply_text("⚠️ YouTube needs youtube_cookies.txt! Upload it to GitHub or use MP3 from TikTok/FB/Insta only")
-            return
-        # Allow YouTube - continue to download
+    if "youtube.com" in url.lower():
+        await update.message.reply_text("❌ YouTube paused")
+        return
     status_preview = await update.message.reply_text("🔍 Checking link...")
     title, dur = fetch_url_metadata(url)
     try:
@@ -1267,7 +1089,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     mode = config.get("ad_mode","auto").upper()
     free_mb = get_free_disk_mb()
     cache = load_json_file(CACHE_FILE)
-    await update.message.reply_text(f"🟢 **Status V39 Working Base**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic\nCookies: tiktok_cookies.txt + youtube_cookies.txt + cookies.txt\nSong Search: 2-step button (no silent)\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
+    await update.message.reply_text(f"🟢 **Status V24 Optimum**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic (Clause 12 fix)\nTest: /testad (Clause 13 fix)\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
 
 async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID:
@@ -1497,87 +1319,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except:
             pass
         return
-    if data.startswith("q_"):
-        # V40 QUALITY SELECTOR - What you liked!
-        try:
-            parts = data.split("_", 3)
-            # q_720_vid_key  -> quality=720, fmt=vid, key=payload
-            quality = parts[1]
-            fmt_type = parts[2]
-            payload_key = parts[3]
-        except:
-            await query.answer("Invalid", show_alert=True)
-            return
-        url = pending_single_links.pop(payload_key, None)
-        if not url:
-            await query.answer("Expired - paste link again", show_alert=True)
-            return
-        await query.answer(f"Downloading {quality}p...")
-        await query.message.delete()
-        ckey = get_canonical_key(url)
-        cache = load_json_file(CACHE_FILE)
-        if ckey in cache and quality == "best":
-            await cached_download_and_send(context.bot, chat_id, url, "video", t)
-            return
-        can_dl = await acquire_slot()
-        if can_dl:
-            try:
-                # Use quality-aware engine
-                status = await context.bot.send_message(chat_id=chat_id, text=f"📥 Downloading {quality}p...")
-                try:
-                    file_paths, res, size = download_media_engine(url, "video", quality)
-                    if file_paths and os.path.exists(file_paths[0]):
-                        with open(file_paths[0], 'rb') as f:
-                            sent = await context.bot.send_video(chat_id=chat_id, video=f, caption=f"✨ {res} Size {size}")
-                        warn = await context.bot.send_message(chat_id=chat_id, text="⏳ Auto-deletes in 9 mins")
-                        asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent.message_id, warn.message_id], 540))
-                        try:
-                            vmsg = await context.bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent.video.file_id, caption=ckey)
-                            cache = load_json_file(CACHE_FILE)
-                            cache[ckey] = {"file_id": sent.video.file_id, "vault_msg_id": vmsg.message_id, "type": "video", "timestamp": time.time(), "hits": 1, "size": size}
-                            save_json_file(CACHE_FILE, cache)
-                        except:
-                            pass
-                        os.remove(file_paths[0])
-                        await context.bot.delete_message(chat_id=chat_id, message_id=status.message_id)
-                        deduct_download_counter(chat_id, is_batch=False)
-                    else:
-                        await context.bot.edit_message_text(chat_id=chat_id, message_id=status.message_id, text="❌ Failed")
-                except Exception as e:
-                    try:
-                        await context.bot.edit_message_text(chat_id=chat_id, message_id=status.message_id, text=f"❌ {str(e)[:100]}")
-                    except:
-                        pass
-            finally:
-                await release_slot()
-        else:
-            pos = download_queue.qsize()+1
-            await context.bot.send_message(chat_id=chat_id, text=f"⏳ **Server Busy** Queued #{pos} - {quality}p", parse_mode="Markdown")
-        return
-
-    if data.startswith("do_search_"):
-        payload_key = data.replace("do_search_", "")
-        song_name = pending_single_links.get(payload_key, "")
-        if not song_name:
-            await query.answer("❌ Expired, type again!", show_alert=True)
-            return
-        await query.answer(f"🔍 Searching {song_name}...")
-        try:
-            await query.edit_message_text(f"🔍 **Searching YouTube for: {song_name}**\nPlease wait... (youtube_cookies.txt)")
-        except:
-            pass
-        download_key = f"songdl_{user_id}_{int(time.time())}"
-        pending_single_links[download_key] = song_name
-        keyboard = [[InlineKeyboardButton(f"🎵 Download MP3: {song_name[:35]}", callback_data=f"fmt_spotify_{download_key}")]]
-        try:
-            await query.edit_message_text(
-                f"✅ **Found: {song_name}**\n\n👇 **Tap to download MP3!**\n💰 {get_free_amount()} FREE → Ad → +{get_reward_amount()}",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="Markdown"
-            )
-        except:
-            await context.bot.send_message(chat_id=chat_id, text=f"✅ Found: {song_name}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-        return
     if data == "open_support":
         support_states = load_json_file(SUPPORT_STATES_FILE)
         ticket_id = str(int(time.time()))
@@ -1740,44 +1481,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await context.bot.send_message(chat_id=chat_id, text=t["batch_dest"].format(len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     if data.startswith("fmt_"):
-        # Spotify / Song search
-        if data.startswith("fmt_spotify_"):
-            payload_key = data.replace("fmt_spotify_", "")
-            search_term = pending_single_links.pop(payload_key, None)
-            if not search_term:
-                await query.answer("Expired", show_alert=True)
-                return
-            await query.answer(f"Downloading {search_term} MP3...")
-            await query.message.delete()
-            can_dl = await acquire_slot()
-            if can_dl:
-                try:
-                    status = await context.bot.send_message(chat_id=chat_id, text=f"📥 Downloading MP3: {search_term} (youtube_cookies.txt)...")
-                    try:
-                        file_paths, title, size = download_spotify_engine(search_term)
-                        if file_paths and os.path.exists(file_paths[0]):
-                            with open(file_paths[0], 'rb') as f:
-                                sent = await context.bot.send_audio(chat_id=chat_id, audio=f, caption=f"🎵 {title} | {size} | {search_term}")
-                            warn = await context.bot.send_message(chat_id=chat_id, text="⏳ Auto-deletes in 9 mins")
-                            asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent.message_id, warn.message_id], 540))
-                            os.remove(file_paths[0])
-                            await context.bot.delete_message(chat_id=chat_id, message_id=status.message_id)
-                            deduct_download_counter(chat_id, is_batch=False)
-                        else:
-                            await context.bot.edit_message_text(chat_id=chat_id, message_id=status.message_id, text="❌ Failed to download MP3")
-                    except Exception as e:
-                        logger.error(f"Spotify DL {search_term}: {e}")
-                        try:
-                            await context.bot.edit_message_text(chat_id=chat_id, message_id=status.message_id, text=f"❌ {str(e)[:200]}")
-                        except:
-                            pass
-                finally:
-                    await release_slot()
-            else:
-                pos = download_queue.qsize()+1
-                await context.bot.send_message(chat_id=chat_id, text=f"⏳ Queued #{pos} (Spotify)", parse_mode="Markdown")
-            return
-        # Original fmt handling
         parts = data.split("_",2)
         fmt_type, payload_key = parts[1], parts[2]
         url = pending_single_links.pop(payload_key, None)
@@ -1933,6 +1636,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         tokens = load_tokens()
         user_str = str(user_id)
         if user_str not in tokens:
+            # Create new token with +1 for test ad demo (not 4!)
             reward = get_reward_amount()
             tokens[user_str] = {
                 "user_id": int(user_id),
@@ -1964,6 +1668,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.answer("⏰ Finish 20s timer first! Watch ad via Open Link button!", show_alert=True)
             return
         msg_start, msg_end = token_data.get("msg_start",0), token_data.get("msg_end",0)
+        # FIX: Don't delete token! Keep it and set to +1 optimum (was deleting and recreating as 4!)
         reward = get_reward_amount()
         tokens[user_str]["downloads_left"] = reward
         tokens[user_str]["batch_downloads_left"] = reward * 5
@@ -2001,6 +1706,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             asyncio.create_task(schedule_deletion(context.bot, user_id, fwd_ids, 540))
         except Exception as e:
             await query.message.reply_text(f"❌ {e} (Bundle {msg_start}-{msg_end} + Tutorial {TUTORIAL_MESSAGE_ID})")
+
 
 async def test_ad_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bridge_link = f"{BRIDGE_URL}?user={update.effective_user.id}&start_msg=0&end_msg=0"
@@ -2071,7 +1777,7 @@ def run_telegram_bot():
         asyncio.create_task(auto_backup_loop(app.bot))
         asyncio.create_task(queue_processor(app.bot))
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
-        print(f"Bot started! V39 Working Base + Cookies + Song Search")
+        print(f"Bot started! V24 Optimum +1 Vault={VIDEO_VAULT_ID} Backup={PRIVATE_CHANNEL_ID} Free {get_free_disk_mb()}MB")
         await asyncio.Event().wait()
     loop.run_until_complete(start_bot())
 
