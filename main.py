@@ -1945,63 +1945,89 @@ async def checkcookies_command(update, context):
         msg += f"ytmusicapi: NOT installed - pip install ytmusicapi\n"
     await update.message.reply_text(msg)
 
-# ===== SONG SEARCH WITH MONETISATION =====
+# ===== SONG SEARCH WITH MONETISATION - FIXED UNRESPONSIVE =====
 async def handle_song_search_mode(update, context, query_text):
     user_id = update.effective_user.id
+    print(f"Song search: {query_text} from {user_id}")
     
-    # Check monetisation - same as video downloader
-    # Use existing check_download_permission logic
+    # Quick reply first to avoid unresponsive feel
     try:
-        # Load tokens / flood control - reuse existing logic
-        can_download, reason = check_download_permission(user_id)
-        if not can_download:
-            # Show ad button
-            keyboard = [
-                [InlineKeyboardButton("▶️ Watch Ad (+1 Download)", web_app=WebAppInfo(url=f"{WEB_BASE_URL}/adsgram?user_id={user_id}"))],
-                [InlineKeyboardButton("🔄 Check & Get +1", callback_data=f"check_ad_{user_id}")]
-            ]
-            await update.message.reply_text(
-                f"🚫 {reason}\n\nYou have used all free downloads. Watch an ad to get +1 download!",
-                reply_markup=InlineKeyboardMarkup(keyboard)
+        wait_msg = await update.message.reply_text(f"🔍 Searching '{query_text}'... 10 suggestions coming!")
+    except:
+        wait_msg = None
+    
+    # Check monetisation - safe wrapper
+    try:
+        # Try existing function
+        if 'check_download_permission' in globals():
+            can_download, reason = check_download_permission(user_id)
+            if not can_download:
+                keyboard = [
+                    [InlineKeyboardButton("▶️ Watch Ad (+1 Download)", web_app=WebAppInfo(url=f"{WEB_BASE_URL}/adsgram?user_id={user_id}"))],
+                    [InlineKeyboardButton("✅ Check & Get +1", callback_data=f"check_ad_{user_id}")]
+                ]
+                try:
+                    if wait_msg:
+                        await wait_msg.edit_text(f"🚫 {reason}\n\nWatch ad to get +1 download for music!", reply_markup=InlineKeyboardMarkup(keyboard))
+                    else:
+                        await update.message.reply_text(f"🚫 {reason}\nWatch ad!", reply_markup=InlineKeyboardMarkup(keyboard))
+                except:
+                    pass
+                return
+    except Exception as e:
+        print(f"Monetisation check fail (allow): {e}")
+    
+    # Search Deezer for 10 suggestions (like Miku) - in thread to avoid blocking
+    def search_deezer_sync(q):
+        try:
+            resp = requests.get(f"https://api.deezer.com/search?q={q}", timeout=15)
+            data = resp.json()
+            return data.get("data", [])[:10]
+        except Exception as e:
+            print(f"Deezer search error: {e}")
+            return []
+    
+    loop = asyncio.get_event_loop()
+    tracks = await loop.run_in_executor(music_executor, search_deezer_sync, query_text)
+    
+    if not tracks:
+        try:
+            if wait_msg:
+                await wait_msg.edit_text(f"❌ No results for '{query_text}'. Try another name like 'Blinding Lights' or 'Koleyewon'")
+            else:
+                await update.message.reply_text(f"No results for '{query_text}'. Try another.")
+        except:
+            await update.message.reply_text(f"No results for '{query_text}'")
+        return
+    
+    # Build 10 buttons like Miku screenshot
+    buttons = []
+    for track in tracks:
+        title = track.get("title", "")[:28]
+        artist = track.get("artist", {}).get("name", "")[:18]
+        track_id = track.get("id")
+        btn_text = f"{title} — {artist}"[:40]
+        buttons.append([InlineKeyboardButton(btn_text, callback_data=f"music_pick_{track_id}_{user_id}")])
+    
+    buttons.append([InlineKeyboardButton("🔍 Search again", callback_data=f"music_search_again_{user_id}")])
+    
+    try:
+        if wait_msg:
+            await wait_msg.edit_text(
+                f"🎵 Found {len(tracks)} tracks for '{query_text}':\nTap to download (via Miku + lyrics + cached):",
+                reply_markup=InlineKeyboardMarkup(buttons)
             )
-            return
-    except Exception as e:
-        print(f"Monetisation check fail: {e}")
-        # Allow anyway if check fails
-    
-    # Search Deezer for 10 suggestions (like Miku)
-    try:
-        resp = requests.get(f"https://api.deezer.com/search?q={query_text}", timeout=10)
-        data = resp.json()
-        tracks = data.get("data", [])[:10]
-        
-        if not tracks:
-            await update.message.reply_text(f"No results for '{query_text}'. Try another song name.")
-            return
-        
-        # Build 10 buttons like Miku screenshot
-        buttons = []
-        for track in tracks:
-            title = track.get("title", "")[:30]
-            artist = track.get("artist", {}).get("name", "")[:20]
-            track_id = track.get("id")
-            btn_text = f"{title} — {artist}"[:40]
-            # Store track info in callback data
-            buttons.append([InlineKeyboardButton(btn_text, callback_data=f"music_pick_{track_id}_{user_id}")])
-        
-        buttons.append([InlineKeyboardButton("🔍 More tracks", callback_data=f"music_more_{query_text}_{user_id}")])
-        
-        await update.message.reply_text(
-            f"🎵 Found {len(tracks)} tracks for '{query_text}' (via Miku + Cobalt):\nPick one:",
-            reply_markup=InlineKeyboardMarkup(buttons)
-        )
-        
-        # Save search results temporarily for callback handling
+        else:
+            await update.message.reply_text(
+                f"🎵 Found {len(tracks)} tracks for '{query_text}':",
+                reply_markup=InlineKeyboardMarkup(buttons)
+            )
+        # Save for callback
         context.user_data[f"music_search_{user_id}"] = tracks
-        
+        print(f"Sent {len(tracks)} suggestions for {query_text}")
     except Exception as e:
-        print(f"Song search error: {e}")
-        await update.message.reply_text(f"Search failed: {str(e)[:100]}. Try again.")
+        print(f"Send suggestions fail: {e}")
+        await update.message.reply_text(f"Found {len(tracks)} tracks but failed to send buttons: {e}")
 
 async def handle_music_pick_callback(update, context):
     query = update.callback_query
