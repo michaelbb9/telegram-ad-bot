@@ -939,8 +939,15 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             del support_states[str(user_id)]
             save_json_file(SUPPORT_STATES_FILE, support_states)
     if text == "🔍 Song Search" or text.strip().lower() == "song search":
-        # Enter song search mode - in-memory, no file, no rubbish auto-search
+        # Enter song search mode - BOTH in-memory + file for persistence (fixes silent bug)
         pending_song_search[user_id] = time.time()
+        # Also save to file as backup
+        try:
+            states = load_json_file("search_states.json")
+            states[str(user_id)] = {"mode": "awaiting_song", "timestamp": time.time()}
+            save_json_file("search_states.json", states)
+        except:
+            pass
         # Clear old file states if any
         await update.message.reply_text(
             "🔍 **SONG SEARCH MODE**\n\n"
