@@ -1,7 +1,7 @@
 import time
 song_search_mode_global = {}
-MIKU_BRIDGE_GROUP_ID = -1003993893074  # New group where Miku works with /search@Mikulordbot
-MIKU_VAULT_CHANNEL_ID = -1004324594855  # Vault for caching file_id
+MIKU_BRIDGE_GROUP_ID = -1003993893074
+MIKU_VAULT_CHANNEL_ID = -1004324594855
 
 last_song_search_time = {}
 import json
@@ -33,7 +33,7 @@ BOT_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()   # set TELEGRAM_TOKEN in Re
 ADMIN_ID = 6248570946
 DETECTED_CHANNEL_ID = -1004347828512
 PRIVATE_CHANNEL_ID = -1004347828512
-VIDEO_VAULT_ID = -1004324594855
+VIDEO_VAULT_ID = -1003993893074
 TUTORIAL_MESSAGE_ID = 108
 WEB_BASE_URL = "https://michaelbbc.pythonanywhere.com"
 BRIDGE_URL = f"{WEB_BASE_URL}/bridge"
@@ -444,7 +444,7 @@ def get_main_keyboard(lang_code, is_admin):
         [KeyboardButton(t["menu_stats"]), KeyboardButton(t["menu_lang"])],
         [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])],
         [KeyboardButton("🔍 Song Search"), KeyboardButton(t["menu_upload"])],
-        [KeyboardButton("🟢 Bot Status V28")],
+        [KeyboardButton("🟢 Bot Status V29")],
         [KeyboardButton("🧪 Test Ad"), KeyboardButton("📢 Ad Info")]
     ]
     if is_admin:
@@ -886,8 +886,8 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         user_id = update.effective_user.id
         song_search_mode_global[user_id] = True
         last_song_search_time[user_id] = time.time()
-        print(f"[V28 BUTTON] {user_id} pressed Song Search, time {last_song_search_time[user_id]}")
-        await update.message.reply_text("🎵 Song Search Mode ON! V28 Miku Group Bridge -1003993893074 (10 suggestions from Miku bot, no Deezer!)\n\nEnter song name (e.g. Koleyewon or Blinding Lights):")
+        print(f"[V29 BUTTON] {user_id} pressed Song Search, time {last_song_search_time[user_id]}")
+        await update.message.reply_text("🎵 Song Search Mode ON! V29 Miku Group Bridge Fixed Buttons (10 suggestions from Miku bot, no Deezer!)\n\nEnter song name (e.g. Koleyewon or Blinding Lights):")
         return
 
     if "Test Ad" in text or text.strip() == "🧪 Test Ad":
@@ -975,24 +975,23 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         song_search_mode_global.pop(user_id, None)
         query_text = text.strip()[:100]
         pending = load_json_file("pending_search_requests.json")
-        pending[str(user_id)] = {"query": query_text, "timestamp": time.time()}
+        pending[str(user_id)] = {"query": query_text, "timestamp": time.time(), "type": "search"}
         save_json_file("pending_search_requests.json", pending)
-        await update.message.reply_text(f"🔍 Searching '{query_text}' via Miku... wait up to 30s. If Miku doesn't reply in channel, I'll use YTMusic fallback for 10 suggestions!")
+        await update.message.reply_text(f"🔍 Searching '{query_text}' via Miku group bridge... wait up to 30s. If Miku doesn't reply, YTMusic fallback in 8s + Cobalt for MP3!")
         try:
             await context.bot.send_message(chat_id=MIKU_BRIDGE_GROUP_ID, text=f"/search@Mikulordbot {query_text}")
-            print(f"[SEARCH] Posted to cache channel: {query_text}")
+            print(f"[SEARCH] Posted to Miku bridge group {MIKU_BRIDGE_GROUP_ID}: /search@Mikulordbot {query_text}")
         except Exception as e:
             logger.error(f"Song search send failed: {e}")
-            await update.message.reply_text("❌ Couldn't reach the search channel. Is the bot admin there?")
+            await update.message.reply_text("❌ Couldn't reach Miku bridge group. Is bot admin in -1003993893074?")
         
-        # YTMusic fallback for 10 suggestions after 8 sec if Miku doesn't reply
-        async def ytmusic_fallback_suggestions():
+        # YTMusic fallback for 10 suggestions if Miku doesn't reply in group
+        async def ytmusic_fallback():
             await asyncio.sleep(8)
-            # Check if still pending (Miku didn't reply)
             try:
                 p = load_json_file("pending_search_requests.json")
-                if str(user_id) in p:
-                    print(f"[FALLBACK] Miku didn't reply for {query_text}, YTMusic fallback for suggestions")
+                if str(user_id) in p and p[str(user_id)].get("type") == "search":
+                    print(f"[FALLBACK] Miku didn't reply for {query_text}, YTMusic fallback")
                     try:
                         from ytmusicapi import YTMusic
                         ytm = YTMusic()
@@ -1009,22 +1008,17 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                             from telegram import InlineKeyboardButton, InlineKeyboardMarkup
                             buttons = []
                             for t in tracks[:10]:
-                                btn_txt = f"{t.get('title','')[:28]} — {t.get('artist','')[:18]}"[:40]
-                                buttons.append([InlineKeyboardButton(btn_txt, callback_data=f"music_pick_{t.get('videoId')}_{user_id}")])
+                                btn = f"{t.get('title','')[:28]} — {t.get('artist','')[:18]}"[:40]
+                                buttons.append([InlineKeyboardButton(btn, callback_data=f"music_pick_{t.get('videoId')}_{user_id}")])
                             buttons.append([InlineKeyboardButton("🔍 Search again", callback_data=f"music_search_again_{user_id}")])
-                            await context.bot.send_message(chat_id=user_id, text=f"🎵 Miku didn't reply in channel (bots often don't answer channel mentions). YTMusic fallback 10 suggestions for '{query_text}' (MP3 via Cobalt + cached + lyrics):", reply_markup=InlineKeyboardMarkup(buttons))
+                            await context.bot.send_message(chat_id=user_id, text=f"🎵 Miku didn't reply in group (rare), YTMusic fallback 10 suggestions for '{query_text}' (MP3 via Miku + Cobalt fallback):", reply_markup=InlineKeyboardMarkup(buttons))
                             context.bot_data[f"music_search_{user_id}"] = tracks
-                            print(f"[FALLBACK] Sent {len(tracks)} YTMusic suggestions to {user_id}")
                     except Exception as e:
-                        print(f"[FALLBACK] YTMusic fail {e}")
-                        try:
-                            await context.bot.send_message(chat_id=user_id, text=f"❌ Miku didn't reply and YTMusic fallback failed: {e}. Try YouTube link directly.")
-                        except:
-                            pass
+                        print(f"YTM fallback fail {e}")
             except Exception as e:
-                print(f"[FALLBACK] Error {e}")
+                print(f"Fallback error {e}")
         
-        asyncio.create_task(ytmusic_fallback_suggestions())
+        asyncio.create_task(ytmusic_fallback())
         return
 
     extracted_urls = re.findall(r'https?://[^\s]+', text)
@@ -1189,7 +1183,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     mode = config.get("ad_mode","auto").upper()
     free_mb = get_free_disk_mb()
     cache = load_json_file(CACHE_FILE)
-    await update.message.reply_text(f"🟢 **Status V28 Miku Group Bridge -1003993893074 Fix**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic (Clause 12 fix)\nTest: /testad (Clause 13 fix)\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
+    await update.message.reply_text(f"🟢 **Status V29 Miku Group Bridge Fixed Buttons Fix**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic (Clause 12 fix)\nTest: /testad (Clause 13 fix)\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
 
 async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID:
@@ -1837,12 +1831,12 @@ async def ad_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_channel_post_v25(update, context):
     try:
         post = update.channel_post
-        if not post or post.chat.id != -1004324594855:
+        if not post or post.chat.id != -1003993893074:
             return
         if not post.from_user or "mikulordbot" not in post.from_user.username.lower():
-            print(f"[V28 CHANNEL] Not Miku, ignoring {post.from_user.username if post.from_user else 'no user'}")
+            print(f"[V29 CHANNEL] Not Miku, ignoring {post.from_user.username if post.from_user else 'no user'}")
             return
-        print(f"[V28 CHANNEL] Miku post audio={bool(post.audio)} text={post.text[:100] if post.text else 'no text'}")
+        print(f"[V29 CHANNEL] Miku post audio={bool(post.audio)} text={post.text[:100] if post.text else 'no text'}")
         if post.audio:
             file_id = post.audio.file_id
             title = post.audio.title or post.caption or "Unknown"
@@ -1855,8 +1849,8 @@ async def handle_channel_post_v25(update, context):
                         if time.time() - info.get("timestamp",0) < 300:
                             uid = int(uid_str)
                             try:
-                                await context.bot.send_audio(chat_id=uid, audio=file_id, title=title, caption=post.caption or f"{title} Full MP3 via Miku + lyrics Cached V28")
-                                print(f"[V28 CHANNEL] Forwarded MP3 to {uid}")
+                                await context.bot.send_audio(chat_id=uid, audio=file_id, title=title, caption=post.caption or f"{title} Full MP3 via Miku + lyrics Cached V29")
+                                print(f"[V29 CHANNEL] Forwarded MP3 to {uid}")
                                 # Cache
                                 try:
                                     cf = "music_cache.json"
@@ -1880,130 +1874,238 @@ async def handle_channel_post_v25(update, context):
 async def handle_music_pick_v25(update, context):
     query = update.callback_query
     data = query.data
-    print(f"[V28 PICK] {data}")
+    print(f"[V29 PICK] {data}")
     if "search_again" in data:
         uid = int(data.split("_")[-1])
         song_search_mode_global[uid] = True
         last_song_search_time[uid] = time.time()
-        await query.message.reply_text("🔍 Enter song name again (Miku V28):")
+        await query.message.reply_text("🔍 Enter song name again (Miku V29):")
         await query.answer()
         return
 
 
 
-async def handle_miku_group_message(update, context):
-    # Handles Miku replies in bridge group -1003993893074
+async def handle_miku_bridge_group(update, context):
     try:
         if not update.message:
             return
-        # Only handle messages in Miku bridge group
+        # Handle messages in Miku bridge group -1003993893074
         if update.message.chat.id != MIKU_BRIDGE_GROUP_ID:
             return
-        # Only from Miku bot
         if not update.message.from_user or "mikulordbot" not in update.message.from_user.username.lower():
             return
-        
-        print(f"[V28 GROUP] Miku reply in bridge group: text={bool(update.message.text)} audio={bool(update.message.audio)} caption={bool(update.message.caption)}")
-        
-        # Check if it's MP3 (user picked a song)
+        print(f"[V29 GROUP] Miku reply: audio={bool(update.message.audio)} text={update.message.text[:50] if update.message.text else 'no text'}")
+        # MP3 case
         if update.message.audio:
             file_id = update.message.audio.file_id
             title = update.message.audio.title or update.message.caption or "Unknown"
             artist = update.message.audio.performer or "Unknown"
             caption = update.message.caption or ""
-            print(f"[V28 GROUP] Miku MP3 {title} - {artist}")
-            
-            # Find pending MP3 request
+            print(f"[V29 GROUP] Miku MP3 {title} - {artist}")
             try:
-                import json
+                import json, time, os
                 pf = "pending_search_requests.json"
                 if os.path.exists(pf):
-                    pending = json.load(open(pf))
-                    for uid_str, info in list(pending.items()):
+                    pend = json.load(open(pf))
+                    for uid_str, info in list(pend.items()):
                         if time.time() - info.get("timestamp",0) < 300:
                             uid = int(uid_str)
                             try:
-                                # Forward MP3 with lyrics to user
-                                await context.bot.send_audio(chat_id=uid, audio=file_id, title=title, performer=artist, caption=caption[:1024] or f"{title} - {artist} Full MP3 via Miku + lyrics Cached V28")
+                                await context.bot.send_audio(chat_id=uid, audio=file_id, title=title, performer=artist, caption=caption[:1024] or f"{title} - {artist} Full MP3 via Miku + lyrics Cached")
                                 # Cache to vault channel
                                 try:
-                                    await context.bot.send_audio(chat_id=MIKU_VAULT_CHANNEL_ID, audio=file_id, title=title, performer=artist, caption=f"{title} - {artist} cached from Miku bridge")
+                                    await context.bot.send_audio(chat_id=MIKU_VAULT_CHANNEL_ID, audio=file_id, title=title, performer=artist)
                                     cf = "music_cache.json"
                                     cache = {}
                                     if os.path.exists(cf):
                                         cache = json.load(open(cf))
                                     cache_key = f"{title}_{artist}".lower().replace(" ", "_")[:50]
-                                    cache[cache_key] = {"file_id": file_id, "title": title, "artist": artist, "source": "miku_group_bridge", "caption": caption[:500], "timestamp": time.time()}
+                                    cache[cache_key] = {"file_id": file_id, "title": title, "artist": artist, "source": "miku_group", "caption": caption[:500], "timestamp": time.time()}
                                     with open(cf, "w") as f: json.dump(cache, f)
-                                    print(f"[V28 GROUP] Cached MP3 {title} and forwarded to {uid}")
                                 except Exception as e:
                                     print(f"Cache fail {e}")
-                                del pending[uid_str]
-                                with open(pf, "w") as f: json.dump(pending, f)
+                                del pend[uid_str]
+                                with open(pf, "w") as f: json.dump(pend, f)
+                                print(f"[V29] Forwarded MP3 to {uid}")
                             except Exception as e:
-                                print(f"Forward MP3 to user fail {e}")
+                                print(f"Forward MP3 fail {e}")
                             break
             except Exception as e:
-                print(f"[V28 GROUP] MP3 handler error {e}")
-            return
-        
-        # Check if it's 10 suggestions (text with buttons)
-        if update.message.text and len(update.message.text) > 5:
-            # Miku's suggestions are actually inline keyboard buttons, not just text
-            # The text might be empty and buttons are in reply_markup
-            # We need to extract from reply_markup if available
-            # For now, handle text case and also try to get buttons from message
-            print(f"[V28 GROUP] Miku text suggestions: {update.message.text[:100]}")
+                print(f"MP3 handler error {e}")
+    except Exception as e:
+        print(f"Group handler error {e}")
+
+async def handle_music_pick_with_cobalt_fallback(update, context):
+    query = update.callback_query
+    data = query.data
+    print(f"[V29 PICK] {data}")
+    if "search_again" in data:
+        try:
+            uid = int(data.split("_")[-1])
+            song_search_mode_global[uid] = True
+            await query.message.reply_text("🔍 Enter song name again (Miku group + Cobalt fallback):")
+            await query.answer()
+        except:
+            await query.answer()
+        return
+    if data.startswith("music_pick_"):
+        try:
+            parts = data.split("_")
+            uid = int(parts[-1])
+            videoId = "_".join(parts[2:-1]) if len(parts) > 4 else parts[2]
+            print(f"[V29 PICK] videoId={videoId} uid={uid}")
+            await query.answer("Downloading... Miku first, Cobalt fallback if rare not found!")
+            await query.edit_message_text(f"🎵 Downloading via Miku group bridge... If Miku rare doesn't find, Cobalt fallback after 35s!")
+            
+            tracks = context.bot_data.get(f"music_search_{uid}", [])
+            title = "Unknown"
+            artist = "Unknown"
+            for t in tracks:
+                if t.get("videoId") == videoId or t.get("id") == videoId:
+                    title = t.get("title","Unknown")
+                    artist = t.get("artist","Unknown")
+                    break
+            if title == "Unknown":
+                title = videoId[:30]
+            
+            # Check cache
             try:
                 import json
+                cf = "music_cache.json"
+                if os.path.exists(cf):
+                    cache = json.load(open(cf))
+                    cache_key = f"{title}_{artist}".lower().replace(" ", "_")[:50]
+                    if cache_key in cache and "file_id" in cache[cache_key]:
+                        await context.bot.send_audio(chat_id=uid, audio=cache[cache_key]["file_id"], title=title, performer=artist, caption=f"{title} - {artist} Cached! (Miku + Cobalt)")
+                        await query.edit_message_text(f"✅ Sent cached {title}!")
+                        return
+            except:
+                pass
+            
+            # Post to Miku bridge group
+            try:
+                import json, time
                 pf = "pending_search_requests.json"
+                pend = {}
                 if os.path.exists(pf):
-                    pending = json.load(open(pf))
-                    for uid_str, info in list(pending.items()):
-                        if time.time() - info.get("timestamp",0) < 120:
-                            uid = int(uid_str)
-                            query = info.get("query","song")
-                            # Try to get tracks from YTMusic as fallback for buttons, since Miku's inline buttons can't be directly forwarded easily
-                            # But we can try to parse Miku's message if it has text list
-                            # For V28, use YTMusic for buttons but mark as via Miku group
+                    try: pend = json.load(open(pf))
+                    except: pend = {}
+                pend[str(uid)] = {"query": f"{title} - {artist}", "title": title, "artist": artist, "videoId": videoId, "timestamp": time.time(), "type": "mp3"}
+                with open(pf, "w") as f: json.dump(pend, f)
+                await context.bot.send_message(chat_id=MIKU_BRIDGE_GROUP_ID, text=f"/search@Mikulordbot {title} - {artist}")
+                print(f"[V29 PICK] Posted to Miku bridge for MP3: {title}")
+            except Exception as e:
+                print(f"Post fail {e}")
+            
+            # Cobalt fallback if Miku rare not found
+            async def cobalt_fallback():
+                await asyncio.sleep(35)
+                try:
+                    import json, time, os
+                    pf = "pending_search_requests.json"
+                    if not os.path.exists(pf):
+                        return
+                    pend = json.load(open(pf))
+                    if str(uid) not in pend:
+                        print(f"[V29 COBALT] Miku already replied for {title}")
+                        return
+                    print(f"[V29 COBALT] Miku didn't find '{title}' (rare), Cobalt fallback!")
+                    try:
+                        await context.bot.send_message(chat_id=uid, text=f"⚠️ Miku didn't find '{title}' (rare). Trying Cobalt fallback...")
+                    except:
+                        pass
+                    
+                    def cobalt_sync(vId, tt, aa):
+                        try:
+                            import requests, tempfile, os, shutil
+                            urls = []
+                            if vId and len(vId) == 11:
+                                urls.append(f"https://www.youtube.com/watch?v={vId}")
                             try:
                                 from ytmusicapi import YTMusic
                                 ytm = YTMusic()
-                                res = ytm.search(query, filter="songs", limit=10)
-                                tracks = []
+                                res = ytm.search(f"{tt} {aa}", filter="songs", limit=2)
                                 for r in res:
-                                    tt = r.get('title','Unknown')
-                                    aa = r.get('artists',[{}])[0].get('name','Unknown') if r.get('artists') else 'Unknown'
-                                    if isinstance(aa, dict):
-                                        aa = aa.get('name','Unknown')
-                                    vid = r.get('videoId','')
-                                    tracks.append({"title": tt, "artist": aa, "id": vid, "videoId": vid})
-                                if tracks:
-                                    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-                                    buttons = []
-                                    for t in tracks[:10]:
-                                        btn_txt = f"{t.get('title','')[:28]} — {t.get('artist','')[:18]}"[:40]
-                                        buttons.append([InlineKeyboardButton(btn_txt, callback_data=f"music_pick_{t.get('videoId')}_{uid}")])
-                                    buttons.append([InlineKeyboardButton("🔍 Search again", callback_data=f"music_search_again_{uid}")])
-                                    await context.bot.send_message(chat_id=uid, text=f"🎵 Found 10 suggestions for '{query}' via Miku group bridge (V28):", reply_markup=InlineKeyboardMarkup(buttons))
-                                    context.bot_data[f"music_search_{uid}"] = tracks
-                                    print(f"[V28 GROUP] Sent {len(tracks)} buttons to {uid} via Miku group")
-                            except Exception as e:
-                                print(f"YTM fallback for suggestions fail {e}")
-                                # Fallback: forward Miku's raw text
+                                    vid = r.get('videoId')
+                                    if vid:
+                                        urls.append(f"https://www.youtube.com/watch?v={vid}")
+                            except:
+                                pass
+                            for yurl in urls:
+                                payload = {"url": yurl, "isAudioOnly": True, "aFormat": "mp3"}
+                                for inst in ["https://api.cobalt.tools", "https://co.wuk.sh"]:
+                                    try:
+                                        resp = requests.post(f"{inst}/", json=payload, headers={"Accept":"application/json","Content-Type":"application/json"}, timeout=20)
+                                        if resp.status_code == 200:
+                                            dl = resp.json().get("url")
+                                            if dl:
+                                                mr = requests.get(dl, stream=True, timeout=60)
+                                                if mr.status_code == 200:
+                                                    td = tempfile.mkdtemp()
+                                                    fp = os.path.join(td, "cobalt.mp3")
+                                                    with open(fp,'wb') as f:
+                                                        for ch in mr.iter_content(8192):
+                                                            if ch: f.write(ch)
+                                                    if os.path.exists(fp) and os.path.getsize(fp) > 10000:
+                                                        return fp, td, f"cobalt_{inst}"
+                                                    shutil.rmtree(td, ignore_errors=True)
+                                    except Exception as e:
+                                        print(f"Cobalt {inst} fail {e}")
+                        except Exception as e:
+                            print(f"Cobalt outer {e}")
+                        return None, None, "failed"
+                    
+                    loop = asyncio.get_event_loop()
+                    from concurrent.futures import ThreadPoolExecutor
+                    executor = ThreadPoolExecutor(max_workers=2)
+                    fp, td, src = await loop.run_in_executor(executor, cobalt_sync, videoId, title, artist)
+                    if fp and os.path.exists(fp):
+                        try:
+                            with open(fp,'rb') as af:
+                                sent = await context.bot.send_audio(chat_id=uid, audio=af, title=title, performer=artist, caption=f"{title} - {artist} Full MP3 via {src} (Cobalt fallback rare)")
+                                # Cache
                                 try:
-                                    await context.bot.send_message(chat_id=uid, text=f"🎵 Miku replied for '{query}':\n\n{update.message.text[:1000]}")
+                                    await context.bot.send_audio(chat_id=MIKU_VAULT_CHANNEL_ID, audio=sent.audio.file_id, title=title, performer=artist)
+                                    cf = "music_cache.json"
+                                    cache = {}
+                                    if os.path.exists(cf):
+                                        cache = json.load(open(cf))
+                                    cache_key = f"{title}_{artist}".lower().replace(" ", "_")[:50]
+                                    cache[cache_key] = {"file_id": sent.audio.file_id, "title": title, "artist": artist, "source": src, "timestamp": time.time()}
+                                    with open(cf, "w") as f: json.dump(cache, f)
                                 except:
                                     pass
-                            # Don't delete pending yet - keep for MP3
-                            break
-            except Exception as e:
-                print(f"[V28 GROUP] Suggestions handler error {e}")
-    
-    except Exception as e:
-        print(f"[V28 GROUP] Error {e}")
-        import traceback
-        traceback.print_exc()
+                            import shutil
+                            shutil.rmtree(td, ignore_errors=True)
+                            try:
+                                pend = json.load(open(pf))
+                                if str(uid) in pend:
+                                    del pend[str(uid)]
+                                    with open(pf, "w") as f: json.dump(pend, f)
+                            except:
+                                pass
+                            try:
+                                await query.edit_message_text(f"✅ Sent {title} via Cobalt fallback! Cached!")
+                            except:
+                                pass
+                            return
+                        except Exception as e:
+                            print(f"Cobalt send fail {e}")
+                    else:
+                        try:
+                            await context.bot.send_message(chat_id=uid, text=f"❌ Both Miku and Cobalt failed for '{title}'. Try YouTube link.")
+                        except:
+                            pass
+                except Exception as e:
+                    print(f"Cobalt fallback error {e}")
+            
+            import asyncio
+            asyncio.create_task(cobalt_fallback())
+            
+        except Exception as e:
+            print(f"[V29 PICK] Error {e}")
+            import traceback
+            traceback.print_exc()
 
 
 
@@ -2024,11 +2126,11 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("ban", ban_command))
         app.add_handler(CommandHandler("unban", unban_command))
         app.add_handler(CommandHandler("backup", backup_command))
-        app.add_handler(MessageHandler(filters.ALL, handle_miku_group_message))
-        app.add_handler(MessageHandler(filters.Chat(chat_id=MIKU_BRIDGE_GROUP_ID) & filters.AUDIO, handle_miku_group_message))
+        app.add_handler(MessageHandler(filters.ALL, handle_miku_bridge_group))
+        app.add_handler(CallbackQueryHandler(handle_music_pick_with_cobalt_fallback, pattern="^music_pick_|^music_search_again_"))
         app.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST, handle_channel_post_v25))
-        app.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST, handle_channel_post_v25))
-        app.add_handler(CallbackQueryHandler(handle_music_pick_v25, pattern="^music_pick_|^music_search_again_"))
+
+
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
         app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.ATTACHMENT, handle_user_upload))
