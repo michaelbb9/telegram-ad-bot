@@ -438,7 +438,7 @@ def get_main_keyboard(lang_code, is_admin):
     keyboard = [
         [KeyboardButton(t["menu_stats"]), KeyboardButton(t["menu_lang"])],
         [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])],
-        [KeyboardButton(t["menu_upload"])],
+        [KeyboardButton("🔍 Song Search"), KeyboardButton(t["menu_upload"])],
         [KeyboardButton("🟢 Bot Status")],
         [KeyboardButton("🧪 Test Ad"), KeyboardButton("📢 Ad Info")]
     ]
@@ -875,6 +875,12 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
     if text == "🟢 Bot Status":
         await status_command(update, context)
+        return
+
+    if "🔍 Song Search" in text:
+        user_id = update.effective_user.id
+        song_search_mode[user_id] = True
+        await update.message.reply_text("🎵 Song Search Mode ON!\n\nEnter song name (e.g. Koleyewon or Blinding Lights):\n\nI'll show 10 suggestions like Miku bot, with lyrics!")
         return
 
     if "Test Ad" in text or text.strip() == "🧪 Test Ad":
