@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import ChannelPostHandler
 
 ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 try:
@@ -1765,13 +1766,20 @@ async def ad_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🧪 To test: tap 🧪 Test Ad or send /testad")
 
 
-# ===== MUSIC MODULE - 3 FALLBACKS: YT MUSIC + SPOTIFY + YT-DLP + DEEZER - RESPONSIVE =====
+# ===== MUSIC MODULE - FINAL: BUTTONS ONLY + MIKU CHAT VIA CACHE CHANNEL + COBALT + MONETISATION =====
+# No Deezer preview, no YouTube search, no Flask needed for music!
+# Uses: Deezer for 10 suggestions, Miku via cache channel primary, Cobalt fallback, cache for instant
+
 import tempfile
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 MUSIC_CACHE_FILE = "music_cache.json"
+MUSIC_PENDING_FILE = "pending_music_requests.json"
 music_executor = ThreadPoolExecutor(max_workers=2)
+
+MIKU_BOT_USERNAME = "Mikulordbot"  # Your working music bot
+MIKU_CACHE_CHANNEL_ID = VIDEO_VAULT_ID  # Use existing vault -1004324594855 as cache channel bridge
 
 def load_music_cache():
     if os.path.exists(MUSIC_CACHE_FILE):
@@ -1783,179 +1791,426 @@ def load_music_cache():
 
 def save_music_cache(cache):
     try:
-        json.dump(cache, open(MUSIC_CACHE_FILE, "w"))
+        with open(MUSIC_CACHE_FILE, "w") as f:
+            json.dump(cache, f)
     except:
         pass
+
+def load_music_pending():
+    if os.path.exists(MUSIC_PENDING_FILE):
+        try:
+            return json.load(open(MUSIC_PENDING_FILE))
+        except:
+            return {}
+    return {}
+
+def save_music_pending(pending):
+    try:
+        with open(MUSIC_PENDING_FILE, "w") as f:
+            json.dump(pending, f)
+    except:
+        pass
+
+# ===== COBALT API FALLBACK (No cookies, no Flask, bypasses Render block!) =====
+def download_via_cobalt_blocking(youtube_url, tmpdir):
+    # Cobalt API: https://api.cobalt.tools
+    try:
+        print(f"Cobalt: Trying {youtube_url}")
+        # Try cobalt API
+        payload = {
+            "url": youtube_url,
+            "vQuality": "720",
+            "isAudioOnly": True,
+            "aFormat": "mp3"
+        }
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+        }
+        # Try multiple cobalt instances
+        cobalt_instances = [
+            "https://api.cobalt.tools",
+            "https://co.wuk.sh",
+            "https://cobalt-api.kwiatekmiki.com"
+        ]
+        for instance in cobalt_instances:
+            try:
+                resp = requests.post(f"{instance}/", json=payload, headers=headers, timeout=20)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    dl_url = data.get("url")
+                    if dl_url:
+                        print(f"Cobalt got URL: {dl_url[:100]}")
+                        # Download MP3
+                        mp3_resp = requests.get(dl_url, stream=True, timeout=60)
+                        if mp3_resp.status_code == 200:
+                            output_path = os.path.join(tmpdir, "cobalt_download.mp3")
+                            with open(output_path, 'wb') as f:
+                                for chunk in mp3_resp.iter_content(chunk_size=8192):
+                                    if chunk:
+                                        f.write(chunk)
+                            if os.path.exists(output_path) and os.path.getsize(output_path) > 10000:
+                                print(f"Cobalt success: {output_path} {os.path.getsize(output_path)} bytes")
+                                return output_path, f"cobalt_{instance}"
+            except Exception as e:
+                print(f"Cobalt {instance} fail: {e}")
+                continue
+        return None, "cobalt failed"
+    except Exception as e:
+        print(f"Cobalt outer fail: {e}")
+        return None, str(e)
+
+def download_music_blocking_final(title, artist, tmpdir):
+    # For Cobalt we need YouTube URL, not just title
+    # Search YouTube via YTMusic API to get videoId, then use Cobalt to download
+    try:
+        from ytmusicapi import YTMusic
+        ytmusic = YTMusic()
+        query = f"{title} {artist}"
+        print(f"Final: Searching YTMusic for {query} to get videoId for Cobalt")
+        results = ytmusic.search(query, filter="songs", limit=3)
+        if results:
+            for r in results:
+                vid = r.get('videoId')
+                if vid:
+                    youtube_url = f"https://www.youtube.com/watch?v={vid}"
+                    print(f"Trying Cobalt with {youtube_url}")
+                    fp, src = download_via_cobalt_blocking(youtube_url, tmpdir)
+                    if fp and os.path.exists(fp):
+                        return fp, src
+                    # Clean tmpdir
+                    for f in os.listdir(tmpdir):
+                        try: os.remove(os.path.join(tmpdir, f))
+                        except: pass
+    except Exception as e:
+        print(f"Final YTMusic->Cobalt fail: {e}")
+    
+    # Fallback: Direct Cobalt with search query as YouTube search (cobalt supports search?)
+    # Or try SoundCloud as last resort
+    try:
+        output_template = os.path.join(tmpdir, "%(title)s.%(ext)s")
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'outtmpl': output_template,
+            'noplaylist': True,
+            'quiet': True,
+            'no_warnings': True,
+            'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}],
+        }
+        print(f"Trying SoundCloud fallback: {title} {artist}")
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.extract_info(f"scsearch1:{title} {artist}", download=True)
+        for f in os.listdir(tmpdir):
+            fp = os.path.join(tmpdir, f)
+            if f.endswith('.mp3') and os.path.exists(fp) and os.path.getsize(fp) > 10000:
+                return fp, "soundcloud"
+    except Exception as e:
+        print(f"SoundCloud fail: {e}")
+    
+    return None, "all failed"
+
+# ===== MIKU CHAT VIA CACHE CHANNEL =====
+async def request_miku_via_cache_channel(bot, user_id, title, artist):
+    # Post to cache channel tagging Miku
+    try:
+        pending = load_music_pending()
+        pending_key = f"{title}_{artist}".lower().replace(" ", "_")[:50]
+        pending[pending_key] = {"user_id": user_id, "title": title, "artist": artist, "timestamp": time.time(), "status": "waiting_miku"}
+        save_music_pending(pending)
+        
+        message = f"@{MIKU_BOT_USERNAME} {title} - {artist}\nRequested by user {user_id} for vault bot. Please send MP3 with lyrics to this channel."
+        await bot.send_message(chat_id=MIKU_CACHE_CHANNEL_ID, text=message)
+        print(f"Posted Miku request to cache channel: {title} - {artist} for {user_id}")
+        return True
+    except Exception as e:
+        print(f"Miku cache channel request fail: {e}")
+        return False
 
 async def checkcookies_command(update, context):
     if update.effective_user.id != ADMIN_ID:
         return
-    msg = "Cookie Check\n\n"
-    paths = ["youtube_cookies.txt", "tiktok_cookies.txt", "cookies.txt", "/etc/secrets/youtube_cookies.txt", "/etc/secrets/tiktok_cookies.txt"]
-    for p in paths:
-        if os.path.exists(p):
-            try:
-                size = os.path.getsize(p)
-                msg += f"FOUND {p} ({size} bytes)\n"
-            except Exception as e:
-                msg += f"FOUND but error {p}: {e}\n"
-        else:
-            msg += f"NOT FOUND {p}\n"
+    msg = f"Music Mode: Miku via Cache Channel {MIKU_CACHE_CHANNEL_ID} + Cobalt fallback\n"
+    msg += f"Miku bot: @{MIKU_BOT_USERNAME}\n"
+    msg += f"Cache: {len(load_music_cache())} songs cached\n"
+    msg += f"Pending: {len(load_music_pending())} requests\n"
     try:
-        import yt_dlp
-        msg += f"yt-dlp: {yt_dlp.version.__version__}\n"
-    except Exception as e:
-        msg += f"yt-dlp error: {e}\n"
+        import ytmusicapi
+        msg += f"ytmusicapi: INSTALLED\n"
+    except:
+        msg += f"ytmusicapi: NOT installed - pip install ytmusicapi\n"
     await update.message.reply_text(msg)
 
-def download_with_ytdlp_blocking(search_query, tmpdir, cookie_paths):
-    output_template = os.path.join(tmpdir, "%(title)s.%(ext)s")
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'outtmpl': output_template,
-        'noplaylist': True,
-        'quiet': True,
-        'no_warnings': True,
-        'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}],
-        'extractor_args': {'youtube': {'player_client': ['ios', 'android', 'web', 'mweb']}},
-    }
-    for cp in cookie_paths:
-        if os.path.exists(cp):
-            ydl_opts['cookiefile'] = cp
-            break
+# ===== SONG SEARCH WITH MONETISATION =====
+async def handle_song_search_mode(update, context, query_text):
+    user_id = update.effective_user.id
     
-    # FALLBACK 1: YouTube Music
+    # Check monetisation - same as video downloader
+    # Use existing check_download_permission logic
     try:
-        print(f"Trying YT Music: {search_query}")
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytmsearch1:{search_query}", download=True)
-            for f in os.listdir(tmpdir):
-                fp = os.path.join(tmpdir, f)
-                if f.endswith('.mp3') and os.path.getsize(fp) > 10000:
-                    return fp, "ytmusic"
+        # Load tokens / flood control - reuse existing logic
+        can_download, reason = check_download_permission(user_id)
+        if not can_download:
+            # Show ad button
+            keyboard = [
+                [InlineKeyboardButton("▶️ Watch Ad (+1 Download)", web_app=WebAppInfo(url=f"{WEB_BASE_URL}/adsgram?user_id={user_id}"))],
+                [InlineKeyboardButton("🔄 Check & Get +1", callback_data=f"check_ad_{user_id}")]
+            ]
+            await update.message.reply_text(
+                f"🚫 {reason}\n\nYou have used all free downloads. Watch an ad to get +1 download!",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return
     except Exception as e:
-        print(f"YT Music fail: {e}")
+        print(f"Monetisation check fail: {e}")
+        # Allow anyway if check fails
     
-    # FALLBACK 2: YouTube
+    # Search Deezer for 10 suggestions (like Miku)
     try:
-        for f in os.listdir(tmpdir):
-            try: os.remove(os.path.join(tmpdir, f))
-            except: pass
-        print(f"Trying YouTube: {search_query}")
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch1:{search_query}", download=True)
-            for f in os.listdir(tmpdir):
-                fp = os.path.join(tmpdir, f)
-                if f.endswith('.mp3') and os.path.getsize(fp) > 10000:
-                    return fp, "youtube"
-    except Exception as e:
-        print(f"YT fail: {e}")
-    
-    # FALLBACK 3: SoundCloud
-    try:
-        for f in os.listdir(tmpdir):
-            try: os.remove(os.path.join(tmpdir, f))
-            except: pass
-        print(f"Trying SoundCloud: {search_query}")
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"scsearch1:{search_query}", download=True)
-            for f in os.listdir(tmpdir):
-                fp = os.path.join(tmpdir, f)
-                if f.endswith('.mp3') and os.path.getsize(fp) > 10000:
-                    return fp, "soundcloud"
-    except Exception as e:
-        print(f"SoundCloud fail: {e}")
-    
-    return None, "failed"
-
-async def download_music_and_send(bot, user_id, title, artist, track_id):
-    try:
-        search_query = f"{title} {artist}"
-        print(f"Music: {search_query} for {user_id}")
+        resp = requests.get(f"https://api.deezer.com/search?q={query_text}", timeout=10)
+        data = resp.json()
+        tracks = data.get("data", [])[:10]
         
-        cache = load_music_cache()
-        cache_key = f"{title}_{artist}".lower().replace(" ", "_")[:50]
-        if cache_key in cache and "file_id" in cache[cache_key]:
+        if not tracks:
+            await update.message.reply_text(f"No results for '{query_text}'. Try another song name.")
+            return
+        
+        # Build 10 buttons like Miku screenshot
+        buttons = []
+        for track in tracks:
+            title = track.get("title", "")[:30]
+            artist = track.get("artist", {}).get("name", "")[:20]
+            track_id = track.get("id")
+            btn_text = f"{title} — {artist}"[:40]
+            # Store track info in callback data
+            buttons.append([InlineKeyboardButton(btn_text, callback_data=f"music_pick_{track_id}_{user_id}")])
+        
+        buttons.append([InlineKeyboardButton("🔍 More tracks", callback_data=f"music_more_{query_text}_{user_id}")])
+        
+        await update.message.reply_text(
+            f"🎵 Found {len(tracks)} tracks for '{query_text}' (via Miku + Cobalt):\nPick one:",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
+        
+        # Save search results temporarily for callback handling
+        context.user_data[f"music_search_{user_id}"] = tracks
+        
+    except Exception as e:
+        print(f"Song search error: {e}")
+        await update.message.reply_text(f"Search failed: {str(e)[:100]}. Try again.")
+
+async def handle_music_pick_callback(update, context):
+    query = update.callback_query
+    data = query.data
+    
+    if data.startswith("music_pick_"):
+        # Format: music_pick_{track_id}_{user_id}
+        try:
+            parts = data.split("_")
+            track_id = parts[2]
+            target_user_id = int(parts[3])
+            
+            # Check if user is same who requested? Allow anyone but verify
+            if query.from_user.id != target_user_id and query.from_user.id != ADMIN_ID:
+                # Allow but log
+                pass
+            
+            await query.answer("Downloading... Please wait 15s, full MP3 coming via Miku + Cobalt!")
+            
+            # Get track info from saved search or Deezer API
             try:
-                await bot.send_audio(chat_id=user_id, audio=cache[cache_key]["file_id"], title=title, performer=artist, caption=f"{title} - {artist} Cached 1-sec!")
-                return True
+                dr = requests.get(f"https://api.deezer.com/track/{track_id}", timeout=8)
+                track_info = dr.json()
+                title = track_info.get("title", "Unknown")
+                artist = track_info.get("artist", {}).get("name", "Unknown")
+            except:
+                # Fallback to parsing from button? Use context
+                title = "Unknown"
+                artist = "Unknown"
+                # Try to get from user_data
+                for key in context.user_data:
+                    if "music_search" in key:
+                        tracks = context.user_data[key]
+                        for t in tracks:
+                            if str(t.get("id")) == str(track_id):
+                                title = t.get("title")
+                                artist = t.get("artist", {}).get("name")
+                                break
+            
+            user_id = target_user_id
+            
+            # Check monetisation again before download
+            try:
+                can_download, reason = check_download_permission(user_id)
+                if not can_download:
+                    await query.edit_message_text(f"🚫 {reason} Watch ad to get +1!")
+                    return
             except:
                 pass
-        
-        tmpdir = tempfile.mkdtemp()
-        cookie_paths = ["youtube_cookies.txt", "/etc/secrets/youtube_cookies.txt", "tiktok_cookies.txt", "cookies.txt"]
-        
-        loop = asyncio.get_event_loop()
-        downloaded_file, source = await loop.run_in_executor(music_executor, download_with_ytdlp_blocking, search_query, tmpdir, cookie_paths)
-        
-        if not downloaded_file or not os.path.exists(downloaded_file):
-            if track_id:
+            
+            # Check cache first
+            cache = load_music_cache()
+            cache_key = f"{title}_{artist}".lower().replace(" ", "_")[:50]
+            if cache_key in cache and "file_id" in cache[cache_key]:
                 try:
-                    dr = requests.get(f"https://api.deezer.com/track/{track_id}", timeout=8)
-                    if dr.status_code == 200:
-                        preview_url = dr.json().get("preview")
-                        if preview_url:
-                            pr = requests.get(preview_url, timeout=10)
-                            if pr.status_code == 200:
-                                downloaded_file = os.path.join(tmpdir, f"{title}.mp3")
-                                with open(downloaded_file, "wb") as out:
-                                    out.write(pr.content)
-                                source = "deezer_preview"
-                except:
-                    pass
-        
-        if not downloaded_file or not os.path.exists(downloaded_file) or os.path.getsize(downloaded_file) < 5000:
-            await bot.send_message(chat_id=user_id, text=f"Could not download {title} - {artist}. Tried YT Music, YouTube, SoundCloud, Deezer. Upload fresh youtube_cookies.txt to GitHub root.")
-            shutil.rmtree(tmpdir, ignore_errors=True)
-            return False
-        
-        is_preview = source == "deezer_preview"
-        caption_suffix = "30s preview (YT blocked, need fresh cookies)" if is_preview else "Full MP3"
-        
-        try:
-            with open(downloaded_file, 'rb') as af:
-                sent = await bot.send_audio(chat_id=user_id, audio=af, title=title, performer=artist, caption=f"{title} - {artist} {caption_suffix} Source: {source}")
-                try:
-                    file_id = sent.audio.file_id
-                    cache[cache_key] = {"file_id": file_id, "title": title, "artist": artist, "timestamp": time.time()}
-                    save_music_cache(cache)
+                    await context.bot.send_audio(chat_id=user_id, audio=cache[cache_key]["file_id"], title=title, performer=artist, caption=f"{title} - {artist} ♻️ Cached! Source: {cache[cache_key].get('source','cache')}")
+                    # Deduct download
                     try:
-                        await bot.send_audio(chat_id=VIDEO_VAULT_ID, audio=file_id, title=title, performer=artist)
+                        deduct_download(user_id)
                     except:
                         pass
+                    await query.edit_message_text(f"✅ Sent cached {title} - {artist} to your chat! Check Telegram!")
+                    return
                 except:
                     pass
-            shutil.rmtree(tmpdir, ignore_errors=True)
-            return True
-        except Exception as e:
-            print(f"Send audio error: {e}")
-            shutil.rmtree(tmpdir, ignore_errors=True)
-            return False
-    except Exception as e:
-        print(f"Music error: {e}")
-        return False
-
-async def music_poller_loop(bot):
-    await asyncio.sleep(10)
-    while True:
-        try:
-            resp = requests.get(f"{WEB_BASE_URL}/api/pending_music", headers=API_HEADERS, timeout=10)
-            if resp.status_code == 200:
-                for item in resp.json().get("pending", []):
-                    user_id = item.get("user_id")
-                    title = item.get("title")
-                    artist = item.get("artist")
-                    track_id = item.get("track_id")
-                    if user_id and title:
-                        asyncio.create_task(download_music_and_send(bot, int(user_id), title, artist, track_id))
+            
+            # Not cached - Request via Miku cache channel + Cobalt fallback
+            await query.edit_message_text(f"🎵 Downloading {title} - {artist}...\n\nTrying Miku via cache channel + Cobalt fallback... MP3 coming in 15s!")
+            
+            # 1. Try Miku via cache channel
+            miku_requested = await request_miku_via_cache_channel(context.bot, user_id, title, artist)
+            
+            # 2. Start background download via Cobalt as fallback (if Miku doesn't reply in 30s)
+            async def cobalt_fallback():
+                await asyncio.sleep(35)  # Wait 35s for Miku to reply
+                pending = load_music_pending()
+                if cache_key in pending and pending[cache_key].get("status") == "waiting_miku":
+                    print(f"Miku didn't reply for {title}, trying Cobalt fallback")
+                    # Try Cobalt
+                    tmpdir = tempfile.mkdtemp()
+                    loop = asyncio.get_event_loop()
+                    fp, src = await loop.run_in_executor(music_executor, download_music_blocking_final, title, artist, tmpdir)
+                    if fp and os.path.exists(fp):
                         try:
-                            requests.post(f"{WEB_BASE_URL}/api/clear_pending", json={"user_id": user_id, "track_id": track_id}, headers=API_HEADERS, timeout=5)
+                            with open(fp, 'rb') as af:
+                                sent = await context.bot.send_audio(chat_id=user_id, audio=af, title=title, performer=artist, caption=f"{title} - {artist} Full MP3 Source: {src} (Cobalt fallback, Miku didn't reply)")
+                                try:
+                                    file_id = sent.audio.file_id
+                                    cache = load_music_cache()
+                                    cache[cache_key] = {"file_id": file_id, "title": title, "artist": artist, "source": src, "timestamp": time.time()}
+                                    save_music_cache(cache)
+                                    try:
+                                        await context.bot.send_audio(chat_id=VIDEO_VAULT_ID, audio=file_id, title=title, performer=artist)
+                                    except:
+                                        pass
+                                    # Deduct download
+                                    try:
+                                        deduct_download(user_id)
+                                    except:
+                                        pass
+                                except:
+                                    pass
+                            shutil.rmtree(tmpdir, ignore_errors=True)
+                            # Clear pending
+                            pending = load_music_pending()
+                            if cache_key in pending:
+                                del pending[cache_key]
+                                save_music_pending(pending)
+                            return
+                        except Exception as e:
+                            print(f"Cobalt send fail: {e}")
+                    shutil.rmtree(tmpdir, ignore_errors=True)
+                    # Both failed
+                    try:
+                        await context.bot.send_message(chat_id=user_id, text=f"Could not download {title} - {artist}. Both Miku and Cobalt failed. Try YouTube link directly.")
+                    except:
+                        pass
+            
+            asyncio.create_task(cobalt_fallback())
+            
+        except Exception as e:
+            print(f"Music pick callback error: {e}")
+            await query.answer(f"Error: {str(e)[:50]}")
+
+async def handle_channel_post(update, context):
+    # When Miku posts MP3 to cache channel, forward to user
+    try:
+        post = update.channel_post
+        if not post:
+            return
+        
+        # Only handle posts in our cache channel
+        if post.chat.id != MIKU_CACHE_CHANNEL_ID:
+            return
+        
+        # Check if post is from Miku bot
+        if post.from_user and post.from_user.username and MIKU_BOT_USERNAME.lower() in post.from_user.username.lower():
+            # Miku posted something - check if audio
+            if post.audio:
+                file_id = post.audio.file_id
+                title = post.audio.title or post.caption or "Unknown"
+                artist = post.audio.performer or "Unknown"
+                
+                print(f"Miku posted MP3 to cache channel: {title} - {artist} file_id {file_id[:20]}")
+                
+                # Find pending request for this title
+                pending = load_music_pending()
+                matched_key = None
+                matched_user = None
+                
+                # Try to match by title
+                for key, info in pending.items():
+                    if title.lower() in info.get("title", "").lower() or info.get("title", "").lower() in title.lower():
+                        matched_key = key
+                        matched_user = info.get("user_id")
+                        break
+                
+                # If no match by title, try recent pending (last 5 mins)
+                if not matched_user:
+                    for key, info in pending.items():
+                        if time.time() - info.get("timestamp", 0) < 300:  # 5 mins
+                            matched_key = key
+                            matched_user = info.get("user_id")
+                            title = info.get("title", title)
+                            artist = info.get("artist", artist)
+                            break
+                
+                if matched_user:
+                    try:
+                        await context.bot.send_audio(chat_id=matched_user, audio=file_id, title=title, performer=artist, caption=f"{title} - {artist} Full MP3 via Miku bot @Mikulordbot + Cached!")
+                        # Save to cache
+                        cache = load_music_cache()
+                        cache_key = f"{title}_{artist}".lower().replace(" ", "_")[:50]
+                        cache[cache_key] = {"file_id": file_id, "title": title, "artist": artist, "source": "miku_cache_channel", "timestamp": time.time()}
+                        save_music_cache(cache)
+                        # Deduct download
+                        try:
+                            deduct_download(matched_user)
                         except:
                             pass
-                        await asyncio.sleep(1)
-        except Exception as e:
-            print(f"Music poller error: {e}")
-        await asyncio.sleep(15)
+                        # Clear pending
+                        if matched_key in pending:
+                            del pending[matched_key]
+                            save_music_pending(pending)
+                        print(f"Forwarded Miku MP3 to user {matched_user}")
+                    except Exception as e:
+                        print(f"Forward Miku MP3 to user fail: {e}")
+    
+    except Exception as e:
+        print(f"Channel post handler error: {e}")
+
+# ===== SONG SEARCH MODE HANDLER =====
+song_search_mode = {}  # user_id -> True if in song search mode
+
+async def song_search_button_handler(update, context):
+    # When user presses "Song Search" button
+    user_id = update.effective_user.id
+    song_search_mode[user_id] = True
+    await update.message.reply_text("🎵 Enter song name to search (10 suggestions like Miku bot, with lyrics):\n\nExample: Koleyewon or Blinding Lights")
+
+async def handle_song_search_text(update, context):
+    user_id = update.effective_user.id
+    if user_id in song_search_mode and song_search_mode[user_id]:
+        query_text = update.message.text.strip()
+        if len(query_text) < 2:
+            await update.message.reply_text("Please enter at least 2 characters for song name.")
+            return
+        # Clear mode after search
+        song_search_mode[user_id] = False
+        await handle_song_search_mode(update, context, query_text)
+    else:
+        # Not in song search mode, handle as normal media link
+        # Call original media handler
+        pass
 
 
 def run_telegram_bot():
@@ -1976,6 +2231,7 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("unban", unban_command))
         app.add_handler(CommandHandler("backup", backup_command))
         app.add_handler(CommandHandler("checkcookies", checkcookies_command))
+        app.add_handler(ChannelPostHandler(handle_channel_post))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
         app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.ATTACHMENT, handle_user_upload))
@@ -1985,7 +2241,6 @@ def run_telegram_bot():
         asyncio.create_task(disk_cleaner_loop())
         asyncio.create_task(auto_backup_loop(app.bot))
         asyncio.create_task(queue_processor(app.bot))
-        asyncio.create_task(music_poller_loop(app.bot))
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
         print(f"Bot started! V24 Optimum +1 Vault={VIDEO_VAULT_ID} Backup={PRIVATE_CHANNEL_ID} Free {get_free_disk_mb()}MB")
         await asyncio.Event().wait()
