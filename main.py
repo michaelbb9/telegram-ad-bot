@@ -72,7 +72,7 @@ FLOOD_COOLDOWN = 30
 
 LANGUAGES = {
     "en": {
-        "welcome": "🚀 **WELCOME TO MICHAELBBC VAULT - ALL MEDIA DOWNLOADER! 🚀✨ FB, INSTA, TIKTOK, X, YOUTUBE! 🚀✨\n\n🔥 WHAT I CAN DO:\n🎬 VIDEOS HD No Watermark!\n🎵 AUDIO MP3 192kbps!\n🖼️ IMAGES Scrape ALL!\n📝 SUBTITLES Auto!\n📦 BATCH 100+ Links!\n⚡ CACHE 1 Sec!\n💎 VAULT Forever!\n📤 FAN UPLOADS 5/day!\n\n👉 PASTE LINK TO START! 👇** 🚀\n\n🎬 Video, 🎵 Audio, 🖼️ Images, 📝 Subtitles\n📦 Batch Downloader (100+ links)\n⚡ Flash Drops\n💎 Exclusive Vaults\n📤 Fan Uploads (5/day)\n\n👉 Just paste ANY link: TikTok, Facebook, Instagram, Twitter/X, YouTube, Spotify to start! 🚀✨ All Media + Music Supported!\n\n🎵 Spotify: Paste track/playlist link → Get MP3 with tags!\n🎬 Quality: Choose 360p/720p/1080p!",
+        "welcome": "🚀 **WELCOME TO MICHAELBBC VAULT - ALL MEDIA DOWNLOADER! 🚀✨ FB, INSTA, TIKTOK, X, YOUTUBE! 🚀✨\n\n🔥 WHAT I CAN DO:\n🎬 VIDEOS HD No Watermark!\n🎵 AUDIO MP3 192kbps!\n🖼️ IMAGES Scrape ALL!\n📝 SUBTITLES Auto!\n📦 BATCH 100+ Links!\n⚡ CACHE 1 Sec!\n💎 VAULT Forever!\n📤 FAN UPLOADS 5/day!\n\n👉 PASTE LINK TO START! 👇** 🚀\n\n🎬 Video, 🎵 Audio, 🖼️ Images, 📝 Subtitles\n📦 Batch Downloader (100+ links)\n⚡ Flash Drops\n💎 Exclusive Vaults\n📤 Fan Uploads (5/day)\n\n👉 Just paste ANY link: TikTok, Facebook, Instagram, Twitter/X, YouTube to start! 🚀✨ All Media Supported!",
         "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Images", "btn_sub": "📝 Subtitles (SRT)",
         "ask_format": "👇 **AWESOME! What format you want? Pick below! 🎯 Video=watch, Audio=music!**",
         "fetching": "📥 **Fetching your {}... Hang tight! ⏳✨ Working magic! 🚀**",
@@ -83,7 +83,6 @@ LANGUAGES = {
         "batch_detected": "📦 **Batch Detected ({} links)**\nWhat format?",
         "batch_dest": "📦 **Where to send?**",
         "btn_chat": "📥 In Chat", "btn_chan": "📢 To Channel",
-        # CLAUSE 12 FIX: Changed 30s to 20s and +4 to +1 optimum realistic reward
         "limit_reached": "⚠️ **Limit Reached! 🚧😅 You used 4 FREE! 🎬 Watch 20s ad → Get +1 download! Realistic reward ♻️✨**",
         "refill_btn": "🔓 Open Link & Refill +1",
         "join_btn": "📢 Join Channel", "check_btn": "💜 Check Balance",
@@ -107,7 +106,7 @@ LANGUAGES = {
 web_app = Flask(__name__)
 @web_app.route('/')
 def health_check():
-    return "Bot alive! V24 Optimum +1", 200
+    return "Bot alive! V39 Working Base + YouTube Cookies + Song Search", 200
 
 def load_json_file(filename):
     if os.path.exists(filename):
@@ -125,13 +124,27 @@ def save_json_file(filename, data):
     except Exception as e:
         logger.error(f"Save {filename}: {e}")
 
+def get_cookies_file_for_url(url):
+    # NEW: Separate cookies support - won't break downloads
+    url_l = url.lower()
+    if "tiktok.com" in url_l and os.path.exists("tiktok_cookies.txt"):
+        return "tiktok_cookies.txt"
+    if ("youtube.com" in url_l or "youtu.be" in url_l or "ytsearch" in url_l or "ytmsearch" in url_l) and os.path.exists("youtube_cookies.txt"):
+        return "youtube_cookies.txt"
+    if os.path.exists("youtube_cookies.txt") and ("spotify" in url_l or "oroma" in url_l or len(url_l) < 60): # for song search
+        return "youtube_cookies.txt"
+    if os.path.exists("cookies.txt"):
+        return "cookies.txt"
+    if os.path.exists("youtube.com_cookies.txt"):
+        return "youtube.com_cookies.txt"
+    return None
+
 def get_canonical_key(url: str):
     try:
         ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True}
-        if os.path.exists("tiktok_cookies.txt") and "tiktok.com" in url.lower():
-            ydl_opts['cookiefile'] = "tiktok_cookies.txt"
-        elif os.path.exists("cookies.txt"):
-            ydl_opts['cookiefile'] = "cookies.txt"
+        cf = get_cookies_file_for_url(url)
+        if cf:
+            ydl_opts['cookiefile'] = cf
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             if not info:
@@ -198,14 +211,6 @@ async def disk_cleaner_loop():
                 logger.info(f"Cleaner deleted {deleted}")
         except Exception as e:
             logger.error(f"Cleaner: {e}")
-
-def restore_cache_info():
-    try:
-        cache = load_json_file(CACHE_FILE)
-        if len(cache)==0:
-            logger.info("Cache empty after clear/restart - vault channel has 4 vids but index reset. Use /backup to restore from private channel")
-    except:
-        pass
 
 def clean_downloads_startup():
     try:
@@ -299,6 +304,9 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
 
 def fetch_url_metadata(url):
     ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True}
+    cf = get_cookies_file_for_url(url)
+    if cf:
+        ydl_opts['cookiefile'] = cf
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -324,28 +332,13 @@ def scrape_html_images(url, cookiefile=None):
         logger.error(f"Scrape: {e}")
     return None
 
-def download_media_engine(url: str, download_type: str, quality: str = "best"):
+def download_media_engine(url: str, download_type: str):
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     http_headers = {'User-Agent': 'Mozilla/5.0'}
-    cookiefile = None
-    if "tiktok.com" in url.lower() and os.path.exists("tiktok_cookies.txt"):
-        cookiefile = "tiktok_cookies.txt"
-    elif os.path.exists("cookies.txt"):
-        cookiefile = "cookies.txt"
-    # Separate cookies - simple check (won't break engine)
-    yt_cookie = None
-    for cf in ["youtube_cookies.txt", "youtube.com_cookies.txt", "yt_cookies.txt"]:
-        if os.path.exists(cf):
-            yt_cookie = cf
-            break
+    cookiefile = get_cookies_file_for_url(url)
     ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL}
-    # YouTube cookies for YouTube searches, TikTok cookies for TikTok, etc
-    if yt_cookie and ("youtube" in url.lower() or "youtu.be" in url.lower() or "ytsearch" in url.lower() or "ytmsearch" in url.lower()):
-        ydl_opts['cookiefile'] = yt_cookie
-    elif os.path.exists("tiktok_cookies.txt") and "tiktok.com" in url.lower():
-        ydl_opts['cookiefile'] = "tiktok_cookies.txt"
-    elif cookiefile:
+    if cookiefile:
         ydl_opts['cookiefile'] = cookiefile
     if download_type == 'audio':
         ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path})
@@ -366,36 +359,8 @@ def download_media_engine(url: str, download_type: str, quality: str = "best"):
             if os.path.getsize(path) > 1000:
                 return [path], "Image", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("NO_IMAGES")
-    elif download_type.startswith("video_"):
-        # Quality selector: video_720, video_1080 etc - with cache support
-        q = download_type.split("_")[1] if "_" in download_type else "best"
-        fmt_map = {
-            "360": "bestvideo[height<=360]+bestaudio/best[height<=360]/best",
-            "480": "bestvideo[height<=480]+bestaudio/best[height<=480]/best",
-            "720": "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
-            "1080": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
-            "best": "bestvideo+bestaudio/best"
-        }
-        fmt = fmt_map.get(q, "bestvideo+bestaudio/best")
-        ydl_opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path})
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                path = ydl.prepare_filename(info)
-                if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0]+".mp4"):
-                    path = os.path.splitext(path)[0]+".mp4"
-                if os.path.exists(path):
-                    if os.path.getsize(path) > 50*1024*1024:
-                        os.remove(path)
-                        raise ValueError("FILE_TOO_LARGE")
-                    return [path], f"{info.get('height', 'HD')}p", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
-        except Exception as e:
-            raise e
-        raise ValueError("FILE_NOT_FOUND")
-    elif dl_type.startswith("video_"):
-        # Already handled above in quality branch - this else is for generic best
+    else:
         for fmt in ["best", "bestvideo+bestaudio/best"]:
-
             try:
                 ydl_opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path})
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -414,44 +379,16 @@ def download_media_engine(url: str, download_type: str, quality: str = "best"):
                 continue
         raise ValueError("FILE_TOO_LARGE")
 
-def is_spotify_url(url):
-    return "open.spotify.com" in url.lower() or "spotify.com" in url.lower()
-
-def get_spotify_metadata(url):
-    # Use oEmbed - no API key needed, respects rate limits
-    try:
-        import requests as req
-        oembed_url = f"https://open.spotify.com/oembed?url={url}"
-        r = req.get(oembed_url, timeout=10)
-        if r.status_code == 200:
-            data = r.json()
-            title = data.get("title", "")
-            return title  # e.g. "The Weeknd - Blinding Lights"
-    except:
-        pass
-    # Fallback: extract from URL
-    try:
-        if "/track/" in url:
-            return "Spotify Track"
-        elif "/playlist/" in url:
-            return "Spotify Playlist"
-    except:
-        pass
-    return "Spotify Music"
-
-def download_spotify_engine(spotify_url: str):
-    # Lightweight spotDL logic: Spotify URL -> YouTube search -> yt-dlp audio + tags
-    import requests as req
+def download_spotify_engine(search_term):
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
-    
-    # 1. Get metadata via oEmbed
-    title = get_spotify_metadata(spotify_url)
-    search_query = title if title != "Spotify Music" else "spotify track"
-    
-    # Avoid live/cover mismatch: search official audio
-    yt_search = f"ytsearch1:{search_query} official audio"
-    
+    cookies = get_cookies_file_for_url("youtube.com")
+    queries = [
+        f"ytsearch1:{search_term}",
+        f"ytmsearch1:{search_term}",
+        f"ytsearch1:{search_term} official audio",
+        f"ytsearch1:{search_term} lyrics",
+    ]
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
@@ -459,27 +396,30 @@ def download_spotify_engine(spotify_url: str):
         'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
         'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
         'ffmpeg_location': ffmpeg_path,
-        'default_search': 'ytsearch',
         'noplaylist': True,
     }
-    if os.path.exists("cookies.txt"):
-        ydl_opts['cookiefile'] = "cookies.txt"
-    
-    # Rate limit respect: small delay
-    time.sleep(1.5)
-    
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(yt_search, download=True)
-        if 'entries' in info:
-            info = info['entries'][0]
-        base_name = os.path.splitext(ydl.prepare_filename(info))[0]
-        mp3_path = f"{base_name}.mp3"
-        if os.path.exists(mp3_path):
-            # Embed simple ID3 via filename as title (full ID3 embedding needs mutagen - we keep lightweight)
-            size = f"{os.path.getsize(mp3_path)/(1024*1024):.1f}MB"
-            yt_title = info.get('title', title)
-            return [mp3_path], yt_title, size
-    raise ValueError("SPOTIFY_NOT_FOUND")
+    if cookies:
+        ydl_opts['cookiefile'] = cookies
+    last_err = None
+    for q in queries:
+        try:
+            time.sleep(0.5)
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(q, download=True)
+                if 'entries' in info and info['entries']:
+                    info = info['entries'][0]
+                if not info:
+                    continue
+                base_name = os.path.splitext(ydl.prepare_filename(info))[0]
+                mp3_path = f"{base_name}.mp3"
+                if os.path.exists(mp3_path) and os.path.getsize(mp3_path) > 10000:
+                    size = f"{os.path.getsize(mp3_path)/(1024*1024):.1f}MB"
+                    title = info.get('title', search_term)
+                    return [mp3_path], title, size
+        except Exception as e:
+            last_err = e
+            continue
+    raise ValueError(f"SPOTIFY_NOT_FOUND:{last_err}")
 
 def get_main_keyboard(lang_code, is_admin):
     t = LANGUAGES.get(lang_code, LANGUAGES["en"])
@@ -488,13 +428,13 @@ def get_main_keyboard(lang_code, is_admin):
         [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])],
         [KeyboardButton(t["menu_upload"])],
         [KeyboardButton("🟢 Bot Status")],
-        [KeyboardButton("🧪 Test Ad"), KeyboardButton("📢 Ad Info")]
+        [KeyboardButton("🧪 Test Ad"), KeyboardButton("📢 Ad Info")],
+        [KeyboardButton("🔍 Song Search")]
     ]
     if is_admin:
         keyboard.append([KeyboardButton(t["menu_uploads"]), KeyboardButton("📢 Broadcast")])
         keyboard.append([KeyboardButton("⚡ Create Flash Drop"), KeyboardButton("⚙️ Ad Toggle Panel")])
         keyboard.append([KeyboardButton("🎁 Set Reward (1/2/3/5)"), KeyboardButton("📦 Set Free DL (2/3/4/5)")])
-        keyboard.append([KeyboardButton("🔍 Song Search")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_downloads_usage_mb():
@@ -552,7 +492,6 @@ def get_free_disk_mb():
         return 512
 
 def deduct_download_counter(user_id, is_batch=False):
-    # FIX: Only call server once - no local double save - prevents -2 bug
     try:
         requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": is_batch}, timeout=3)
     except:
@@ -665,7 +604,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch", url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
     if user_id == ADMIN_ID:
         keyboard.append([InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")])
-    # Forward tutorial video 108 for Adsterra bypass - ROBUST VERSION - CLAUSE 13 + 12 FIX
     tutorial_sent = False
     try:
         tut = await context.bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
@@ -681,19 +619,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             try:
                 await context.bot.send_message(
                     chat_id=user_id,
-                    text="📺 **TUTORIAL: How to bypass Adsterra link (20s) - Optimum +1**\n\n"
-                    "1️⃣ Click **Open Link & Watch Timer 20s**\n"
-                    "2️⃣ Click **OPEN** on popup\n"
-                    "3️⃣ Stay 20 seconds on ad page\n"
-                    "4️⃣ Come back to bot\n"
-                    "5️⃣ Click **Check Balance** → Get +1 download (realistic)!\n\n"
-                    "⚠️ If tutorial video 108 missing from private channel -1004347828512, re-upload it!",
+                    text="📺 **TUTORIAL: How to bypass Adsterra link (20s) - Optimum +1**\n\n1️⃣ Click **Open Link & Watch Timer 20s**\n2️⃣ Click **OPEN** on popup\n3️⃣ Stay 20 seconds on ad page\n4️⃣ Come back to bot\n5️⃣ Click **Check Balance** → Get +1 download (realistic)!\n\n⚠️ If tutorial video 108 missing from private channel -1004347828512, re-upload it!",
                     parse_mode="Markdown"
                 )
                 tutorial_sent = True
             except:
                 pass
-
     await update.message.reply_text("👇 **CONTENT LOCKED 🔒 - Tutorial video above! Watch how to bypass!**" + ("" if tutorial_sent else "\n\n⚠️ Tutorial video 108 missing! Make bot admin in -1004347828512 and ensure message 108 exists!"), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0):
@@ -879,6 +810,34 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if str(user_id) in support_states:
             del support_states[str(user_id)]
             save_json_file(SUPPORT_STATES_FILE, support_states)
+    # SONG SEARCH BUTTON ONLY - 2-step to avoid silent
+    try:
+        search_states_file = load_json_file("search_states.json")
+    except:
+        search_states_file = {}
+    in_memory = user_id in pending_song_search
+    in_file = str(user_id) in search_states_file and search_states_file[str(user_id)].get("mode") == "awaiting_song"
+    if in_memory or in_file:
+        song_name = text.strip()
+        if song_name and "http" not in song_name.lower() and len(song_name) >= 2 and len(song_name) <= 60 and not song_name.startswith("/") and not song_name.startswith("✅") and not song_name.startswith("❌") and not song_name.startswith("⚠️"):
+            if user_id in pending_song_search:
+                del pending_song_search[user_id]
+            try:
+                states = load_json_file("search_states.json")
+                if str(user_id) in states:
+                    del states[str(user_id)]
+                    save_json_file("search_states.json", states)
+            except:
+                pass
+            payload_key = f"search_{user_id}_{int(time.time())}"
+            pending_single_links[payload_key] = song_name
+            keyboard = [[InlineKeyboardButton(f"🔍 Search: {song_name[:40]}", callback_data=f"do_search_{payload_key}")]]
+            await update.message.reply_text(
+                f"🎵 **Song: {song_name}**\n\n👇 **Tap to search YouTube!**\n💰 {get_free_amount()} FREE → Ad → +{get_reward_amount()} (strict)\n✅ Button = No silent bug!\n🍪 Uses youtube_cookies.txt",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown"
+            )
+            return
     if text == "🔍 Song Search" or text.strip().lower() == "song search":
         pending_song_search[user_id] = time.time()
         try:
@@ -888,11 +847,10 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         except:
             pass
         await update.message.reply_text(
-            f"🔍 **SONG SEARCH MODE - BUTTON ONLY**\n\nType song name now:\n• `oroma baby`\n• `blinding lights`\n\n⚠️ Only works after tapping 🔍 (no rubbish)\n💰 {get_free_amount()} FREE → Ad → +{get_reward_amount()} (strict)",
+            f"🔍 **SONG SEARCH MODE - BUTTON ONLY**\n\nType song name now:\n• `oroma baby`\n• `blinding lights`\n\n⚠️ Only works after tapping 🔍 (no rubbish search)\n💰 {get_free_amount()} FREE → Ad → +{get_reward_amount()} (strict)",
             parse_mode="Markdown"
         )
         return
-
     if text.startswith("📦 Set Free") and user_id == ADMIN_ID:
         current = get_free_amount()
         keyboard = [[InlineKeyboardButton(f"✅ {i} (Current)" if i==current else f"{i} free", callback_data=f"set_free_{i}") for i in [2,3,4,5]]]
@@ -941,7 +899,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if text == "🟢 Bot Status":
         await status_command(update, context)
         return
-
     if "Test Ad" in text or text.strip() == "🧪 Test Ad":
         bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
         keyboard = [
@@ -967,7 +924,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             parse_mode="Markdown"
         )
         return
-
     if "Ad Info" in text:
         await update.message.reply_text(
             "📢 **AD INFO - ALL MEDIA DOWNLOADER - Clause 13 + 12 Fix**\n\n"
@@ -1123,23 +1079,9 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text(t["batch_detected"].format(len(extracted_urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     url = extracted_urls[0]
-    if is_spotify_url(url):
-        # Spotify flow - same monetization as single downloads!
-        # Check limits via existing check-download logic (handled earlier)
-        status_preview = await update.message.reply_text("🎵 Checking Spotify link...")
-        title = get_spotify_metadata(url)
-        try:
-            await status_preview.delete()
-        except:
-            pass
-        payload_key = f"spotify_{user_id}_{int(time.time())}"
-        pending_single_links[payload_key] = url  # Reuse for spotify
-        keyboard = [[InlineKeyboardButton(f"🎵 Download: {title[:40]}", callback_data=f"fmt_spotify_{payload_key}")]]
-        await update.message.reply_text(f"🎵 **{title}**\n⏱️ Spotify → YouTube Music\n\n👇 **Download as MP3 with tags?**\nSame limits: {get_free_amount()} free → Ad → +{get_reward_amount()}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    if "youtube.com" in url.lower():
+        await update.message.reply_text("❌ YouTube paused")
         return
-    if "youtube.com" in url.lower() and "music" not in url.lower():
-        # Allow YouTube now for quality selector demo - previously paused
-        pass
     status_preview = await update.message.reply_text("🔍 Checking link...")
     title, dur = fetch_url_metadata(url)
     try:
@@ -1148,13 +1090,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         pass
     payload_key = f"single_{user_id}_{int(time.time())}"
     pending_single_links[payload_key] = url
-    # Quality Selector - NEW!
-    keyboard = [
-        [InlineKeyboardButton("🎬 Best Quality (1080p)", callback_data=f"fmt_vid_best_{payload_key}")],
-        [InlineKeyboardButton("🎬 720p HD", callback_data=f"fmt_vid_720_{payload_key}"), InlineKeyboardButton("🎬 480p", callback_data=f"fmt_vid_480_{payload_key}")],
-        [InlineKeyboardButton("🎬 360p (Fast)", callback_data=f"fmt_vid_360_{payload_key}"), InlineKeyboardButton(t["btn_audio"], callback_data=f"fmt_aud_{payload_key}")],
-        [InlineKeyboardButton(t["btn_image"], callback_data=f"fmt_img_{payload_key}")]
-    ]
+    keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"fmt_vid_{payload_key}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"fmt_aud_{payload_key}")],[InlineKeyboardButton(t["btn_image"], callback_data=f"fmt_img_{payload_key}")]]
     await update.message.reply_text(f"🎬 {title}\n⏱️ {dur}\n\n{t['ask_format']}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1231,7 +1167,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     mode = config.get("ad_mode","auto").upper()
     free_mb = get_free_disk_mb()
     cache = load_json_file(CACHE_FILE)
-    await update.message.reply_text(f"🟢 **Status V24 Optimum**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic (Clause 12 fix)\nTest: /testad (Clause 13 fix)\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
+    await update.message.reply_text(f"🟢 **Status V39 Working Base**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic\nCookies: tiktok_cookies.txt + youtube_cookies.txt + cookies.txt\nSong Search: 2-step button (no silent)\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
 
 async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID:
@@ -1316,15 +1252,7 @@ async def backup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def cached_download_and_send(bot, chat_id, url, dl_type, t):
     cache = load_json_file(CACHE_FILE)
-    base_ckey = get_canonical_key(url)
-    # Quality-specific cache: video_720, video_360 etc get separate cache entries
-    # Spotify gets its own key via url hash
-    if dl_type.startswith("video_"):
-        quality = dl_type.split("_")[1] if "_" in dl_type else "best"
-        ckey = f"{base_ckey}_{quality}p"
-    else:
-        ckey = base_ckey
-
+    ckey = get_canonical_key(url)
     if ckey in cache:
         try:
             cached = cache[ckey]
@@ -1332,14 +1260,11 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
             c_type = cached.get("type", "video")
             if file_id:
                 if c_type == "video":
-                    qual = cached.get("quality", dl_type)
+                    qual = cached.get("quality", "HD")
                     sz = cached.get("size", "")
-                    cached_note = " (360p cached)" if "360" in ckey else " (720p cached)" if "720" in ckey else " (1080p cached)" if "1080" in ckey else " (Best cached)"
-                    sent = await bot.send_video(chat_id=chat_id, video=file_id, caption=f"Cached Instant {qual} {sz} {ckey}{cached_note}")
+                    sent = await bot.send_video(chat_id=chat_id, video=file_id, caption=f"Cached Instant {qual} {sz} {ckey}")
                 elif c_type == "audio":
-                    is_spotify = "spotify" in ckey or "url_" in ckey
-                    note = "🎵 Spotify Cached" if is_spotify else "⚡ Cached"
-                    sent = await bot.send_audio(chat_id=chat_id, audio=file_id, caption=f"{note} Instant `{ckey}`")
+                    sent = await bot.send_audio(chat_id=chat_id, audio=file_id, caption=f"⚡ **Cached Instant** `{ckey}`")
                 elif c_type == "image":
                     sent = await bot.send_photo(chat_id=chat_id, photo=file_id, caption=f"⚡ **Cached Instant** `{ckey}`")
                 else:
@@ -1443,30 +1368,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except:
             pass
         return
-    if data.startswith("do_search_"):
-        payload_key = data.replace("do_search_", "")
-        song_name = pending_single_links.get(payload_key, "")
-        if not song_name:
-            await query.answer("❌ Expired, type again!", show_alert=True)
-            return
-        await query.answer(f"🔍 Searching {song_name}...")
-        try:
-            await query.edit_message_text(f"🔍 **Searching YouTube for: {song_name}**\nPlease wait... (youtube_cookies.txt)")
-        except:
-            pass
-        download_key = f"songdl_{user_id}_{int(time.time())}"
-        pending_single_links[download_key] = song_name
-        keyboard = [[InlineKeyboardButton(f"🎵 Download MP3: {song_name[:35]}", callback_data=f"fmt_spotify_{download_key}")]]
-        try:
-            await query.edit_message_text(
-                f"✅ **Found: {song_name}**\n\n👇 **Tap to download MP3!**\n💰 {get_free_amount()} FREE → Ad → +{get_reward_amount()}",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="Markdown"
-            )
-        except:
-            await context.bot.send_message(chat_id=chat_id, text=f"✅ Found: {song_name}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-        return
-
     if data.startswith("set_free_") and user_id == ADMIN_ID:
         val = int(data.replace("set_free_", ""))
         set_free_amount(val)
@@ -1495,6 +1396,29 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.message.edit_text(f"✅ Mode: {mode.upper()}", parse_mode="Markdown")
         except:
             pass
+        return
+    if data.startswith("do_search_"):
+        payload_key = data.replace("do_search_", "")
+        song_name = pending_single_links.get(payload_key, "")
+        if not song_name:
+            await query.answer("❌ Expired, type again!", show_alert=True)
+            return
+        await query.answer(f"🔍 Searching {song_name}...")
+        try:
+            await query.edit_message_text(f"🔍 **Searching YouTube for: {song_name}**\nPlease wait... (youtube_cookies.txt)")
+        except:
+            pass
+        download_key = f"songdl_{user_id}_{int(time.time())}"
+        pending_single_links[download_key] = song_name
+        keyboard = [[InlineKeyboardButton(f"🎵 Download MP3: {song_name[:35]}", callback_data=f"fmt_spotify_{download_key}")]]
+        try:
+            await query.edit_message_text(
+                f"✅ **Found: {song_name}**\n\n👇 **Tap to download MP3!**\n💰 {get_free_amount()} FREE → Ad → +{get_reward_amount()}",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown"
+            )
+        except:
+            await context.bot.send_message(chat_id=chat_id, text=f"✅ Found: {song_name}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     if data == "open_support":
         support_states = load_json_file(SUPPORT_STATES_FILE)
@@ -1658,43 +1582,35 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await context.bot.send_message(chat_id=chat_id, text=t["batch_dest"].format(len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     if data.startswith("fmt_"):
-        # Spotify first
+        # Spotify / Song search
         if data.startswith("fmt_spotify_"):
             payload_key = data.replace("fmt_spotify_", "")
-            url = pending_single_links.pop(payload_key, None)
-            if not url:
+            search_term = pending_single_links.pop(payload_key, None)
+            if not search_term:
                 await query.answer("Expired", show_alert=True)
                 return
-            await query.answer("Searching YouTube for Spotify track... 2s anti-block delay")
+            await query.answer(f"Downloading {search_term} MP3...")
             await query.message.delete()
             can_dl = await acquire_slot()
             if can_dl:
                 try:
-                    status = await context.bot.send_message(chat_id=chat_id, text=t["fetching"].format("Spotify MP3"), parse_mode="Markdown")
+                    status = await context.bot.send_message(chat_id=chat_id, text=f"📥 Downloading MP3: {search_term} (youtube_cookies.txt)...")
                     try:
-                        file_paths, res, size = download_spotify_engine(url)
+                        file_paths, title, size = download_spotify_engine(search_term)
                         if file_paths and os.path.exists(file_paths[0]):
                             with open(file_paths[0], 'rb') as f:
-                                sent = await context.bot.send_audio(chat_id=chat_id, audio=f, caption=f"🎵 {res} | {size} | Spotify", parse_mode="Markdown")
+                                sent = await context.bot.send_audio(chat_id=chat_id, audio=f, caption=f"🎵 {title} | {size} | {search_term}")
                             warn = await context.bot.send_message(chat_id=chat_id, text="⏳ Auto-deletes in 9 mins")
                             asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent.message_id, warn.message_id], 540))
-                            ckey = get_canonical_key(url)
-                            try:
-                                vmsg = await context.bot.send_audio(chat_id=VIDEO_VAULT_ID, audio=sent.audio.file_id, caption=ckey)
-                                cache = load_json_file(CACHE_FILE)
-                                cache[ckey] = {"file_id": sent.audio.file_id, "vault_msg_id": vmsg.message_id, "type": "audio", "timestamp": time.time(), "hits": 1, "size": size}
-                                save_json_file(CACHE_FILE, cache)
-                            except:
-                                pass
                             os.remove(file_paths[0])
                             await context.bot.delete_message(chat_id=chat_id, message_id=status.message_id)
                             deduct_download_counter(chat_id, is_batch=False)
                         else:
-                            await context.bot.edit_message_text(chat_id=chat_id, message_id=status.message_id, text=t["error_generic"])
+                            await context.bot.edit_message_text(chat_id=chat_id, message_id=status.message_id, text="❌ Failed to download MP3")
                     except Exception as e:
-                        logger.error(f"Spotify DL {url}: {e}")
+                        logger.error(f"Spotify DL {search_term}: {e}")
                         try:
-                            await context.bot.edit_message_text(chat_id=chat_id, message_id=status.message_id, text="❌ Spotify track not found on YouTube (live/cover mismatch protection). Try another Spotify link!")
+                            await context.bot.edit_message_text(chat_id=chat_id, message_id=status.message_id, text=f"❌ {str(e)[:200]}")
                         except:
                             pass
                 finally:
@@ -1703,144 +1619,9 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 pos = download_queue.qsize()+1
                 await context.bot.send_message(chat_id=chat_id, text=f"⏳ Queued #{pos} (Spotify)", parse_mode="Markdown")
             return
-        
-        # Quality selector: data like fmt_vid_720_key or fmt_vid_best_key
-        if data.startswith("fmt_vid_"):
-            # Extract quality and payload
-            # Format: fmt_vid_720_payloadkey or fmt_vid_best_payloadkey
-            rest = data.replace("fmt_vid_", "")
-            # rest = "720_payloadkey"
-            if "_" in rest:
-                quality, payload_key = rest.split("_", 1)
-            else:
-                quality, payload_key = rest, ""
-            url = pending_single_links.pop(payload_key, None)
-            if not url:
-                await query.answer("Expired - paste link again", show_alert=True)
-                return
-            await query.answer(f"Downloading {quality}p...")
-            await query.message.delete()
-            dl_type = f"video_{quality}"
-            ckey = get_canonical_key(url)
-            cache = load_json_file(CACHE_FILE)
-            if ckey in cache:
-                await cached_download_and_send(context.bot, chat_id, url, dl_type, t)
-                return
-            can_dl = await acquire_slot()
-            if can_dl:
-                try:
-                    await cached_download_and_send(context.bot, chat_id, url, dl_type, t)
-                finally:
-                    await release_slot()
-            else:
-                pos = download_queue.qsize()+1
-                await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, url, dl_type, t), 'kwargs': {}})
-                await context.bot.send_message(chat_id=chat_id, text=f"⏳ Server Busy Queued #{pos} - {quality}p", parse_mode="Markdown")
-            return
-        
-        # Original fmt handling for audio/image
+        # Original fmt handling
         parts = data.split("_",2)
         fmt_type, payload_key = parts[1], parts[2]
-        if False:  # placeholder
-            pass
-        else:
-            # Continue to original logic
-            url = pending_single_links.pop(payload_key, None)
-            if not url:
-                await query.answer("Expired", show_alert=True)
-                return
-            await query.answer("Checking vault & server load...")
-            await query.message.delete()
-            dl_type = 'video'
-            if fmt_type == 'aud':
-                dl_type='audio'
-            elif fmt_type == 'img':
-                dl_type='images'
-            elif fmt_type == 'sub':
-                dl_type='subtitles'
-            ckey = get_canonical_key(url)
-            cache = load_json_file(CACHE_FILE)
-            if ckey in cache:
-                await cached_download_and_send(context.bot, chat_id, url, dl_type, t)
-                return
-            can_dl = await acquire_slot()
-            if can_dl:
-                try:
-                    await cached_download_and_send(context.bot, chat_id, url, dl_type, t)
-                finally:
-                    await release_slot()
-            else:
-                pos = download_queue.qsize()+1
-                await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, url, dl_type, t), 'kwargs': {}})
-                free_mb = get_free_disk_mb()
-                await context.bot.send_message(chat_id=chat_id, text=f"⏳ **Server Busy**\nActive: {active_downloads}/{MAX_CONCURRENT_SHORT}\nFree: {free_mb}MB\nQueue: #{pos}\nWill start auto!", parse_mode="Markdown")
-            return
-        # end
-
-            url = pending_single_links.pop(payload_key, None)
-            if not url:
-                await query.answer("Expired", show_alert=True)
-                return
-            await query.answer("Searching YouTube for Spotify track...")
-            await query.message.delete()
-            # Use same monetization check already done before - download
-            can_dl = await acquire_slot()
-            if can_dl:
-                try:
-                    # Call spotify engine
-                    status = await context.bot.send_message(chat_id=chat_id, text=t["fetching"].format("Spotify MP3") + f"\n`{url}`", parse_mode="Markdown")
-                    try:
-                        file_paths, res, size = download_spotify_engine(url)
-                        if file_paths and os.path.exists(file_paths[0]):
-                            with open(file_paths[0], 'rb') as f:
-                                sent = await context.bot.send_audio(chat_id=chat_id, audio=f, caption=f"🎵 {res} Size {size} - Spotify via YouTube", parse_mode="Markdown")
-                            warn = await context.bot.send_message(chat_id=chat_id, text="⏳ Auto-deletes in 9 mins\n🎵 ID3: Title from Spotify, Audio from YouTube")
-                            asyncio.create_task(schedule_deletion(context.bot, chat_id, [sent.message_id, warn.message_id], 540))
-                            try:
-                                vmsg = await context.bot.send_audio(chat_id=VIDEO_VAULT_ID, audio=sent.audio.file_id, caption=f"spotify_{get_canonical_key(url)}")
-                                cache = load_json_file(CACHE_FILE)
-                                cache[get_canonical_key(url)] = {"file_id": sent.audio.file_id, "vault_msg_id": vmsg.message_id, "type": "audio", "timestamp": time.time(), "hits": 1, "size": size}
-                                save_json_file(CACHE_FILE, cache)
-                            except:
-                                pass
-                            os.remove(file_paths[0])
-                            await context.bot.delete_message(chat_id=chat_id, message_id=status.message_id)
-                            deduct_download_counter(chat_id, is_batch=False)
-                        else:
-                            await context.bot.edit_message_text(chat_id=chat_id, message_id=status.message_id, text=t["error_generic"])
-                    except Exception as e:
-                        logger.error(f"Spotify DL: {e}")
-                        try:
-                            await context.bot.edit_message_text(chat_id=chat_id, message_id=status.message_id, text=f"❌ Spotify track not found on YouTube. Try another link! (Mismatch protection)")
-                        except:
-                            pass
-                finally:
-                    await release_slot()
-            else:
-                pos = download_queue.qsize()+1
-                await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, url, 'audio', t), 'kwargs': {}})
-                await context.bot.send_message(chat_id=chat_id, text=f"⏳ Server Busy - Queued #{pos}", parse_mode="Markdown")
-            return
-        if fmt_type == "vidq":
-            # Quality selector second step
-            # payload_key contains url key and quality
-            # Actually format: fmt_vidq_720_payload
-            # Re-parse
-            try:
-                q_parts = payload_key.split("_",1)
-                quality = q_parts[0]
-                real_key = q_parts[1] if len(q_parts)>1 else ""
-                url = pending_single_links.pop(real_key, None) if real_key else None
-                if not url:
-                    # Try direct
-                    url = pending_single_links.get(payload_key)
-                    quality = fmt_type
-                # For simplicity, quality is in fmt_type? Let's handle
-            except:
-                pass
-            # Fallback to original handling below
-            pass
-
         url = pending_single_links.pop(payload_key, None)
         if not url:
             await query.answer("Expired", show_alert=True)
@@ -1994,7 +1775,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         tokens = load_tokens()
         user_str = str(user_id)
         if user_str not in tokens:
-            # Create new token with +1 for test ad demo (not 4!)
             reward = get_reward_amount()
             tokens[user_str] = {
                 "user_id": int(user_id),
@@ -2026,7 +1806,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.answer("⏰ Finish 20s timer first! Watch ad via Open Link button!", show_alert=True)
             return
         msg_start, msg_end = token_data.get("msg_start",0), token_data.get("msg_end",0)
-        # FIX: Don't delete token! Keep it and set to +1 optimum (was deleting and recreating as 4!)
         reward = get_reward_amount()
         tokens[user_str]["downloads_left"] = reward
         tokens[user_str]["batch_downloads_left"] = reward * 5
@@ -2064,7 +1843,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             asyncio.create_task(schedule_deletion(context.bot, user_id, fwd_ids, 540))
         except Exception as e:
             await query.message.reply_text(f"❌ {e} (Bundle {msg_start}-{msg_end} + Tutorial {TUTORIAL_MESSAGE_ID})")
-
 
 async def test_ad_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bridge_link = f"{BRIDGE_URL}?user={update.effective_user.id}&start_msg=0&end_msg=0"
@@ -2135,7 +1913,7 @@ def run_telegram_bot():
         asyncio.create_task(auto_backup_loop(app.bot))
         asyncio.create_task(queue_processor(app.bot))
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
-        print(f"Bot started! V24 Optimum +1 Vault={VIDEO_VAULT_ID} Backup={PRIVATE_CHANNEL_ID} Free {get_free_disk_mb()}MB")
+        print(f"Bot started! V39 Working Base + Cookies + Song Search")
         await asyncio.Event().wait()
     loop.run_until_complete(start_bot())
 
