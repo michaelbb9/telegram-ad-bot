@@ -1175,9 +1175,13 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text(t["batch_detected"].format(len(extracted_urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     url = extracted_urls[0]
-    if "youtube.com" in url.lower():
-        await update.message.reply_text("❌ YouTube paused")
-        return
+    # V40 FIX: YouTube UNPAUSED for MP3/Spotify (was blocking YT, but we need YT for MP3!)
+    # If youtube.com and youtube_cookies.txt exists, allow it!
+    if "youtube.com" in url.lower() or "youtu.be" in url.lower():
+        if not os.path.exists("youtube_cookies.txt") and not os.path.exists("cookies.txt"):
+            await update.message.reply_text("⚠️ YouTube needs youtube_cookies.txt! Upload it to GitHub or use MP3 from TikTok/FB/Insta only")
+            return
+        # Allow YouTube - continue to download
     status_preview = await update.message.reply_text("🔍 Checking link...")
     title, dur = fetch_url_metadata(url)
     try:
