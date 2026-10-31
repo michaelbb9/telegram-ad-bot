@@ -1572,15 +1572,28 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         tokens = load_tokens()
         user_str = str(user_id)
         if user_str not in tokens:
+            # Create new token with +1 for test ad demo (not 4!)
+            tokens[user_str] = {
+                "user_id": int(user_id),
+                "downloads_left": 1,
+                "batch_downloads_left": 5,
+                "last_reset": time.time(),
+                "msg_start": 0,
+                "msg_end": 0,
+                "clicked_ad": True,
+                "verified": True,
+                "expires": time.time() + 600
+            }
+            save_tokens(tokens)
             await query.answer("✅ Test Ad Verified! (Clause 13 Demo) +1 realistic", show_alert=True)
             await query.message.reply_text(
-                "✅ **TEST AD VERIFIED! 🎉 (Clause 13 + 12 Demo) - Optimum**\n\n"
+                "✅ **TEST AD VERIFIED! 🎉 (Clause 13 + 12 Demo) - Optimum +1**\n\n"
                 "This is what user sees after watching 20s ad:\n"
                 "• Ad placement found & verified! ✅\n"
                 "• Reward: +1 download refilled (realistic optimum - Clause 12 fix)!\n"
                 "• Real flow: Watch 20s ad → Click Check → Get +1 file\n\n"
                 "📍 **For Adsgram Reviewer:** This proves ad placement exists and is verifiable via /testad button!\n"
-                "🎁 Reward is realistic +1, not excessively high!",
+                "🎁 Reward is realistic +1, not excessively high! Stats now shows 1!",
                 parse_mode="Markdown"
             )
             return
@@ -1590,12 +1603,17 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.answer("⏰ Finish 20s timer first! Watch ad via Open Link button!", show_alert=True)
             return
         msg_start, msg_end = token_data.get("msg_start",0), token_data.get("msg_end",0)
-        del tokens[user_str]
+        # FIX: Don't delete token! Keep it and set to +1 optimum (was deleting and recreating as 4!)
+        tokens[user_str]["downloads_left"] = 1
+        tokens[user_str]["batch_downloads_left"] = 5
+        tokens[user_str]["verified"] = True
+        tokens[user_str]["msg_start"] = 0
+        tokens[user_str]["msg_end"] = 0
         save_tokens(tokens)
         await query.answer("Verified! +1 added")
         if user_id in paused_batches:
             keyboard = [[InlineKeyboardButton("▶️ Resume Batch +1", callback_data="resume_batch")]]
-            await query.message.reply_text("✅ Verified! Refilled +1. Resume?", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            await query.message.reply_text("✅ Verified! Refilled +1 (realistic). Resume?", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             return
         if msg_start==0:
             await query.message.reply_text("✅ Refilled +1! Download again (realistic optimum - Clause 12 fix)")
