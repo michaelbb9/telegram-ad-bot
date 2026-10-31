@@ -29,7 +29,6 @@ ADMIN_ID = 6248570946
 DETECTED_CHANNEL_ID = -1004347828512
 PRIVATE_CHANNEL_ID = -1004347828512
 VIDEO_VAULT_ID = -1004324594855
-TUTORIAL_MESSAGE_ID = 108
 WEB_BASE_URL = "https://michaelbbc.pythonanywhere.com"
 PUBLIC_CHANNEL_URL = "https://t.me/booksaufio"
 PUBLIC_CHANNEL_USERNAME = "@booksaufio"
@@ -51,7 +50,6 @@ ACTIVITY_FILE = "user_activity.json"
 CACHE_FILE = "download_cache.json"
 FLOOD_FILE = "flood_control.json"
 BANNED_FILE = "banned_users.json"
-REWARD_FILE = "reward_config.json"
 
 active_batch_sessions = {}
 pending_batch_payloads = {}
@@ -70,18 +68,18 @@ FLOOD_COOLDOWN = 30
 
 LANGUAGES = {
     "en": {
-        "welcome": "🚀 **WELCOME TO MICHAELBBC VAULT - ALL MEDIA DOWNLOADER! 🚀✨ FB, INSTA, TIKTOK, X, YOUTUBE! 🚀✨\n\n🔥 WHAT I CAN DO:\n🎬 VIDEOS HD No Watermark!\n🎵 AUDIO MP3 192kbps!\n🖼️ IMAGES Scrape ALL!\n📝 SUBTITLES Auto!\n📦 BATCH 100+ Links!\n⚡ CACHE 1 Sec!\n💎 VAULT Forever!\n📤 FAN UPLOADS 5/day!\n\n👉 PASTE LINK TO START! 👇**",
-        "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Images", "btn_sub": "📝 Subtitles (SRT)",
+        "welcome": "🚀 **WELCOME TO MICHAELBBC VAULT - ALL MEDIA DOWNLOADER! 🚀✨\n\n👉 PASTE LINK TO START! 👇**",
+        "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Images",
         "ask_format": "👇 **AWESOME! What format you want? Pick below! 🎯**",
         "fetching": "📥 **Fetching your {}... Hang tight! ⏳✨**",
-        "error_generic": "❌ Oops! Failed! 😢 Link private/blocked. Try public link! 🔓💡",
-        "error_50mb": "❌ Too Big! 😅 >50MB limit.", "error_no_img": "❌ No images found! 😢",
+        "error_generic": "❌ Oops! Failed! Try public link.",
+        "error_50mb": "❌ Too Big! >50MB limit.", 
         "images_received": "⏳ **{} Images received.**",
-        "select_lang": "🌍 Select your language! 👇", "lang_set": "✅ Language set! 🎉✨",
+        "select_lang": "🌍 Select your language! 👇", "lang_set": "✅ Language set!",
         "batch_detected": "📦 **Batch Detected ({} links)**\nWhat format?",
         "batch_dest": "📦 **Where to send?**",
         "btn_chat": "📥 In Chat", "btn_chan": "📢 To Channel",
-        "limit_reached": "⚠️ **Limit Reached! 🚧😅 Watch Adsgram ad → Get +1 download! ♻️✨**",
+        "limit_reached": "⚠️ **Limit Reached! Watch Adsgram ad → Get +1 download!**",
         "refill_btn": "📺 Watch Adsgram Ad (+1)",
         "join_btn": "📢 Join Channel", "check_btn": "💜 Check Balance",
         "limit_batch": "⚠️ **Batch Limit Reached at {} of {}**\nWatch Adsgram ad to continue.",
@@ -103,7 +101,7 @@ LANGUAGES = {
 web_app = Flask(__name__)
 @web_app.route('/')
 def health_check():
-    return "Bot alive! Adsgram Native V24", 200
+    return "Bot alive! Adsgram Native V24 Fixed", 200
 
 def load_json_file(filename):
     if os.path.exists(filename):
@@ -442,7 +440,6 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
         if res_data.get("status") != "allowed" and d_left <= 0 and user_id != ADMIN_ID:
             paused_batches[user_id] = {"urls": urls, "next_index": index-1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
             
-            # Native Adsgram WebApp Button
             adsgram_url = f"https://api.adsgram.ai/advbot?blockId={ADSGRAM_BLOCK_ID}"
             reward = get_reward_amount()
             keyboard = [
@@ -492,6 +489,36 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
 
+    # RESTORED BUTTON HANDLERS
+    if text == t["menu_stats"]:
+        if user_id == ADMIN_ID:
+            tokens = load_tokens()
+            await update.message.reply_text(f"📊 **Admin Stats**\nTotal Users Tracked: {len(tokens)}", parse_mode="Markdown")
+        else:
+            tokens = load_tokens()
+            profile = tokens.get(str(user_id), {})
+            d_left = profile.get("downloads_left", get_free_amount())
+            b_left = profile.get("batch_downloads_left", get_free_amount()*5)
+            await update.message.reply_text(t["stats_msg"].format(d_left, b_left), parse_mode="Markdown")
+        return
+
+    if text == t["menu_lang"]:
+        await language_command(update, context)
+        return
+
+    if text == t["menu_join"]:
+        await update.message.reply_text(f"📢 [Join Channel]({PUBLIC_CHANNEL_URL})", parse_mode="Markdown")
+        return
+
+    if text == t["menu_help"]:
+        keyboard = [[InlineKeyboardButton("💬 Open Support", callback_data="open_support")]]
+        await update.message.reply_text(f"💬 [Support Chat]({HELP_CHANNEL_URL})", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        return
+
+    if text == t["menu_upload"]:
+        await update.message.reply_text(t["user_upload_prompt"], parse_mode="Markdown")
+        return
+
     if text.startswith("📦 Set Free") and user_id == ADMIN_ID:
         current = get_free_amount()
         keyboard = [[InlineKeyboardButton(f"✅ {i} (Current)" if i==current else f"{i}", callback_data=f"set_free_{i}") for i in [2,3,4,5]]]
@@ -533,7 +560,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         user_profile = tokens.get(str(user_id), {})
         d_left = user_profile.get("downloads_left", get_free_amount())
         if str(user_id) in tokens and not user_profile.get("verified", False) and d_left <= 0:
-            # Native Adsgram WebApp Trigger Button
             adsgram_url = f"https://api.adsgram.ai/advbot?blockId={ADSGRAM_BLOCK_ID}"
             reward = get_reward_amount()
             keyboard = [
@@ -578,6 +604,23 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     chat_id = query.message.chat_id
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
+
+    if data == "open_support":
+        await query.answer("Support opened")
+        await query.message.reply_text(f"💬 You can reach out via our support channel: {HELP_CHANNEL_URL}", parse_mode="Markdown")
+        return
+
+    if data.startswith("lang_"):
+        new_lang = data.split("_")[1]
+        langs = load_json_file(LANG_FILE)
+        langs[str(user_id)] = new_lang
+        save_json_file(LANG_FILE, langs)
+        await query.answer("Language updated!", show_alert=True)
+        try:
+            await query.message.edit_text(t["lang_set"])
+        except:
+            pass
+        return
 
     if data.startswith("set_free_") and user_id == ADMIN_ID:
         val = int(data.replace("set_free_", ""))
@@ -660,7 +703,7 @@ def run_telegram_bot():
         asyncio.create_task(auto_backup_loop(app.bot))
         asyncio.create_task(queue_processor(app.bot))
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
-        print("Bot started with Adsgram Native WebApp Integration & Admin Panels!")
+        print("Bot started with Full Button Support & Native Adsgram WebApp Integration!")
         await asyncio.Event().wait()
     loop.run_until_complete(start_bot())
 
