@@ -12,7 +12,7 @@ import imageio_ffmpeg
 import yt_dlp
 from bs4 import BeautifulSoup
 from flask import Flask
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
@@ -955,7 +955,14 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 msg_end = user_profile.get("msg_end", 0)
             assigned_network = get_global_ab_network(user_id)
             if assigned_network == "adsgram":
-                keyboard = [[InlineKeyboardButton("📺 Watch Ad +1", callback_data="adsgram_complete_single" if msg_start == 0 else f"adsgram_complete_{msg_start}_{msg_end}")]]
+                # FIXED: Show Adsgram Mini App button, not direct callback (was causing reject!)
+                from telegram import WebAppInfo
+                adsgram_link = f"{WEB_BASE_URL}/adsgram?user={user_id}&block={ADSGRAM_BLOCK_ID}"
+                keyboard = [
+                    [InlineKeyboardButton("📺 Watch Adsgram Ad (Mini App) +1", web_app=WebAppInfo(url=adsgram_link))],
+                    [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)],
+                    [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]
+                ]
                 await update.message.reply_text(t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 return
             else:
@@ -1709,25 +1716,31 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def test_ad_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    bridge_link = f"{BRIDGE_URL}?user={update.effective_user.id}&start_msg=0&end_msg=0"
+    # FIXED FOR ADSGRAM MONETIZATION REVIEW - ADSGRAM ONLY, NO ADSTERRA!
+    from telegram import WebAppInfo
+    user_id = update.effective_user.id
+    # Adsgram Mini App link - opens Adsgram ad in Telegram Mini App (not Adsterra bridge!)
+    adsgram_link = f"{WEB_BASE_URL}/adsgram?user={user_id}&block={ADSGRAM_BLOCK_ID}"
     keyboard = [
-        [InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s (Ad) +1", url=bridge_link)],
+        [InlineKeyboardButton("📺 Watch Adsgram Ad (Mini App) +1", web_app=WebAppInfo(url=adsgram_link))],
         [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
-        [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")]
+        [InlineKeyboardButton("💜 Check Balance & Get Files ✅ +1", callback_data="verify_user")]
     ]
     await update.message.reply_text(
-        "🧪 AD PLACEMENT TEST - FOR ADSGRAM REVIEWER (Clause 13 + 12)\n\n"
-        "📍 WHERE AD IS PLACED:\n"
-        "1️⃣ User pastes link\n"
-        "2️⃣ User downloads 4 FREE\n"
-        "3️⃣ On 5th download, LIMIT REACHED wall\n"
-        "4️⃣ AD APPEARS HERE: This message with 3 buttons!\n"
-        "5️⃣ User clicks Open Link & Watch Timer 20s -> Watches ad\n"
-        "6️⃣ User clicks Check & Get Files -> Gets +1 download (realistic)\n\n"
-        "Ad Types: Adsgram Rewarded + Adsterra Direct 20s\n"
-        "Reward: +1 optimum realistic (Clause 12 fix)\n"
-        "Commands: Any download after limit, /testad, batch limit\n\n"
-        "TRY AD NOW:",
+        "🧪 **AD PLACEMENT TEST - FOR ADSGRAM REVIEWER - ADSGRAM ONLY! (Clause 13 + 12)**\n\n"
+        "📍 **WHERE AD IS PLACED (ADSGRAM):**\n"
+        "1️⃣ User pastes ANY link: TikTok, FB, Insta, X, YouTube - ALL MEDIA!\n"
+        "2️⃣ User downloads 4 videos FREE\n"
+        "3️⃣ On 5th download, LIMIT REACHED wall shows\n"
+        "4️⃣ **AD APPEARS HERE:** This message with Adsgram Mini App button!\n"
+        "5️⃣ Click Watch Adsgram Ad (Mini App) → Opens Telegram Mini App → Watches Adsgram Rewarded Ad\n"
+        "6️⃣ Close Mini App → Click Check Balance → Gets +1 download (realistic optimum!)\n\n"
+        "🔗 **Ad Type:** Adsgram Rewarded Interstitial ONLY (No Adsterra in test!)\n"
+        "⏰ **Timer:** 15-20s Adsgram ad\n"
+        "🎁 **Reward:** +1 download (realistic - Clause 12 fix)\n"
+        "📍 **Commands:** /testad shows this Adsgram-only placement, batch limit, download limit\n"
+        "✅ **Fix:** Test ad now shows ADSGRAM MINI APP, not Adsterra bridge!\n\n"
+        "👇 **TRY ADSGRAM AD NOW - CLICK MINI APP BELOW:**",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
