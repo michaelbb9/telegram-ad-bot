@@ -38,11 +38,10 @@ PUBLIC_CHANNEL_URL = "https://t.me/booksaufio"
 PUBLIC_CHANNEL_USERNAME = "@booksaufio"
 HELP_CHANNEL_URL = "https://t.me/faqandaupport"
 
-# DEEZER + COBALT - FINAL NO GROUP
+# DEEZER + PIPED - FINAL NO GROUP
 MIKU_VAULT_CHANNEL_ID = -1004324594855
 DEEZER_SEARCH_URL = "https://api.deezer.com/search"
 ITUNES_SEARCH_URL = "https://itunes.apple.com/search"
-COBALT_INSTANCES = ["https://api.cobalt.tools", "https://co.wuk.sh", "https://cobalt-api.kwiatekmiki.com"]
 
 ADSGRAM_BLOCK_ID = os.getenv("ADSGRAM_BLOCK_ID", "")
 API_SECRET = os.getenv("API_SECRET", "change-me")
@@ -115,7 +114,7 @@ LANGUAGES = {
 web_app = Flask(__name__)
 @web_app.route('/')
 def health_check():
-    return "Bot alive! V36 Deezer+Cobalt Button Fix WORKING", 200
+    return "Bot alive! V38 Deezer+Piped Button Fix WORKING", 200
 
 # ===================== ADSGRAM MINI APP - MUST STAY UNTOUCHED FOR REVIEW =====================
 @web_app.route('/adsgram')
@@ -467,7 +466,7 @@ def download_media_engine(url: str, download_type: str):
     if cookiefile:
         ydl_opts['cookiefile'] = cookiefile
     
-    # For YouTube, try Cobalt first (bypasses Render block)
+    # For YouTube, try Piped first (bypasses Render block)
     is_youtube = "youtube.com" in url.lower() or "youtu.be" in url.lower()
     
     if download_type == 'audio':
@@ -481,12 +480,12 @@ def download_media_engine(url: str, download_type: str):
                 if os.path.exists(path):
                     return [path], "MP3", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         except Exception as e:
-            print(f"[V36 DL] yt-dlp audio fail {e}, trying Cobalt for {url}")
+            print(f"[V38 DL] yt-dlp audio fail {e}, trying Piped for {url}")
             if is_youtube:
-                fp, td, src = cobalt_download_youtube(url, is_audio=True)
+                fp, td, src = piped_download_youtube(url, is_audio=True)
                 if fp and os.path.exists(fp):
                     # Move to downloads
-                    dest = os.path.join(output_dir, f"cobalt_{int(time.time())}.mp3")
+                    dest = os.path.join(output_dir, f"piped_{int(time.time())}.mp3")
                     import shutil
                     shutil.move(fp, dest)
                     shutil.rmtree(td, ignore_errors=True)
@@ -503,7 +502,7 @@ def download_media_engine(url: str, download_type: str):
                 return [path], "Image", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("NO_IMAGES")
     else:
-        # Video - try yt-dlp first, then Cobalt for YouTube
+        # Video - try yt-dlp first, then Piped for YouTube
         for fmt in ["best", "bestvideo+bestaudio/best"]:
             try:
                 ydl_opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path})
@@ -520,12 +519,12 @@ def download_media_engine(url: str, download_type: str):
             except Exception as e:
                 if "Unsupported URL" in str(e):
                     raise e
-                print(f"[V36 DL] yt-dlp video fail {e} for {url}")
+                print(f"[V38 DL] yt-dlp video fail {e} for {url}")
                 if is_youtube:
-                    # Try Cobalt fallback for YouTube video
-                    fp, td, src = cobalt_download_youtube(url, is_audio=False)
+                    # Try Piped fallback for YouTube video
+                    fp, td, src = piped_download_youtube(url, is_audio=False)
                     if fp and os.path.exists(fp):
-                        dest = os.path.join(output_dir, f"cobalt_{int(time.time())}.mp4")
+                        dest = os.path.join(output_dir, f"piped_{int(time.time())}.mp4")
                         import shutil
                         shutil.move(fp, dest)
                         shutil.rmtree(td, ignore_errors=True)
@@ -537,7 +536,7 @@ def download_media_engine(url: str, download_type: str):
         raise ValueError("FILE_TOO_LARGE")
 
 
-# ===================== DEEZER + COBALT HELPERS - FINAL =====================
+# ===================== DEEZER + PIPED HELPERS - FINAL =====================
 def search_deezer_itunes(query):
     tracks = []
     # Deezer API (free, no key)
@@ -551,9 +550,9 @@ def search_deezer_itunes(query):
                 artist = item.get("artist",{}).get("name","Unknown")[:30]
                 album = item.get("album",{}).get("title","")[:30]
                 tracks.append({"title": title, "artist": artist, "album": album, "source": "deezer", "id": str(item.get("id","")), "real_query": f"{title} {artist}"})
-        print(f"[V36 DEEZER] Found {len(tracks)} from Deezer for {query}")
+        print(f"[V38 DEEZER] Found {len(tracks)} from Deezer for {query}")
     except Exception as e:
-        print(f"[V36 DEEZER] Fail {e}")
+        print(f"[V38 DEEZER] Fail {e}")
     
     # iTunes fallback if Deezer < 10
     if len(tracks) < 10:
@@ -568,141 +567,99 @@ def search_deezer_itunes(query):
                     # Avoid duplicates
                     if not any(t["title"].lower()==title.lower() and t["artist"].lower()==artist.lower() for t in tracks):
                         tracks.append({"title": title, "artist": artist, "album": item.get("collectionName","")[:30], "source": "itunes", "id": str(item.get("trackId","")), "real_query": f"{title} {artist}"})
-            print(f"[V36 ITUNES] Total after iTunes {len(tracks)} for {query}")
+            print(f"[V38 ITUNES] Total after iTunes {len(tracks)} for {query}")
         except Exception as e:
-            print(f"[V36 ITUNES] Fail {e}")
+            print(f"[V38 ITUNES] Fail {e}")
     
     return tracks[:10]
 
-def cobalt_download_youtube(youtube_url, is_audio=False):
-    """V36: Cobalt disabled YouTube (screenshot proof), use Piped + Android + Invidious + PythonAnywhere"""
+def piped_download_youtube(youtube_url, is_audio=False):
+    """V38 - Piped primary (Piped YouTube disabled per piped.tools screenshot), Android fallback"""
     try:
-        import requests, tempfile, os, shutil, json, re
-        # Extract videoId
-        video_id = None
-        m = re.search(r'(?:v=|youtu\.be/|shorts/)([A-Za-z0-9_-]{11})', youtube_url)
-        if m:
-            video_id = m.group(1)
-        else:
-            # Try to find 11 char
-            m2 = re.search(r'([A-Za-z0-9_-]{11})', youtube_url)
-            if m2:
-                video_id = m2.group(1)
+        import requests, tempfile, os, shutil, json
+        video_id = ""
+        if "v=" in youtube_url:
+            video_id = youtube_url.split("v=")[1].split("&")[0]
+        elif "youtu.be/" in youtube_url:
+            video_id = youtube_url.split("youtu.be/")[1].split("?")[0]
+        print(f"[V38 DOWNLOAD] video_id={video_id} url={youtube_url} audio={is_audio}")
         
-        if not video_id:
-            print(f"[V36] No videoId from {youtube_url}")
-            return None, None, "no_videoid"
-        
-        print(f"[V36] video_id={video_id} is_audio={is_audio} - Cobalt disabled, trying Piped+Android")
-        
-        # Fallback 1: Piped API (free, no YouTube block)
+        # 1. Piped API primary (bypasses YouTube, works for most non-UMG)
         piped_instances = [
             "https://pipedapi.kavin.rocks",
-            "https://api.piped.projectsegfau.lt",
-            "https://pipedapi.adminforge.de",
+            "https://api.piped.private.coffee",
+            "https://pipedapi.syncpundit.io",
             "https://pipedapi.moomoo.me",
         ]
         for piped_base in piped_instances:
             try:
-                print(f"[V36 PIPED] Trying {piped_base} for {video_id}")
-                r = requests.get(f"{piped_base}/streams/{video_id}", timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+                print(f"[V38 PIPED] Trying {piped_base}/streams/{video_id}")
+                r = requests.get(f"{piped_base}/streams/{video_id}", timeout=15)
                 if r.status_code == 200:
                     data = r.json()
-                    streams = []
-                    if is_audio:
-                        streams = data.get("audioStreams", []) + data.get("audioStreams", [])
-                        # Sort by bitrate
-                        streams = sorted(streams, key=lambda x: x.get("bitrate",0), reverse=True)
-                    else:
-                        streams = data.get("videoStreams", [])
-                        streams = sorted(streams, key=lambda x: int(x.get("height",0)), reverse=True)
-                    
+                    streams = data.get("audioStreams", []) if is_audio else data.get("videoStreams", [])
+                    if not streams and is_audio:
+                        streams = data.get("audioStreams", [])
+                    # Pick best audio
                     if streams:
-                        dl_url = streams[0].get("url")
-                        if dl_url:
-                            print(f"[V36 PIPED] Got stream {dl_url[:80]} from {piped_base}")
-                            mr = requests.get(dl_url, stream=True, timeout=90, headers={"User-Agent": "Mozilla/5.0"})
+                        # Sort by bitrate for audio, quality for video
+                        best = None
+                        max_br = 0
+                        for s in streams:
+                            if is_audio:
+                                br = s.get("bitrate", 0)
+                                if br >= max_br and s.get("url"):
+                                    max_br = br
+                                    best = s
+                            else:
+                                if s.get("url"):
+                                    best = s
+                                    break
+                        if best and best.get("url"):
+                            dl_url = best["url"]
+                            print(f"[V38 PIPED] Got audio url bitrate={best.get('bitrate')}")
+                            mr = requests.get(dl_url, stream=True, timeout=60, headers={"User-Agent": "Mozilla/5.0"})
                             if mr.status_code == 200:
                                 td = tempfile.mkdtemp()
                                 ext = "mp3" if is_audio else "mp4"
-                                # If audio stream is m4a/opus, keep but rename to mp3 for telegram
                                 fp = os.path.join(td, f"piped.{ext}")
                                 with open(fp,'wb') as f:
                                     for ch in mr.iter_content(8192):
                                         if ch:
                                             f.write(ch)
-                                if os.path.exists(fp) and os.path.getsize(fp) > 15000:
-                                    print(f"[V36 PIPED] Success {os.path.getsize(fp)} bytes from {piped_base}")
+                                if os.path.exists(fp) and os.path.getsize(fp) > 20000:
+                                    print(f"[V38 PIPED] Success {os.path.getsize(fp)} bytes")
                                     return fp, td, f"piped_{piped_base.split('//')[-1][:15]}"
                                 shutil.rmtree(td, ignore_errors=True)
             except Exception as e:
-                print(f"[V36 PIPED] {piped_base} fail {e}")
+                print(f"[V38 PIPED] {piped_base} fail {e}")
                 continue
         
-        # Fallback 2: Invidious API
-        invidious_instances = [
-            "https://inv.nadeko.net",
-            "https://invidious.protokolla.fi",
-            "https://inv.tux.pizza",
-        ]
-        for inv_base in invidious_instances:
-            try:
-                print(f"[V36 INVIDIOUS] Trying {inv_base} for {video_id}")
-                r = requests.get(f"{inv_base}/api/v1/videos/{video_id}", timeout=15)
-                if r.status_code == 200:
-                    data = r.json()
-                    streams = data.get("adaptiveFormats", []) if is_audio else data.get("formatStreams", [])
-                    # Filter audio
-                    if is_audio:
-                        audio_streams = [s for s in streams if s.get("type","").startswith("audio/")]
-                        audio_streams = sorted(audio_streams, key=lambda x: int(x.get("bitrate",0)), reverse=True)
-                        streams = audio_streams
-                    if streams:
-                        dl_url = streams[0].get("url")
-                        if dl_url:
-                            mr = requests.get(dl_url, stream=True, timeout=90)
-                            if mr.status_code == 200:
-                                td = tempfile.mkdtemp()
-                                ext = "mp3" if is_audio else "mp4"
-                                fp = os.path.join(td, f"invidious.{ext}")
-                                with open(fp,'wb') as f:
-                                    for ch in mr.iter_content(8192):
-                                        if ch:
-                                            f.write(ch)
-                                if os.path.exists(fp) and os.path.getsize(fp) > 15000:
-                                    print(f"[V36 INVIDIOUS] Success {os.path.getsize(fp)}")
-                                    return fp, td, f"invidious_{inv_base.split('//')[-1][:10]}"
-                                shutil.rmtree(td, ignore_errors=True)
-            except Exception as e:
-                print(f"[V36 INVIDIOUS] {inv_base} fail {e}")
-                continue
-        
-        # Fallback 3: yt-dlp with android client (bypasses Render web block)
+        # 2. yt-dlp Android client (bypasses Render web block, uses youtube_cookies.txt)
         try:
-            print(f"[V36 FALLBACK] Trying yt-dlp android client for {youtube_url}")
-            import yt_dlp, os
+            print(f"[V38 ANDROID] Trying yt-dlp android client for {youtube_url}")
+            import yt_dlp
             output_dir = "downloads"
             os.makedirs(output_dir, exist_ok=True)
             ydl_opts = {
-                'quiet': True,
-                'no_warnings': True,
+                'quiet': False,
+                'no_warnings': False,
                 'format': 'bestaudio[ext=m4a]/bestaudio/best' if is_audio else 'best[height<=720]/best',
                 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
-                'extractor_args': {'youtube': {'player_client': ['android', 'web', 'ios'], 'player_skip': ['webpage', 'configs']}},
+                'extractor_args': {'youtube': {'player_client': ['android', 'ios', 'web']}},
                 'http_headers': {'User-Agent': 'com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip'},
-                'nocheckcertificate': True,
-                'geo_bypass': True,
             }
             if os.path.exists("youtube_cookies.txt"):
                 ydl_opts['cookiefile'] = "youtube_cookies.txt"
-                print("[V36] Using youtube_cookies.txt")
+                print("[V38 ANDROID] Using youtube_cookies.txt")
             elif os.path.exists("cookies.txt"):
                 ydl_opts['cookiefile'] = "cookies.txt"
             
             if is_audio:
+                import imageio_ffmpeg
                 ydl_opts.update({
                     'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
-                    'ffmpeg_location': __import__('imageio_ffmpeg').get_ffmpeg_exe(),
+                    'ffmpeg_location': imageio_ffmpeg.get_ffmpeg_exe(),
                 })
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -712,61 +669,33 @@ def cobalt_download_youtube(youtube_url, is_audio=False):
                     path = f"{base}.mp3"
                     # Also check m4a
                     if not os.path.exists(path):
-                        for ext in [".m4a", ".webm", ".opus"]:
-                            alt = base + ext
-                            if os.path.exists(alt):
-                                path = alt
-                                break
+                        alt = base + ".m4a"
+                        if os.path.exists(alt):
+                            path = alt
                 else:
                     path = ydl.prepare_filename(info)
                     if not os.path.exists(path):
                         alt = os.path.splitext(path)[0]+".mp4"
                         if os.path.exists(alt):
                             path = alt
-                if os.path.exists(path) and os.path.getsize(path) > 10000:
+                if os.path.exists(path) and os.path.getsize(path) > 20000:
                     td = tempfile.mkdtemp()
                     dest = os.path.join(td, f"ytdlp.{'mp3' if is_audio else 'mp4'}")
                     shutil.move(path, dest)
-                    print(f"[V36 FALLBACK] yt-dlp android success {os.path.getsize(dest)} bytes")
+                    print(f"[V38 ANDROID] Success {os.path.getsize(dest)} bytes")
                     return dest, td, "yt-dlp-android"
+                else:
+                    print(f"[V38 ANDROID] File not found or too small {path}")
         except Exception as e:
-            print(f"[V36 FALLBACK] yt-dlp android fail {e}")
+            print(f"[V38 ANDROID] Fail {e}")
             import traceback
             traceback.print_exc()
         
-        # Fallback 4: Cobalt self-hosted instances that still allow YouTube (some do)
-        cobalt_instances = [
-            "https://co.wuk.sh",
-            "https://cobalt-api.kwiatekmiki.com",
-            "https://cobalt.canine.tools",
-        ]
-        for inst in cobalt_instances:
-            try:
-                payload = {"url": youtube_url, "isAudioOnly": is_audio, "aFormat": "mp3" if is_audio else "mp4"}
-                headers = {"Accept": "application/json", "Content-Type": "application/json"}
-                resp = requests.post(f"{inst}/", json=payload, headers=headers, timeout=20)
-                if resp.status_code == 200:
-                    dj = resp.json()
-                    dl_url = dj.get("url")
-                    if dl_url:
-                        mr = requests.get(dl_url, stream=True, timeout=90)
-                        if mr.status_code == 200:
-                            td = tempfile.mkdtemp()
-                            ext = "mp3" if is_audio else "mp4"
-                            fp = os.path.join(td, f"cobalt.{ext}")
-                            with open(fp,'wb') as f:
-                                for ch in mr.iter_content(8192):
-                                    if ch:
-                                        f.write(ch)
-                            if os.path.exists(fp) and os.path.getsize(fp) > 15000:
-                                return fp, td, f"cobalt_{inst.split('//')[-1][:15]}"
-                            shutil.rmtree(td, ignore_errors=True)
-            except Exception as e:
-                print(f"[V36 COBALT] {inst} fail {e}")
-                continue
+        # 3. No Piped - Piped + yt-dlp only (Piped disabled YouTube per screenshot)
+        print("[V38] No Piped used - Piped + yt-dlp only")
             
     except Exception as e:
-        print(f"[V36] Outer fail {e}")
+        print(f"[V38 DOWNLOAD] Outer fail {e}")
         import traceback
         traceback.print_exc()
     return None, None, "failed"
@@ -785,7 +714,7 @@ def ytmusic_get_youtube_url(query):
                 artist = r.get('artists',[{}])[0].get('name','') if r.get('artists') else ''
                 if isinstance(artist, dict):
                     artist = artist.get('name','')
-                print(f"[V36 YTMUSIC] Found {url} for {query} -> {title} {artist}")
+                print(f"[V38 YTMUSIC] Found {url} for {query} -> {title} {artist}")
                 return url, vid, title, artist
         # Fallback without filter
         res = ytm.search(query, limit=5)
@@ -794,10 +723,10 @@ def ytmusic_get_youtube_url(query):
                 vid = r.get('videoId')
                 if vid and len(vid)==11:
                     url = f"https://www.youtube.com/watch?v={vid}"
-                    print(f"[V36 YTMUSIC] Fallback found {url} for {query}")
+                    print(f"[V38 YTMUSIC] Fallback found {url} for {query}")
                     return url, vid, r.get('title',''), ''
     except Exception as e:
-        print(f"[V36 YTMUSIC] Fail {e}")
+        print(f"[V38 YTMUSIC] Fail {e}")
     return None, None, None, None
 
 
@@ -809,8 +738,8 @@ async def handle_song_search_button_only(update: Update, context: ContextTypes.D
             user_id = update.effective_user.id
             song_search_mode_global[user_id] = True
             last_song_search_time[user_id] = time.time()
-            print(f"[V36 DEDICATED] {user_id} Song Search")
-            await update.message.reply_text("🎵 Song Search Mode ON! V36 Deezer + Cobalt\\n\\n10 suggestions FROM Deezer API\\nFull MP3 via Cobalt\\nCached!\\n\\nEnter song name:")
+            print(f"[V38 DEDICATED] {user_id} Song Search")
+            await update.message.reply_text("🎵 Song Search Mode ON! V38 Deezer + Piped\\n\\n10 suggestions FROM Deezer API\\nFull MP3 via Piped\\nCached!\\n\\nEnter song name:")
             return True
     except Exception as e:
         print(f"Dedicated handler fail {e}")
@@ -823,7 +752,7 @@ def get_main_keyboard(lang_code, is_admin):
         [KeyboardButton(t["menu_stats"]), KeyboardButton(t["menu_lang"])],
         [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])],
         [KeyboardButton("🔍 Song Search"), KeyboardButton(t["menu_upload"])],
-        [KeyboardButton("🟢 Bot Status V36")],
+        [KeyboardButton("🟢 Bot Status V38")],
         [KeyboardButton("🧪 Test Ad"), KeyboardButton("📢 Ad Info")]
     ]
     if is_admin:
@@ -1169,23 +1098,23 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except:
             await update.message.reply_text("❌ Failed")
 
-# ===================== SONG SEARCH - WORKING BUTTON + MIKU GROUP BRIDGE + COBALT FALLBACK =====================
+# ===================== SONG SEARCH - WORKING BUTTON + MIKU GROUP BRIDGE + PIPED FALLBACK =====================
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text if update.message.text else ""
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
     
-    # === V36 FIX: Song Search MUST be FIRST, before anything ===
+    # === V38 FIX: Song Search MUST be FIRST, before anything ===
     if "Song Search" in text:
-        print(f"[V36 BUTTON] {user_id} pressed Song Search - instant reply")
+        print(f"[V38 BUTTON] {user_id} pressed Song Search - instant reply")
         song_search_mode_global[user_id] = True
         last_song_search_time[user_id] = time.time()
         try:
-            await update.message.reply_text("🎵 Song Search Mode ON! V36 Deezer + Cobalt (No Group Block)\\n\\n10 suggestions FROM Deezer API (free, instant)\\nFull MP3 via Cobalt (bypasses YouTube block)\\nCached for instant re-send!\\n\\nEnter song name (e.g. Koleyewon or Blinding Lights):")
+            await update.message.reply_text("🎵 Song Search Mode ON! V38 Deezer + Piped (No Group Block)\\n\\n10 suggestions FROM Deezer API (free, instant)\\nFull MP3 via Piped (bypasses YouTube block)\\nCached for instant re-send!\\n\\nEnter song name (e.g. Koleyewon or Blinding Lights):")
         except Exception as e:
             print(f"Song Search reply fail {e}")
         return
-    # === END V36 FIX ===
+    # === END V38 FIX ===
     
     if is_banned(user_id):
         await update.message.reply_text("🚫 Banned")
@@ -1257,8 +1186,8 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         user_id = update.effective_user.id
         song_search_mode_global[user_id] = True
         last_song_search_time[user_id] = time.time()
-        print(f"[V30 BUTTON] {user_id} pressed Song Search - Miku group {MIKU_BRIDGE_GROUP_ID} + Cobalt fallback")
-        await update.message.reply_text("🎵 Song Search Mode ON! V30 Miku Group Bridge + Cobalt Fallback\n\n10 suggestions FROM MIKU bot via group -1003993893074 (with /search@Mikulordbot)\nFull MP3 + lyrics FROM MIKU\nRare not found → Cobalt fallback!\n\nEnter song name (e.g. Koleyewon or Blinding Lights):")
+        print(f"[V30 BUTTON] {user_id} pressed Song Search - Miku group {MIKU_BRIDGE_GROUP_ID} + Piped fallback")
+        await update.message.reply_text("🎵 Song Search Mode ON! V30 Miku Group Bridge + Piped Fallback\n\n10 suggestions FROM MIKU bot via group -1003993893074 (with /search@Mikulordbot)\nFull MP3 + lyrics FROM MIKU\nRare not found → Piped fallback!\n\nEnter song name (e.g. Koleyewon or Blinding Lights):")
         return
 
     if "Test Ad" in text or text.strip() == "🧪 Test Ad":
@@ -1295,17 +1224,30 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         save_json_file(DRIP_STATE_FILE, states)
         await update.message.reply_text(f"📥 Item #{len(user_state['items'])} added")
         return
-    if text == t["menu_stats"]:
-        if user_id == ADMIN_ID:
-            await stats(update, context)
-        else:
-            tokens = load_tokens()
-            profile = tokens.get(str(user_id), {})
-            d_left = profile.get("downloads_left", get_free_amount())
-            b_left = profile.get("batch_downloads_left", get_free_amount()*5)
-            await update.message.reply_text(t["stats_msg"].format(d_left, b_left), parse_mode="Markdown")
+    # V38 FIX: My Stats ALWAYS responds - instant, no crash
+    if "My Stats" in text or "My stats" in text.lower() or text.strip() == t["menu_stats"]:
+        print(f"[V38 STATS] {user_id} pressed My Stats")
+        try:
+            if user_id == ADMIN_ID:
+                await stats(update, context)
+            else:
+                try:
+                    tokens = load_tokens()
+                    profile = tokens.get(str(user_id), {})
+                    d_left = profile.get("downloads_left", get_free_amount())
+                    b_left = profile.get("batch_downloads_left", get_free_amount()*5)
+                except:
+                    d_left = get_free_amount()
+                    b_left = get_free_amount()*5
+                await update.message.reply_text(t["stats_msg"].format(d_left, b_left), parse_mode="Markdown")
+        except Exception as e:
+            print(f"My Stats fail {e}")
+            try:
+                await update.message.reply_text(f"📊 Your Stats: Downloads Left {get_free_amount()} | Bot V38 Working", parse_mode="Markdown")
+            except:
+                pass
         return
-    if text == t["menu_join"]:
+    if text == t["menu_join"] or "Join Channel" in text:
         await update.message.reply_text(f"[Join]({PUBLIC_CHANNEL_URL})", parse_mode="Markdown")
         return
     if text == t["menu_help"]:
@@ -1332,14 +1274,14 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 pass
         return
 
-    # SONG SEARCH MODE - FINAL DEEZER + COBALT (NO GROUP)
+    # SONG SEARCH MODE - FINAL DEEZER + PIPED (NO GROUP)
     if song_search_mode_global.get(user_id) and "http" not in text.lower():
         song_search_mode_global.pop(user_id, None)
         query_text = text.strip()[:100]
         if len(query_text) < 2:
             await update.message.reply_text("❌ Enter valid song name!")
             return
-        print(f"[V36 SEARCH] {user_id} searching '{query_text}' via Deezer+iTunes API")
+        print(f"[V38 SEARCH] {user_id} searching '{query_text}' via Deezer+iTunes API")
         await update.message.reply_text(f"🔍 Searching '{query_text}' via Deezer API (free, 10 suggestions)...")
         
         # Deezer + iTunes search (fast, no group)
@@ -1358,9 +1300,9 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                         aa = aa.get('name','Unknown')
                     vid = r.get('videoId','')
                     tracks.append({"title": tt, "artist": aa[:30], "id": vid, "videoId": vid, "real_query": f"{tt} {aa}", "source": "ytmusic"})
-                print(f"[V36 SEARCH] YTMusic fallback found {len(tracks)} for {query_text}")
+                print(f"[V38 SEARCH] YTMusic fallback found {len(tracks)} for {query_text}")
             except Exception as e:
-                print(f"[V36 SEARCH] YTMusic fallback fail {e}")
+                print(f"[V38 SEARCH] YTMusic fallback fail {e}")
         
         if tracks:
             buttons = []
@@ -1370,12 +1312,12 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 buttons.append([InlineKeyboardButton(btn_txt, callback_data=f"music_pick_{vid}_{user_id}")])
             buttons.append([InlineKeyboardButton("🔍 Search again", callback_data=f"music_search_again_{user_id}")])
             try:
-                await update.message.reply_text(f"🎵 10 suggestions for '{query_text}' (Deezer + iTunes API, MP3 via Cobalt + cached):", reply_markup=InlineKeyboardMarkup(buttons))
+                await update.message.reply_text(f"🎵 10 suggestions for '{query_text}' (Deezer + iTunes API, MP3 via Piped + cached):", reply_markup=InlineKeyboardMarkup(buttons))
                 context.bot_data[f"music_search_{user_id}"] = tracks
                 context.bot_data[f"music_query_{user_id}"] = query_text
-                print(f"[V36 SEARCH] Sent {len(tracks)} suggestions to {user_id}")
+                print(f"[V38 SEARCH] Sent {len(tracks)} suggestions to {user_id}")
             except Exception as e:
-                print(f"[V36 SEARCH] Send fail {e}")
+                print(f"[V38 SEARCH] Send fail {e}")
         else:
             await update.message.reply_text(f"❌ No results for '{query_text}'. Try another spelling or YouTube link directly.")
         return
@@ -1496,7 +1438,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     total_users = len(tokens)
     active_24hr = sum(1 for d in activity.values() if now - d.get("last_active",0) < 86400)
     mode = config.get("ad_mode","auto").upper()
-    txt = f"📊 ADMIN V30 Miku Group + Cobalt\nTotal {total_users} Active {active_24hr} Mode {mode}\nVault {VIDEO_VAULT_ID} Bridge {MIKU_BRIDGE_GROUP_ID}"
+    txt = f"📊 ADMIN V30 Miku Group + Piped\nTotal {total_users} Active {active_24hr} Mode {mode}\nVault {VIDEO_VAULT_ID} Bridge {MIKU_BRIDGE_GROUP_ID}"
     await update.message.reply_text(txt, parse_mode="Markdown")
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1505,7 +1447,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     mode = config.get("ad_mode","auto").upper()
     free_mb = get_free_disk_mb()
     cache = load_json_file(CACHE_FILE)
-    await update.message.reply_text(f"🟢 **Status V36 Deezer+Cobalt Button Fix WORKING**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nDeezer API: **Free 10 suggestions**\nCobalt: **YouTube MP4 + MP3 fallback**\nReward: +1\nDeezer + iTunes + Cobalt (No Miku group)\nYouTube fixed via Cobalt", parse_mode="Markdown")
+    await update.message.reply_text(f"🟢 **Status V38 Deezer+Piped Button Fix WORKING**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nDeezer API: **Free 10 suggestions**\nPiped: **YouTube via Piped**\nReward: +1\nDeezer + iTunes + Piped (No Miku group)\nYouTube fixed via Piped", parse_mode="Markdown")
 
 async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID:
@@ -1668,7 +1610,7 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
             pass
         return False
 
-# ===================== MIKU GROUP BRIDGE HANDLERS - NEW + WORKING + COBALT FALLBACK =====================
+# ===================== MIKU GROUP BRIDGE HANDLERS - NEW + WORKING + PIPED FALLBACK =====================
 async def handle_channel_post_v25(update, context):
     try:
         post = update.channel_post
@@ -1678,20 +1620,20 @@ async def handle_channel_post_v25(update, context):
             return
         # Only for cached music, not Miku bot anymore
         if post.audio:
-            print(f"[V36 VAULT] Audio cached in vault {post.audio.file_name}")
+            print(f"[V38 VAULT] Audio cached in vault {post.audio.file_name}")
     except Exception as e:
         print(f"Channel error {e}")
 
 async def handle_music_pick_v25(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
-    print(f"[V36 PICK] {data} - Deezer + Cobalt direct")
+    print(f"[V38 PICK] {data} - Deezer + Piped direct")
     if "search_again" in data:
         try:
             uid = int(data.split("_")[-1])
             song_search_mode_global[uid] = True
             last_song_search_time[uid] = time.time()
-            await query.message.reply_text("🔍 Enter song name again (Deezer API + Cobalt):")
+            await query.message.reply_text("🔍 Enter song name again (Deezer API + Piped):")
             await query.answer()
         except Exception as e:
             print(f"Search again fail {e}")
@@ -1702,9 +1644,9 @@ async def handle_music_pick_v25(update: Update, context: ContextTypes.DEFAULT_TY
             parts = data.split("_")
             uid = int(parts[-1])
             videoId = "_".join(parts[2:-1]) if len(parts) > 4 else parts[2]
-            print(f"[V36 PICK] videoId={videoId} uid={uid} - Deezer->Cobalt")
-            await query.answer("Downloading via Cobalt... Full MP3!")
-            await query.edit_message_text(f"🎵 Downloading via Cobalt... Full MP3 + caching!")
+            print(f"[V38 PICK] videoId={videoId} uid={uid} - Deezer->Piped")
+            await query.answer("Downloading via Piped... Full MP3!")
+            await query.edit_message_text(f"🎵 Downloading via Piped... Full MP3 + caching!")
             
             tracks = context.bot_data.get(f"music_search_{uid}", [])
             title = "Unknown"
@@ -1733,7 +1675,7 @@ async def handle_music_pick_v25(update: Update, context: ContextTypes.DEFAULT_TY
                 for ck in [cache_key, title.lower().replace(" ", "_")[:50]]:
                     if ck in cache and "file_id" in cache[ck]:
                         try:
-                            await context.bot.send_audio(chat_id=uid, audio=cache[ck]["file_id"], title=title, performer=artist, caption=f"{title} - {artist} ♻️ Cached! (Deezer+Cobalt)")
+                            await context.bot.send_audio(chat_id=uid, audio=cache[ck]["file_id"], title=title, performer=artist, caption=f"{title} - {artist} ♻️ Cached! (Deezer+Piped)")
                             await query.edit_message_text(f"✅ Sent cached {title} - {artist}!")
                             return
                         except:
@@ -1741,8 +1683,8 @@ async def handle_music_pick_v25(update: Update, context: ContextTypes.DEFAULT_TY
             except:
                 pass
             
-            # Deezer + Cobalt flow: Get YouTube URL via ytmusicapi, then Cobalt MP3
-            async def cobalt_music_flow():
+            # Deezer + Piped flow: Get YouTube URL via ytmusicapi, then Piped MP3
+            async def piped_music_flow():
                 try:
                     import json, time, os
                     # Get YouTube URL
@@ -1760,24 +1702,24 @@ async def handle_music_pick_v25(update: Update, context: ContextTypes.DEFAULT_TY
                         return
                     
                     try:
-                        await context.bot.send_message(chat_id=uid, text=f"🎬 Found YouTube: {youtube_url[:60]}... Downloading MP3 via Piped/Android (Cobalt YouTube disabled)...")
+                        await context.bot.send_message(chat_id=uid, text=f"🎬 Found YouTube: {youtube_url[:60]}... Downloading MP3 via Piped/Android (Piped YouTube disabled)...")
                     except:
                         pass
                     
-                    # Cobalt download
-                    def cobalt_sync():
-                        return cobalt_download_youtube(youtube_url, is_audio=True)
+                    # Piped download
+                    def piped_sync():
+                        return piped_download_youtube(youtube_url, is_audio=True)
                     
                     loop = asyncio.get_event_loop()
                     from concurrent.futures import ThreadPoolExecutor
                     executor = ThreadPoolExecutor(max_workers=2)
-                    fp, td, src = await loop.run_in_executor(executor, cobalt_sync)
+                    fp, td, src = await loop.run_in_executor(executor, piped_sync)
                     
                     if fp and os.path.exists(fp):
                         try:
                             import shutil
                             with open(fp,'rb') as af:
-                                sent = await context.bot.send_audio(chat_id=uid, audio=af, title=title, performer=artist, caption=f"{title} - {artist} Full MP3 via {src} (Deezer+Cobalt)")
+                                sent = await context.bot.send_audio(chat_id=uid, audio=af, title=title, performer=artist, caption=f"{title} - {artist} Full MP3 via {src} (Deezer+Piped)")
                                 # Cache to vault
                                 try:
                                     await context.bot.send_audio(chat_id=MIKU_VAULT_CHANNEL_ID, audio=sent.audio.file_id, title=title, performer=artist)
@@ -1788,28 +1730,28 @@ async def handle_music_pick_v25(update: Update, context: ContextTypes.DEFAULT_TY
                                     cache_key = f"{title}_{artist}".lower().replace(" ", "_")[:50]
                                     cache[cache_key] = {"file_id": sent.audio.file_id, "title": title, "artist": artist, "source": src, "timestamp": time.time()}
                                     with open(cf, "w") as f: json.dump(cache, f)
-                                    print(f"[V36 PICK] Cached {title}")
+                                    print(f"[V38 PICK] Cached {title}")
                                 except Exception as e:
                                     print(f"Cache fail {e}")
                             shutil.rmtree(td, ignore_errors=True)
                             try:
-                                await query.edit_message_text(f"✅ Sent {title} - {artist} Full MP3 via Cobalt! Cached!")
+                                await query.edit_message_text(f"✅ Sent {title} - {artist} Full MP3 via Piped! Cached!")
                             except:
                                 pass
                         except Exception as e:
-                            print(f"[V36 PICK] Send fail {e}")
+                            print(f"[V38 PICK] Send fail {e}")
                             try:
                                 await context.bot.send_message(chat_id=uid, text=f"❌ Send failed: {e}")
                             except:
                                 pass
                     else:
                         try:
-                            await context.bot.send_message(chat_id=uid, text=f"❌ Download failed for '{title} - {artist}'. Try YouTube link directly or another song. All instances {COBALT_INSTANCES} failed.")
+                            await context.bot.send_message(chat_id=uid, text=f"❌ Download failed for '{title} - {artist}'. Try YouTube link directly or another song. All instances {PIPED_INSTANCES} failed.")
                             await query.edit_message_text(f"❌ Download failed {title} - both instances down (rare)")
                         except:
                             pass
                 except Exception as e:
-                    print(f"[V36 PICK] Flow error {e}")
+                    print(f"[V38 PICK] Flow error {e}")
                     import traceback
                     traceback.print_exc()
                     try:
@@ -1817,10 +1759,10 @@ async def handle_music_pick_v25(update: Update, context: ContextTypes.DEFAULT_TY
                     except:
                         pass
             
-            asyncio.create_task(cobalt_music_flow())
+            asyncio.create_task(piped_music_flow())
             
         except Exception as e:
-            print(f"[V36 PICK] Error {e}")
+            print(f"[V38 PICK] Error {e}")
             import traceback
             traceback.print_exc()
             try:
@@ -2253,7 +2195,7 @@ def run_telegram_bot():
     async def start_bot():
         clean_downloads_startup()
         app = Application.builder().token(BOT_TOKEN).build()
-        # V36 FIX: Song Search dedicated handler FIRST - always responsive
+        # V38 FIX: Song Search dedicated handler FIRST - always responsive
         app.add_handler(MessageHandler(filters.Regex("Song Search"), handle_media_link))
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CommandHandler("language", language_command))
@@ -2266,7 +2208,7 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("ban", ban_command))
         app.add_handler(CommandHandler("unban", unban_command))
         app.add_handler(CommandHandler("backup", backup_command))
-        # Deezer+Cobalt - NO GROUP, simple handlers
+        # Deezer+Piped - NO GROUP, simple handlers
         app.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST, handle_channel_post_v25))
         app.add_handler(CallbackQueryHandler(handle_music_pick_v25, pattern="^music_pick_|^music_search_again_"))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
@@ -2279,13 +2221,13 @@ def run_telegram_bot():
         asyncio.create_task(auto_backup_loop(app.bot))
         asyncio.create_task(queue_processor(app.bot))
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
-        print(f"Bot started! V36 Deezer+Cobalt+YouTubeFix WORKING Vault={VIDEO_VAULT_ID}")
+        print(f"Bot started! V38 Deezer+Piped+YouTubeFix WORKING Vault={VIDEO_VAULT_ID}")
         await asyncio.Event().wait()
     loop.run_until_complete(start_bot())
 
 if not getattr(web_app, '_bot_started', False):
     web_app._bot_started = True
-    print("Starting bot thread V36 Deezer+Cobalt FINAL...")
+    print("Starting bot thread V38 Deezer+Piped FINAL...")
     threading.Thread(target=run_telegram_bot, daemon=True).start()
 
 if __name__ == "__main__":
