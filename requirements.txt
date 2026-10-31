@@ -4,3 +4,4 @@ requests
 imageio-ffmpeg
 git+https://github.com/yt-dlp/yt-dlp.git
 beautifulsoup4
+ytmusicapi
