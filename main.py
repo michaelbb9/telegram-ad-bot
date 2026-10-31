@@ -1765,10 +1765,13 @@ async def ad_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🧪 To test: tap 🧪 Test Ad or send /testad")
 
 
-# ===== MUSIC MODULE + CHECKCOOKIES COMMAND =====
+# ===== MUSIC MODULE - 3 FALLBACKS: YT MUSIC + SPOTIFY + YT-DLP + DEEZER - RESPONSIVE =====
 import tempfile
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 MUSIC_CACHE_FILE = "music_cache.json"
+music_executor = ThreadPoolExecutor(max_workers=2)
 
 def load_music_cache():
     if os.path.exists(MUSIC_CACHE_FILE):
@@ -1784,114 +1787,134 @@ def save_music_cache(cache):
     except:
         pass
 
-async def checkcookies_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def checkcookies_command(update, context):
     if update.effective_user.id != ADMIN_ID:
         return
-    msg = "🍪 **Cookie Check**\n\n"
-    paths = ["youtube_cookies.txt", "tiktok_cookies.txt", "cookies.txt", "/etc/secrets/youtube_cookies.txt", "/home/Michaelbbc/mysite/youtube_cookies.txt"]
+    msg = "Cookie Check\n\n"
+    paths = ["youtube_cookies.txt", "tiktok_cookies.txt", "cookies.txt", "/etc/secrets/youtube_cookies.txt", "/etc/secrets/tiktok_cookies.txt"]
     for p in paths:
         if os.path.exists(p):
             try:
                 size = os.path.getsize(p)
-                with open(p, "r") as f:
-                    first = f.readline().strip()
-                valid = "Netscape" in first or "youtube.com" in first.lower() or "# HTTP" in first
-                msg += f"✅ Found: `{p}` ({size} bytes)\n   First line: {first[:60]}\n   Valid: {valid}\n\n"
+                msg += f"FOUND {p} ({size} bytes)\n"
             except Exception as e:
-                msg += f"⚠️ Found but error reading {p}: {e}\n\n"
+                msg += f"FOUND but error {p}: {e}\n"
         else:
-            msg += f"❌ Not found: `{p}`\n\n"
-    
-    # Test yt-dlp
-    msg += "\n🎵 **YT-DLP Test:**\n"
+            msg += f"NOT FOUND {p}\n"
     try:
         import yt_dlp
-        msg += f"✅ yt-dlp installed: {yt_dlp.version.__version__}\n"
+        msg += f"yt-dlp: {yt_dlp.version.__version__}\n"
     except Exception as e:
-        msg += f"❌ yt-dlp error: {e}\n"
+        msg += f"yt-dlp error: {e}\n"
+    await update.message.reply_text(msg)
+
+def download_with_ytdlp_blocking(search_query, tmpdir, cookie_paths):
+    output_template = os.path.join(tmpdir, "%(title)s.%(ext)s")
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': output_template,
+        'noplaylist': True,
+        'quiet': True,
+        'no_warnings': True,
+        'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}],
+        'extractor_args': {'youtube': {'player_client': ['ios', 'android', 'web', 'mweb']}},
+    }
+    for cp in cookie_paths:
+        if os.path.exists(cp):
+            ydl_opts['cookiefile'] = cp
+            break
     
+    # FALLBACK 1: YouTube Music
     try:
-        msg += f"\n📦 **ffmpeg:** {ffmpeg_path} exists: {os.path.exists(ffmpeg_path)}\n"
-    except:
-        pass
+        print(f"Trying YT Music: {search_query}")
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"ytmsearch1:{search_query}", download=True)
+            for f in os.listdir(tmpdir):
+                fp = os.path.join(tmpdir, f)
+                if f.endswith('.mp3') and os.path.getsize(fp) > 10000:
+                    return fp, "ytmusic"
+    except Exception as e:
+        print(f"YT Music fail: {e}")
     
-    await update.message.reply_text(msg, parse_mode="Markdown")
+    # FALLBACK 2: YouTube
+    try:
+        for f in os.listdir(tmpdir):
+            try: os.remove(os.path.join(tmpdir, f))
+            except: pass
+        print(f"Trying YouTube: {search_query}")
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"ytsearch1:{search_query}", download=True)
+            for f in os.listdir(tmpdir):
+                fp = os.path.join(tmpdir, f)
+                if f.endswith('.mp3') and os.path.getsize(fp) > 10000:
+                    return fp, "youtube"
+    except Exception as e:
+        print(f"YT fail: {e}")
+    
+    # FALLBACK 3: SoundCloud
+    try:
+        for f in os.listdir(tmpdir):
+            try: os.remove(os.path.join(tmpdir, f))
+            except: pass
+        print(f"Trying SoundCloud: {search_query}")
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"scsearch1:{search_query}", download=True)
+            for f in os.listdir(tmpdir):
+                fp = os.path.join(tmpdir, f)
+                if f.endswith('.mp3') and os.path.getsize(fp) > 10000:
+                    return fp, "soundcloud"
+    except Exception as e:
+        print(f"SoundCloud fail: {e}")
+    
+    return None, "failed"
 
 async def download_music_and_send(bot, user_id, title, artist, track_id):
     try:
-        search_query = f"{title} {artist} official audio"
-        print(f"Music download: {search_query} for {user_id}")
+        search_query = f"{title} {artist}"
+        print(f"Music: {search_query} for {user_id}")
         
         cache = load_music_cache()
         cache_key = f"{title}_{artist}".lower().replace(" ", "_")[:50]
         if cache_key in cache and "file_id" in cache[cache_key]:
             try:
-                await bot.send_audio(chat_id=user_id, audio=cache[cache_key]["file_id"], title=title, performer=artist, caption=f"🎵 {title} - {artist}\n♻️ Cached 1-sec!")
+                await bot.send_audio(chat_id=user_id, audio=cache[cache_key]["file_id"], title=title, performer=artist, caption=f"{title} - {artist} Cached 1-sec!")
                 return True
             except:
                 pass
         
         tmpdir = tempfile.mkdtemp()
-        output_template = os.path.join(tmpdir, "%(title)s.%(ext)s")
+        cookie_paths = ["youtube_cookies.txt", "/etc/secrets/youtube_cookies.txt", "tiktok_cookies.txt", "cookies.txt"]
         
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': output_template,
-            'noplaylist': True,
-            'quiet': True,
-            'no_warnings': True,
-            'default_search': 'ytsearch1',
-            'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}],
-            'extractor_args': {'youtube': {'player_client': ['ios', 'android', 'web']}},
-        }
-        # Check all possible cookie locations including Render secret
-        for cookie_path in ["youtube_cookies.txt", "/etc/secrets/youtube_cookies.txt", "tiktok_cookies.txt", "cookies.txt"]:
-            if os.path.exists(cookie_path):
-                ydl_opts['cookiefile'] = cookie_path
-                print(f"Using cookie: {cookie_path}")
-                break
+        loop = asyncio.get_event_loop()
+        downloaded_file, source = await loop.run_in_executor(music_executor, download_with_ytdlp_blocking, search_query, tmpdir, cookie_paths)
         
-        downloaded_file = None
-        success = False
+        if not downloaded_file or not os.path.exists(downloaded_file):
+            if track_id:
+                try:
+                    dr = requests.get(f"https://api.deezer.com/track/{track_id}", timeout=8)
+                    if dr.status_code == 200:
+                        preview_url = dr.json().get("preview")
+                        if preview_url:
+                            pr = requests.get(preview_url, timeout=10)
+                            if pr.status_code == 200:
+                                downloaded_file = os.path.join(tmpdir, f"{title}.mp3")
+                                with open(downloaded_file, "wb") as out:
+                                    out.write(pr.content)
+                                source = "deezer_preview"
+                except:
+                    pass
         
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(f"ytsearch1:{search_query}", download=True)
-                if 'entries' in info:
-                    info = info['entries'][0]
-                for f in os.listdir(tmpdir):
-                    if f.endswith('.mp3'):
-                        downloaded_file = os.path.join(tmpdir, f)
-                        break
-            if downloaded_file and os.path.exists(downloaded_file) and os.path.getsize(downloaded_file) > 10000:
-                success = True
-        except Exception as e:
-            print(f"YT search failed: {e}")
-        
-        if not success and track_id:
-            try:
-                dr = requests.get(f"https://api.deezer.com/track/{track_id}", timeout=8)
-                if dr.status_code == 200:
-                    preview_url = dr.json().get("preview")
-                    if preview_url:
-                        pr = requests.get(preview_url, timeout=10)
-                        if pr.status_code == 200:
-                            downloaded_file = os.path.join(tmpdir, f"{title}.mp3")
-                            with open(downloaded_file, "wb") as out:
-                                out.write(pr.content)
-                            if os.path.getsize(downloaded_file) > 5000:
-                                success = True
-            except Exception as e:
-                print(f"Deezer fallback error: {e}")
-        
-        if not success or not downloaded_file or not os.path.exists(downloaded_file):
-            await bot.send_message(chat_id=user_id, text=f"❌ Could not download {title} - {artist}.\n\n🔧 Fix: Upload fresh youtube_cookies.txt (Netscape format) to GitHub repo root + Render Secret File /etc/secrets/youtube_cookies.txt\n\nOr paste YouTube link directly.")
+        if not downloaded_file or not os.path.exists(downloaded_file) or os.path.getsize(downloaded_file) < 5000:
+            await bot.send_message(chat_id=user_id, text=f"Could not download {title} - {artist}. Tried YT Music, YouTube, SoundCloud, Deezer. Upload fresh youtube_cookies.txt to GitHub root.")
             shutil.rmtree(tmpdir, ignore_errors=True)
             return False
         
+        is_preview = source == "deezer_preview"
+        caption_suffix = "30s preview (YT blocked, need fresh cookies)" if is_preview else "Full MP3"
+        
         try:
             with open(downloaded_file, 'rb') as af:
-                sent = await bot.send_audio(chat_id=user_id, audio=af, title=title, performer=artist, caption=f"🎵 {title} - {artist}\n✅ Downloaded via Music Explorer\n💾 Cached!")
+                sent = await bot.send_audio(chat_id=user_id, audio=af, title=title, performer=artist, caption=f"{title} - {artist} {caption_suffix} Source: {source}")
                 try:
                     file_id = sent.audio.file_id
                     cache[cache_key] = {"file_id": file_id, "title": title, "artist": artist, "timestamp": time.time()}
@@ -1924,16 +1947,15 @@ async def music_poller_loop(bot):
                     artist = item.get("artist")
                     track_id = item.get("track_id")
                     if user_id and title:
-                        await download_music_and_send(bot, int(user_id), title, artist, track_id)
+                        asyncio.create_task(download_music_and_send(bot, int(user_id), title, artist, track_id))
                         try:
                             requests.post(f"{WEB_BASE_URL}/api/clear_pending", json={"user_id": user_id, "track_id": track_id}, headers=API_HEADERS, timeout=5)
                         except:
                             pass
-                        await asyncio.sleep(2)
+                        await asyncio.sleep(1)
         except Exception as e:
             print(f"Music poller error: {e}")
         await asyncio.sleep(15)
-
 
 
 def run_telegram_bot():
@@ -1953,6 +1975,7 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("ban", ban_command))
         app.add_handler(CommandHandler("unban", unban_command))
         app.add_handler(CommandHandler("backup", backup_command))
+        app.add_handler(CommandHandler("checkcookies", checkcookies_command))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
         app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.ATTACHMENT, handle_user_upload))
