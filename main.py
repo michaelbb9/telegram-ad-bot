@@ -310,7 +310,7 @@ def piped_download_youtube(youtube_url, is_audio=False):
 web_app = Flask(__name__)
 @web_app.route('/')
 def health_check():
-    return "Bot alive! V42 FULL UI + PO TOKEN FIX + Deezer + Piped + Advanced Stats", 200
+    return "Bot alive! V43 FULL UI + Music Pick Fixed + PO Token + Deezer", 200
 
 def load_json_file(filename):
     if os.path.exists(filename):
@@ -2068,8 +2068,10 @@ def run_telegram_bot():
     async def start_bot():
         clean_downloads_startup()
         app = Application.builder().token(BOT_TOKEN).build()
-        # V42 FIX: Song Search dedicated handler FIRST - always responsive
+        # V43 FIX: Song Search + Music Pick handlers FIRST - always responsive
         app.add_handler(MessageHandler(filters.Regex("Song Search"), handle_media_link))
+        app.add_handler(CallbackQueryHandler(handle_music_pick_v25, pattern="^music_pick_"))
+        app.add_handler(CallbackQueryHandler(handle_music_pick_v25, pattern="^music_search_again_"))
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CommandHandler("language", language_command))
         app.add_handler(CommandHandler("stats", stats))
@@ -2084,6 +2086,7 @@ def run_telegram_bot():
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
         app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.ATTACHMENT, handle_user_upload))
+        app.add_handler(CallbackQueryHandler(handle_music_pick_v25, pattern="^music_"))
         app.add_handler(CallbackQueryHandler(handle_buttons))
         await app.initialize()
         await app.start()
@@ -2091,7 +2094,7 @@ def run_telegram_bot():
         asyncio.create_task(auto_backup_loop(app.bot))
         asyncio.create_task(queue_processor(app.bot))
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
-        print(f"Bot started! V24 Optimum +1 Vault={VIDEO_VAULT_ID} Backup={PRIVATE_CHANNEL_ID} Free {get_free_disk_mb()}MB")
+        print(f"Bot started! V43 FULL UI + PO Token + Music Pick FIX Vault={VIDEO_VAULT_ID} Free {get_free_disk_mb()}MB")
         await asyncio.Event().wait()
     loop.run_until_complete(start_bot())
 
