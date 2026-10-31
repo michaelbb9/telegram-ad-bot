@@ -1765,8 +1765,7 @@ async def ad_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🧪 To test: tap 🧪 Test Ad or send /testad")
 
 
-# ===== MUSIC MODULE - ISOLATED, DOES NOT TOUCH MAIN DOWNLOADER =====
-# This only adds music download via Render, no changes to your working FB/TikTok/Insta logic!
+# ===== MUSIC MODULE - ISOLATED - IMPROVED YOUTUBE BYPASS + DEEZER FALLBACK =====
 import tempfile
 
 MUSIC_CACHE_FILE = "music_cache.json"
@@ -1804,6 +1803,7 @@ async def download_music_and_send(bot, user_id, title, artist, track_id):
         tmpdir = tempfile.mkdtemp()
         output_template = os.path.join(tmpdir, "%(title)s.%(ext)s")
         
+        # IMPROVED YT-DLP OPTIONS TO BYPASS YOUTUBE BLOCK
         ydl_opts = {
             'format': 'bestaudio/best',
             'outtmpl': output_template,
@@ -1816,15 +1816,28 @@ async def download_music_and_send(bot, user_id, title, artist, track_id):
                 'preferredcodec': 'mp3',
                 'preferredquality': '192',
             }],
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['ios', 'android', 'web'],
+                    'player_skip': ['webpage', 'configs'],
+                }
+            },
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1'
+            }
         }
         if os.path.exists("youtube_cookies.txt"):
             ydl_opts['cookiefile'] = "youtube_cookies.txt"
+            print("Using youtube_cookies.txt")
         elif os.path.exists("tiktok_cookies.txt"):
             ydl_opts['cookiefile'] = "tiktok_cookies.txt"
         elif os.path.exists("cookies.txt"):
             ydl_opts['cookiefile'] = "cookies.txt"
         
         downloaded_file = None
+        success = False
+        
+        # Try 1: YouTube search
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(f"ytsearch1:{search_query}", download=True)
@@ -1834,17 +1847,60 @@ async def download_music_and_send(bot, user_id, title, artist, track_id):
                     if f.endswith('.mp3'):
                         downloaded_file = os.path.join(tmpdir, f)
                         break
+            if downloaded_file and os.path.exists(downloaded_file) and os.path.getsize(downloaded_file) > 10000:
+                success = True
         except Exception as e:
-            print(f"YT music error: {e}")
+            print(f"YT search failed: {e}")
         
-        if not downloaded_file or not os.path.exists(downloaded_file):
-            await bot.send_message(chat_id=user_id, text=f"❌ Could not download {title} - {artist}. Try pasting YouTube link directly.")
+        # Try 2: If YouTube fails, try Deezer preview as fallback (30s but better than error)
+        if not success:
+            try:
+                print(f"Trying Deezer fallback for {track_id}")
+                if track_id:
+                    dr = requests.get(f"https://api.deezer.com/track/{track_id}", timeout=8)
+                    if dr.status_code == 200:
+                        ddata = dr.json()
+                        preview_url = ddata.get("preview")
+                        if preview_url:
+                            print(f"Downloading Deezer preview: {preview_url}")
+                            pr = requests.get(preview_url, timeout=10)
+                            if pr.status_code == 200:
+                                downloaded_file = os.path.join(tmpdir, f"{title}.mp3")
+                                with open(downloaded_file, "wb") as out:
+                                    out.write(pr.content)
+                                if os.path.getsize(downloaded_file) > 5000:
+                                    success = True
+                                    print("Deezer preview fallback success")
+            except Exception as e:
+                print(f"Deezer fallback error: {e}")
+        
+        # Try 3: Direct YouTube link search with different query
+        if not success:
+            try:
+                print("Trying alternative search")
+                alt_query = f"{title} {artist} audio"
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(f"ytsearch1:{alt_query}", download=True)
+                    if 'entries' in info:
+                        info = info['entries'][0]
+                    for f in os.listdir(tmpdir):
+                        if f.endswith('.mp3'):
+                            downloaded_file = os.path.join(tmpdir, f)
+                            break
+                if downloaded_file and os.path.exists(downloaded_file) and os.path.getsize(downloaded_file) > 10000:
+                    success = True
+            except Exception as e:
+                print(f"Alt search failed: {e}")
+        
+        if not success or not downloaded_file or not os.path.exists(downloaded_file):
+            await bot.send_message(chat_id=user_id, text=f"❌ Could not download {title} - {artist}.\n\n🔧 Fix: Upload youtube_cookies.txt to Render (Settings -> Environment -> add file) + try again.\n\nOr paste YouTube link directly instead of search.")
             shutil.rmtree(tmpdir, ignore_errors=True)
             return False
         
         try:
             with open(downloaded_file, 'rb') as af:
-                sent = await bot.send_audio(chat_id=user_id, audio=af, title=title, performer=artist, caption=f"🎵 {title} - {artist}\n✅ Downloaded via Music Explorer\n💾 Cached for next time!")
+                caption = f"🎵 {title} - {artist}\n✅ Downloaded via Music Explorer\n💾 Cached for next time!" if success else f"🎵 {title} - {artist} (Preview)\n⚠️ Full version blocked by YouTube, this is 30s preview"
+                sent = await bot.send_audio(chat_id=user_id, audio=af, title=title, performer=artist, caption=caption)
                 try:
                     file_id = sent.audio.file_id
                     cache[cache_key] = {"file_id": file_id, "title": title, "artist": artist, "timestamp": time.time()}
@@ -1866,7 +1922,6 @@ async def download_music_and_send(bot, user_id, title, artist, track_id):
         return False
 
 async def music_poller_loop(bot):
-    # Polls Flask pending_music endpoint - runs on Render where yt-dlp works, no bash needed!
     await asyncio.sleep(10)
     while True:
         try:
