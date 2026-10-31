@@ -1765,7 +1765,7 @@ async def ad_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🧪 To test: tap 🧪 Test Ad or send /testad")
 
 
-# ===== MUSIC MODULE - ISOLATED - IMPROVED YOUTUBE BYPASS + DEEZER FALLBACK =====
+# ===== MUSIC MODULE + CHECKCOOKIES COMMAND =====
 import tempfile
 
 MUSIC_CACHE_FILE = "music_cache.json"
@@ -1773,18 +1773,49 @@ MUSIC_CACHE_FILE = "music_cache.json"
 def load_music_cache():
     if os.path.exists(MUSIC_CACHE_FILE):
         try:
-            with open(MUSIC_CACHE_FILE, "r") as f:
-                return json.load(f)
+            return json.load(open(MUSIC_CACHE_FILE))
         except:
             return {}
     return {}
 
 def save_music_cache(cache):
     try:
-        with open(MUSIC_CACHE_FILE, "w") as f:
-            json.dump(cache, f)
+        json.dump(cache, open(MUSIC_CACHE_FILE, "w"))
     except:
         pass
+
+async def checkcookies_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    msg = "🍪 **Cookie Check**\n\n"
+    paths = ["youtube_cookies.txt", "tiktok_cookies.txt", "cookies.txt", "/etc/secrets/youtube_cookies.txt", "/home/Michaelbbc/mysite/youtube_cookies.txt"]
+    for p in paths:
+        if os.path.exists(p):
+            try:
+                size = os.path.getsize(p)
+                with open(p, "r") as f:
+                    first = f.readline().strip()
+                valid = "Netscape" in first or "youtube.com" in first.lower() or "# HTTP" in first
+                msg += f"✅ Found: `{p}` ({size} bytes)\n   First line: {first[:60]}\n   Valid: {valid}\n\n"
+            except Exception as e:
+                msg += f"⚠️ Found but error reading {p}: {e}\n\n"
+        else:
+            msg += f"❌ Not found: `{p}`\n\n"
+    
+    # Test yt-dlp
+    msg += "\n🎵 **YT-DLP Test:**\n"
+    try:
+        import yt_dlp
+        msg += f"✅ yt-dlp installed: {yt_dlp.version.__version__}\n"
+    except Exception as e:
+        msg += f"❌ yt-dlp error: {e}\n"
+    
+    try:
+        msg += f"\n📦 **ffmpeg:** {ffmpeg_path} exists: {os.path.exists(ffmpeg_path)}\n"
+    except:
+        pass
+    
+    await update.message.reply_text(msg, parse_mode="Markdown")
 
 async def download_music_and_send(bot, user_id, title, artist, track_id):
     try:
@@ -1803,7 +1834,6 @@ async def download_music_and_send(bot, user_id, title, artist, track_id):
         tmpdir = tempfile.mkdtemp()
         output_template = os.path.join(tmpdir, "%(title)s.%(ext)s")
         
-        # IMPROVED YT-DLP OPTIONS TO BYPASS YOUTUBE BLOCK
         ydl_opts = {
             'format': 'bestaudio/best',
             'outtmpl': output_template,
@@ -1811,33 +1841,19 @@ async def download_music_and_send(bot, user_id, title, artist, track_id):
             'quiet': True,
             'no_warnings': True,
             'default_search': 'ytsearch1',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['ios', 'android', 'web'],
-                    'player_skip': ['webpage', 'configs'],
-                }
-            },
-            'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1'
-            }
+            'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}],
+            'extractor_args': {'youtube': {'player_client': ['ios', 'android', 'web']}},
         }
-        if os.path.exists("youtube_cookies.txt"):
-            ydl_opts['cookiefile'] = "youtube_cookies.txt"
-            print("Using youtube_cookies.txt")
-        elif os.path.exists("tiktok_cookies.txt"):
-            ydl_opts['cookiefile'] = "tiktok_cookies.txt"
-        elif os.path.exists("cookies.txt"):
-            ydl_opts['cookiefile'] = "cookies.txt"
+        # Check all possible cookie locations including Render secret
+        for cookie_path in ["youtube_cookies.txt", "/etc/secrets/youtube_cookies.txt", "tiktok_cookies.txt", "cookies.txt"]:
+            if os.path.exists(cookie_path):
+                ydl_opts['cookiefile'] = cookie_path
+                print(f"Using cookie: {cookie_path}")
+                break
         
         downloaded_file = None
         success = False
         
-        # Try 1: YouTube search
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(f"ytsearch1:{search_query}", download=True)
@@ -1852,55 +1868,30 @@ async def download_music_and_send(bot, user_id, title, artist, track_id):
         except Exception as e:
             print(f"YT search failed: {e}")
         
-        # Try 2: If YouTube fails, try Deezer preview as fallback (30s but better than error)
-        if not success:
+        if not success and track_id:
             try:
-                print(f"Trying Deezer fallback for {track_id}")
-                if track_id:
-                    dr = requests.get(f"https://api.deezer.com/track/{track_id}", timeout=8)
-                    if dr.status_code == 200:
-                        ddata = dr.json()
-                        preview_url = ddata.get("preview")
-                        if preview_url:
-                            print(f"Downloading Deezer preview: {preview_url}")
-                            pr = requests.get(preview_url, timeout=10)
-                            if pr.status_code == 200:
-                                downloaded_file = os.path.join(tmpdir, f"{title}.mp3")
-                                with open(downloaded_file, "wb") as out:
-                                    out.write(pr.content)
-                                if os.path.getsize(downloaded_file) > 5000:
-                                    success = True
-                                    print("Deezer preview fallback success")
+                dr = requests.get(f"https://api.deezer.com/track/{track_id}", timeout=8)
+                if dr.status_code == 200:
+                    preview_url = dr.json().get("preview")
+                    if preview_url:
+                        pr = requests.get(preview_url, timeout=10)
+                        if pr.status_code == 200:
+                            downloaded_file = os.path.join(tmpdir, f"{title}.mp3")
+                            with open(downloaded_file, "wb") as out:
+                                out.write(pr.content)
+                            if os.path.getsize(downloaded_file) > 5000:
+                                success = True
             except Exception as e:
                 print(f"Deezer fallback error: {e}")
         
-        # Try 3: Direct YouTube link search with different query
-        if not success:
-            try:
-                print("Trying alternative search")
-                alt_query = f"{title} {artist} audio"
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(f"ytsearch1:{alt_query}", download=True)
-                    if 'entries' in info:
-                        info = info['entries'][0]
-                    for f in os.listdir(tmpdir):
-                        if f.endswith('.mp3'):
-                            downloaded_file = os.path.join(tmpdir, f)
-                            break
-                if downloaded_file and os.path.exists(downloaded_file) and os.path.getsize(downloaded_file) > 10000:
-                    success = True
-            except Exception as e:
-                print(f"Alt search failed: {e}")
-        
         if not success or not downloaded_file or not os.path.exists(downloaded_file):
-            await bot.send_message(chat_id=user_id, text=f"❌ Could not download {title} - {artist}.\n\n🔧 Fix: Upload youtube_cookies.txt to Render (Settings -> Environment -> add file) + try again.\n\nOr paste YouTube link directly instead of search.")
+            await bot.send_message(chat_id=user_id, text=f"❌ Could not download {title} - {artist}.\n\n🔧 Fix: Upload fresh youtube_cookies.txt (Netscape format) to GitHub repo root + Render Secret File /etc/secrets/youtube_cookies.txt\n\nOr paste YouTube link directly.")
             shutil.rmtree(tmpdir, ignore_errors=True)
             return False
         
         try:
             with open(downloaded_file, 'rb') as af:
-                caption = f"🎵 {title} - {artist}\n✅ Downloaded via Music Explorer\n💾 Cached for next time!" if success else f"🎵 {title} - {artist} (Preview)\n⚠️ Full version blocked by YouTube, this is 30s preview"
-                sent = await bot.send_audio(chat_id=user_id, audio=af, title=title, performer=artist, caption=caption)
+                sent = await bot.send_audio(chat_id=user_id, audio=af, title=title, performer=artist, caption=f"🎵 {title} - {artist}\n✅ Downloaded via Music Explorer\n💾 Cached!")
                 try:
                     file_id = sent.audio.file_id
                     cache[cache_key] = {"file_id": file_id, "title": title, "artist": artist, "timestamp": time.time()}
@@ -1927,14 +1918,12 @@ async def music_poller_loop(bot):
         try:
             resp = requests.get(f"{WEB_BASE_URL}/api/pending_music", headers=API_HEADERS, timeout=10)
             if resp.status_code == 200:
-                pending = resp.json().get("pending", [])
-                for item in pending:
+                for item in resp.json().get("pending", []):
                     user_id = item.get("user_id")
                     title = item.get("title")
                     artist = item.get("artist")
                     track_id = item.get("track_id")
                     if user_id and title:
-                        print(f"Processing pending music: {title} for {user_id}")
                         await download_music_and_send(bot, int(user_id), title, artist, track_id)
                         try:
                             requests.post(f"{WEB_BASE_URL}/api/clear_pending", json={"user_id": user_id, "track_id": track_id}, headers=API_HEADERS, timeout=5)
