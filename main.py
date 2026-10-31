@@ -53,12 +53,12 @@ CACHE_FILE = "download_cache.json"
 FLOOD_FILE = "flood_control.json"
 BANNED_FILE = "banned_users.json"
 REWARD_FILE = "reward_config.json"
-SEARCH_STATE_FILE = "search_states.json"
 
 active_batch_sessions = {}
 pending_batch_payloads = {}
 paused_batches = {}
 pending_single_links = {}
+pending_song_search = {}  # In-memory song search mode - no file, instant, no rubbish search
 
 MAX_CONCURRENT_SHORT = 3
 MIN_FREE_DISK_MB = 150
@@ -938,11 +938,10 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if str(user_id) in support_states:
             del support_states[str(user_id)]
             save_json_file(SUPPORT_STATES_FILE, support_states)
-    if text == "🔍 Song Search":
-        # Enter song search mode
-        states = load_json_file(SEARCH_STATE_FILE)
-        states[str(user_id)] = {"mode": "awaiting_song", "timestamp": time.time()}
-        save_json_file(SEARCH_STATE_FILE, states)
+    if text == "🔍 Song Search" or text.strip().lower() == "song search":
+        # Enter song search mode - in-memory, no file, no rubbish auto-search
+        pending_song_search[user_id] = time.time()
+        # Clear old file states if any
         await update.message.reply_text(
             "🔍 **SONG SEARCH MODE**\n\n"
             "Type song name now (no link needed!):\n"
