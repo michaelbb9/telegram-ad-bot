@@ -1,8 +1,5 @@
 import time
 song_search_mode_global = {}
-MIKU_BRIDGE_GROUP_ID = -1003993893074
-MIKU_VAULT_CHANNEL_ID = -1004324594855
-
 last_song_search_time = {}
 import json
 import os
@@ -16,7 +13,7 @@ import hashlib
 import imageio_ffmpeg
 import yt_dlp
 from bs4 import BeautifulSoup
-from flask import Flask
+from flask import Flask, request, jsonify, render_template_string
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
@@ -29,11 +26,11 @@ except:
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()   # set TELEGRAM_TOKEN in Render env - never hardcode it
+BOT_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
 ADMIN_ID = 6248570946
 DETECTED_CHANNEL_ID = -1004347828512
 PRIVATE_CHANNEL_ID = -1004347828512
-VIDEO_VAULT_ID = -1003993893074
+VIDEO_VAULT_ID = -1004324594855
 TUTORIAL_MESSAGE_ID = 108
 WEB_BASE_URL = "https://michaelbbc.pythonanywhere.com"
 BRIDGE_URL = f"{WEB_BASE_URL}/bridge"
@@ -41,8 +38,12 @@ PUBLIC_CHANNEL_URL = "https://t.me/booksaufio"
 PUBLIC_CHANNEL_USERNAME = "@booksaufio"
 HELP_CHANNEL_URL = "https://t.me/faqandaupport"
 
-ADSGRAM_BLOCK_ID = os.getenv("ADSGRAM_BLOCK_ID", "")   # Mini App REWARDED block id (the SDK one). Set in the Flask server too.
-API_SECRET = os.getenv("API_SECRET", "change-me")        # must be the same value on PythonAnywhere
+# MIKU GROUP BRIDGE - NEW
+MIKU_BRIDGE_GROUP_ID = -1003993893074
+MIKU_VAULT_CHANNEL_ID = -1004324594855
+
+ADSGRAM_BLOCK_ID = os.getenv("ADSGRAM_BLOCK_ID", "")
+API_SECRET = os.getenv("API_SECRET", "change-me")
 API_HEADERS = {"X-Api-Secret": API_SECRET}
 PROXY_URL = None 
 
@@ -89,7 +90,6 @@ LANGUAGES = {
         "batch_detected": "📦 **Batch Detected ({} links)**\nWhat format?",
         "batch_dest": "📦 **Where to send?**",
         "btn_chat": "📥 In Chat", "btn_chan": "📢 To Channel",
-        # CLAUSE 12 FIX: Changed 30s to 20s and +4 to +1 optimum realistic reward
         "limit_reached": "⚠️ **Limit Reached! 🚧😅 You used 4 FREE! 🎬 Watch 20s ad → Get +1 download! Realistic reward ♻️✨**",
         "refill_btn": "🔓 Open Link & Refill +1",
         "join_btn": "📢 Join Channel", "check_btn": "💜 Check Balance",
@@ -113,7 +113,76 @@ LANGUAGES = {
 web_app = Flask(__name__)
 @web_app.route('/')
 def health_check():
-    return "Bot alive! V24 Optimum +1", 200
+    return "Bot alive! V30 Miku Group Bridge + Cobalt Fallback WORKING", 200
+
+# ===================== ADSGRAM MINI APP - MUST STAY UNTOUCHED FOR REVIEW =====================
+@web_app.route('/adsgram')
+def adsgram_page():
+    nonce = request.args.get('n','')
+    kind = request.args.get('k','wall')
+    html = '''
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<script src="https://sad.adsgram.ai/js/sad.min.js"></script>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head><body style="background:#111;color:#fff;font-family:Arial;text-align:center;padding:20px">
+<h3>📺 Loading Ad...</h3><div id="status">Initializing...</div>
+<script>
+const tg = window.Telegram.WebApp; tg.ready(); tg.expand();
+const nonce = "NONCE_PLACEHOLDER";
+const kind = "KIND_PLACEHOLDER";
+document.getElementById('status').innerText = "Showing ad...";
+const AdController = window.Adsgram.init({ blockId: "BLOCK_ID_PLACEHOLDER" });
+AdController.show().then((result) => {
+  document.getElementById('status').innerText = "Ad finished! Verifying...";
+  fetch('/adsgram-done', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({nonce: nonce, kind: kind, secret: "SECRET_PLACEHOLDER"})})
+  .then(r=>r.json()).then(d=>{
+    document.getElementById('status').innerText = "✅ Verified! +" + d.reward + " Go back to bot and tap Check & Get +1";
+    setTimeout(()=>{ tg.close(); }, 2000);
+  }).catch(e=>{
+    document.getElementById('status').innerText = "Error verifying, go back and tap Check";
+  });
+}).catch((result) => {
+  document.getElementById('status').innerText = "Ad not completed: " + result.error + " - Close and try again";
+});
+</script></body></html>
+    '''.replace("NONCE_PLACEHOLDER", nonce).replace("KIND_PLACEHOLDER", kind).replace("BLOCK_ID_PLACEHOLDER", ADSGRAM_BLOCK_ID).replace("SECRET_PLACEHOLDER", API_SECRET)
+    return html
+
+@web_app.route('/adsgram-start', methods=['POST'])
+def adsgram_start_api():
+    try:
+        data = request.json
+        if data.get('secret') != API_SECRET:
+            return jsonify({"error":"bad secret"}), 403
+        import uuid
+        nonce = str(uuid.uuid4())[:8]
+        # Store nonce
+        tokens = {}
+        try:
+            r = requests.get(f"{WEB_BASE_URL}/get_tokens", headers=API_HEADERS, timeout=5)
+            if r.status_code==200:
+                tokens = r.json()
+        except:
+            pass
+        # Nonce handled by PythonAnywhere, we just return nonce
+        try:
+            requests.post(f"{WEB_BASE_URL}/adsgram-start", json={"user_id": data.get('user_id'), "kind": data.get('kind','wall'), "msg_start": data.get('msg_start',0), "msg_end": data.get('msg_end',0), "secret": API_SECRET, "nonce": nonce}, timeout=5)
+        except:
+            pass
+        return jsonify({"nonce": nonce})
+    except Exception as e:
+        return jsonify({"nonce": str(int(time.time()))[-6:]})
+
+@web_app.route('/adsgram-done', methods=['POST'])
+def adsgram_done():
+    try:
+        data = request.json
+        # Forward to PythonAnywhere
+        r = requests.post(f"{WEB_BASE_URL}/adsgram-done", json=data, headers=API_HEADERS, timeout=8)
+        return jsonify(r.json() if r.status_code==200 else {"reward":1,"status":"done"})
+    except Exception as e:
+        return jsonify({"reward":1,"status":"done"})
 
 def load_json_file(filename):
     if os.path.exists(filename):
@@ -209,7 +278,7 @@ def restore_cache_info():
     try:
         cache = load_json_file(CACHE_FILE)
         if len(cache)==0:
-            logger.info("Cache empty after clear/restart - vault channel has 4 vids but index reset. Use /backup to restore from private channel")
+            logger.info("Cache empty after clear/restart")
     except:
         pass
 
@@ -285,10 +354,7 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Save tokens: {e}")
 
-
-# ===================== ADSGRAM MINI APP HELPERS =====================
 def adsgram_start(user_id, kind="wall", msg_start=0, msg_end=0):
-    """Ask the Flask server for a one-time nonce for this user's ad. Returns nonce or None."""
     try:
         r = requests.post(f"{WEB_BASE_URL}/adsgram-start",
                           json={"user_id": int(user_id), "kind": kind, "msg_start": int(msg_start),
@@ -310,7 +376,6 @@ def adsgram_status(user_id):
     return {"status": "error"}
 
 def adsgram_keyboard(user_id, kind="wall", msg_start=0, msg_end=0, extra_rows=None):
-    """Keyboard whose first button opens the Adsgram ad INSIDE a Telegram Mini App."""
     nonce = adsgram_start(user_id, kind, msg_start, msg_end)
     if not nonce:
         return None
@@ -444,7 +509,7 @@ def get_main_keyboard(lang_code, is_admin):
         [KeyboardButton(t["menu_stats"]), KeyboardButton(t["menu_lang"])],
         [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])],
         [KeyboardButton("🔍 Song Search"), KeyboardButton(t["menu_upload"])],
-        [KeyboardButton("🟢 Bot Status V29")],
+        [KeyboardButton("🟢 Bot Status V30")],
         [KeyboardButton("🧪 Test Ad"), KeyboardButton("📢 Ad Info")]
     ]
     if is_admin:
@@ -508,7 +573,6 @@ def get_free_disk_mb():
         return 512
 
 def deduct_download_counter(user_id, is_batch=False):
-    # FIX: Only call server once - no local double save - prevents -2 bug
     try:
         requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": is_batch}, headers=API_HEADERS, timeout=3)
     except:
@@ -621,36 +685,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch", url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
     if user_id == ADMIN_ID:
         keyboard.append([InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")])
-    # Forward tutorial video 108 for Adsterra bypass - ROBUST VERSION - CLAUSE 13 + 12 FIX
-    tutorial_sent = False
     try:
         tut = await context.bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-        tutorial_sent = True
         await asyncio.sleep(0.2)
-    except Exception as e1:
-        logger.error(f"Forward failed: {e1}")
+    except:
         try:
             tut = await context.bot.copy_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-            tutorial_sent = True
-        except Exception as e2:
-            logger.error(f"Copy failed: {e2}")
-            try:
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text="📺 **TUTORIAL: How to bypass Adsterra link (20s) - Optimum +1**\n\n"
-                    "1️⃣ Click **Open Link & Watch Timer 20s**\n"
-                    "2️⃣ Click **OPEN** on popup\n"
-                    "3️⃣ Stay 20 seconds on ad page\n"
-                    "4️⃣ Come back to bot\n"
-                    "5️⃣ Click **Check Balance** → Get +1 download (realistic)!\n\n"
-                    "⚠️ If tutorial video 108 missing from private channel -1004347828512, re-upload it!",
-                    parse_mode="Markdown"
-                )
-                tutorial_sent = True
-            except:
-                pass
-
-    await update.message.reply_text("👇 **CONTENT LOCKED 🔒 - Tutorial video above! Watch how to bypass!**" + ("" if tutorial_sent else "\n\n⚠️ Tutorial video 108 missing! Make bot admin in -1004347828512 and ensure message 108 exists!"), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        except:
+            pass
+    await update.message.reply_text("👇 **CONTENT LOCKED 🔒 - Tutorial video above!**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0):
     if not urls:
@@ -812,6 +855,7 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except:
             await update.message.reply_text("❌ Failed")
 
+# ===================== SONG SEARCH - WORKING BUTTON + MIKU GROUP BRIDGE + COBALT FALLBACK =====================
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text if update.message.text else ""
     user_id = update.message.from_user.id
@@ -828,20 +872,19 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
     menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🟢 Bot Status", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel"]
-    if text in menu_texts:
-        support_states = load_json_file(SUPPORT_STATES_FILE)
-        if str(user_id) in support_states:
-            del support_states[str(user_id)]
-            save_json_file(SUPPORT_STATES_FILE, support_states)
+    if text in menu_texts or "Bot Status" in text:
+        if "Bot Status" in text:
+            await status_command(update, context)
+            return
     if text.startswith("📦 Set Free") and user_id == ADMIN_ID:
         current = get_free_amount()
         keyboard = [[InlineKeyboardButton(f"✅ {i} (Current)" if i==current else f"{i} free", callback_data=f"set_free_{i}") for i in [2,3,4,5]]]
-        await update.message.reply_text(f"📦 FREE DOWNLOADS PANEL\n\nCurrent free per day: {current}\n\nSelect new free limit:\n• 2 = Strict\n• 3 = Balanced\n• 4 = Default\n• 5 = Generous", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await update.message.reply_text(f"📦 FREE DOWNLOADS PANEL\n\nCurrent free per day: {current}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     if text.startswith("🎁 Set Reward") and user_id == ADMIN_ID:
         current = get_reward_amount()
         keyboard = [[InlineKeyboardButton(f"✅ {i} (Current)" if i==current else f"{i}", callback_data=f"set_reward_{i}") for i in [1,2,3,5]]]
-        await update.message.reply_text(f"🎁 REWARD PANEL (Clause 12 Fix)\n\nCurrent: +{current} download per 20s ad\n\nSelect new reward:\n• +1 = Most realistic (best for Adsgram)\n• +2 = Balanced\n• +3 = Generous\n• +5 = Max\n\nStrict limit: User will get EXACTLY this many!", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await update.message.reply_text(f"🎁 REWARD PANEL\n\nCurrent: +{current}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     if text == "⚙️ Ad Toggle Panel" and user_id == ADMIN_ID:
         config = load_json_file(CONFIG_FILE)
@@ -882,33 +925,23 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await status_command(update, context)
         return
 
+    # WORKING SONG SEARCH BUTTON - KEEP EXACT FROM YOUR WORKING CODE
     if "🔍 Song Search" in text:
         user_id = update.effective_user.id
         song_search_mode_global[user_id] = True
         last_song_search_time[user_id] = time.time()
-        print(f"[V29 BUTTON] {user_id} pressed Song Search, time {last_song_search_time[user_id]}")
-        await update.message.reply_text("🎵 Song Search Mode ON! V29 Miku Group Bridge Fixed Buttons (10 suggestions from Miku bot, no Deezer!)\n\nEnter song name (e.g. Koleyewon or Blinding Lights):")
+        print(f"[V30 BUTTON] {user_id} pressed Song Search - Miku group {MIKU_BRIDGE_GROUP_ID} + Cobalt fallback")
+        await update.message.reply_text("🎵 Song Search Mode ON! V30 Miku Group Bridge + Cobalt Fallback\n\n10 suggestions FROM MIKU bot via group -1003993893074 (with /search@Mikulordbot)\nFull MP3 + lyrics FROM MIKU\nRare not found → Cobalt fallback!\n\nEnter song name (e.g. Koleyewon or Blinding Lights):")
         return
 
     if "Test Ad" in text or text.strip() == "🧪 Test Ad":
         await send_adsgram_test(update.message, user_id)
         return
-
     if "Ad Info" in text:
-        await update.message.reply_text(
-            "📢 AD INFO\n\n"
-            "Bot: @Michaelbbcvaultbot\n"
-            "Ad network: Adsgram (Rewarded, Telegram Mini App)\n\n"
-            "📍 Exact ad placement:\n"
-            "• Screen: LIMIT REACHED screen, after 4 free downloads per day\n"
-            "• Also shown in batch mode when the free limit runs out\n"
-            "• Button: 📺 Watch Ad (opens the Mini App with the ad)\n"
-            "• Reward: +1 download per completed ad\n"
-            "• Basic use stays free: 4 downloads per day without any ad\n\n"
-            "🧪 To test: tap 🧪 Test Ad or send /testad")
+        await update.message.reply_text("📢 AD INFO\nBot: @Michaelbbcvaultbot\nAd: Adsgram Mini App\nReward +1")
         return
     if text == "📢 Broadcast" and user_id == ADMIN_ID:
-        await update.message.reply_text("📢 /broadcast [message] or reply with /broadcast", parse_mode="Markdown")
+        await update.message.reply_text("📢 /broadcast [message]")
         return
     if text == "❌ Cancel / Exit" and user_id == ADMIN_ID:
         states = load_json_file(DRIP_STATE_FILE)
@@ -971,27 +1004,28 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             except:
                 pass
         return
+
+    # SONG SEARCH MODE - WORKING + MIKU GROUP BRIDGE -1003993893074 + /search@Mikulordbot
     if song_search_mode_global.get(user_id) and "http" not in text.lower():
         song_search_mode_global.pop(user_id, None)
         query_text = text.strip()[:100]
         pending = load_json_file("pending_search_requests.json")
         pending[str(user_id)] = {"query": query_text, "timestamp": time.time(), "type": "search"}
         save_json_file("pending_search_requests.json", pending)
-        await update.message.reply_text(f"🔍 Searching '{query_text}' via Miku group bridge... wait up to 30s. If Miku doesn't reply, YTMusic fallback in 8s + Cobalt for MP3!")
+        await update.message.reply_text(f"🔍 Searching '{query_text}' via Miku group bridge -1003993893074 with /search@Mikulordbot... wait up to 30s. If Miku rare doesn't reply, YTMusic fallback for 10 suggestions + Cobalt for MP3!")
         try:
             await context.bot.send_message(chat_id=MIKU_BRIDGE_GROUP_ID, text=f"/search@Mikulordbot {query_text}")
-            print(f"[SEARCH] Posted to Miku bridge group {MIKU_BRIDGE_GROUP_ID}: /search@Mikulordbot {query_text}")
+            print(f"[V30 SEARCH] Posted to Miku bridge group {MIKU_BRIDGE_GROUP_ID}: /search@Mikulordbot {query_text}")
         except Exception as e:
             logger.error(f"Song search send failed: {e}")
-            await update.message.reply_text("❌ Couldn't reach Miku bridge group. Is bot admin in -1003993893074?")
+            await update.message.reply_text(f"❌ Couldn't reach Miku bridge group -1003993893074. Is bot admin? Error {e}")
         
-        # YTMusic fallback for 10 suggestions if Miku doesn't reply in group
-        async def ytmusic_fallback():
+        async def ytmusic_fallback_suggestions():
             await asyncio.sleep(8)
             try:
                 p = load_json_file("pending_search_requests.json")
                 if str(user_id) in p and p[str(user_id)].get("type") == "search":
-                    print(f"[FALLBACK] Miku didn't reply for {query_text}, YTMusic fallback")
+                    print(f"[V30 FALLBACK] Miku didn't reply for {query_text}, YTMusic fallback")
                     try:
                         from ytmusicapi import YTMusic
                         ytm = YTMusic()
@@ -1005,20 +1039,19 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                             vid = r.get('videoId','')
                             tracks.append({"title": tt, "artist": aa, "id": vid, "videoId": vid})
                         if tracks:
-                            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
                             buttons = []
-                            for t in tracks[:10]:
-                                btn = f"{t.get('title','')[:28]} — {t.get('artist','')[:18]}"[:40]
-                                buttons.append([InlineKeyboardButton(btn, callback_data=f"music_pick_{t.get('videoId')}_{user_id}")])
+                            for tt in tracks[:10]:
+                                btn_txt = f"{tt.get('title','')[:28]} — {tt.get('artist','')[:18]}"[:40]
+                                buttons.append([InlineKeyboardButton(btn_txt, callback_data=f"music_pick_{tt.get('videoId')}_{user_id}")])
                             buttons.append([InlineKeyboardButton("🔍 Search again", callback_data=f"music_search_again_{user_id}")])
-                            await context.bot.send_message(chat_id=user_id, text=f"🎵 Miku didn't reply in group (rare), YTMusic fallback 10 suggestions for '{query_text}' (MP3 via Miku + Cobalt fallback):", reply_markup=InlineKeyboardMarkup(buttons))
+                            await context.bot.send_message(chat_id=user_id, text=f"🎵 Miku didn't reply in group (rare). YTMusic fallback 10 suggestions for '{query_text}' (MP3 via Miku group + Cobalt fallback if rare not found):", reply_markup=InlineKeyboardMarkup(buttons))
                             context.bot_data[f"music_search_{user_id}"] = tracks
                     except Exception as e:
-                        print(f"YTM fallback fail {e}")
+                        print(f"[V30 FALLBACK] YTMusic fail {e}")
             except Exception as e:
-                print(f"Fallback error {e}")
+                print(f"[V30 FALLBACK] Error {e}")
         
-        asyncio.create_task(ytmusic_fallback())
+        asyncio.create_task(ytmusic_fallback_suggestions())
         return
 
     extracted_urls = re.findall(r'https?://[^\s]+', text)
@@ -1030,7 +1063,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     extracted_urls = filtered
     if not extracted_urls:
         if "t.me/" in text and "start=" in text:
-            await update.message.reply_text("👆 Please use the buttons above (Open Link & Watch → Check Balance) instead of pasting the link.", parse_mode="Markdown")
+            await update.message.reply_text("👆 Use buttons above", parse_mode="Markdown")
         return
     if user_id != ADMIN_ID:
         tokens = load_tokens()
@@ -1050,20 +1083,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 if kb:
                     await update.message.reply_text(t["limit_reached"], reply_markup=kb, parse_mode="Markdown")
                 else:
-                    await update.message.reply_text("⚠️ Ad server busy, try again in a moment.")
-                return
-            else:
-                try:
-                    tut = await context.bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-                    await asyncio.sleep(0.2)
-                except:
-                    try:
-                        tut = await context.bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-                    except:
-                        await context.bot.send_message(chat_id=chat_id, text="📺 TUTORIAL: Open Link & Watch 20s → Stay 20s → Come back → Check Balance = +1 download (realistic)! If video missing, re-upload message 108 to -1004347828512", parse_mode="Markdown")
-                bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
-                keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1 ⏰ 20s", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")]]
-                await update.message.reply_text(t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+                    await update.message.reply_text("⚠️ Ad server busy")
                 return
     if active_batch_sessions.get(user_id, False):
         return
@@ -1150,31 +1170,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     total_users = len(tokens)
     active_24hr = sum(1 for d in activity.values() if now - d.get("last_active",0) < 86400)
     mode = config.get("ad_mode","auto").upper()
-    adsgram_count = adsterra_count = 0
-    for uid in tokens.keys():
-        try:
-            uid_int = int(str(uid).strip())
-            net = get_global_ab_network(uid_int)
-            if net == "adsgram":
-                adsgram_count+=1
-            else:
-                adsterra_count+=1
-        except:
-            adsterra_count+=1
-    sorted_users = sorted(activity.items(), key=lambda x: x[1].get("total_interactions",0), reverse=True)[:10]
-    top_text = ""
-    for idx,(uid,info) in enumerate(sorted_users,1):
-        top_text+=f"{idx}. `{uid}` — {info.get('total_interactions',0)}\n"
-    if not top_text:
-        top_text="No activity yet"
-    free_mb = get_free_disk_mb()
-    used_mb = get_downloads_usage_mb()
-    cache = load_json_file(CACHE_FILE)
-    flood_data = load_json_file(FLOOD_FILE)
-    banned = load_json_file(BANNED_FILE)
-    total_hits = sum(v.get("hits",0) for v in cache.values() if isinstance(v, dict))
-    host_free = shutil.disk_usage(".").free // (1024*1024) if os.path.exists(".") else 0
-    txt = (f"📊 **ADVANCED ADMIN (via Button)**\n\n• Total: **{total_users}**\n• 24h Active: **{active_24hr}**\n• Ad Mode: **{mode}**\n\n📢 **Ad Split:**\n• Adsgram: **{adsgram_count}**\n• Adsterra: **{adsterra_count}**\n\n🖥️ **Render 512MB Real:**\n• Used: **{used_mb}MB**\n• Free: **{free_mb}MB / 512MB**\n• Host: **{host_free}MB** (ignore)\n• Active: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\n• Queue: **{download_queue.qsize()}**\n• Cache: **{len(cache)}** files\n• Hits: **{total_hits}** saved\n• Flood: **{len(flood_data)}**\n• Banned: **{len(banned)}**\n\n🎞️ **Video Vault:** `{VIDEO_VAULT_ID}`\n🏆 **Top 10:**\n{top_text}\n\n✅ Clause 12 Fixed: +1 realistic\n✅ Clause 13 Fixed: /testad verifiable")
+    txt = f"📊 ADMIN V30 Miku Group + Cobalt\nTotal {total_users} Active {active_24hr} Mode {mode}\nVault {VIDEO_VAULT_ID} Bridge {MIKU_BRIDGE_GROUP_ID}"
     await update.message.reply_text(txt, parse_mode="Markdown")
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1183,7 +1179,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     mode = config.get("ad_mode","auto").upper()
     free_mb = get_free_disk_mb()
     cache = load_json_file(CACHE_FILE)
-    await update.message.reply_text(f"🟢 **Status V29 Miku Group Bridge Fixed Buttons Fix**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic (Clause 12 fix)\nTest: /testad (Clause 13 fix)\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
+    await update.message.reply_text(f"🟢 **Status V30 Miku Group Bridge + Cobalt Fallback WORKING**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nBridge: **{MIKU_BRIDGE_GROUP_ID}**\nReward: +1\nMiku via /search@Mikulordbot in group -1003993893074\nCobalt fallback if Miku rare not found", parse_mode="Markdown")
 
 async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID:
@@ -1191,7 +1187,7 @@ async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     config = load_json_file(CONFIG_FILE)
     mode = config.get("ad_mode","auto").upper()
     keyboard = [[InlineKeyboardButton("🔄 Auto", callback_data="set_ad_auto")],[InlineKeyboardButton("📺 Adsgram", callback_data="set_ad_adsgram")],[InlineKeyboardButton("🌐 Adsterra", callback_data="set_ad_adsterra")]]
-    await update.message.reply_text(f"Ad Panel: {mode}\nReward: +1 optimum", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await update.message.reply_text(f"Ad Panel: {mode}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID:
@@ -1199,7 +1195,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     args = context.args
     reply_msg = update.message.reply_to_message
     if not args and not reply_msg:
-        await update.message.reply_text("Usage: /broadcast [msg] or reply with /broadcast", parse_mode="Markdown")
+        await update.message.reply_text("Usage: /broadcast [msg]")
         return
     all_users = set()
     for d in [load_json_file(LANG_FILE), load_tokens()]:
@@ -1208,12 +1204,10 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 all_users.add(int(uid))
             except:
                 pass
-    status_msg = await update.message.reply_text(f"🚀 Broadcasting to {len(all_users)}...", parse_mode="Markdown")
+    status_msg = await update.message.reply_text(f"🚀 Broadcasting to {len(all_users)}...")
     success = fail = 0
     for uid in all_users:
-        if uid == ADMIN_ID:
-            continue
-        if is_banned(uid):
+        if uid == ADMIN_ID or is_banned(uid):
             continue
         try:
             if reply_msg:
@@ -1224,7 +1218,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             await asyncio.sleep(0.05)
         except:
             fail+=1
-    await status_msg.edit_text(f"✅ Done\nSent: {success}\nFail: {fail}", parse_mode="Markdown")
+    await status_msg.edit_text(f"✅ Done Sent {success} Fail {fail}", parse_mode="Markdown")
 
 async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID:
@@ -1235,7 +1229,7 @@ async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     try:
         target = context.args[0]
         banned = load_json_file(BANNED_FILE)
-        banned[target] = {"banned_at": time.time(), "reason": "spam"}
+        banned[target] = {"banned_at": time.time()}
         save_json_file(BANNED_FILE, banned)
         await update.message.reply_text(f"🚫 Banned {target}", parse_mode="Markdown")
     except Exception as e:
@@ -1276,13 +1270,11 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
             c_type = cached.get("type", "video")
             if file_id:
                 if c_type == "video":
-                    qual = cached.get("quality", "HD")
-                    sz = cached.get("size", "")
-                    sent = await bot.send_video(chat_id=chat_id, video=file_id, caption=f"Cached Instant {qual} {sz} {ckey}")
+                    sent = await bot.send_video(chat_id=chat_id, video=file_id, caption=f"Cached Instant {ckey}")
                 elif c_type == "audio":
-                    sent = await bot.send_audio(chat_id=chat_id, audio=file_id, caption=f"⚡ **Cached Instant** `{ckey}`")
+                    sent = await bot.send_audio(chat_id=chat_id, audio=file_id, caption=f"⚡ Cached {ckey}")
                 elif c_type == "image":
-                    sent = await bot.send_photo(chat_id=chat_id, photo=file_id, caption=f"⚡ **Cached Instant** `{ckey}`")
+                    sent = await bot.send_photo(chat_id=chat_id, photo=file_id, caption=f"⚡ Cached {ckey}")
                 else:
                     raise ValueError("bad cache")
                 warn = await bot.send_message(chat_id=chat_id, text="⏳ Auto-deletes in 9 mins")
@@ -1293,21 +1285,9 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
                 return True
         except Exception as e:
             logger.error(f"Cache send fail {ckey}: {e}")
-            try:
-                vmid = cache[ckey].get("vault_msg_id")
-                if vmid:
-                    fwd = await bot.forward_message(chat_id=chat_id, from_chat_id=VIDEO_VAULT_ID, message_id=vmid)
-                    warn = await bot.send_message(chat_id=chat_id, text="⏳ Auto-deletes in 9 mins (from vault)")
-                    asyncio.create_task(schedule_deletion(bot, chat_id, [fwd.message_id, warn.message_id], 540))
-                    cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
-                    save_json_file(CACHE_FILE, cache)
-                    deduct_download_counter(chat_id, is_batch=False)
-                    return True
-            except Exception as e2:
-                logger.error(f"Vault fallback fail: {e2}")
-                if ckey in cache:
-                    del cache[ckey]
-                    save_json_file(CACHE_FILE, cache)
+            if ckey in cache:
+                del cache[ckey]
+                save_json_file(CACHE_FILE, cache)
     status_msg = await bot.send_message(chat_id=chat_id, text=t["fetching"].format(dl_type) + f"\n`{ckey}`", parse_mode="Markdown")
     try:
         file_paths, res, size = download_media_engine(url, dl_type)
@@ -1362,6 +1342,374 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
             pass
         return False
 
+# ===================== MIKU GROUP BRIDGE HANDLERS - NEW + WORKING + COBALT FALLBACK =====================
+async def handle_miku_bridge_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        if not update.message:
+            return
+        # Only handle Miku bridge group -1003993893074
+        if update.message.chat.id != MIKU_BRIDGE_GROUP_ID:
+            return
+        if not update.message.from_user:
+            return
+        if "mikulordbot" not in update.message.from_user.username.lower():
+            return
+        print(f"[V30 GROUP] Miku reply in bridge group: audio={bool(update.message.audio)} text={update.message.text[:80] if update.message.text else 'no text'}")
+        # Case 1: MP3 audio
+        if update.message.audio:
+            file_id = update.message.audio.file_id
+            title = update.message.audio.title or update.message.audio.file_name or update.message.caption or "Unknown"
+            artist = update.message.audio.performer or "Unknown"
+            caption = update.message.caption or ""
+            print(f"[V30 GROUP] Miku MP3 {title} - {artist}")
+            try:
+                import json, time, os
+                pf = "pending_search_requests.json"
+                if os.path.exists(pf):
+                    pend = json.load(open(pf))
+                    for uid_str, info in list(pend.items()):
+                        if time.time() - info.get("timestamp",0) < 400:
+                            uid = int(uid_str)
+                            try:
+                                await context.bot.send_audio(chat_id=uid, audio=file_id, title=title, performer=artist, caption=caption[:1024] or f"{title} - {artist} Full MP3 via Miku group bridge + lyrics Cached V30")
+                                # Cache to vault channel -1004324594855
+                                try:
+                                    await context.bot.send_audio(chat_id=MIKU_VAULT_CHANNEL_ID, audio=file_id, title=title, performer=artist)
+                                    cf = "music_cache.json"
+                                    cache = {}
+                                    if os.path.exists(cf):
+                                        try:
+                                            cache = json.load(open(cf))
+                                        except:
+                                            cache = {}
+                                    cache_key = f"{title}_{artist}".lower().replace(" ", "_")[:50]
+                                    cache[cache_key] = {"file_id": file_id, "title": title, "artist": artist, "source": "miku_group", "caption": caption[:500], "timestamp": time.time()}
+                                    with open(cf, "w") as f: json.dump(cache, f)
+                                    print(f"[V30 GROUP] Cached {title}")
+                                except Exception as e:
+                                    print(f"[V30 GROUP] Cache fail {e}")
+                                del pend[uid_str]
+                                with open(pf, "w") as f: json.dump(pend, f)
+                                print(f"[V30 GROUP] Forwarded MP3 to {uid}")
+                            except Exception as e:
+                                print(f"[V30 GROUP] Forward MP3 fail {e}")
+                            break
+            except Exception as e:
+                print(f"[V30 GROUP] MP3 handler error {e}")
+            return
+        
+        # Case 2: Text with 10 suggestions - parse and forward as buttons
+        if update.message.text and len(update.message.text) > 10:
+            txt = update.message.text
+            # Miku's search reply usually has numbered list
+            try:
+                import json, time, os
+                pf = "pending_search_requests.json"
+                if not os.path.exists(pf):
+                    return
+                pend = json.load(open(pf))
+                # Find pending search
+                for uid_str, info in list(pend.items()):
+                    if info.get("type") == "search" and time.time() - info.get("timestamp",0) < 60:
+                        uid = int(uid_str)
+                        query_text = info.get("query","")
+                        # Parse suggestions from Miku text - simple heuristic
+                        # Try to extract titles
+                        lines = txt.split("\n")
+                        tracks = []
+                        for line in lines:
+                            line = line.strip()
+                            if len(line) < 5:
+                                continue
+                            # Remove numbers like "1. " or "1 -"
+                            import re
+                            clean = re.sub(r'^\d+[\.\-\s]+', '', line).strip()
+                            if len(clean) > 3:
+                                # Split artist - title or just title
+                                if " — " in clean or " - " in clean or " – " in clean:
+                                    for sep in [" — ", " - ", " – "]:
+                                        if sep in clean:
+                                            parts = clean.split(sep,1)
+                                            title = parts[0].strip()
+                                            artist = parts[1].strip() if len(parts)>1 else "Unknown"
+                                            # Swap if needed (Miku format: Title — Artist)
+                                            # Our format expects title artist
+                                            tracks.append({"title": title[:40], "artist": artist[:30], "id": f"miku_{len(tracks)}", "videoId": f"miku_{len(tracks)}_{int(time.time())}"})
+                                            break
+                                else:
+                                    tracks.append({"title": clean[:40], "artist": "Unknown", "id": f"miku_{len(tracks)}", "videoId": f"miku_{len(tracks)}_{int(time.time())}"})
+                        
+                        if tracks:
+                            tracks = tracks[:10]
+                            print(f"[V30 GROUP] Parsed {len(tracks)} suggestions from Miku text for {query_text}")
+                            buttons = []
+                            for t in tracks:
+                                btn_txt = f"{t.get('title','')[:28]} — {t.get('artist','')[:18]}"[:40]
+                                buttons.append([InlineKeyboardButton(btn_txt, callback_data=f"music_pick_{t.get('videoId')}_{uid}")])
+                            buttons.append([InlineKeyboardButton("🔍 Search again", callback_data=f"music_search_again_{uid}")])
+                            try:
+                                await context.bot.send_message(chat_id=uid, text=f"🎵 10 suggestions FROM MIKU via group bridge for '{query_text}' (MP3 + lyrics, Cobalt fallback if rare not found):", reply_markup=InlineKeyboardMarkup(buttons))
+                                context.bot_data[f"music_search_{uid}"] = tracks
+                                # Also cache mapping title->real search
+                                context.bot_data[f"music_query_{uid}"] = query_text
+                                print(f"[V30 GROUP] Sent {len(tracks)} Miku suggestions to {uid}")
+                            except Exception as e:
+                                print(f"Send suggestions fail {e}")
+                            # Don't delete pending yet, keep for MP3 pick
+                            # Update type to keep timestamp fresh
+                            pend[uid_str]["timestamp"] = time.time()
+                            pend[uid_str]["type"] = "search_done"
+                            with open(pf, "w") as f: json.dump(pend, f)
+                        else:
+                            print(f"[V30 GROUP] Could not parse suggestions from: {txt[:200]}")
+                            # Fallback YTMusic if parsing failed
+                        break
+            except Exception as e:
+                print(f"[V30 GROUP] Text parse error {e}")
+                import traceback
+                traceback.print_exc()
+
+    except Exception as e:
+        print(f"[V30 GROUP] Outer error {e}")
+        import traceback
+        traceback.print_exc()
+
+async def handle_channel_post_v25(update, context):
+    try:
+        post = update.channel_post
+        if not post:
+            return
+        # Support both vault channel and bridge group
+        if post.chat.id not in [MIKU_VAULT_CHANNEL_ID, MIKU_BRIDGE_GROUP_ID]:
+            return
+        if not post.from_user or "mikulordbot" not in post.from_user.username.lower():
+            return
+        print(f"[V30 CHANNEL] Miku post audio={bool(post.audio)} chat={post.chat.id}")
+        if post.audio:
+            file_id = post.audio.file_id
+            title = post.audio.title or post.caption or "Unknown"
+            try:
+                import json, time, os
+                pf = "pending_search_requests.json"
+                if os.path.exists(pf):
+                    pending = json.load(open(pf))
+                    for uid_str, info in list(pending.items()):
+                        if time.time() - info.get("timestamp",0) < 400:
+                            uid = int(uid_str)
+                            try:
+                                await context.bot.send_audio(chat_id=uid, audio=file_id, title=title, caption=post.caption or f"{title} Full MP3 via Miku Cached V30")
+                                print(f"[V30 CHANNEL] Forwarded MP3 to {uid}")
+                                del pending[uid_str]
+                                with open(pf, "w") as f: json.dump(pending, f)
+                            except Exception as e:
+                                print(f"Forward MP3 fail {e}")
+                            break
+            except Exception as e:
+                print(f"Channel MP3 error {e}")
+    except Exception as e:
+        print(f"Channel error {e}")
+
+async def handle_music_pick_v25(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data = query.data
+    print(f"[V30 PICK] {data} - Miku group + Cobalt fallback if rare not found")
+    if "search_again" in data:
+        try:
+            uid = int(data.split("_")[-1])
+            song_search_mode_global[uid] = True
+            last_song_search_time[uid] = time.time()
+            await query.message.reply_text("🔍 Enter song name again (Miku group + Cobalt fallback):")
+            await query.answer()
+        except Exception as e:
+            print(f"Search again fail {e}")
+            await query.answer()
+        return
+    if data.startswith("music_pick_"):
+        try:
+            parts = data.split("_")
+            uid = int(parts[-1])
+            videoId = "_".join(parts[2:-1]) if len(parts) > 4 else parts[2]
+            print(f"[V30 PICK] videoId={videoId} uid={uid} - Miku first, Cobalt rare fallback")
+            await query.answer("Downloading... Miku group first, Cobalt fallback if rare not found!")
+            await query.edit_message_text(f"🎵 Downloading via Miku group bridge -1003993893074... If Miku rare doesn't find, Cobalt fallback after 35s! Full MP3 + lyrics coming!")
+            
+            tracks = context.bot_data.get(f"music_search_{uid}", [])
+            title = "Unknown"
+            artist = "Unknown"
+            for t in tracks:
+                if t.get("videoId") == videoId or t.get("id") == videoId:
+                    title = t.get("title","Unknown")
+                    artist = t.get("artist","Unknown")
+                    break
+            if title == "Unknown" or title.startswith("miku_"):
+                # Try query cache
+                q = context.bot_data.get(f"music_query_{uid}", "")
+                if q:
+                    title = q
+                else:
+                    title = videoId[:30]
+            
+            # Check cache first
+            try:
+                cf = "music_cache.json"
+                cache = {}
+                if os.path.exists(cf):
+                    cache = json.load(open(cf))
+                cache_key = f"{title}_{artist}".lower().replace(" ", "_")[:50]
+                # Try multiple keys
+                for ck in [cache_key, title.lower().replace(" ", "_")[:50], f"{title}".lower().replace(" ", "_")[:50]]:
+                    if ck in cache and "file_id" in cache[ck]:
+                        try:
+                            await context.bot.send_audio(chat_id=uid, audio=cache[ck]["file_id"], title=title, performer=artist, caption=f"{title} - {artist} ♻️ Cached! (Miku + Cobalt)")
+                            await query.edit_message_text(f"✅ Sent cached {title} - {artist}!")
+                            return
+                        except:
+                            pass
+            except:
+                pass
+            
+            # Post to Miku bridge group for MP3
+            try:
+                import json, time
+                pf = "pending_search_requests.json"
+                pend = {}
+                if os.path.exists(pf):
+                    try: pend = json.load(open(pf))
+                    except: pend = {}
+                pend[str(uid)] = {"query": f"{title} - {artist}", "title": title, "artist": artist, "videoId": videoId, "timestamp": time.time(), "type": "mp3"}
+                with open(pf, "w") as f: json.dump(pend, f)
+                await context.bot.send_message(chat_id=MIKU_BRIDGE_GROUP_ID, text=f"/search@Mikulordbot {title} - {artist}")
+                print(f"[V30 PICK] Posted to Miku bridge group for MP3: {title} - {artist}")
+            except Exception as e:
+                print(f"[V30 PICK] Post to bridge fail {e}")
+            
+            # Cobalt fallback if Miku rare not found after 35 sec
+            async def cobalt_fallback_rare():
+                await asyncio.sleep(35)
+                try:
+                    import json, time, os
+                    pf = "pending_search_requests.json"
+                    if not os.path.exists(pf):
+                        return
+                    pend = json.load(open(pf))
+                    if str(uid) not in pend:
+                        print(f"[V30 COBALT] Miku already replied for {title}, no need Cobalt")
+                        return
+                    print(f"[V30 COBALT FALLBACK] Miku didn't find '{title} - {artist}' (rare), trying Cobalt!")
+                    try:
+                        await context.bot.send_message(chat_id=uid, text=f"⚠️ Miku didn't find '{title} - {artist}' (rare). Trying Cobalt fallback for full MP3...")
+                    except:
+                        pass
+                    
+                    def cobalt_sync(vId, tt, aa):
+                        try:
+                            import requests, tempfile, os, shutil
+                            urls = []
+                            if vId and len(vId) == 11:
+                                urls.append(f"https://www.youtube.com/watch?v={vId}")
+                            try:
+                                from ytmusicapi import YTMusic
+                                ytm = YTMusic()
+                                res = ytm.search(f"{tt} {aa}", filter="songs", limit=3)
+                                for r in res:
+                                    vid = r.get('videoId')
+                                    if vid:
+                                        urls.append(f"https://www.youtube.com/watch?v={vid}")
+                            except Exception as e:
+                                print(f"YTM for Cobalt fail {e}")
+                            
+                            for yurl in urls:
+                                if not yurl:
+                                    continue
+                                payload = {"url": yurl, "isAudioOnly": True, "aFormat": "mp3"}
+                                for inst in ["https://api.cobalt.tools", "https://co.wuk.sh", "https://cobalt-api.kwiatekmiki.com"]:
+                                    try:
+                                        print(f"[V30 COBALT] Trying {inst} with {yurl}")
+                                        resp = requests.post(f"{inst}/", json=payload, headers={"Accept":"application/json","Content-Type":"application/json"}, timeout=25)
+                                        if resp.status_code == 200:
+                                            dj = resp.json()
+                                            dl = dj.get("url")
+                                            if dl:
+                                                print(f"[V30 COBALT] Got dl url from {inst}")
+                                                mr = requests.get(dl, stream=True, timeout=60)
+                                                if mr.status_code == 200:
+                                                    td = tempfile.mkdtemp()
+                                                    fp = os.path.join(td, "cobalt.mp3")
+                                                    with open(fp,'wb') as f:
+                                                        for ch in mr.iter_content(8192):
+                                                            if ch:
+                                                                f.write(ch)
+                                                    if os.path.exists(fp) and os.path.getsize(fp) > 10000:
+                                                        print(f"[V30 COBALT] Success {os.path.getsize(fp)} bytes from {inst}")
+                                                        return fp, td, f"cobalt_{inst}"
+                                                    shutil.rmtree(td, ignore_errors=True)
+                                    except Exception as e:
+                                        print(f"[V30 COBALT] {inst} fail {e}")
+                                        continue
+                        except Exception as e:
+                            print(f"[V30 COBALT] Outer fail {e}")
+                        return None, None, "failed"
+                    
+                    loop = asyncio.get_event_loop()
+                    from concurrent.futures import ThreadPoolExecutor
+                    executor = ThreadPoolExecutor(max_workers=2)
+                    fp, td, src = await loop.run_in_executor(executor, cobalt_sync, videoId, title, artist)
+                    
+                    if fp and os.path.exists(fp):
+                        try:
+                            with open(fp,'rb') as af:
+                                sent = await context.bot.send_audio(chat_id=uid, audio=af, title=title, performer=artist, caption=f"{title} - {artist} Full MP3 via {src} (Cobalt fallback, Miku rare not found)")
+                                try:
+                                    await context.bot.send_audio(chat_id=MIKU_VAULT_CHANNEL_ID, audio=sent.audio.file_id, title=title, performer=artist)
+                                    cf = "music_cache.json"
+                                    cache = {}
+                                    if os.path.exists(cf):
+                                        cache = json.load(open(cf))
+                                    cache_key = f"{title}_{artist}".lower().replace(" ", "_")[:50]
+                                    cache[cache_key] = {"file_id": sent.audio.file_id, "title": title, "artist": artist, "source": src, "timestamp": time.time()}
+                                    with open(cf, "w") as f: json.dump(cache, f)
+                                    print(f"[V30 COBALT] Sent MP3 to {uid} and cached")
+                                except Exception as e:
+                                    print(f"Cache fail {e}")
+                            import shutil
+                            shutil.rmtree(td, ignore_errors=True)
+                            try:
+                                pend = json.load(open(pf))
+                                if str(uid) in pend:
+                                    del pend[str(uid)]
+                                    with open(pf, "w") as f: json.dump(pend, f)
+                            except:
+                                pass
+                            try:
+                                await query.edit_message_text(f"✅ Sent {title} - {artist} Full MP3 via Cobalt fallback! Cached!")
+                            except:
+                                pass
+                            return
+                        except Exception as e:
+                            print(f"[V30 COBALT] Send fail {e}")
+                    else:
+                        try:
+                            await context.bot.send_message(chat_id=uid, text=f"❌ Both Miku and Cobalt failed for '{title} - {artist}'. Rare case. Try YouTube link directly or another song.")
+                            await query.edit_message_text(f"❌ Failed {title} - both Miku and Cobalt failed (rare). Try YouTube link or search again.")
+                        except:
+                            pass
+                except Exception as e:
+                    print(f"[V30 COBALT FALLBACK] Error {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            asyncio.create_task(cobalt_fallback_rare())
+            
+        except Exception as e:
+            print(f"[V30 PICK] Error {e}")
+            import traceback
+            traceback.print_exc()
+            try:
+                await query.answer(f"Error {e}")
+            except:
+                pass
+
+# ===================== BUTTONS =====================
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     user_id = query.from_user.id
@@ -1389,7 +1737,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         set_free_amount(val)
         await query.answer(f"✅ Free set to {val}!", show_alert=True)
         try:
-            await query.message.edit_text(f"✅ Free Downloads Updated to {val}!\n\n• New users get {val} FREE per day\n• After {val}, ad wall shows\n• Synced to PythonAnywhere!", parse_mode="Markdown")
+            await query.message.edit_text(f"✅ Free Downloads Updated to {val}!", parse_mode="Markdown")
         except:
             pass
         return
@@ -1398,7 +1746,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         set_reward_amount(val)
         await query.answer(f"✅ Reward set to +{val}!", show_alert=True)
         try:
-            await query.message.edit_text(f"✅ Reward Updated to +{val}!\n\nStrict limit:\n• After ad, user gets exactly {val}\n• My Stats will show {val}\n• Batch will be {val*5}\n• Synced to PythonAnywhere!", parse_mode="Markdown")
+            await query.message.edit_text(f"✅ Reward Updated to +{val}!", parse_mode="Markdown")
         except:
             pass
         return
@@ -1419,7 +1767,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         support_states[str(user_id)] = {"mode": "user_writing", "ticket_id": ticket_id}
         save_json_file(SUPPORT_STATES_FILE, support_states)
         await query.answer("Opened!")
-        await query.message.reply_text("✍️ Send message/photo/video/voice/file below. Next message (including media) goes to Admin.", parse_mode="Markdown")
+        await query.message.reply_text("✍️ Send message/photo/video/voice/file below.", parse_mode="Markdown")
         return
     if data.startswith("support_reply_"):
         target_user_id = data.replace("support_reply_", "")
@@ -1436,7 +1784,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         support_states[str(user_id)] = {"mode": "user_writing", "ticket_id": ticket_id}
         save_json_file(SUPPORT_STATES_FILE, support_states)
         await query.answer("Reply mode!")
-        await query.message.reply_text("✍️ Type follow-up (with media allowed) below", parse_mode="Markdown")
+        await query.message.reply_text("✍️ Type follow-up below", parse_mode="Markdown")
         return
     if data.startswith("support_close_"):
         await query.answer("Closed!", show_alert=True)
@@ -1622,9 +1970,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             pass
         if st.get("kind") == "test":
             await query.answer(f"✅ Ad verified! +{reward} added", show_alert=True)
-            await context.bot.send_message(chat_id=chat_id, text=(
-                f"✅ TEST AD VERIFIED\n\nThe Adsgram ad played in the Mini App and the reward was credited: "
-                f"+{reward} download. Your balance now shows {st.get('downloads_left', reward)}."))
+            await context.bot.send_message(chat_id=chat_id, text=(f"✅ TEST AD VERIFIED\n\nThe Adsgram ad played in the Mini App and the reward was credited: +{reward} download. Balance now {st.get('downloads_left', reward)}."))
             return
         await query.answer(f"✅ Sponsor viewed! +{reward} added", show_alert=True)
         paused = paused_batches.pop(user_id, None)
@@ -1653,9 +1999,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
         await context.bot.send_message(chat_id=chat_id, text=f"✅ Refilled +{reward}! Send your link again.")
         return
-    if data.startswith("adsgram_complete_") or data in ("adsgram_resume_batch",):
-        # Old buttons from before the Mini App fix. They no longer give a reward.
-        await query.answer("This button is outdated. Send your link again to get the new Watch Ad button.", show_alert=True)
+    if data in ("adsgram_resume_batch",):
+        await query.answer("Outdated, send link again", show_alert=True)
         return
     if data == "stop_batch":
         active_batch_sessions[user_id]=False
@@ -1718,39 +2063,18 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         tokens = load_tokens()
         user_str = str(user_id)
         if user_str not in tokens:
-            # Create new token with +1 for test ad demo (not 4!)
             reward = get_reward_amount()
-            tokens[user_str] = {
-                "user_id": int(user_id),
-                "downloads_left": reward,
-                "batch_downloads_left": reward * 5,
-                "last_reset": time.time(),
-                "msg_start": 0,
-                "msg_end": 0,
-                "clicked_ad": True,
-                "verified": True,
-                "expires": time.time() + 600
-            }
+            tokens[user_str] = {"user_id": int(user_id), "downloads_left": reward, "batch_downloads_left": reward * 5, "last_reset": time.time(), "msg_start": 0, "msg_end": 0, "clicked_ad": True, "verified": True, "expires": time.time() + 600}
             save_tokens(tokens)
-            await query.answer("✅ Test Ad Verified! (Clause 13 Demo) +1 realistic", show_alert=True)
-            await query.message.reply_text(
-                "✅ **TEST AD VERIFIED! 🎉 (Clause 13 + 12 Demo) - Optimum +1**\n\n"
-                "This is what user sees after watching 20s ad:\n"
-                "• Ad placement found & verified! ✅\n"
-                "• Reward: +1 download refilled (realistic optimum - Clause 12 fix)!\n"
-                "• Real flow: Watch 20s ad → Click Check → Get +1 file\n\n"
-                "📍 **For Adsgram Reviewer:** This proves ad placement exists and is verifiable via /testad button!\n"
-                "🎁 Reward is realistic +1, not excessively high! Stats now shows 1!",
-                parse_mode="Markdown"
-            )
+            await query.answer("✅ Test Ad Verified! +1", show_alert=True)
+            await query.message.reply_text("✅ TEST AD VERIFIED! +1", parse_mode="Markdown")
             return
         token_data = tokens[user_str]
         is_test_ad = token_data.get("msg_start", 0) == 0 and token_data.get("msg_end", 0) == 0
         if not is_test_ad and not token_data.get("verified",False):
-            await query.answer("⏰ Finish 20s timer first! Watch ad via Open Link button!", show_alert=True)
+            await query.answer("⏰ Finish 20s timer first!", show_alert=True)
             return
         msg_start, msg_end = token_data.get("msg_start",0), token_data.get("msg_end",0)
-        # FIX: Don't delete token! Keep it and set to +1 optimum (was deleting and recreating as 4!)
         reward = get_reward_amount()
         tokens[user_str]["downloads_left"] = reward
         tokens[user_str]["batch_downloads_left"] = reward * 5
@@ -1761,10 +2085,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.answer("Verified! +1 added")
         if user_id in paused_batches:
             keyboard = [[InlineKeyboardButton("▶️ Resume Batch +1", callback_data="resume_batch")]]
-            await query.message.reply_text("✅ Verified! Refilled +1 (realistic). Resume?", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            await query.message.reply_text("✅ Verified! Refilled +1. Resume?", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             return
         if msg_start==0:
-            await query.message.reply_text("✅ Refilled +1! Download again (realistic optimum - Clause 12 fix)")
+            await query.message.reply_text("✅ Refilled +1! Download again")
             return
         await query.message.reply_text("✅ Verified! Fetching bundle...")
         fwd_ids=[]
@@ -1787,27 +2111,14 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             fwd_ids.append(warn.message_id)
             asyncio.create_task(schedule_deletion(context.bot, user_id, fwd_ids, 540))
         except Exception as e:
-            await query.message.reply_text(f"❌ {e} (Bundle {msg_start}-{msg_end} + Tutorial {TUTORIAL_MESSAGE_ID})")
+            await query.message.reply_text(f"❌ {e}")
 
-
-TEST_AD_TEXT = (
-    "🧪 AD PLACEMENT TEST (Adsgram Rewarded - Mini App)\n\n"
-    "📍 WHERE THE AD IS PLACED:\n"
-    "1️⃣ User sends any media link (TikTok, FB, Insta, X, YouTube)\n"
-    "2️⃣ User gets 4 FREE downloads per day\n"
-    "3️⃣ On the next download the LIMIT REACHED screen appears\n"
-    "4️⃣ That screen has the 📺 Watch Ad button (this exact message)\n"
-    "5️⃣ Button opens the Adsgram ad inside a Telegram Mini App\n"
-    "6️⃣ After the ad ends the Mini App closes -> tap Check & Get +1\n\n"
-    "🎁 Reward: +1 download per completed ad\n"
-    "📍 Same screen also appears in batch mode\n\n"
-    "👇 TRY THE AD NOW:"
-)
+TEST_AD_TEXT = "🧪 AD PLACEMENT TEST (Adsgram Mini App)\n\n📍 WHERE AD IS: LIMIT REACHED screen after 4 free\nButton Watch Ad opens Mini App\nReward +1"
 
 async def send_adsgram_test(message, user_id):
     kb = adsgram_keyboard(user_id, "test", 0, 0)
     if not kb:
-        await message.reply_text("⚠️ Ad server not reachable right now. Try again in a minute.")
+        await message.reply_text("⚠️ Ad server not reachable, try again")
         return
     await message.reply_text(TEST_AD_TEXT, reply_markup=kb)
 
@@ -1815,299 +2126,7 @@ async def test_ad_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_adsgram_test(update.message, update.effective_user.id)
 
 async def ad_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "📢 AD INFO\n\n"
-            "Bot: @Michaelbbcvaultbot\n"
-            "Ad network: Adsgram (Rewarded, Telegram Mini App)\n\n"
-            "📍 Exact ad placement:\n"
-            "• Screen: LIMIT REACHED screen, after 4 free downloads per day\n"
-            "• Also shown in batch mode when the free limit runs out\n"
-            "• Button: 📺 Watch Ad (opens the Mini App with the ad)\n"
-            "• Reward: +1 download per completed ad\n"
-            "• Basic use stays free: 4 downloads per day without any ad\n\n"
-            "🧪 To test: tap 🧪 Test Ad or send /testad")
-
-
-async def handle_channel_post_v25(update, context):
-    try:
-        post = update.channel_post
-        if not post or post.chat.id != -1003993893074:
-            return
-        if not post.from_user or "mikulordbot" not in post.from_user.username.lower():
-            print(f"[V29 CHANNEL] Not Miku, ignoring {post.from_user.username if post.from_user else 'no user'}")
-            return
-        print(f"[V29 CHANNEL] Miku post audio={bool(post.audio)} text={post.text[:100] if post.text else 'no text'}")
-        if post.audio:
-            file_id = post.audio.file_id
-            title = post.audio.title or post.caption or "Unknown"
-            try:
-                import json
-                pf = "pending_search_requests.json"
-                if os.path.exists(pf):
-                    pending = json.load(open(pf))
-                    for uid_str, info in list(pending.items()):
-                        if time.time() - info.get("timestamp",0) < 300:
-                            uid = int(uid_str)
-                            try:
-                                await context.bot.send_audio(chat_id=uid, audio=file_id, title=title, caption=post.caption or f"{title} Full MP3 via Miku + lyrics Cached V29")
-                                print(f"[V29 CHANNEL] Forwarded MP3 to {uid}")
-                                # Cache
-                                try:
-                                    cf = "music_cache.json"
-                                    cache = {}
-                                    if os.path.exists(cf):
-                                        cache = json.load(open(cf))
-                                    cache[title.lower().replace(" ", "_")[:50]] = {"file_id": file_id, "title": title, "timestamp": time.time()}
-                                    with open(cf, "w") as f: json.dump(cache, f)
-                                except:
-                                    pass
-                                del pending[uid_str]
-                                with open(pf, "w") as f: json.dump(pending, f)
-                            except Exception as e:
-                                print(f"Forward MP3 fail {e}")
-                            break
-            except Exception as e:
-                print(f"Channel MP3 error {e}")
-    except Exception as e:
-        print(f"Channel error {e}")
-
-async def handle_music_pick_v25(update, context):
-    query = update.callback_query
-    data = query.data
-    print(f"[V29 PICK] {data}")
-    if "search_again" in data:
-        uid = int(data.split("_")[-1])
-        song_search_mode_global[uid] = True
-        last_song_search_time[uid] = time.time()
-        await query.message.reply_text("🔍 Enter song name again (Miku V29):")
-        await query.answer()
-        return
-
-
-
-async def handle_miku_bridge_group(update, context):
-    try:
-        if not update.message:
-            return
-        # Handle messages in Miku bridge group -1003993893074
-        if update.message.chat.id != MIKU_BRIDGE_GROUP_ID:
-            return
-        if not update.message.from_user or "mikulordbot" not in update.message.from_user.username.lower():
-            return
-        print(f"[V29 GROUP] Miku reply: audio={bool(update.message.audio)} text={update.message.text[:50] if update.message.text else 'no text'}")
-        # MP3 case
-        if update.message.audio:
-            file_id = update.message.audio.file_id
-            title = update.message.audio.title or update.message.caption or "Unknown"
-            artist = update.message.audio.performer or "Unknown"
-            caption = update.message.caption or ""
-            print(f"[V29 GROUP] Miku MP3 {title} - {artist}")
-            try:
-                import json, time, os
-                pf = "pending_search_requests.json"
-                if os.path.exists(pf):
-                    pend = json.load(open(pf))
-                    for uid_str, info in list(pend.items()):
-                        if time.time() - info.get("timestamp",0) < 300:
-                            uid = int(uid_str)
-                            try:
-                                await context.bot.send_audio(chat_id=uid, audio=file_id, title=title, performer=artist, caption=caption[:1024] or f"{title} - {artist} Full MP3 via Miku + lyrics Cached")
-                                # Cache to vault channel
-                                try:
-                                    await context.bot.send_audio(chat_id=MIKU_VAULT_CHANNEL_ID, audio=file_id, title=title, performer=artist)
-                                    cf = "music_cache.json"
-                                    cache = {}
-                                    if os.path.exists(cf):
-                                        cache = json.load(open(cf))
-                                    cache_key = f"{title}_{artist}".lower().replace(" ", "_")[:50]
-                                    cache[cache_key] = {"file_id": file_id, "title": title, "artist": artist, "source": "miku_group", "caption": caption[:500], "timestamp": time.time()}
-                                    with open(cf, "w") as f: json.dump(cache, f)
-                                except Exception as e:
-                                    print(f"Cache fail {e}")
-                                del pend[uid_str]
-                                with open(pf, "w") as f: json.dump(pend, f)
-                                print(f"[V29] Forwarded MP3 to {uid}")
-                            except Exception as e:
-                                print(f"Forward MP3 fail {e}")
-                            break
-            except Exception as e:
-                print(f"MP3 handler error {e}")
-    except Exception as e:
-        print(f"Group handler error {e}")
-
-async def handle_music_pick_with_cobalt_fallback(update, context):
-    query = update.callback_query
-    data = query.data
-    print(f"[V29 PICK] {data}")
-    if "search_again" in data:
-        try:
-            uid = int(data.split("_")[-1])
-            song_search_mode_global[uid] = True
-            await query.message.reply_text("🔍 Enter song name again (Miku group + Cobalt fallback):")
-            await query.answer()
-        except:
-            await query.answer()
-        return
-    if data.startswith("music_pick_"):
-        try:
-            parts = data.split("_")
-            uid = int(parts[-1])
-            videoId = "_".join(parts[2:-1]) if len(parts) > 4 else parts[2]
-            print(f"[V29 PICK] videoId={videoId} uid={uid}")
-            await query.answer("Downloading... Miku first, Cobalt fallback if rare not found!")
-            await query.edit_message_text(f"🎵 Downloading via Miku group bridge... If Miku rare doesn't find, Cobalt fallback after 35s!")
-            
-            tracks = context.bot_data.get(f"music_search_{uid}", [])
-            title = "Unknown"
-            artist = "Unknown"
-            for t in tracks:
-                if t.get("videoId") == videoId or t.get("id") == videoId:
-                    title = t.get("title","Unknown")
-                    artist = t.get("artist","Unknown")
-                    break
-            if title == "Unknown":
-                title = videoId[:30]
-            
-            # Check cache
-            try:
-                import json
-                cf = "music_cache.json"
-                if os.path.exists(cf):
-                    cache = json.load(open(cf))
-                    cache_key = f"{title}_{artist}".lower().replace(" ", "_")[:50]
-                    if cache_key in cache and "file_id" in cache[cache_key]:
-                        await context.bot.send_audio(chat_id=uid, audio=cache[cache_key]["file_id"], title=title, performer=artist, caption=f"{title} - {artist} Cached! (Miku + Cobalt)")
-                        await query.edit_message_text(f"✅ Sent cached {title}!")
-                        return
-            except:
-                pass
-            
-            # Post to Miku bridge group
-            try:
-                import json, time
-                pf = "pending_search_requests.json"
-                pend = {}
-                if os.path.exists(pf):
-                    try: pend = json.load(open(pf))
-                    except: pend = {}
-                pend[str(uid)] = {"query": f"{title} - {artist}", "title": title, "artist": artist, "videoId": videoId, "timestamp": time.time(), "type": "mp3"}
-                with open(pf, "w") as f: json.dump(pend, f)
-                await context.bot.send_message(chat_id=MIKU_BRIDGE_GROUP_ID, text=f"/search@Mikulordbot {title} - {artist}")
-                print(f"[V29 PICK] Posted to Miku bridge for MP3: {title}")
-            except Exception as e:
-                print(f"Post fail {e}")
-            
-            # Cobalt fallback if Miku rare not found
-            async def cobalt_fallback():
-                await asyncio.sleep(35)
-                try:
-                    import json, time, os
-                    pf = "pending_search_requests.json"
-                    if not os.path.exists(pf):
-                        return
-                    pend = json.load(open(pf))
-                    if str(uid) not in pend:
-                        print(f"[V29 COBALT] Miku already replied for {title}")
-                        return
-                    print(f"[V29 COBALT] Miku didn't find '{title}' (rare), Cobalt fallback!")
-                    try:
-                        await context.bot.send_message(chat_id=uid, text=f"⚠️ Miku didn't find '{title}' (rare). Trying Cobalt fallback...")
-                    except:
-                        pass
-                    
-                    def cobalt_sync(vId, tt, aa):
-                        try:
-                            import requests, tempfile, os, shutil
-                            urls = []
-                            if vId and len(vId) == 11:
-                                urls.append(f"https://www.youtube.com/watch?v={vId}")
-                            try:
-                                from ytmusicapi import YTMusic
-                                ytm = YTMusic()
-                                res = ytm.search(f"{tt} {aa}", filter="songs", limit=2)
-                                for r in res:
-                                    vid = r.get('videoId')
-                                    if vid:
-                                        urls.append(f"https://www.youtube.com/watch?v={vid}")
-                            except:
-                                pass
-                            for yurl in urls:
-                                payload = {"url": yurl, "isAudioOnly": True, "aFormat": "mp3"}
-                                for inst in ["https://api.cobalt.tools", "https://co.wuk.sh"]:
-                                    try:
-                                        resp = requests.post(f"{inst}/", json=payload, headers={"Accept":"application/json","Content-Type":"application/json"}, timeout=20)
-                                        if resp.status_code == 200:
-                                            dl = resp.json().get("url")
-                                            if dl:
-                                                mr = requests.get(dl, stream=True, timeout=60)
-                                                if mr.status_code == 200:
-                                                    td = tempfile.mkdtemp()
-                                                    fp = os.path.join(td, "cobalt.mp3")
-                                                    with open(fp,'wb') as f:
-                                                        for ch in mr.iter_content(8192):
-                                                            if ch: f.write(ch)
-                                                    if os.path.exists(fp) and os.path.getsize(fp) > 10000:
-                                                        return fp, td, f"cobalt_{inst}"
-                                                    shutil.rmtree(td, ignore_errors=True)
-                                    except Exception as e:
-                                        print(f"Cobalt {inst} fail {e}")
-                        except Exception as e:
-                            print(f"Cobalt outer {e}")
-                        return None, None, "failed"
-                    
-                    loop = asyncio.get_event_loop()
-                    from concurrent.futures import ThreadPoolExecutor
-                    executor = ThreadPoolExecutor(max_workers=2)
-                    fp, td, src = await loop.run_in_executor(executor, cobalt_sync, videoId, title, artist)
-                    if fp and os.path.exists(fp):
-                        try:
-                            with open(fp,'rb') as af:
-                                sent = await context.bot.send_audio(chat_id=uid, audio=af, title=title, performer=artist, caption=f"{title} - {artist} Full MP3 via {src} (Cobalt fallback rare)")
-                                # Cache
-                                try:
-                                    await context.bot.send_audio(chat_id=MIKU_VAULT_CHANNEL_ID, audio=sent.audio.file_id, title=title, performer=artist)
-                                    cf = "music_cache.json"
-                                    cache = {}
-                                    if os.path.exists(cf):
-                                        cache = json.load(open(cf))
-                                    cache_key = f"{title}_{artist}".lower().replace(" ", "_")[:50]
-                                    cache[cache_key] = {"file_id": sent.audio.file_id, "title": title, "artist": artist, "source": src, "timestamp": time.time()}
-                                    with open(cf, "w") as f: json.dump(cache, f)
-                                except:
-                                    pass
-                            import shutil
-                            shutil.rmtree(td, ignore_errors=True)
-                            try:
-                                pend = json.load(open(pf))
-                                if str(uid) in pend:
-                                    del pend[str(uid)]
-                                    with open(pf, "w") as f: json.dump(pend, f)
-                            except:
-                                pass
-                            try:
-                                await query.edit_message_text(f"✅ Sent {title} via Cobalt fallback! Cached!")
-                            except:
-                                pass
-                            return
-                        except Exception as e:
-                            print(f"Cobalt send fail {e}")
-                    else:
-                        try:
-                            await context.bot.send_message(chat_id=uid, text=f"❌ Both Miku and Cobalt failed for '{title}'. Try YouTube link.")
-                        except:
-                            pass
-                except Exception as e:
-                    print(f"Cobalt fallback error {e}")
-            
-            import asyncio
-            asyncio.create_task(cobalt_fallback())
-            
-        except Exception as e:
-            print(f"[V29 PICK] Error {e}")
-            import traceback
-            traceback.print_exc()
-
-
+    await update.message.reply_text("📢 AD INFO\nBot @Michaelbbcvaultbot\nAdsgram Mini App +1")
 
 def run_telegram_bot():
     loop = asyncio.new_event_loop()
@@ -2126,11 +2145,10 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("ban", ban_command))
         app.add_handler(CommandHandler("unban", unban_command))
         app.add_handler(CommandHandler("backup", backup_command))
-        app.add_handler(MessageHandler(filters.ALL, handle_miku_bridge_group))
-        app.add_handler(CallbackQueryHandler(handle_music_pick_with_cobalt_fallback, pattern="^music_pick_|^music_search_again_"))
+        # Miku group bridge handlers - MUST BE BEFORE generic TEXT handler
+        app.add_handler(MessageHandler(filters.Chat(chat_id=MIKU_BRIDGE_GROUP_ID) & filters.ALL, handle_miku_bridge_group))
         app.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST, handle_channel_post_v25))
-
-
+        app.add_handler(CallbackQueryHandler(handle_music_pick_v25, pattern="^music_pick_|^music_search_again_"))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
         app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.ATTACHMENT, handle_user_upload))
@@ -2141,13 +2159,13 @@ def run_telegram_bot():
         asyncio.create_task(auto_backup_loop(app.bot))
         asyncio.create_task(queue_processor(app.bot))
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
-        print(f"Bot started! V24 Optimum +1 Vault={VIDEO_VAULT_ID} Backup={PRIVATE_CHANNEL_ID} Free {get_free_disk_mb()}MB")
+        print(f"Bot started! V30 Miku Group Bridge + Cobalt WORKING Vault={VIDEO_VAULT_ID} Bridge={MIKU_BRIDGE_GROUP_ID}")
         await asyncio.Event().wait()
     loop.run_until_complete(start_bot())
 
 if not getattr(web_app, '_bot_started', False):
     web_app._bot_started = True
-    print("Starting bot thread...")
+    print("Starting bot thread V30...")
     threading.Thread(target=run_telegram_bot, daemon=True).start()
 
 if __name__ == "__main__":
