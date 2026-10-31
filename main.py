@@ -143,33 +143,39 @@ def search_deezer_itunes(query):
     return tracks[:10]
 
 def piped_download_youtube(youtube_url, is_audio=False):
-    """V41 - Piped + yt-dlp Android bypass for Atlantic/UMG (Hey Boy) - NO Cobalt message"""
+    """V42 - PO Token + web client (NOT android) per Oct 2026 fix - Research shows android now needs PO token and worse"""
     try:
-        import requests, tempfile, os, shutil, json, glob
+        import requests, tempfile, os, shutil, json, glob, subprocess, sys
         video_id = ""
         if "v=" in youtube_url:
             video_id = youtube_url.split("v=")[1].split("&")[0]
         elif "youtu.be/" in youtube_url:
             video_id = youtube_url.split("youtu.be/")[1].split("?")[0]
         else:
-            # Last 11 chars
             video_id = youtube_url.strip()[-11:]
-        print(f"[V41 DOWNLOAD] video_id={video_id} url={youtube_url} audio={is_audio}")
-        
-        # 1. Piped - quick try but don't show "disabled" to user
+        print(f"[V42 DOWNLOAD] video_id={video_id} url={youtube_url} audio={is_audio}")
+
+        # Install PO token provider if not present (fixes Sign in to confirm not a bot on Render)
+        try:
+            import bgutil_ytdlp_pot_provider
+            print("[V42 PO] PO token provider already installed")
+        except:
+            print("[V42 PO] Installing bgutil-ytdlp-pot-provider...")
+            try:
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "bgutil-ytdlp-pot-provider", "yt-dlp[default]"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                print("[V42 PO] Installed PO token provider")
+            except Exception as e:
+                print(f"[V42 PO] Install fail {e}")
+
+        # 1. Try Piped quick (still works for non-UMG)
         piped_instances = [
             "https://pipedapi.kavin.rocks",
             "https://api.piped.private.coffee",
             "https://pipedapi.syncpundit.io",
-            "https://pipedapi.moomoo.me",
-            "https://pipedapi.adminforge.de",
-            "https://piped-api.lunar.icu",
-            "https://pipedapi.drgns.space",
         ]
         for piped_base in piped_instances:
             try:
-                print(f"[V41 PIPED] Trying {piped_base}")
-                r = requests.get(f"{piped_base}/streams/{video_id}", timeout=12)
+                r = requests.get(f"{piped_base}/streams/{video_id}", timeout=10)
                 if r.status_code == 200:
                     data = r.json()
                     audio_streams = data.get("audioStreams", [])
@@ -177,163 +183,125 @@ def piped_download_youtube(youtube_url, is_audio=False):
                         best = sorted(audio_streams, key=lambda x: x.get("bitrate",0), reverse=True)[0]
                         dl_url = best.get("url")
                         if dl_url:
-                            mr = requests.get(dl_url, stream=True, timeout=60, headers={"User-Agent": "Mozilla/5.0"})
+                            mr = requests.get(dl_url, stream=True, timeout=60)
                             if mr.status_code == 200:
                                 td = tempfile.mkdtemp()
-                                fp = os.path.join(td, f"piped.mp3")
+                                fp = os.path.join(td, "piped.mp3")
                                 with open(fp,'wb') as f:
                                     for ch in mr.iter_content(16384):
                                         if ch:
                                             f.write(ch)
-                                if os.path.exists(fp) and os.path.getsize(fp) > 25000:
-                                    print(f"[V41 PIPED] Success {os.path.getsize(fp)} from {piped_base}")
-                                    return fp, td, f"piped"
+                                if os.path.exists(fp) and os.path.getsize(fp) > 20000:
+                                    print(f"[V42 PIPED] Success {os.path.getsize(fp)}")
+                                    return fp, td, "piped"
                                 shutil.rmtree(td, ignore_errors=True)
-            except Exception as e:
-                print(f"[V41 PIPED] {piped_base} fail {e}")
+            except:
                 continue
-        
-        # 2. yt-dlp Android + iOS + Web - with cookies + PO token bypass - MAIN for Atlantic/UMG
+
+        # 2. yt-dlp with PO token + web client (per Oct 2026 vidkraken article: DON'T force android)
         try:
-            print(f"[V41 YTDLP] Trying yt-dlp bypass for {video_id}")
             import yt_dlp
             output_dir = "downloads"
             os.makedirs(output_dir, exist_ok=True)
             
-            # Clean old files
+            # Clean old
             for f_old in glob.glob(os.path.join(output_dir, f"{video_id}.*")):
                 try:
                     os.remove(f_old)
                 except:
                     pass
             
-            configs = [
-                {"player_client": ["android", "ios"], "player_skip": ["webpage", "configs"]},
-                {"player_client": ["android_music"]},
-                {"player_client": ["android_testsuite"]},
-                {"player_client": ["ios", "android"]},
-                {"player_client": ["web", "android", "ios"]},
-            ]
+            # Per research: Use default clients (web, web_safari) + PO token provider, NOT android
+            # Android now needs PO token and can't use cookies, makes worse
+            ydl_opts = {
+                'quiet': False,
+                'no_warnings': False,
+                'format': 'bestaudio[ext=m4a]/bestaudio/best' if is_audio else 'best[height<=720]/best',
+                'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
+                'nocheckcertificate': True,
+                'geo_bypass': True,
+                'extractor_retries': 3,
+                'sleep_requests': 1,
+                'js_runtimes': {'node': {}},
+                # Do NOT force android - use default per Oct 2026 fix
+            }
             
-            for cfg in configs:
+            cookie_file = None
+            for cf in ["youtube_cookies.txt", "cookies.txt", "/opt/render/project/src/youtube_cookies.txt", "./youtube_cookies.txt"]:
+                if os.path.exists(cf):
+                    cookie_file = cf
+                    break
+            
+            if cookie_file:
+                ydl_opts['cookiefile'] = cookie_file
+                print(f"[V42 YTDLP] Using cookie {cookie_file} size {os.path.getsize(cookie_file)}")
+            
+            if is_audio:
                 try:
-                    print(f"[V41 YTDLP] Config {cfg}")
-                    ydl_opts = {
-                        'quiet': False,
-                        'no_warnings': False,
-                        'format': 'bestaudio[ext=m4a]/bestaudio[ext=opus]/bestaudio/best' if is_audio else 'best[height<=720]/best',
-                        'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
-                        'extractor_args': {'youtube': cfg},
-                        'http_headers': {
-                            'User-Agent': 'com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip',
-                        },
-                        'nocheckcertificate': True,
-                        'geo_bypass': True,
-                        'nocheckcertificate': True,
-                        'extractor_retries': 3,
-                    }
-                    
-                    cookie_file = None
-                    if os.path.exists("youtube_cookies.txt"):
-                        cookie_file = "youtube_cookies.txt"
-                    elif os.path.exists("cookies.txt"):
-                        cookie_file = "cookies.txt"
-                    elif os.path.exists("/opt/render/project/src/youtube_cookies.txt"):
-                        cookie_file = "/opt/render/project/src/youtube_cookies.txt"
-                    
-                    if cookie_file and os.path.exists(cookie_file):
-                        ydl_opts['cookiefile'] = cookie_file
-                        print(f"[V41 YTDLP] Using cookie {cookie_file} size {os.path.getsize(cookie_file)}")
-                    
-                    if is_audio:
-                        try:
-                            import imageio_ffmpeg
-                            ydl_opts.update({
-                                'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
-                                'ffmpeg_location': imageio_ffmpeg.get_ffmpeg_exe(),
-                            })
-                        except:
-                            ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}]
-                    
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        info = ydl.extract_info(youtube_url, download=True)
-                        vid = info.get('id', video_id) if info else video_id
-                        # Find file
-                        found = None
-                        for ext in ['mp3','m4a','opus','webm','mp4']:
-                            path = os.path.join(output_dir, f"{vid}.{ext}")
-                            if os.path.exists(path) and os.path.getsize(path) > 20000:
-                                found = path
-                                break
-                        if not found:
-                            # Search any file with id
-                            for p in glob.glob(os.path.join(output_dir, f"{vid}.*")):
-                                if os.path.exists(p) and os.path.getsize(p) > 20000:
-                                    found = p
-                                    break
-                            # Also check base name
-                            if not found and info:
-                                try:
-                                    base = os.path.splitext(ydl.prepare_filename(info))[0]
-                                    for ext in ['.mp3','.m4a','.opus']:
-                                        if os.path.exists(base+ext) and os.path.getsize(base+ext) > 20000:
-                                            found = base+ext
-                                            break
-                                except:
-                                    pass
-                        
-                        if found:
-                            td = tempfile.mkdtemp()
-                            dest = os.path.join(td, f"ytdlp.{'mp3' if is_audio else 'mp4'}")
-                            shutil.move(found, dest)
-                            print(f"[V41 YTDLP] SUCCESS {os.path.getsize(dest)} bytes with {cfg}")
-                            return dest, td, f"ytdlp_{cfg['player_client'][0]}"
-                        else:
-                            print(f"[V41 YTDLP] No file found for {vid} with {cfg}")
-                except Exception as e:
-                    print(f"[V41 YTDLP] Config {cfg} fail {e}")
-                    import traceback
-                    traceback.print_exc()
-                    continue
-            
-            # Try without extractor_args as last resort
-            try:
-                print("[V41 YTDLP] Trying without extractor_args")
-                ydl_opts = {
-                    'format': 'bestaudio/best' if is_audio else 'best',
-                    'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
-                    'quiet': False,
-                    'nocheckcertificate': True,
-                    'geo_bypass': True,
-                }
-                if cookie_file:
-                    ydl_opts['cookiefile'] = cookie_file
-                if is_audio:
+                    import imageio_ffmpeg
+                    ydl_opts.update({
+                        'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
+                        'ffmpeg_location': imageio_ffmpeg.get_ffmpeg_exe(),
+                    })
+                except:
                     ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}]
-                    try:
-                        import imageio_ffmpeg
-                        ydl_opts['ffmpeg_location'] = imageio_ffmpeg.get_ffmpeg_exe()
-                    except:
-                        pass
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(youtube_url, download=True)
-                    vid = info.get('id', video_id) if info else video_id
+            
+            print(f"[V42 YTDLP] Downloading with PO token + web client for {youtube_url}")
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(youtube_url, download=True)
+                vid = info.get('id', video_id) if info else video_id
+                found = None
+                for ext in ['mp3','m4a','opus','webm','mp4']:
+                    path = os.path.join(output_dir, f"{vid}.{ext}")
+                    if os.path.exists(path) and os.path.getsize(path) > 20000:
+                        found = path
+                        break
+                if not found:
                     for p in glob.glob(os.path.join(output_dir, f"{vid}.*")):
                         if os.path.exists(p) and os.path.getsize(p) > 20000:
-                            td = tempfile.mkdtemp()
-                            dest = os.path.join(td, f"ytdlp.mp3")
-                            shutil.move(p, dest)
-                            return dest, td, "ytdlp_noconfig"
-            except Exception as e:
-                print(f"[V41 YTDLP] No config fail {e}")
-                
+                            found = p
+                            break
+                if found:
+                    td = tempfile.mkdtemp()
+                    dest = os.path.join(td, f"ytdlp.{'mp3' if is_audio else 'mp4'}")
+                    shutil.move(found, dest)
+                    print(f"[V42 YTDLP] SUCCESS {os.path.getsize(dest)} bytes with PO token")
+                    return dest, td, "ytdlp_po_token"
+                else:
+                    print(f"[V42 YTDLP] No file found")
         except Exception as e:
-            print(f"[V41 YTDLP] Outer fail {e}")
+            print(f"[V42 YTDLP] Fail {e}")
             import traceback
             traceback.print_exc()
-            
+
+        # 3. Try with web_safari client explicitly (per research, works when web blocked)
+        try:
+            import yt_dlp
+            ydl_opts = {
+                'format': 'bestaudio/best' if is_audio else 'best',
+                'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
+                'extractor_args': {'youtube': {'player_client': ['web_safari', 'web']}},
+                'nocheckcertificate': True,
+            }
+            if cookie_file:
+                ydl_opts['cookiefile'] = cookie_file
+            if is_audio:
+                ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}]
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(youtube_url, download=True)
+                vid = info.get('id', video_id) if info else video_id
+                for p in glob.glob(os.path.join(output_dir, f"{vid}.*")):
+                    if os.path.exists(p) and os.path.getsize(p) > 20000:
+                        td = tempfile.mkdtemp()
+                        dest = os.path.join(td, f"ytdlp.mp3")
+                        shutil.move(p, dest)
+                        print(f"[V42 YTDLP] SUCCESS web_safari {os.path.getsize(dest)}")
+                        return dest, td, "ytdlp_web_safari"
+        except Exception as e:
+            print(f"[V42 YTDLP] web_safari fail {e}")
+
     except Exception as e:
-        print(f"[V41 DOWNLOAD] Outer fail {e}")
+        print(f"[V42 DOWNLOAD] Outer fail {e}")
         import traceback
         traceback.print_exc()
     return None, None, "failed"
@@ -342,7 +310,7 @@ def piped_download_youtube(youtube_url, is_audio=False):
 web_app = Flask(__name__)
 @web_app.route('/')
 def health_check():
-    return "Bot alive! V41 FULL UI + Download FIXED for Hey Boy Atlantic", 200
+    return "Bot alive! V42 FULL UI + PO TOKEN FIX + Deezer + Piped + Advanced Stats", 200
 
 def load_json_file(filename):
     if os.path.exists(filename):
@@ -2025,7 +1993,7 @@ async def handle_music_pick_v25(update: Update, context: ContextTypes.DEFAULT_TY
                         return
                     
                     try:
-                        await context.bot.send_message(chat_id=uid, text=f"🎬 Found YouTube: {youtube_url[:60]}... Downloading MP3 via Android bypass (Atlantic/UMG fix)...")
+                        await context.bot.send_message(chat_id=uid, text=f"🎬 Found YouTube: {youtube_url[:60]}... Downloading MP3 via Piped/Android (Piped YouTube disabled)...")
                     except:
                         pass
                     
@@ -2100,7 +2068,7 @@ def run_telegram_bot():
     async def start_bot():
         clean_downloads_startup()
         app = Application.builder().token(BOT_TOKEN).build()
-        # V40 FIX: Song Search dedicated handler FIRST - always responsive
+        # V42 FIX: Song Search dedicated handler FIRST - always responsive
         app.add_handler(MessageHandler(filters.Regex("Song Search"), handle_media_link))
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CommandHandler("language", language_command))
