@@ -1765,7 +1765,7 @@ async def ad_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🧪 To test: tap 🧪 Test Ad or send /testad")
 
 
-# ===== MUSIC MODULE - 4 FALLBACKS: YTMUSIC API (NO COOKIES) + YT + SC + DEEZER =====
+# ===== MUSIC MODULE - OPTION 1: SOUNDCLOUD + YTMUSIC API DIRECT - NO YOUTUBE SEARCH, NO DEEZER PREVIEW =====
 import tempfile
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
@@ -1790,174 +1790,153 @@ def save_music_cache(cache):
 async def checkcookies_command(update, context):
     if update.effective_user.id != ADMIN_ID:
         return
-    msg = "Cookie Check\n\n"
-    paths = ["youtube_cookies.txt", "tiktok_cookies.txt", "cookies.txt", "/etc/secrets/youtube_cookies.txt", "/etc/secrets/tiktok_cookies.txt"]
+    msg = "Cookie Check - Music Mode: SoundCloud + YTMusic API (No YouTube search)\n\n"
+    paths = ["youtube_cookies.txt", "cookies.txt"]
     for p in paths:
         if os.path.exists(p):
-            try:
-                size = os.path.getsize(p)
-                msg += f"FOUND {p} ({size} bytes)\n"
-            except Exception as e:
-                msg += f"FOUND but error {p}: {e}\n"
+            msg += f"FOUND {p} ({os.path.getsize(p)} bytes) - Not needed for music now!\n"
         else:
             msg += f"NOT FOUND {p}\n"
     try:
-        import yt_dlp
-        msg += f"yt-dlp: {yt_dlp.version.__version__}\n"
-    except Exception as e:
-        msg += f"yt-dlp error: {e}\n"
-    try:
         import ytmusicapi
-        msg += f"ytmusicapi: INSTALLED - No cookies needed for music!\n"
+        msg += f"ytmusicapi: INSTALLED\n"
     except:
-        msg += f"ytmusicapi: NOT installed - pip install ytmusicapi\n"
+        msg += f"ytmusicapi: NOT installed\n"
     await update.message.reply_text(msg)
 
-def download_with_ytdlp_blocking(search_query, tmpdir, cookie_paths, title, artist):
-    output_template = os.path.join(tmpdir, "%(title)s.%(ext)s")
-    ydl_opts_base = {
-        'format': 'bestaudio/best',
-        'outtmpl': output_template,
-        'noplaylist': True,
-        'quiet': True,
-        'no_warnings': True,
-        'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}],
-        'extractor_args': {'youtube': {'player_client': ['ios', 'android', 'web', 'mweb']}},
-    }
-    # Try with cookies
-    for cp in cookie_paths:
-        if os.path.exists(cp):
-            ydl_opts_base['cookiefile'] = cp
-            break
-
-    # FALLBACK 1: YouTube Music API (NO COOKIES NEEDED!) - Most reliable!
+def download_soundcloud_blocking(title, artist, tmpdir):
+    # SoundCloud is NOT blocked by YouTube! Works on Render!
     try:
-        print(f"Trying YTMusic API: {search_query}")
-        try:
-            from ytmusicapi import YTMusic
-            ytmusic = YTMusic()
-            results = ytmusic.search(f"{title} {artist}", filter="songs", limit=3)
-            if results:
-                for r in results:
-                    video_id = r.get('videoId')
-                    if video_id:
-                        print(f"YTMusic found videoId: {video_id}")
-                        # Clean tmpdir
-                        for f in os.listdir(tmpdir):
-                            try: os.remove(os.path.join(tmpdir, f))
-                            except: pass
-                        ydl_opts = ydl_opts_base.copy()
-                        # YTMusic download doesn't need cookies!
-                        if 'cookiefile' in ydl_opts:
-                            del ydl_opts['cookiefile']
-                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                            ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=True)
-                        for f in os.listdir(tmpdir):
-                            fp = os.path.join(tmpdir, f)
-                            if f.endswith('.mp3') and os.path.getsize(fp) > 10000:
-                                return fp, "ytmusic_api"
-        except Exception as e:
-            print(f"YTMusic API fail: {e}")
-    except Exception as e:
-        print(f"YTMusic outer fail: {e}")
-
-    # FALLBACK 2: YT Music search via yt-dlp (with cookies)
-    try:
-        print(f"Trying ytmsearch: {search_query}")
-        for f in os.listdir(tmpdir):
-            try: os.remove(os.path.join(tmpdir, f))
-            except: pass
-        with yt_dlp.YoutubeDL(ydl_opts_base) as ydl:
-            ydl.extract_info(f"ytmsearch1:{search_query}", download=True)
+        search_query = f"{title} {artist}"
+        output_template = os.path.join(tmpdir, "%(title)s.%(ext)s")
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'outtmpl': output_template,
+            'noplaylist': True,
+            'quiet': True,
+            'no_warnings': True,
+            'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}],
+        }
+        print(f"Trying SoundCloud: scsearch1:{search_query}")
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"scsearch1:{search_query}", download=True)
+            if 'entries' in info and info['entries']:
+                info = info['entries'][0]
         for f in os.listdir(tmpdir):
             fp = os.path.join(tmpdir, f)
-            if f.endswith('.mp3') and os.path.getsize(fp) > 10000:
-                return fp, "ytmusic"
-    except Exception as e:
-        print(f"ytmsearch fail: {e}")
-    
-    # FALLBACK 3: Regular YouTube search
-    try:
-        for f in os.listdir(tmpdir):
-            try: os.remove(os.path.join(tmpdir, f))
-            except: pass
-        print(f"Trying ytsearch: {search_query}")
-        with yt_dlp.YoutubeDL(ydl_opts_base) as ydl:
-            ydl.extract_info(f"ytsearch1:{search_query}", download=True)
-        for f in os.listdir(tmpdir):
-            fp = os.path.join(tmpdir, f)
-            if f.endswith('.mp3') and os.path.getsize(fp) > 10000:
-                return fp, "youtube"
-    except Exception as e:
-        print(f"ytsearch fail: {e}")
-    
-    # FALLBACK 4: SoundCloud
-    try:
-        for f in os.listdir(tmpdir):
-            try: os.remove(os.path.join(tmpdir, f))
-            except: pass
-        print(f"Trying SoundCloud: {search_query}")
-        with yt_dlp.YoutubeDL(ydl_opts_base) as ydl:
-            ydl.extract_info(f"scsearch1:{search_query}", download=True)
-        for f in os.listdir(tmpdir):
-            fp = os.path.join(tmpdir, f)
-            if f.endswith('.mp3') and os.path.getsize(fp) > 10000:
+            if f.endswith('.mp3') and os.path.exists(fp) and os.path.getsize(fp) > 10000:
+                print(f"SoundCloud success: {fp} {os.path.getsize(fp)} bytes")
                 return fp, "soundcloud"
     except Exception as e:
-        print(f"SC fail: {e}")
+        print(f"SoundCloud fail: {e}")
+    return None, "sc failed"
+
+def download_ytmusic_direct_blocking(title, artist, tmpdir):
+    # YouTube Music API direct - NOT YouTube.com search, less blocked!
+    try:
+        from ytmusicapi import YTMusic
+        ytmusic = YTMusic()
+        query = f"{title} {artist}"
+        print(f"YTMusic API search: {query}")
+        results = ytmusic.search(query, filter="songs", limit=5)
+        if not results:
+            return None, "no ytm results"
+        
+        for r in results:
+            video_id = r.get('videoId')
+            if not video_id:
+                continue
+            print(f"YTMusic trying videoId: {video_id}")
+            try:
+                song = ytmusic.get_song(video_id)
+                # Try watch playlist to get audio URL via ytmusicapi
+                # Fallback: Use yt-dlp with videoId but with android client (less blocked than search)
+                output_template = os.path.join(tmpdir, "%(title)s.%(ext)s")
+                ydl_opts = {
+                    'format': 'bestaudio/best',
+                    'outtmpl': output_template,
+                    'noplaylist': True,
+                    'quiet': True,
+                    'no_warnings': True,
+                    'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'}],
+                    'extractor_args': {'youtube': {'player_client': ['android', 'ios']}},
+                }
+                # Try without cookies first (android client often works without cookies)
+                try:
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        ydl.extract_info(f"https://music.youtube.com/watch?v={video_id}", download=True)
+                    for f in os.listdir(tmpdir):
+                        fp = os.path.join(tmpdir, f)
+                        if f.endswith('.mp3') and os.path.exists(fp) and os.path.getsize(fp) > 10000:
+                            print(f"YTMusic direct success: {fp}")
+                            return fp, "ytmusic_api"
+                except Exception as e:
+                    print(f"YTMusic direct yt-dlp fail: {e}")
+                    # Clean and try next
+                    for f in os.listdir(tmpdir):
+                        try: os.remove(os.path.join(tmpdir, f))
+                        except: pass
+                    continue
+            except Exception as e:
+                print(f"YTMusic get_song fail: {e}")
+                continue
+        
+        return None, "ytmusic api failed"
+    except Exception as e:
+        print(f"YTMusic outer fail: {e}")
+        return None, str(e)
+
+def download_music_blocking_option1(title, artist, tmpdir):
+    # OPTION 1: SoundCloud first (no YouTube, no cookies needed!)
+    print(f"=== OPTION 1: SoundCloud + YTMusic API (No YouTube search) ===")
+    print(f"Searching: {title} - {artist}")
     
-    return None, "failed"
+    # Try SoundCloud first
+    fp, src = download_soundcloud_blocking(title, artist, tmpdir)
+    if fp and os.path.exists(fp):
+        return fp, src
+    
+    # Clean tmpdir
+    for f in os.listdir(tmpdir):
+        try: os.remove(os.path.join(tmpdir, f))
+        except: pass
+    
+    # Try YTMusic API direct (not YouTube.com search)
+    fp, src = download_ytmusic_direct_blocking(title, artist, tmpdir)
+    if fp and os.path.exists(fp):
+        return fp, src
+    
+    return None, "SoundCloud + YTMusic API failed - Try YouTube link directly"
 
 async def download_music_and_send(bot, user_id, title, artist, track_id):
     try:
-        search_query = f"{title} {artist}"
-        print(f"Music: {search_query} for {user_id}")
+        print(f"Music Option1: {title} - {artist} for {user_id}")
         
         cache = load_music_cache()
         cache_key = f"{title}_{artist}".lower().replace(" ", "_")[:50]
         if cache_key in cache and "file_id" in cache[cache_key]:
             try:
-                await bot.send_audio(chat_id=user_id, audio=cache[cache_key]["file_id"], title=title, performer=artist, caption=f"{title} - {artist} Cached 1-sec!")
+                await bot.send_audio(chat_id=user_id, audio=cache[cache_key]["file_id"], title=title, performer=artist, caption=f"{title} - {artist} Cached! Source: {cache[cache_key].get('source','cache')}")
                 return True
             except:
                 pass
         
         tmpdir = tempfile.mkdtemp()
-        cookie_paths = ["youtube_cookies.txt", "/etc/secrets/youtube_cookies.txt", "tiktok_cookies.txt", "cookies.txt"]
         
         loop = asyncio.get_event_loop()
-        downloaded_file, source = await loop.run_in_executor(music_executor, download_with_ytdlp_blocking, search_query, tmpdir, cookie_paths, title, artist)
-        
-        if not downloaded_file or not os.path.exists(downloaded_file):
-            if track_id:
-                try:
-                    dr = requests.get(f"https://api.deezer.com/track/{track_id}", timeout=8)
-                    if dr.status_code == 200:
-                        preview_url = dr.json().get("preview")
-                        if preview_url:
-                            pr = requests.get(preview_url, timeout=10)
-                            if pr.status_code == 200:
-                                downloaded_file = os.path.join(tmpdir, f"{title}.mp3")
-                                with open(downloaded_file, "wb") as out:
-                                    out.write(pr.content)
-                                source = "deezer_preview"
-                except:
-                    pass
+        downloaded_file, source = await loop.run_in_executor(music_executor, download_music_blocking_option1, title, artist, tmpdir)
         
         if not downloaded_file or not os.path.exists(downloaded_file) or os.path.getsize(downloaded_file) < 5000:
-            await bot.send_message(chat_id=user_id, text=f"Could not download {title} - {artist}. All fallbacks failed. Try YouTube link directly or upload fresh cookies.")
+            await bot.send_message(chat_id=user_id, text=f"Could not download {title} - {artist}.\n\nTried: SoundCloud, YTMusic API (No YouTube search).\n\nFix: Paste YouTube link directly - that always works! Or try another song (Naija songs sometimes not on SoundCloud).")
             shutil.rmtree(tmpdir, ignore_errors=True)
             return False
         
-        is_preview = source == "deezer_preview"
-        caption_suffix = "30s preview (All fallbacks failed, need fresh cookies)" if is_preview else "Full MP3"
-        
         try:
             with open(downloaded_file, 'rb') as af:
-                sent = await bot.send_audio(chat_id=user_id, audio=af, title=title, performer=artist, caption=f"{title} - {artist} {caption_suffix} Source: {source}")
+                sent = await bot.send_audio(chat_id=user_id, audio=af, title=title, performer=artist, caption=f"{title} - {artist} Full MP3 Source: {source} - No cookies needed!")
                 try:
                     file_id = sent.audio.file_id
-                    cache[cache_key] = {"file_id": file_id, "title": title, "artist": artist, "timestamp": time.time()}
+                    cache[cache_key] = {"file_id": file_id, "title": title, "artist": artist, "source": source, "timestamp": time.time()}
                     save_music_cache(cache)
                     try:
                         await bot.send_audio(chat_id=VIDEO_VAULT_ID, audio=file_id, title=title, performer=artist)
