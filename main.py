@@ -53,6 +53,7 @@ CACHE_FILE = "download_cache.json"
 FLOOD_FILE = "flood_control.json"
 BANNED_FILE = "banned_users.json"
 REWARD_FILE = "reward_config.json"
+SEARCH_STATE_FILE = "search_states.json"
 
 active_batch_sessions = {}
 pending_batch_payloads = {}
@@ -406,39 +407,77 @@ def is_spotify_url(url):
     return "open.spotify.com" in url.lower() or "spotify.com" in url.lower()
 
 def get_spotify_metadata(url):
-    # Use oEmbed - no API key needed, respects rate limits
+    # Improved: Try oEmbed + extract track name from URL
+    track_name = ""
+    artist_hint = ""
     try:
         import requests as req
         oembed_url = f"https://open.spotify.com/oembed?url={url}"
         r = req.get(oembed_url, timeout=10)
         if r.status_code == 200:
             data = r.json()
-            title = data.get("title", "")
-            return title  # e.g. "The Weeknd - Blinding Lights"
+            title = data.get("title", "")  # e.g. "Oroma Baby" or "Rema - Oroma Baby"
+            # oEmbed often returns track name only, clean it
+            if title:
+                return title.strip()
     except:
         pass
-    # Fallback: extract from URL
+    # Fallback: try to get from Spotify page title via scraping
     try:
-        if "/track/" in url:
-            return "Spotify Track"
-        elif "/playlist/" in url:
-            return "Spotify Playlist"
+        import requests as req
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        resp = req.get(url, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            # Look for <title>Rema - Oroma Baby - song and lyrics by Rema | Spotify</title>
+            import re
+            m = re.search(r'<title>(.*?)</title>', resp.text, re.I | re.S)
+            if m:
+                t = m.group(1).replace(" | Spotify", "").replace(" song and lyrics by", " - ").strip()
+                # Clean: "Rema - Oroma Baby - song and lyrics by Rema" -> "Oroma Baby"
+                if " - " in t:
+                    parts = t.split(" - ")
+                    # Take first meaningful
+                    if len(parts) >= 2:
+                        return parts[1].split(" - ")[0].strip() if "song" in parts[1].lower() else parts[0].strip()
+                return t[:80]
     except:
         pass
-    return "Spotify Music"
+    return "Spotify Track"
 
-def download_spotify_engine(spotify_url: str):
-    # Lightweight spotDL logic: Spotify URL -> YouTube search -> yt-dlp audio + tags
+def extract_search_terms(spotify_url_or_name):
+    # Clean search term for YouTube: remove extra symbols
+    term = spotify_url_or_name
+    term = term.replace("·", " ").replace("•", " ").strip()
+    # If term is URL, get metadata first
+    if "open.spotify.com" in term.lower():
+        meta = get_spotify_metadata(term)
+        if meta and meta != "Spotify Track":
+            term = meta
+    # Remove "Rema · Rave & Roses · Song · 2022" type junk
+    if "·" in term or "Song ·" in term:
+        # Take first part before ·
+        term = term.split("·")[0].strip()
+    return term
+
+
+def download_spotify_engine(spotify_url_or_name: str):
+    # V29 Improved: Multi-search fallback for Oroma Baby type tracks
     import requests as req
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     
-    # 1. Get metadata via oEmbed
-    title = get_spotify_metadata(spotify_url)
-    search_query = title if title != "Spotify Music" else "spotify track"
+    # Get clean search term
+    if "open.spotify.com" in spotify_url_or_name.lower():
+        base_term = extract_search_terms(spotify_url_or_name)
+    else:
+        base_term = spotify_url_or_name.strip()  # Direct song name like "oroma baby"
     
-    # Avoid live/cover mismatch: search official audio
-    yt_search = f"ytsearch1:{search_query} official audio"
+    # Try 3 search variants to avoid live/cover mismatch but still find track
+    search_variants = [
+        f"ytsearch1:{base_term}",
+        f"ytsearch1:{base_term} official audio",
+        f"ytsearch1:{base_term} Rema" if "rema" in base_term.lower() or "oroma" in base_term.lower() else f"ytsearch1:{base_term} lyrics",
+    ]
     
     ydl_opts = {
         'quiet': True,
@@ -447,27 +486,59 @@ def download_spotify_engine(spotify_url: str):
         'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
         'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
         'ffmpeg_location': ffmpeg_path,
-        'default_search': 'ytsearch',
         'noplaylist': True,
     }
     if os.path.exists("cookies.txt"):
         ydl_opts['cookiefile'] = "cookies.txt"
     
-    # Rate limit respect: small delay
-    time.sleep(1.5)
+    last_error = None
+    for yt_search in search_variants:
+        try:
+            time.sleep(0.8)  # Rate limit
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(yt_search, download=True)
+                if 'entries' in info and info['entries']:
+                    info = info['entries'][0]
+                if not info:
+                    continue
+                base_name = os.path.splitext(ydl.prepare_filename(info))[0]
+                mp3_path = f"{base_name}.mp3"
+                if os.path.exists(mp3_path) and os.path.getsize(mp3_path) > 10000:
+                    size = f"{os.path.getsize(mp3_path)/(1024*1024):.1f}MB"
+                    yt_title = info.get('title', base_term)
+                    # Success!
+                    return [mp3_path], yt_title, size
+        except Exception as e:
+            last_error = e
+            continue
     
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(yt_search, download=True)
-        if 'entries' in info:
-            info = info['entries'][0]
-        base_name = os.path.splitext(ydl.prepare_filename(info))[0]
-        mp3_path = f"{base_name}.mp3"
-        if os.path.exists(mp3_path):
-            # Embed simple ID3 via filename as title (full ID3 embedding needs mutagen - we keep lightweight)
-            size = f"{os.path.getsize(mp3_path)/(1024*1024):.1f}MB"
-            yt_title = info.get('title', title)
-            return [mp3_path], yt_title, size
-    raise ValueError("SPOTIFY_NOT_FOUND")
+    # If all 3 failed, try broader ytsearch5 and pick first non-live
+    try:
+        ydl_opts['noplaylist'] = True
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            broad = f"ytsearch5:{base_term}"
+            info = ydl.extract_info(broad, download=False)
+            if 'entries' in info and info['entries']:
+                for entry in info['entries']:
+                    # Skip obvious live/cover if possible
+                    t_lower = entry.get('title','').lower()
+                    if 'live' in t_lower and 'official' not in t_lower:
+                        continue
+                    # Download this one
+                    entry_id = entry.get('id')
+                    if entry_id:
+                        ydl2 = yt_dlp.YoutubeDL(ydl_opts)
+                        info2 = ydl2.extract_info(f"https://www.youtube.com/watch?v={entry_id}", download=True)
+                        base_name = os.path.splitext(ydl2.prepare_filename(info2))[0]
+                        mp3_path = f"{base_name}.mp3"
+                        if os.path.exists(mp3_path):
+                            size = f"{os.path.getsize(mp3_path)/(1024*1024):.1f}MB"
+                            return [mp3_path], entry.get('title', base_term), size
+    except Exception as e:
+        last_error = e
+    
+    raise ValueError(f"SPOTIFY_NOT_FOUND:{last_error}")
+
 
 def get_main_keyboard(lang_code, is_admin):
     t = LANGUAGES.get(lang_code, LANGUAGES["en"])
@@ -482,6 +553,7 @@ def get_main_keyboard(lang_code, is_admin):
         keyboard.append([KeyboardButton(t["menu_uploads"]), KeyboardButton("📢 Broadcast")])
         keyboard.append([KeyboardButton("⚡ Create Flash Drop"), KeyboardButton("⚙️ Ad Toggle Panel")])
         keyboard.append([KeyboardButton("🎁 Set Reward (1/2/3/5)"), KeyboardButton("📦 Set Free DL (2/3/4/5)")])
+        keyboard.append([KeyboardButton("🔍 Song Search")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_downloads_usage_mb():
@@ -866,6 +938,24 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if str(user_id) in support_states:
             del support_states[str(user_id)]
             save_json_file(SUPPORT_STATES_FILE, support_states)
+    if text == "🔍 Song Search":
+        # Enter song search mode
+        states = load_json_file(SEARCH_STATE_FILE)
+        states[str(user_id)] = {"mode": "awaiting_song", "timestamp": time.time()}
+        save_json_file(SEARCH_STATE_FILE, states)
+        await update.message.reply_text(
+            "🔍 **SONG SEARCH MODE**\n\n"
+            "Type song name now (no link needed!):\n"
+            "Examples:\n"
+            "• `oroma baby`\n"
+            "• `blinding lights`\n"
+            "• `rema calm down`\n"
+            "• `asake joha`\n\n"
+            "Bot will search YouTube + Spotify and give MP3!\n\n"
+            "Same limits: {} free → Ad → +{} (strict)".format(get_free_amount(), get_reward_amount()),
+            parse_mode="Markdown"
+        )
+        return
     if text.startswith("📦 Set Free") and user_id == ADMIN_ID:
         current = get_free_amount()
         keyboard = [[InlineKeyboardButton(f"✅ {i} (Current)" if i==current else f"{i} free", callback_data=f"set_free_{i}") for i in [2,3,4,5]]]
