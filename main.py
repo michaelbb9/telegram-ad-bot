@@ -14,7 +14,6 @@ from bs4 import BeautifulSoup
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
-from telegram.ext import ChannelPostHandler
 
 ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 try:
@@ -2231,7 +2230,7 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("unban", unban_command))
         app.add_handler(CommandHandler("backup", backup_command))
         app.add_handler(CommandHandler("checkcookies", checkcookies_command))
-        app.add_handler(ChannelPostHandler(handle_channel_post))
+        app.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST, handle_channel_post))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
         app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.ATTACHMENT, handle_user_upload))
