@@ -75,321 +75,231 @@ FLOOD_WINDOW = 60
 FLOOD_COOLDOWN = 30
 
 
+
 LANGUAGES = {
     "en": {
-        "welcome": "🚀 **WELCOME TO MICHAELBBC VAULT - ALL MEDIA DOWNLOADER! 🚀✨ FB, INSTA, TIKTOK, X, YOUTUBE! 🚀✨
-
-🔥 WHAT I CAN DO:
-🎬 VIDEOS HD No Watermark!
-🎵 AUDIO MP3 192kbps!
-🖼️ IMAGES Scrape ALL!
-📝 SUBTITLES Auto!
-📦 BATCH 100+ Links!
-⚡ CACHE 1 Sec!
-💎 VAULT Forever!
-📤 FAN UPLOADS 5/day!
-
-👉 PASTE LINK TO START! 👇** 🚀
-
-🎬 Video, 🎵 Audio, 🖼️ Images, 📝 Subtitles
-📦 Batch Downloader (100+ links)
-⚡ Flash Drops
-💎 Exclusive Vaults
-📤 Fan Uploads (5/day)
-
-👉 Just paste ANY link: TikTok, Facebook, Instagram, Twitter/X, YouTube to start! 🚀✨ All Media Supported!",
+        "welcome": "🚀 WELCOME TO MICHAELBBC VAULT - ALL MEDIA DOWNLOADER! FB, INSTA, TIKTOK, X, YOUTUBE! What I can do: VIDEOS HD, AUDIO MP3, IMAGES, SUBTITLES, BATCH 100+, CACHE 1 Sec, VAULT Forever, FAN UPLOADS 5/day! PASTE LINK TO START!",
         "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Images", "btn_sub": "📝 Subtitles (SRT)",
-        "ask_format": "👇 **AWESOME! What format you want? Pick below! 🎯 Video=watch, Audio=music!**",
-        "fetching": "📥 **Fetching your {}... Hang tight! ⏳✨ Working magic! 🚀**",
-        "error_generic": "❌ Oops! Failed! 😢 Link private/blocked. Try public link! 🔓💡",
-        "error_50mb": "❌ Too Big! 😅 >50MB limit. Try <20MB short video! ✂️", "error_no_img": "❌ No images found! 😢 Try another link! 🖼️",
-        "images_received": "⏳ **{} Images received.**",
-        "select_lang": "🌍 Select your language! Top 10 TG nations! 🌍✨", "lang_set": "✅ Language set! Enjoy magic! 🎉✨",
-        "batch_detected": "📦 **Batch Detected ({} links)**
-What format?",
-        "batch_dest": "📦 **Where to send?**",
-        "btn_chat": "📥 In Chat", "btn_chan": "📢 To Channel",
-        "limit_reached": "⚠️ **Limit Reached! You used 4 FREE downloads today! 🎬 Watch short ad → Get +1 download!**",
-        "refill_btn": "🔓 Open Link & Refill +1",
-        "join_btn": "📢 Join Channel", "check_btn": "💜 Check Balance",
-        "limit_batch": "⚠️ **Batch Limit Reached at {} of {}**
-Watch ad → +1 download to continue.",
-        "batch_start": "📦 **Batch Started:** {} **{} files**
-⏳ Processing...",
-        "batch_done": "🏁 **Done!** ✅ {} ❌ {}
-📥 {} files here.",
-        "batch_done_chan": "🏁 **Done!** ✅ {} ❌ {}
-📢 {} files forwarded!",
-        "dl_video": "📥 Downloading video...", "dl_audio": "📥 Extracting audio...", "dl_image": "📥 Scraping images...", "dl_sub": "📥 Fetching subtitles...",
-        "failed_50": "❌ >50MB", "failed_blocked": "❌ Blocked/private", "failed_generic": "❌ Failed",
-        "menu_lang": "🌍 Language", "menu_stats": "📊 My Stats", "menu_help": "💬 Support / FAQ", "menu_support": "💬 Open Support", "menu_join": "📢 Join Channel",
-        "menu_uploads": "🍿 Fan Uploads", "menu_upload": "📤 Upload File",
-        "admin_upload_prompt": "📂 **Fan Uploads Inbox**",
-        "user_upload_prompt": "📤 **Upload File**
-Send video/image/file to Admin (anon). Limit 5/24h.",
-        "upload_success_user": "✅ Sent to Admin!",
-        "upload_limit_reached": "⚠️ Upload limit 5/24h reached.",
-        "no_uploads": "📭 No uploads yet.",
-        "stats_msg": "📊 **Your Stats:**
-• Downloads Left: {}
-• Batch Left: {}",
-        "support_open": "💬 **Open Support Ticket**
-Chat directly to admin! Send message/photo/video/voice/file",
-        "support_btn": "💬 Open Support"
+        "ask_format": "What format you want? Pick below! Video=watch, Audio=music!",
+        "fetching": "Fetching your {}... Hang tight!",
+        "error_generic": "Oops! Failed! Link private/blocked. Try public link!",
+        "error_50mb": "Too Big! >50MB limit.", "error_no_img": "No images found!",
+        "images_received": "{} Images received.",
+        "select_lang": "Select your language! Top 10 TG nations!", "lang_set": "Language set! Enjoy!",
+        "batch_detected": "Batch Detected ({} links) What format?",
+        "batch_dest": "Where to send?",
+        "btn_chat": "In Chat", "btn_chan": "To Channel",
+        "limit_reached": "Limit Reached! You used 4 FREE downloads today! Watch short ad -> Get +1 download!",
+        "refill_btn": "Open Link & Refill +1",
+        "join_btn": "Join Channel", "check_btn": "Check Balance",
+        "limit_batch": "Batch Limit Reached at {} of {} Watch ad -> +1 to continue.",
+        "batch_start": "Batch Started: {} {} files Processing...",
+        "batch_done": "Done! {} ok {} fail {} files here.",
+        "batch_done_chan": "Done! {} ok {} fail {} files forwarded!",
+        "dl_video": "Downloading video...", "dl_audio": "Extracting audio...", "dl_image": "Scraping images...", "dl_sub": "Fetching subtitles...",
+        "failed_50": ">50MB", "failed_blocked": "Blocked/private", "failed_generic": "Failed",
+        "menu_lang": "Language", "menu_stats": "My Stats", "menu_help": "Support / FAQ", "menu_join": "Join Channel",
+        "menu_uploads": "Fan Uploads", "menu_upload": "Upload File",
+        "admin_upload_prompt": "Fan Uploads Inbox",
+        "user_upload_prompt": "Upload File Send video/image/file to Admin (anon). Limit 5/24h.",
+        "upload_success_user": "Sent to Admin!",
+        "upload_limit_reached": "Upload limit 5/24h reached.",
+        "no_uploads": "No uploads yet.",
+        "stats_msg": "Your Stats: Downloads Left: {} Batch Left: {}",
+        "support_open": "Open Support Ticket Chat directly to admin! Send message/photo/video/voice/file",
+        "support_btn": "Open Support"
     },
     "hi": {
-        "welcome": "🚀 **MICHAELBBC VAULT में स्वागत है! FB, INSTA, TIKTOK, X, YOUTUBE! 🚀✨**
-वीडियो, ऑडियो, इमेज डाउनलोड करें!",
-        "btn_video": "🎬 वीडियो (MP4)", "btn_audio": "🎵 ऑडियो (MP3)", "btn_image": "🖼️ इमेज", "btn_sub": "📝 सबटाइटल",
-        "ask_format": "👇 **फॉर्मेट चुनें!**", "fetching": "📥 **आपका {} ला रहा हूँ...**",
-        "error_generic": "❌ असफल! लिंक प्राइवेट है!", "error_50mb": "❌ बहुत बड़ा! >50MB", "error_no_img": "❌ इमेज नहीं मिली!",
-        "images_received": "⏳ **{} इमेज मिली।**", "select_lang": "🌍 भाषा चुनें!", "lang_set": "✅ भाषा सेट!",
-        "batch_detected": "📦 **बैच मिला ({} लिंक)**", "batch_dest": "📦 **कहाँ भेजें?**",
-        "btn_chat": "📥 चैट में", "btn_chan": "📢 चैनल में",
-        "limit_reached": "⚠️ **लिमिट खत्म! 4 FREE इस्तेमाल! विज्ञापन देखो → +1 पाओ!**",
-        "refill_btn": "🔓 लिंक खोलो +1", "join_btn": "📢 चैनल जॉइन", "check_btn": "💜 बैलेंस देखो",
-        "limit_batch": "⚠️ **बैच लिमिट {} / {} पर**", "batch_start": "📦 **बैच शुरू:** {} **{} फाइलें**",
-        "batch_done": "🏁 **हो गया!** ✅ {} ❌ {}
-📥 {} फाइलें यहाँ।", "batch_done_chan": "🏁 **हो गया!** ✅ {} ❌ {}
-📢 {} फाइलें भेजी!",
-        "dl_video": "📥 वीडियो डाउनलोड...", "dl_audio": "📥 ऑडियो निकाल रहा...", "dl_image": "📥 इमेज ले रहा...", "dl_sub": "📥 सबटाइटल...",
-        "failed_50": "❌ >50MB", "failed_blocked": "❌ ब्लॉक/प्राइवेट", "failed_generic": "❌ असफल",
-        "menu_lang": "🌍 भाषा", "menu_stats": "📊 मेरे आँकड़े", "menu_help": "💬 सहायता", "menu_join": "📢 चैनल जॉइन",
-        "menu_uploads": "🍿 फैन अपलोड", "menu_upload": "📤 फाइल अपलोड",
-        "admin_upload_prompt": "📂 **फैन अपलोड इनबॉक्स**", "user_upload_prompt": "📤 **फाइल अपलोड**
-एडमिन को भेजें।",
-        "upload_success_user": "✅ एडमिन को भेजा!", "upload_limit_reached": "⚠️ अपलोड लिमिट 5/24h खत्म।",
-        "no_uploads": "📭 कोई अपलोड नहीं।", "stats_msg": "📊 **आपके आँकड़े:**
-• बाकी डाउनलोड: {}
-• बैच बाकी: {}",
-        "support_open": "💬 **सपोर्ट टिकट खोलें**
-एडमिन से सीधे चैट करें!", "support_btn": "💬 ओपन सपोर्ट"
+        "welcome": "MICHAELBBC VAULT me swagat hai! FB, INSTA, TIKTOK, X, YOUTUBE! Video, audio, image download karein!",
+        "btn_video": "Video (MP4)", "btn_audio": "Audio (MP3)", "btn_image": "Images", "btn_sub": "Subtitles",
+        "ask_format": "Format chunein!", "fetching": "Aapka {} la raha hoon...",
+        "error_generic": "Asafal! Link private hai!", "error_50mb": "Bahut bada! >50MB", "error_no_img": "Image nahi mili!",
+        "images_received": "{} image mili.", "select_lang": "Bhasha chunein!", "lang_set": "Bhasha set!",
+        "batch_detected": "Batch mila ({} links)", "batch_dest": "Kahan bhejein?",
+        "btn_chat": "Chat me", "btn_chan": "Channel me",
+        "limit_reached": "Limit khatam! 4 FREE istemal! Ad dekho -> +1 pao!",
+        "refill_btn": "Link kholo +1", "join_btn": "Channel join", "check_btn": "Balance dekho",
+        "limit_batch": "Batch limit {} / {}", "batch_start": "Batch shuru: {} {} files",
+        "batch_done": "Ho gaya! {} ok {} fail {} files yahan.", "batch_done_chan": "Ho gaya! {} ok {} fail {} files bheji!",
+        "dl_video": "Video download...", "dl_audio": "Audio nikal raha...", "dl_image": "Image le raha...", "dl_sub": "Subtitle...",
+        "failed_50": ">50MB", "failed_blocked": "Block/private", "failed_generic": "Asafal",
+        "menu_lang": "Bhasha", "menu_stats": "Mere aankde", "menu_help": "Sahayata", "menu_join": "Channel join",
+        "menu_uploads": "Fan upload", "menu_upload": "File upload",
+        "admin_upload_prompt": "Fan uploads inbox", "user_upload_prompt": "File upload Admin ko bhejein.",
+        "upload_success_user": "Admin ko bheja!", "upload_limit_reached": "Upload limit 5/24h khatam.",
+        "no_uploads": "Koi upload nahi.", "stats_msg": "Aapke aankde: Baki download: {} Batch baki: {}",
+        "support_open": "Support ticket kholein Admin se seedha chat karein!", "support_btn": "Open Support"
     },
     "ru": {
-        "welcome": "🚀 **ДОБРО ПОЖАЛОВАТЬ В MICHAELBBC VAULT! FB, INSTA, TIKTOK, X, YOUTUBE! 🚀✨**
-Скачивай видео, аудио, фото!",
-        "btn_video": "🎬 Видео (MP4)", "btn_audio": "🎵 Аудио (MP3)", "btn_image": "🖼️ Фото", "btn_sub": "📝 Субтитры",
-        "ask_format": "👇 **Выбери формат!**", "fetching": "📥 **Загружаю твой {}...**",
-        "error_generic": "❌ Ошибка! Ссылка приватная!", "error_50mb": "❌ Слишком большой! >50MB", "error_no_img": "❌ Фото не найдены!",
-        "images_received": "⏳ **{} фото получено.**", "select_lang": "🌍 Выбери язык!", "lang_set": "✅ Язык установлен!",
-        "batch_detected": "📦 **Обнаружен батч ({} ссылок)**", "batch_dest": "📦 **Куда отправить?**",
-        "btn_chat": "📥 В чат", "btn_chan": "📢 В канал",
-        "limit_reached": "⚠️ **Лимит! 4 FREE использовано! Смотри рекламу → +1!**",
-        "refill_btn": "🔓 Открыть ссылку +1", "join_btn": "📢 В канал", "check_btn": "💜 Баланс",
-        "limit_batch": "⚠️ **Лимит батча {} / {}**", "batch_start": "📦 **Батч начат:** {} **{} файлов**",
-        "batch_done": "🏁 **Готово!** ✅ {} ❌ {}
-📥 {} файлов здесь.", "batch_done_chan": "🏁 **Готово!** ✅ {} ❌ {}
-📢 {} файлов отправлено!",
-        "dl_video": "📥 Загружаю видео...", "dl_audio": "📥 Извлекаю аудио...", "dl_image": "📥 Собираю фото...", "dl_sub": "📥 Субтитры...",
-        "failed_50": "❌ >50MB", "failed_blocked": "❌ Блок/приват", "failed_generic": "❌ Ошибка",
-        "menu_lang": "🌍 Язык", "menu_stats": "📊 Моя статистика", "menu_help": "💬 Поддержка", "menu_join": "📢 В канал",
-        "menu_uploads": "🍿 Загрузки", "menu_upload": "📤 Загрузить файл",
-        "admin_upload_prompt": "📂 **Входящие**", "user_upload_prompt": "📤 **Загрузить**
-Отправь админу.",
-        "upload_success_user": "✅ Отправлено админу!", "upload_limit_reached": "⚠️ Лимит 5/24ч!",
-        "no_uploads": "📭 Нет загрузок.", "stats_msg": "📊 **Твоя статистика:**
-• Осталось: {}
-• Батч: {}",
-        "support_open": "💬 **Открыть поддержку**
-Чат напрямую с админом!", "support_btn": "💬 Открыть поддержку"
+        "welcome": "DOBRO POZHALOVAT V MICHAELBBC VAULT! FB, INSTA, TIKTOK, X, YOUTUBE! Skachivay video, audio, foto!",
+        "btn_video": "Video (MP4)", "btn_audio": "Audio (MP3)", "btn_image": "Foto", "btn_sub": "Subtitry",
+        "ask_format": "Vyberi format!", "fetching": "Zagruzhayu tvoy {}...",
+        "error_generic": "Oshibka! Ssylka privatnaya!", "error_50mb": "Slishkom bolshoy! >50MB", "error_no_img": "Foto ne naydeny!",
+        "images_received": "{} foto polucheno.", "select_lang": "Vyberi yazyk!", "lang_set": "Yazyk ustanovlen!",
+        "batch_detected": "Obnaruzhen batch ({} ssylok)", "batch_dest": "Kuda otpravit?",
+        "btn_chat": "V chat", "btn_chan": "V kanal",
+        "limit_reached": "Limit! 4 FREE ispolzovano! Smotri reklamu -> +1!",
+        "refill_btn": "Otkryt ssylku +1", "join_btn": "V kanal", "check_btn": "Balans",
+        "limit_batch": "Limit batcha {} / {}", "batch_start": "Batch nachat: {} {} faylov",
+        "batch_done": "Gotovo! {} ok {} fail {} faylov zdes.", "batch_done_chan": "Gotovo! {} ok {} fail {} faylov otpravleno!",
+        "dl_video": "Zagruzhayu video...", "dl_audio": "Izvlekayu audio...", "dl_image": "Sobirayu foto...", "dl_sub": "Subtitry...",
+        "failed_50": ">50MB", "failed_blocked": "Blok/privat", "failed_generic": "Oshibka",
+        "menu_lang": "Yazyk", "menu_stats": "Moya statistika", "menu_help": "Podderzhka", "menu_join": "V kanal",
+        "menu_uploads": "Zagruzki", "menu_upload": "Zagruzit fayl",
+        "admin_upload_prompt": "Vkhodyashchie", "user_upload_prompt": "Zagruzit Otprav adminu.",
+        "upload_success_user": "Otpravleno adminu!", "upload_limit_reached": "Limit 5/24ch!",
+        "no_uploads": "Net zagruzok.", "stats_msg": "Tvoya statistika: Ostalos: {} Batch: {}",
+        "support_open": "Otkryt podderzhku Chat napryamuyu s adminom!", "support_btn": "Otkryt podderzhku"
     },
     "pt": {
-        "welcome": "🚀 **BEM-VINDO AO MICHAELBBC VAULT! FB, INSTA, TIKTOK, X, YOUTUBE! 🚀✨**
-Baixe vídeos, áudios, imagens!",
-        "btn_video": "🎬 Vídeo (MP4)", "btn_audio": "🎵 Áudio (MP3)", "btn_image": "🖼️ Imagens", "btn_sub": "📝 Legendas",
-        "ask_format": "👇 **Escolha o formato!**", "fetching": "📥 **Buscando seu {}...**",
-        "error_generic": "❌ Erro! Link privado!", "error_50mb": "❌ Muito grande! >50MB", "error_no_img": "❌ Sem imagens!",
-        "images_received": "⏳ **{} imagens recebidas.**", "select_lang": "🌍 Escolha idioma!", "lang_set": "✅ Idioma definido!",
-        "batch_detected": "📦 **Lote detectado ({} links)**", "batch_dest": "📦 **Onde enviar?**",
-        "btn_chat": "📥 No chat", "btn_chan": "📢 No canal",
-        "limit_reached": "⚠️ **Limite! 4 GRÁTIS usados! Veja anúncio → +1!**",
-        "refill_btn": "🔓 Abrir link +1", "join_btn": "📢 Entrar canal", "check_btn": "💜 Saldo",
-        "limit_batch": "⚠️ **Limite lote {} / {}**", "batch_start": "📦 **Lote iniciado:** {} **{} arquivos**",
-        "batch_done": "🏁 **Feito!** ✅ {} ❌ {}
-📥 {} arquivos aqui.", "batch_done_chan": "🏁 **Feito!** ✅ {} ❌ {}
-📢 {} arquivos enviados!",
-        "dl_video": "📥 Baixando vídeo...", "dl_audio": "📥 Extraindo áudio...", "dl_image": "📥 Coletando imagens...", "dl_sub": "📥 Legendas...",
-        "failed_50": "❌ >50MB", "failed_blocked": "❌ Bloqueado/privado", "failed_generic": "❌ Falhou",
-        "menu_lang": "🌍 Idioma", "menu_stats": "📊 Minhas estatísticas", "menu_help": "💬 Suporte", "menu_join": "📢 Entrar canal",
-        "menu_uploads": "🍿 Uploads", "menu_upload": "📤 Upload arquivo",
-        "admin_upload_prompt": "📂 **Caixa de entrada**", "user_upload_prompt": "📤 **Upload**
-Envie ao admin.",
-        "upload_success_user": "✅ Enviado ao admin!", "upload_limit_reached": "⚠️ Limite 5/24h!",
-        "no_uploads": "📭 Sem uploads.", "stats_msg": "📊 **Suas estatísticas:**
-• Restam: {}
-• Lote: {}",
-        "support_open": "💬 **Abrir suporte**
-Chat direto com admin!", "support_btn": "💬 Abrir suporte"
+        "welcome": "BEM-VINDO AO MICHAELBBC VAULT! FB, INSTA, TIKTOK, X, YOUTUBE! Baixe videos, audios, imagens!",
+        "btn_video": "Video (MP4)", "btn_audio": "Audio (MP3)", "btn_image": "Imagens", "btn_sub": "Legendas",
+        "ask_format": "Escolha o formato!", "fetching": "Buscando seu {}...",
+        "error_generic": "Erro! Link privado!", "error_50mb": "Muito grande! >50MB", "error_no_img": "Sem imagens!",
+        "images_received": "{} imagens recebidas.", "select_lang": "Escolha idioma!", "lang_set": "Idioma definido!",
+        "batch_detected": "Lote detectado ({} links)", "batch_dest": "Onde enviar?",
+        "btn_chat": "No chat", "btn_chan": "No canal",
+        "limit_reached": "Limite! 4 GRATIS usados! Veja anuncio -> +1!",
+        "refill_btn": "Abrir link +1", "join_btn": "Entrar canal", "check_btn": "Saldo",
+        "limit_batch": "Limite lote {} / {}", "batch_start": "Lote iniciado: {} {} arquivos",
+        "batch_done": "Feito! {} ok {} fail {} arquivos aqui.", "batch_done_chan": "Feito! {} ok {} fail {} arquivos enviados!",
+        "dl_video": "Baixando video...", "dl_audio": "Extraindo audio...", "dl_image": "Coletando imagens...", "dl_sub": "Legendas...",
+        "failed_50": ">50MB", "failed_blocked": "Bloqueado/privado", "failed_generic": "Falhou",
+        "menu_lang": "Idioma", "menu_stats": "Minhas estatisticas", "menu_help": "Suporte", "menu_join": "Entrar canal",
+        "menu_uploads": "Uploads", "menu_upload": "Upload arquivo",
+        "admin_upload_prompt": "Caixa de entrada", "user_upload_prompt": "Upload Envie ao admin.",
+        "upload_success_user": "Enviado ao admin!", "upload_limit_reached": "Limite 5/24h!",
+        "no_uploads": "Sem uploads.", "stats_msg": "Suas estatisticas: Restam: {} Lote: {}",
+        "support_open": "Abrir suporte Chat direto com admin!", "support_btn": "Abrir suporte"
     },
     "id": {
-        "welcome": "🚀 **SELAMAT DATANG DI MICHAELBBC VAULT! FB, INSTA, TIKTOK, X, YOUTUBE! 🚀✨**
-Download video, audio, gambar!",
-        "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Gambar", "btn_sub": "📝 Subtitle",
-        "ask_format": "👇 **Pilih format!**", "fetching": "📥 **Mengambil {}...**",
-        "error_generic": "❌ Gagal! Link privat!", "error_50mb": "❌ Terlalu besar! >50MB", "error_no_img": "❌ Tidak ada gambar!",
-        "images_received": "⏳ **{} gambar diterima.**", "select_lang": "🌍 Pilih bahasa!", "lang_set": "✅ Bahasa diatur!",
-        "batch_detected": "📦 **Batch terdeteksi ({} tautan)**", "batch_dest": "📦 **Kirim ke mana?**",
-        "btn_chat": "📥 Di chat", "btn_chan": "📢 Ke channel",
-        "limit_reached": "⚠️ **Batas! 4 GRATIS habis! Tonton iklan → +1!**",
-        "refill_btn": "🔓 Buka tautan +1", "join_btn": "📢 Gabung channel", "check_btn": "💜 Cek saldo",
-        "limit_batch": "⚠️ **Batas batch {} / {}**", "batch_start": "📦 **Batch dimulai:** {} **{} file**",
-        "batch_done": "🏁 **Selesai!** ✅ {} ❌ {}
-📥 {} file di sini.", "batch_done_chan": "🏁 **Selesai!** ✅ {} ❌ {}
-📢 {} file diteruskan!",
-        "dl_video": "📥 Mengunduh video...", "dl_audio": "📥 Mengekstrak audio...", "dl_image": "📥 Mengumpulkan gambar...", "dl_sub": "📥 Subtitle...",
-        "failed_50": "❌ >50MB", "failed_blocked": "❌ Diblokir/privat", "failed_generic": "❌ Gagal",
-        "menu_lang": "🌍 Bahasa", "menu_stats": "📊 Statistik saya", "menu_help": "💬 Dukungan", "menu_join": "📢 Gabung channel",
-        "menu_uploads": "🍿 Upload", "menu_upload": "📤 Upload file",
-        "admin_upload_prompt": "📂 **Kotak masuk**", "user_upload_prompt": "📤 **Upload**
-Kirim ke admin.",
-        "upload_success_user": "✅ Terkirim ke admin!", "upload_limit_reached": "⚠️ Batas 5/24j!",
-        "no_uploads": "📭 Tidak ada upload.", "stats_msg": "📊 **Statistik:**
-• Sisa: {}
-• Batch: {}",
-        "support_open": "💬 **Buka dukungan**
-Chat langsung ke admin!", "support_btn": "💬 Buka dukungan"
+        "welcome": "SELAMAT DATANG DI MICHAELBBC VAULT! FB, INSTA, TIKTOK, X, YOUTUBE! Download video, audio, gambar!",
+        "btn_video": "Video (MP4)", "btn_audio": "Audio (MP3)", "btn_image": "Gambar", "btn_sub": "Subtitle",
+        "ask_format": "Pilih format!", "fetching": "Mengambil {}...",
+        "error_generic": "Gagal! Link privat!", "error_50mb": "Terlalu besar! >50MB", "error_no_img": "Tidak ada gambar!",
+        "images_received": "{} gambar diterima.", "select_lang": "Pilih bahasa!", "lang_set": "Bahasa diatur!",
+        "batch_detected": "Batch terdeteksi ({} tautan)", "batch_dest": "Kirim ke mana?",
+        "btn_chat": "Di chat", "btn_chan": "Ke channel",
+        "limit_reached": "Batas! 4 GRATIS habis! Tonton iklan -> +1!",
+        "refill_btn": "Buka tautan +1", "join_btn": "Gabung channel", "check_btn": "Cek saldo",
+        "limit_batch": "Batas batch {} / {}", "batch_start": "Batch dimulai: {} {} file",
+        "batch_done": "Selesai! {} ok {} fail {} file di sini.", "batch_done_chan": "Selesai! {} ok {} fail {} file diteruskan!",
+        "dl_video": "Mengunduh video...", "dl_audio": "Mengekstrak audio...", "dl_image": "Mengumpulkan gambar...", "dl_sub": "Subtitle...",
+        "failed_50": ">50MB", "failed_blocked": "Diblokir/privat", "failed_generic": "Gagal",
+        "menu_lang": "Bahasa", "menu_stats": "Statistik saya", "menu_help": "Dukungan", "menu_join": "Gabung channel",
+        "menu_uploads": "Upload", "menu_upload": "Upload file",
+        "admin_upload_prompt": "Kotak masuk", "user_upload_prompt": "Upload Kirim ke admin.",
+        "upload_success_user": "Terkirim ke admin!", "upload_limit_reached": "Batas 5/24j!",
+        "no_uploads": "Tidak ada upload.", "stats_msg": "Statistik: Sisa: {} Batch: {}",
+        "support_open": "Buka dukungan Chat langsung ke admin!", "support_btn": "Buka dukungan"
     },
     "es": {
-        "welcome": "🚀 **¡BIENVENIDO A MICHAELBBC VAULT! FB, INSTA, TIKTOK, X, YOUTUBE! 🚀✨**
-¡Descarga videos, audios, imágenes!",
-        "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Imágenes", "btn_sub": "📝 Subtítulos",
-        "ask_format": "👇 **¡Elige formato!**", "fetching": "📥 **Obteniendo tu {}...**",
-        "error_generic": "❌ ¡Error! ¡Link privado!", "error_50mb": "❌ ¡Muy grande! >50MB", "error_no_img": "❌ ¡Sin imágenes!",
-        "images_received": "⏳ **{} imágenes recibidas.**", "select_lang": "🌍 ¡Elige idioma!", "lang_set": "✅ ¡Idioma configurado!",
-        "batch_detected": "📦 **Lote detectado ({} enlaces)**", "batch_dest": "📦 **¿Dónde enviar?**",
-        "btn_chat": "📥 En chat", "btn_chan": "📢 Al canal",
-        "limit_reached": "⚠️ **¡Límite! ¡4 GRATIS usados! ¡Ve anuncio → +1!**",
-        "refill_btn": "🔓 Abrir enlace +1", "join_btn": "📢 Unirse canal", "check_btn": "💜 Saldo",
-        "limit_batch": "⚠️ **Límite lote {} / {}**", "batch_start": "📦 **Lote iniciado:** {} **{} archivos**",
-        "batch_done": "🏁 **¡Hecho!** ✅ {} ❌ {}
-📥 {} archivos aquí.", "batch_done_chan": "🏁 **¡Hecho!** ✅ {} ❌ {}
-📢 {} archivos enviados!",
-        "dl_video": "📥 Descargando video...", "dl_audio": "📥 Extrayendo audio...", "dl_image": "📥 Recolectando imágenes...", "dl_sub": "📥 Subtítulos...",
-        "failed_50": "❌ >50MB", "failed_blocked": "❌ Bloqueado/privado", "failed_generic": "❌ Falló",
-        "menu_lang": "🌍 Idioma", "menu_stats": "📊 Mis estadísticas", "menu_help": "💬 Soporte", "menu_join": "📢 Unirse canal",
-        "menu_uploads": "🍿 Subidas", "menu_upload": "📤 Subir archivo",
-        "admin_upload_prompt": "📂 **Bandeja entrada**", "user_upload_prompt": "📤 **Subir**
-Envía al admin.",
-        "upload_success_user": "✅ ¡Enviado al admin!", "upload_limit_reached": "⚠️ ¡Límite 5/24h!",
-        "no_uploads": "📭 Sin subidas.", "stats_msg": "📊 **Tus estadísticas:**
-• Restan: {}
-• Lote: {}",
-        "support_open": "💬 **Abrir soporte**
-¡Chat directo al admin!", "support_btn": "💬 Abrir soporte"
+        "welcome": "BIENVENIDO A MICHAELBBC VAULT! FB, INSTA, TIKTOK, X, YOUTUBE! Descarga videos, audios, imagenes!",
+        "btn_video": "Video (MP4)", "btn_audio": "Audio (MP3)", "btn_image": "Imagenes", "btn_sub": "Subtitulos",
+        "ask_format": "Elige formato!", "fetching": "Obteniendo tu {}...",
+        "error_generic": "Error! Link privado!", "error_50mb": "Muy grande! >50MB", "error_no_img": "Sin imagenes!",
+        "images_received": "{} imagenes recibidas.", "select_lang": "Elige idioma!", "lang_set": "Idioma configurado!",
+        "batch_detected": "Lote detectado ({} enlaces)", "batch_dest": "Donde enviar?",
+        "btn_chat": "En chat", "btn_chan": "Al canal",
+        "limit_reached": "Limite! 4 GRATIS usados! Ve anuncio -> +1!",
+        "refill_btn": "Abrir enlace +1", "join_btn": "Unirse canal", "check_btn": "Saldo",
+        "limit_batch": "Limite lote {} / {}", "batch_start": "Lote iniciado: {} {} archivos",
+        "batch_done": "Hecho! {} ok {} fail {} archivos aqui.", "batch_done_chan": "Hecho! {} ok {} fail {} archivos enviados!",
+        "dl_video": "Descargando video...", "dl_audio": "Extrayendo audio...", "dl_image": "Recolectando imagenes...", "dl_sub": "Subtitulos...",
+        "failed_50": ">50MB", "failed_blocked": "Bloqueado/privado", "failed_generic": "Fallo",
+        "menu_lang": "Idioma", "menu_stats": "Mis estadisticas", "menu_help": "Soporte", "menu_join": "Unirse canal",
+        "menu_uploads": "Subidas", "menu_upload": "Subir archivo",
+        "admin_upload_prompt": "Bandeja entrada", "user_upload_prompt": "Subir Envia al admin.",
+        "upload_success_user": "Enviado al admin!", "upload_limit_reached": "Limite 5/24h!",
+        "no_uploads": "Sin subidas.", "stats_msg": "Tus estadisticas: Restan: {} Lote: {}",
+        "support_open": "Abrir soporte Chat directo al admin!", "support_btn": "Abrir soporte"
     },
     "tr": {
-        "welcome": "🚀 **MICHAELBBC VAULT'A HOŞGELDİNİZ! FB, INSTA, TIKTOK, X, YOUTUBE! 🚀✨**
-Video, ses, resim indir!",
-        "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Ses (MP3)", "btn_image": "🖼️ Resimler", "btn_sub": "📝 Altyazı",
-        "ask_format": "👇 **Format seç!**", "fetching": "📥 **{} getiriliyor...**",
-        "error_generic": "❌ Hata! Link özel!", "error_50mb": "❌ Çok büyük! >50MB", "error_no_img": "❌ Resim yok!",
-        "images_received": "⏳ **{} resim alındı.**", "select_lang": "🌍 Dil seç!", "lang_set": "✅ Dil ayarlandı!",
-        "batch_detected": "📦 **Toplu tespit ({} link)**", "batch_dest": "📦 **Nereye gönderilsin?**",
-        "btn_chat": "📥 Sohbete", "btn_chan": "📢 Kanala",
-        "limit_reached": "⚠️ **Limit! 4 ÜCRETSİZ bitti! Reklam izle → +1!**",
-        "refill_btn": "🔓 Link aç +1", "join_btn": "📢 Kanala katıl", "check_btn": "💜 Bakiye",
-        "limit_batch": "⚠️ **Toplu limit {} / {}**", "batch_start": "📦 **Toplu başladı:** {} **{} dosya**",
-        "batch_done": "🏁 **Bitti!** ✅ {} ❌ {}
-📥 {} dosya burada.", "batch_done_chan": "🏁 **Bitti!** ✅ {} ❌ {}
-📢 {} dosya iletildi!",
-        "dl_video": "📥 Video indiriliyor...", "dl_audio": "📥 Ses çıkarılıyor...", "dl_image": "📥 Resimler toplanıyor...", "dl_sub": "📥 Altyazı...",
-        "failed_50": "❌ >50MB", "failed_blocked": "❌ Engelli/özel", "failed_generic": "❌ Başarısız",
-        "menu_lang": "🌍 Dil", "menu_stats": "📊 İstatistiklerim", "menu_help": "💬 Destek", "menu_join": "📢 Kanala katıl",
-        "menu_uploads": "🍿 Yüklemeler", "menu_upload": "📤 Dosya yükle",
-        "admin_upload_prompt": "📂 **Gelen kutusu**", "user_upload_prompt": "📤 **Yükle**
-Admin'e gönder.",
-        "upload_success_user": "✅ Admin'e gönderildi!", "upload_limit_reached": "⚠️ Limit 5/24s!",
-        "no_uploads": "📭 Yükleme yok.", "stats_msg": "📊 **İstatistik:**
-• Kalan: {}
-• Toplu: {}",
-        "support_open": "💬 **Destek aç**
-Admin ile doğrudan sohbet!", "support_btn": "💬 Destek aç"
+        "welcome": "MICHAELBBC VAULT'A HOSGELDINIZ! FB, INSTA, TIKTOK, X, YOUTUBE! Video, ses, resim indir!",
+        "btn_video": "Video (MP4)", "btn_audio": "Ses (MP3)", "btn_image": "Resimler", "btn_sub": "Altyazi",
+        "ask_format": "Format sec!", "fetching": "{} getiriliyor...",
+        "error_generic": "Hata! Link ozel!", "error_50mb": "Cok buyuk! >50MB", "error_no_img": "Resim yok!",
+        "images_received": "{} resim alindi.", "select_lang": "Dil sec!", "lang_set": "Dil ayarlandi!",
+        "batch_detected": "Toplu tespit ({} link)", "batch_dest": "Nereye gonderilsin?",
+        "btn_chat": "Sohbete", "btn_chan": "Kanala",
+        "limit_reached": "Limit! 4 UCRETSIZ bitti! Reklam izle -> +1!",
+        "refill_btn": "Link ac +1", "join_btn": "Kanala katil", "check_btn": "Bakiye",
+        "limit_batch": "Toplu limit {} / {}", "batch_start": "Toplu basladi: {} {} dosya",
+        "batch_done": "Bitti! {} ok {} fail {} dosya burada.", "batch_done_chan": "Bitti! {} ok {} fail {} dosya iletildi!",
+        "dl_video": "Video indiriliyor...", "dl_audio": "Ses cikariliyor...", "dl_image": "Resimler toplaniyor...", "dl_sub": "Altyazi...",
+        "failed_50": ">50MB", "failed_blocked": "Engelli/ozel", "failed_generic": "Basarisiz",
+        "menu_lang": "Dil", "menu_stats": "Istatistiklerim", "menu_help": "Destek", "menu_join": "Kanala katil",
+        "menu_uploads": "Yuklemeler", "menu_upload": "Dosya yukle",
+        "admin_upload_prompt": "Gelen kutusu", "user_upload_prompt": "Yukle Admin'e gonder.",
+        "upload_success_user": "Admin'e gonderildi!", "upload_limit_reached": "Limit 5/24s!",
+        "no_uploads": "Yukleme yok.", "stats_msg": "Istatistik: Kalan: {} Toplu: {}",
+        "support_open": "Destek ac Admin ile dogrudan sohbet!", "support_btn": "Destek ac"
     },
     "fa": {
-        "welcome": "🚀 **به MICHAELBBC VAULT خوش آمدید! FB, INSTA, TIKTOK, X, YOUTUBE! 🚀✨**
-ویدیو، صدا، عکس دانلود کنید!",
-        "btn_video": "🎬 ویدیو (MP4)", "btn_audio": "🎵 صدا (MP3)", "btn_image": "🖼️ عکس", "btn_sub": "📝 زیرنویس",
-        "ask_format": "👇 **فرمت انتخاب کنید!**", "fetching": "📥 **{} در حال دریافت...**",
-        "error_generic": "❌ خطا! لینک خصوصی!", "error_50mb": "❌ خیلی بزرگ! >50MB", "error_no_img": "❌ عکسی نیست!",
-        "images_received": "⏳ **{} عکس دریافت شد.**", "select_lang": "🌍 زبان انتخاب کنید!", "lang_set": "✅ زبان تنظیم شد!",
-        "batch_detected": "📦 **دسته تشخیص ({} لینک)**", "batch_dest": "📦 **کجا ارسال شود؟**",
-        "btn_chat": "📥 در چت", "btn_chan": "📢 به کانال",
-        "limit_reached": "⚠️ **محدودیت! 4 رایگان تمام! تبلیغ ببین → +1!**",
-        "refill_btn": "🔓 لینک باز کن +1", "join_btn": "📢 عضو کانال", "check_btn": "💜 موجودی",
-        "limit_batch": "⚠️ **محدودیت دسته {} / {}**", "batch_start": "📦 **دسته شروع:** {} **{} فایل**",
-        "batch_done": "🏁 **تمام!** ✅ {} ❌ {}
-📥 {} فایل اینجا.", "batch_done_chan": "🏁 **تمام!** ✅ {} ❌ {}
-📢 {} فایل ارسال شد!",
-        "dl_video": "📥 ویدیو در حال دانلود...", "dl_audio": "📥 صدا استخراج...", "dl_image": "📥 عکس جمع آوری...", "dl_sub": "📥 زیرنویس...",
-        "failed_50": "❌ >50MB", "failed_blocked": "❌ مسدود/خصوصی", "failed_generic": "❌ ناموفق",
-        "menu_lang": "🌍 زبان", "menu_stats": "📊 آمار من", "menu_help": "💬 پشتیبانی", "menu_join": "📢 عضو کانال",
-        "menu_uploads": "🍿 آپلودها", "menu_upload": "📤 آپلود فایل",
-        "admin_upload_prompt": "📂 **صندوق ورودی**", "user_upload_prompt": "📤 **آپلود**
-به ادمین بفرست.",
-        "upload_success_user": "✅ به ادمین ارسال شد!", "upload_limit_reached": "⚠️ محدودیت 5/24ساعت!",
-        "no_uploads": "📭 آپلودی نیست.", "stats_msg": "📊 **آمار:**
-• باقی: {}
-• دسته: {}",
-        "support_open": "💬 **پشتیبانی باز کن**
-چت مستقیم با ادمین!", "support_btn": "💬 باز کردن پشتیبانی"
+        "welcome": "Be MICHAELBBC VAULT khosh amadid! FB, INSTA, TIKTOK, X, YOUTUBE! Video, seda, aks download konid!",
+        "btn_video": "Video (MP4)", "btn_audio": "Seda (MP3)", "btn_image": "Aks", "btn_sub": "Zirnevis",
+        "ask_format": "Format entekhab konid!", "fetching": "{} dar hal daryaft...",
+        "error_generic": "Khata! Link khosusi!", "error_50mb": "Kheyli bozorg! >50MB", "error_no_img": "Aksi nist!",
+        "images_received": "{} aks daryaft shod.", "select_lang": "Zaban entekhab konid!", "lang_set": "Zaban tanzim shod!",
+        "batch_detected": "Daste tashkhis ({} link)", "batch_dest": "Koja ersal shavad?",
+        "btn_chat": "Dar chat", "btn_chan": "Be kanal",
+        "limit_reached": "Mahdudiyat! 4 rayegan tamam! Tabligh bebin -> +1!",
+        "refill_btn": "Link baz kon +1", "join_btn": "Ozve kanal", "check_btn": "Mojudi",
+        "limit_batch": "Mahdudiyat daste {} / {}", "batch_start": "Daste shoru: {} {} file",
+        "batch_done": "Tamam! {} ok {} fail {} file inja.", "batch_done_chan": "Tamam! {} ok {} fail {} file ersal shod!",
+        "dl_video": "Video dar hal download...", "dl_audio": "Seda estekhraj...", "dl_image": "Aks jam avari...", "dl_sub": "Zirnevis...",
+        "failed_50": ">50MB", "failed_blocked": "Masdud/khosusi", "failed_generic": "Namovafagh",
+        "menu_lang": "Zaban", "menu_stats": "Amar man", "menu_help": "Poshtibani", "menu_join": "Ozve kanal",
+        "menu_uploads": "Uploadha", "menu_upload": "Upload file",
+        "admin_upload_prompt": "Sandughe vorudi", "user_upload_prompt": "Upload Be admin befrest.",
+        "upload_success_user": "Be admin ersal shod!", "upload_limit_reached": "Mahdudiyat 5/24saat!",
+        "no_uploads": "Uploadi nist.", "stats_msg": "Amar: Baghi: {} Daste: {}",
+        "support_open": "Poshtibani baz kon Chat mostaghim ba admin!", "support_btn": "Baz kardan poshtibani"
     },
     "ar": {
-        "welcome": "🚀 **مرحبا في MICHAELBBC VAULT! FB, INSTA, TIKTOK, X, YOUTUBE! 🚀✨**
-حمّل فيديو، صوت، صور!",
-        "btn_video": "🎬 فيديو (MP4)", "btn_audio": "🎵 صوت (MP3)", "btn_image": "🖼️ صور", "btn_sub": "📝 ترجمة",
-        "ask_format": "👇 **اختر الصيغة!**", "fetching": "📥 **جلب {}...**",
-        "error_generic": "❌ خطأ! الرابط خاص!", "error_50mb": "❌ كبير جدا! >50MB", "error_no_img": "❌ لا صور!",
-        "images_received": "⏳ **تم استلام {} صور.**", "select_lang": "🌍 اختر اللغة!", "lang_set": "✅ تم ضبط اللغة!",
-        "batch_detected": "📦 **تم كشف دفعة ({} رابط)**", "batch_dest": "📦 **أين ترسل؟**",
-        "btn_chat": "📥 في الدردشة", "btn_chan": "📢 إلى القناة",
-        "limit_reached": "⚠️ **الحد! 4 مجاني انتهت! شاهد إعلان → +1!**",
-        "refill_btn": "🔓 افتح الرابط +1", "join_btn": "📢 انضم للقناة", "check_btn": "💜 الرصيد",
-        "limit_batch": "⚠️ **حد الدفعة {} / {}**", "batch_start": "📦 **بدأت الدفعة:** {} **{} ملفات**",
-        "batch_done": "🏁 **انتهى!** ✅ {} ❌ {}
-📥 {} ملفات هنا.", "batch_done_chan": "🏁 **انتهى!** ✅ {} ❌ {}
-📢 {} ملفات أرسلت!",
-        "dl_video": "📥 تحميل فيديو...", "dl_audio": "📥 استخراج صوت...", "dl_image": "📥 جمع صور...", "dl_sub": "📥 ترجمة...",
-        "failed_50": "❌ >50MB", "failed_blocked": "❌ محظور/خاص", "failed_generic": "❌ فشل",
-        "menu_lang": "🌍 اللغة", "menu_stats": "📊 إحصائياتي", "menu_help": "💬 الدعم", "menu_join": "📢 انضم للقناة",
-        "menu_uploads": "🍿 الرفع", "menu_upload": "📤 رفع ملف",
-        "admin_upload_prompt": "📂 **صندوق الوارد**", "user_upload_prompt": "📤 **رفع**
-أرسل للمسؤول.",
-        "upload_success_user": "✅ أرسل للمسؤول!", "upload_limit_reached": "⚠️ حد 5/24س!",
-        "no_uploads": "📭 لا رفع.", "stats_msg": "📊 **إحصائياتي:**
-• المتبقي: {}
-• الدفعة: {}",
-        "support_open": "💬 **افتح الدعم**
-دردشة مباشرة مع المسؤول!", "support_btn": "💬 افتح الدعم"
+        "welcome": "Marhaban fi MICHAELBBC VAULT! FB, INSTA, TIKTOK, X, YOUTUBE! Hammil video, sawt, suwar!",
+        "btn_video": "Video (MP4)", "btn_audio": "Sawt (MP3)", "btn_image": "Suwar", "btn_sub": "Tarjama",
+        "ask_format": "Ikhtar sigha!", "fetching": "Jalb {}...",
+        "error_generic": "Khata! Rabit khass!", "error_50mb": "Kabir jiddan! >50MB", "error_no_img": "La suwar!",
+        "images_received": "Tamma istilam {} suwar.", "select_lang": "Ikhtar lugha!", "lang_set": "Tamma dabt lugha!",
+        "batch_detected": "Tamma kashf daf'a ({} rabit)", "batch_dest": "Ayna turسل?",
+        "btn_chat": "Fi dardasha", "btn_chan": "Ila qanat",
+        "limit_reached": "Hadd! 4 majani intahat! Shahid i'lan -> +1!",
+        "refill_btn": "Iftah rabit +1", "join_btn": "Indam lilqanat", "check_btn": "Rasid",
+        "limit_batch": "Hadd daf'a {} / {}", "batch_start": "Bada'at daf'a: {} {} milafat",
+        "batch_done": "Intaha! {} ok {} fail {} milafat huna.", "batch_done_chan": "Intaha! {} ok {} fail {} milafat ursilat!",
+        "dl_video": "Tahmil video...", "dl_audio": "Istikhraj sawt...", "dl_image": "Jam' suwar...", "dl_sub": "Tarjama...",
+        "failed_50": ">50MB", "failed_blocked": "Mahzur/khass", "failed_generic": "Fashal",
+        "menu_lang": "Lugha", "menu_stats": "Ihsa'iyati", "menu_help": "Da'm", "menu_join": "Indam lilqanat",
+        "menu_uploads": "Raf'", "menu_upload": "Raf' milaf",
+        "admin_upload_prompt": "Sanduq warid", "user_upload_prompt": "Raf' Arsil lilmas'ul.",
+        "upload_success_user": "Ursila lilmas'ul!", "upload_limit_reached": "Hadd 5/24sa!",
+        "no_uploads": "La raf'.", "stats_msg": "Ihsa'iyati: Almutabaqi: {} Daf'a: {}",
+        "support_open": "Iftah da'm Dardasha mubashara ma' almas'ul!", "support_btn": "Iftah da'm"
     },
     "fr": {
-        "welcome": "🚀 **BIENVENUE À MICHAELBBC VAULT! FB, INSTA, TIKTOK, X, YOUTUBE! 🚀✨**
-Télécharge vidéos, audios, images!",
-        "btn_video": "🎬 Vidéo (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Images", "btn_sub": "📝 Sous-titres",
-        "ask_format": "👇 **Choisis le format!**", "fetching": "📥 **Récupération de ton {}...**",
-        "error_generic": "❌ Oups! Échec! Lien privé!", "error_50mb": "❌ Trop gros! >50MB", "error_no_img": "❌ Pas d'images!",
-        "images_received": "⏳ **{} images reçues.**", "select_lang": "🌍 Choisis langue! Top 10 nations TG!", "lang_set": "✅ Langue définie!",
-        "batch_detected": "📦 **Lot détecté ({} liens)**", "batch_dest": "📦 **Où envoyer?**",
-        "btn_chat": "📥 Dans chat", "btn_chan": "📢 Au canal",
-        "limit_reached": "⚠️ **Limite! 4 GRATUIT utilisés! Regarde pub → +1!**",
-        "refill_btn": "🔓 Ouvrir lien +1", "join_btn": "📢 Rejoindre canal", "check_btn": "💜 Solde",
-        "limit_batch": "⚠️ **Limite lot {} / {}**", "batch_start": "📦 **Lot commencé:** {} **{} fichiers**",
-        "batch_done": "🏁 **Fini!** ✅ {} ❌ {}
-📥 {} fichiers ici.", "batch_done_chan": "🏁 **Fini!** ✅ {} ❌ {}
-📢 {} fichiers envoyés!",
-        "dl_video": "📥 Téléchargement vidéo...", "dl_audio": "📥 Extraction audio...", "dl_image": "📥 Collecte images...", "dl_sub": "📥 Sous-titres...",
-        "failed_50": "❌ >50MB", "failed_blocked": "❌ Bloqué/privé", "failed_generic": "❌ Échoué",
-        "menu_lang": "🌍 Langue", "menu_stats": "📊 Mes stats", "menu_help": "💬 Support", "menu_join": "📢 Rejoindre canal",
-        "menu_uploads": "🍿 Uploads", "menu_upload": "📤 Upload fichier",
-        "admin_upload_prompt": "📂 **Boîte réception**", "user_upload_prompt": "📤 **Upload**
-Envoie à l'admin.",
-        "upload_success_user": "✅ Envoyé à l'admin!", "upload_limit_reached": "⚠️ Limite 5/24h!",
-        "no_uploads": "📭 Pas d'uploads.", "stats_msg": "📊 **Tes stats:**
-• Restants: {}
-• Lot: {}",
-        "support_open": "💬 **Ouvrir support**
-Chat direct avec admin!", "support_btn": "💬 Ouvrir support"
+        "welcome": "BIENVENUE A MICHAELBBC VAULT! FB, INSTA, TIKTOK, X, YOUTUBE! Telecharge videos, audios, images!",
+        "btn_video": "Video (MP4)", "btn_audio": "Audio (MP3)", "btn_image": "Images", "btn_sub": "Sous-titres",
+        "ask_format": "Choisis le format!", "fetching": "Recuperation de ton {}...",
+        "error_generic": "Oups! Echec! Lien prive!", "error_50mb": "Trop gros! >50MB", "error_no_img": "Pas d'images!",
+        "images_received": "{} images recues.", "select_lang": "Choisis langue! Top 10 nations TG!", "lang_set": "Langue definie!",
+        "batch_detected": "Lot detecte ({} liens)", "batch_dest": "Ou envoyer?",
+        "btn_chat": "Dans chat", "btn_chan": "Au canal",
+        "limit_reached": "Limite! 4 GRATUIT utilises! Regarde pub -> +1!",
+        "refill_btn": "Ouvrir lien +1", "join_btn": "Rejoindre canal", "check_btn": "Solde",
+        "limit_batch": "Limite lot {} / {}", "batch_start": "Lot commence: {} {} fichiers",
+        "batch_done": "Fini! {} ok {} fail {} fichiers ici.", "batch_done_chan": "Fini! {} ok {} fail {} fichiers envoyes!",
+        "dl_video": "Telechargement video...", "dl_audio": "Extraction audio...", "dl_image": "Collecte images...", "dl_sub": "Sous-titres...",
+        "failed_50": ">50MB", "failed_blocked": "Bloque/prive", "failed_generic": "Echoue",
+        "menu_lang": "Langue", "menu_stats": "Mes stats", "menu_help": "Support", "menu_join": "Rejoindre canal",
+        "menu_uploads": "Uploads", "menu_upload": "Upload fichier",
+        "admin_upload_prompt": "Boite reception", "user_upload_prompt": "Upload Envoie a l'admin.",
+        "upload_success_user": "Envoye a l'admin!", "upload_limit_reached": "Limite 5/24h!",
+        "no_uploads": "Pas d'uploads.", "stats_msg": "Tes stats: Restants: {} Lot: {}",
+        "support_open": "Ouvrir support Chat direct avec admin!", "support_btn": "Ouvrir support"
     }
 }
+
 
 
 web_app = Flask(__name__)
