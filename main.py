@@ -85,7 +85,6 @@ LANGUAGES = {
         "batch_detected": "📦 **Batch Detected ({} links)**\nWhat format?",
         "batch_dest": "📦 **Where to send?**",
         "btn_chat": "📥 In Chat", "btn_chan": "📢 To Channel",
-        # CLAUSE 12 FIX: Changed 30s to 20s and +4 to +1 optimum realistic reward
         "limit_reached": "⚠️ **Limit Reached! 🚧😅 You used 4 FREE! 🎬 Watch 20s ad → Get +1 download! Realistic reward ♻️✨**",
         "refill_btn": "🔓 Open Link & Refill +1",
         "join_btn": "📢 Join Channel", "check_btn": "💜 Check Balance",
@@ -103,6 +102,176 @@ LANGUAGES = {
         "upload_limit_reached": "⚠️ Upload limit 5/24h reached.",
         "no_uploads": "📭 No uploads yet.",
         "stats_msg": "📊 **Your Stats:**\n• Downloads Left: {}\n• Batch Left: {}"
+    },
+    "es": {
+        "welcome": "🚀 **¡BIENVENIDO A MICHAELBBC VAULT - DESCARGADOR DE MEDIOS! 🚀✨**\n\n👉 ¡Envía cualquier enlace de TikTok, Facebook, Instagram, Twitter/X para empezar! 👇",
+        "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Imágenes", "btn_sub": "📝 Subtítulos",
+        "ask_format": "👇 ¡Elige el formato deseado abajo!", "fetching": "📥 Descargando {}...", "error_generic": "❌ ¡Error! Enlace privado o bloqueado.",
+        "error_50mb": "❌ ¡Muy grande! Límite de 50MB.", "error_no_img": "❌ ¡No se encontraron imágenes!", "images_received": "⏳ **{} Imágenes recibidas.**",
+        "select_lang": "🌍 ¡Selecciona tu idioma! 👇", "lang_set": "✅ ¡Idioma configurado!", "batch_detected": "📦 Lote detectado ({} enlaces)",
+        "batch_dest": "📦 ¿Dónde enviar?", "btn_chat": "📥 En chat", "btn_chan": "📢 Al canal",
+        "limit_reached": "⚠️ ¡Límite alcanzado! Mira el anuncio para obtener +1 descarga.", "refill_btn": "🔓 Abrir enlace y recargar +1",
+        "join_btn": "📢 Unirse al canal", "check_btn": "💜 Verificar saldo", "limit_batch": "⚠️ Límite de lote alcanzado en {} de {}",
+        "batch_start": "📦 Lote iniciado: {} **{} archivos**", "batch_done": "🏁 ¡Listo! ✅ {} ❌ {}", "batch_done_chan": "🏁 ¡Listo! ✅ {} ❌ {}",
+        "dl_video": "📥 Descargando video...", "dl_audio": "📥 Extrayendo audio...", "dl_image": "📥 Obteniendo imágenes...", "dl_sub": "📥 Obteniendo subtítulos...",
+        "failed_50": "❌ >50MB", "failed_blocked": "❌ Bloqueado", "failed_generic": "❌ Fallido",
+        "menu_lang": "🌍 Idioma", "menu_stats": "📊 Mis estadísticas", "menu_help": "💬 Soporte", "menu_join": "📢 Unirse",
+        "menu_uploads": "🍿 Subidas", "menu_upload": "📤 Subir archivo", "admin_upload_prompt": "📂 Bandeja de entrada",
+        "user_upload_prompt": "📤 Subir archivo", "upload_success_user": "✅ ¡Enviado al administrador!", "upload_limit_reached": "⚠️ Límite alcanzado.",
+        "no_uploads": "📭 Sin subidas.", "stats_msg": "📊 **Tus estadísticas:**\n• Descargas restantes: {}\n• Lote restante: {}"
+    },
+    "fr": {
+        "welcome": "🚀 **BIENVENUE SUR MICHAELBBC VAULT - TÉLÉCHARGEUR! 🚀✨**\n\n👉 Collez n'importe quel lien TikTok, FB, Insta, X pour commencer! 👇",
+        "btn_video": "🎬 Vidéo (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Images", "btn_sub": "📝 Sous-titres",
+        "ask_format": "👇 Choisissez le format ci-dessous !", "fetching": "📥 Téléchargement de {}...", "error_generic": "❌ Erreur ! Lien privé ou bloqué.",
+        "error_50mb": "❌ Trop grand ! Limite de 50 Mo.", "error_no_img": "❌ Aucune image trouvée !", "images_received": "⏳ **{} Images reçues.**",
+        "select_lang": "🌍 Sélectionnez votre langue ! 👇", "lang_set": "✅ Langue enregistrée !", "batch_detected": "📦 Lot détecté ({} liens)",
+        "batch_dest": "📦 Où envoyer ?", "btn_chat": "📥 Dans le chat", "btn_chan": "📢 Vers le canal",
+        "limit_reached": "⚠️ Limite atteinte ! Regardez l'annonce pour +1 téléchargement.", "refill_btn": "🔓 Ouvrir le lien & Recharger +1",
+        "join_btn": "📢 Rejoindre le canal", "check_btn": "💜 Vérifier le solde", "limit_batch": "⚠️ Limite de lot atteinte à {} sur {}",
+        "batch_start": "📦 Lot démarré : {} **{} fichiers**", "batch_done": "🏁 Terminé ! ✅ {} ❌ {}", "batch_done_chan": "🏁 Terminé ! ✅ {} ❌ {}",
+        "dl_video": "📥 Téléchargement vidéo...", "dl_audio": "📥 Extraction audio...", "dl_image": "📥 Collecte images...", "dl_sub": "📥 Collecte sous-titres...",
+        "failed_50": "❌ >50Mo", "failed_blocked": "❌ Bloqué", "failed_generic": "❌ Échoué",
+        "menu_lang": "🌍 Langue", "menu_stats": "📊 Mes stats", "menu_help": "💬 Support", "menu_join": "📢 Rejoindre",
+        "menu_uploads": "🍿 UPLOADS", "menu_upload": "📤 Envoyer", "admin_upload_prompt": "📂 Boîte de réception",
+        "user_upload_prompt": "📤 Envoyer un fichier", "upload_success_user": "✅ Envoyé à l'admin !", "upload_limit_reached": "⚠️ Limite atteinte.",
+        "no_uploads": "📭 Aucun upload.", "stats_msg": "📊 **Vos stats :**\n• Téléchargements restants : {}\n• Lot restant : {}"
+    },
+    "de": {
+        "welcome": "🚀 **WILLKOMMEN BEI MICHAELBBC VAULT! 🚀✨**\n\n👉 Füge einen TikTok-, FB-, Insta- oder X-Link ein, um zu beginnen! 👇",
+        "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Bilder", "btn_sub": "📝 Untertitel",
+        "ask_format": "👇 Wähle unten das Format aus!", "fetching": "📥 Lade {} herunter...", "error_generic": "❌ Fehler! Privat oder blockiert.",
+        "error_50mb": "❌ Zu groß! 50MB Limit.", "error_no_img": "❌ Keine Bilder gefunden!", "images_received": "⏳ **{} Bilder erhalten.**",
+        "select_lang": "🌍 Wähle deine Sprache! 👇", "lang_set": "✅ Sprache gespeichert!", "batch_detected": "📦 Stapel erkannt ({} Links)",
+        "batch_dest": "📦 Wohin senden?", "btn_chat": "📥 Im Chat", "btn_chan": "📢 Zum Kanal",
+        "limit_reached": "⚠️ Limit erreicht! Werbevideo ansehen für +1 Download.", "refill_btn": "🔓 Link öffnen & +1",
+        "join_btn": "📢 Kanal beitreten", "check_btn": "💜 Guthaben prüfen", "limit_batch": "⚠️ Stapellimit bei {} von {} erreicht",
+        "batch_start": "📦 Stapel gestartet: {} **{} Dateien**", "batch_done": "🏁 Fertig! ✅ {} ❌ {}", "batch_done_chan": "🏁 Fertig! ✅ {} ❌ {}",
+        "dl_video": "📥 Lade Video...", "dl_audio": "📥 Extrahiere Audio...", "dl_image": "📥 Lade Bilder...", "dl_sub": "📥 Lade Untertitel...",
+        "failed_50": "❌ >50MB", "failed_blocked": "❌ Blockiert", "failed_generic": "❌ Fehlgeschlagen",
+        "menu_lang": "🌍 Sprache", "menu_stats": "📊 Meine Stats", "menu_help": "💬 Hilfe", "menu_join": "📢 Kanal",
+        "menu_uploads": "🍿 Uploads", "menu_upload": "📤 Datei senden", "admin_upload_prompt": "📂 Posteingang",
+        "user_upload_prompt": "📤 Datei senden", "upload_success_user": "✅ An Admin gesendet!", "upload_limit_reached": "⚠️ Limit erreicht.",
+        "no_uploads": "📭 Keine Uploads.", "stats_msg": "📊 **Deine Stats:**\n• Verbleibende Downloads: {}\n• Stapel verbleibend: {}"
+    },
+    "pt": {
+        "welcome": "🚀 **BEM-VINDO AO MICHAELBBC VAULT! 🚀✨**\n\n👉 Cole qualquer link do TikTok, FB, Insta, X para começar! 👇",
+        "btn_video": "🎬 Vídeo (MP4)", "btn_audio": "🎵 Áudio (MP3)", "btn_image": "🖼️ Imagens", "btn_sub": "📝 Legendas",
+        "ask_format": "👇 Escolha o formato abaixo!", "fetching": "📥 Baixando {}...", "error_generic": "❌ Erro! Link privado ou bloqueado.",
+        "error_50mb": "❌ Muito grande! Limite de 50MB.", "error_no_img": "❌ Nenhuma imagem encontrada!", "images_received": "⏳ **{} Imagens recebidas.**",
+        "select_lang": "🌍 Selecione seu idioma! 👇", "lang_set": "✅ Idioma definido!", "batch_detected": "📦 Lote detectado ({} links)",
+        "batch_dest": "📦 Onde enviar?", "btn_chat": "📥 No chat", "btn_chan": "📢 Para o canal",
+        "limit_reached": "⚠️ Limite atingido! Assista ao anúncio para +1 download.", "refill_btn": "🔓 Abrir link e recarregar +1",
+        "join_btn": "📢 Entrar no canal", "check_btn": "💜 Verificar saldo", "limit_batch": "⚠️ Limite de lote atingido em {} de {}",
+        "batch_start": "📦 Lote iniciado: {} **{} arquivos**", "batch_done": "🏁 Concluído! ✅ {} ❌ {}", "batch_done_chan": "🏁 Concluído! ✅ {} ❌ {}",
+        "dl_video": "📥 Baixando vídeo...", "dl_audio": "📥 Extraindo áudio...", "dl_image": "📥 Coletando imagens...", "dl_sub": "📥 Coletando legendas...",
+        "failed_50": "❌ >50MB", "failed_blocked": "❌ Bloqueado", "failed_generic": "❌ Falhou",
+        "menu_lang": "🌍 Idioma", "menu_stats": "📊 Minhas estatísticas", "menu_help": "💬 Suporte", "menu_join": "📢 Canal",
+        "menu_uploads": "🍿 Uploads", "menu_upload": "📤 Enviar arquivo", "admin_upload_prompt": "📂 Caixa de entrada",
+        "user_upload_prompt": "📤 Enviar arquivo", "upload_success_user": "✅ Enviado ao admin!", "upload_limit_reached": "⚠️ Limite atingido.",
+        "no_uploads": "📭 Sem uploads.", "stats_msg": "📊 **Suas estatísticas:**\n• Downloads restantes: {}\n• Lote restante: {}"
+    },
+    "ru": {
+        "welcome": "🚀 **ДОБРО ПОЖАЛОВАТЬ В MICHAELBBC VAULT! 🚀✨**\n\n👉 Отправьте ссылку TikTok, FB, Insta, X чтобы начать! 👇",
+        "btn_video": "🎬 Видео (MP4)", "btn_audio": "🎵 Аудио (MP3)", "btn_image": "🖼️ Картинки", "btn_sub": "📝 Субтитры",
+        "ask_format": "👇 Выберите формат ниже!", "fetching": "📥 Загрузка {}...", "error_generic": "❌ Ошибка! Ссылка недоступна.",
+        "error_50mb": "❌ Слишком большой файл (>50MB).", "error_no_img": "❌ Картинки не найдены!", "images_received": "⏳ **Получено картинок: {}.**",
+        "select_lang": "🌍 Выберите язык! 👇", "lang_set": "✅ Язык изменен!", "batch_detected": "📦 Найдено ссылок: {}",
+        "batch_dest": "📦 Куда отправить?", "btn_chat": "📥 В чат", "btn_chan": "📢 В канал",
+        "limit_reached": "⚠️ Лимит исчерпан! Посмотрите рекламу для получения +1 загрузки.", "refill_btn": "🔓 Открыть ссылку и получить +1",
+        "join_btn": "📢 Наш канал", "check_btn": "💜 Проверить баланс", "limit_batch": "⚠️ Лимит пакета достигнут на {} из {}",
+        "batch_start": "📦 Пакет запущен: {} **{} файлов**", "batch_done": "🏁 Готово! ✅ {} ❌ {}", "batch_done_chan": "🏁 Готово! ✅ {} ❌ {}",
+        "dl_video": "📥 Загрузка видео...", "dl_audio": "📥 Извлечение аудио...", "dl_image": "📥 Сбор картинок...", "dl_sub": "📥 Сбор субтитров...",
+        "failed_50": "❌ >50MB", "failed_blocked": "❌ Заблокировано", "failed_generic": "❌ Ошибка",
+        "menu_lang": "🌍 Язык", "menu_stats": "📊 Статистика", "menu_help": "💬 Помощь", "menu_join": "📢 Канал",
+        "menu_uploads": "🍿 Загрузки", "menu_upload": "📤 Загрузить файл", "admin_upload_prompt": "📂 Входящие",
+        "user_upload_prompt": "📤 Загрузить файл", "upload_success_user": "✅ Отправлено администратору!", "upload_limit_reached": "⚠️ Лимит исчерпан.",
+        "no_uploads": "📭 Нет загрузок.", "stats_msg": "📊 **Ваша статистика:**\n• Осталось загрузок: {}\n• Пакет: {}"
+    },
+    "ar": {
+        "welcome": "🚀 **أهلاً بك في ميشائيل بي بي سي فالت! 🚀✨**\n\n👉 أرسل أي رابط من تيك توك، فيسبوك، إنستغرام، أو إكس للبدء! 👇",
+        "btn_video": "🎬 فيديو (MP4)", "btn_audio": "🎵 صوت (MP3)", "btn_image": "🖼️ صور", "btn_sub": "📝 ترجمة",
+        "ask_format": "👇 اختر الصيغة أدناه!", "fetching": "📥 جاري جلب {}...", "error_generic": "❌ خطأ! الرابط خاص أو محظور.",
+        "error_50mb": "❌ الملف كبير جداً (>50MB).", "error_no_img": "❌ لم يتم العثور على صور!", "images_received": "⏳ **تم استلام {} صور.**",
+        "select_lang": "🌍 اختر لغتك! 👇", "lang_set": "✅ تم ضبط اللغة!", "batch_detected": "📦 تم اكتشاف مجموعة ({} روابط)",
+        "batch_dest": "📦 أين تريد الإرسال؟", "btn_chat": "📥 في المحادثة", "btn_chan": "📢 إلى القناة",
+        "limit_reached": "⚠️ تم بلوغ الحد الأقصى! شاهد الإعلان للحصول على +1 تحميل.", "refill_btn": "🔓 فتح الرابط والتحديث +1",
+        "join_btn": "📢 انضم للقناة", "check_btn": "💜 تحقق من الرصيد", "limit_batch": "⚠️ وصل حد المجموعة إلى {} من {}",
+        "batch_start": "📦 بدأت المجموعة: {} **{} ملفات**", "batch_done": "🏁 تم! ✅ {} ❌ {}", "batch_done_chan": "🏁 تم! ✅ {} ❌ {}",
+        "dl_video": "📥 جاري تحميل الفيديو...", "dl_audio": "📥 جاري استخراج الصوت...", "dl_image": "📥 جاري جلب الصور...", "dl_sub": "📥 جاري جلب الترجمة...",
+        "failed_50": "❌ >50MB", "failed_blocked": "❌ محظور", "failed_generic": "❌ فشل",
+        "menu_lang": "🌍 اللغة", "menu_stats": "📊 إحصائياتي", "menu_help": "💬 الدعم", "menu_join": "📢 قناة",
+        "menu_uploads": "🍿 التحميلات", "menu_upload": "📤 رفع ملف", "admin_upload_prompt": "📂 الوارد",
+        "user_upload_prompt": "📤 رفع ملف", "upload_success_user": "✅ تم الإرسال للإدارة!", "upload_limit_reached": "⚠️ بلغ الحد الأقصى.",
+        "no_uploads": "📭 لا توجد تحميلات.", "stats_msg": "📊 **إحصائياتك:**\n• التحميلات المتبقية: {}\n• المجموعة المتبقية: {}"
+    },
+    "hi": {
+        "welcome": "🚀 **MICHAELBBC VAULT में आपका स्वागत है! 🚀✨**\n\n👉 शुरू करने के लिए TikTok, FB, Insta, X का कोई भी लिंक भेजें! 👇",
+        "btn_video": "🎬 वीडियो (MP4)", "btn_audio": "🎵 ऑडियो (MP3)", "btn_image": "🖼️ इमेज", "btn_sub": "📝 सबटाइटल",
+        "ask_format": "👇 नीचे प्रारूप चुनें!", "fetching": "📥 {} डाउनलोड हो रहा है...", "error_generic": "❌ त्रुटि! लिंक निजी या अवरुद्ध है।",
+        "error_50mb": "❌ बहुत बड़ा! 50MB सीमा।", "error_no_img": "❌ कोई इमेज नहीं मिली!", "images_received": "⏳ **{} इमेज प्राप्त हुईं।**",
+        "select_lang": "🌍 अपनी भाषा चुनें! 👇", "lang_set": "✅ भाषा सेट हो गई!", "batch_detected": "📦 बैच मिला ({} लिंक)",
+        "batch_dest": "📦 कहाँ भेजें?", "btn_chat": "📥 चैट में", "btn_chan": "📢 चैनल पर",
+        "limit_reached": "⚠️ सीमा समाप्त! विज्ञापन देखें और +1 डाउनलोड पाएं।",
+        "refill_btn": "🔓 लिंक खोलें और +1 पाएं", "join_btn": "📢 चैनल से जुड़ें", "check_btn": "💜 बैलेंस जांचें", "limit_batch": "⚠️ {} में से {} पर बैच सीमा समाप्त",
+        "batch_start": "📦 बैच शुरू: {} **{} फाइलें**", "batch_done": "🏁 पूर्ण! ✅ {} ❌ {}", "batch_done_chan": "🏁 पूर्ण! ✅ {} ❌ {}",
+        "dl_video": "📥 वीडियो डाउनलोड हो रहा है...", "dl_audio": "📥 ऑडियो निकल रहा है...", "dl_image": "📥 इमेज आ रही हैं...", "dl_sub": "📥 सबटाइटल आ रहे हैं...",
+        "failed_50": "❌ >50MB", "failed_blocked": "❌ अवरुद्ध", "failed_generic": "❌ विफल",
+        "menu_lang": "🌍 भाषा", "menu_stats": "📊 मेरे आंकड़े", "menu_help": "💬 सहायता", "menu_join": "📢 चैनल",
+        "menu_uploads": "🍿 अपलोड", "menu_upload": "📤 फ़ाइल अपलोड करें", "admin_upload_prompt": "📂 इनबॉक्स",
+        "user_upload_prompt": "📤 फ़ाइल अपलोड करें", "upload_success_user": "✅ Admin को भेजा गया!", "upload_limit_reached": "⚠️ सीमा समाप्त।",
+        "no_uploads": "📭 कोई अपलोड नहीं।", "stats_msg": "📊 **आपके आंकड़े:**\n• शेष डाउनलोड: {}\n• शेष बैच: {}"
+    },
+    "id": {
+        "welcome": "🚀 **SELAMAT DATANG DI MICHAELBBC VAULT! 🚀✨**\n\n👉 Kirim tautan TikTok, FB, Insta, X untuk mulai! 👇",
+        "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Gambar", "btn_sub": "📝 Subtitel",
+        "ask_format": "👇 Pilih format di bawah!", "fetching": "📥 Mengambil {}...", "error_generic": "❌ Gagal! Tautan pribadi atau diblokir.",
+        "error_50mb": "❌ Terlalu besar! Batas 50MB.", "error_no_img": "❌ Tidak ada gambar ditemukan!", "images_received": "⏳ **{} Gambar diterima.**",
+        "select_lang": "🌍 Pilih bahasa Anda! 👇", "lang_set": "✅ Bahasa diatur!", "batch_detected": "📦 Batch terdeteksi ({} tautan)",
+        "batch_dest": "📦 Kirim ke mana?", "btn_chat": "📥 Di Chat", "btn_chan": "📢 Ke Saluran",
+        "limit_reached": "⚠️ Batas tercapai! Tonton iklan untuk +1 unduhan.", "refill_btn": "🔓 Buka Tautan & Isi +1",
+        "join_btn": "📢 Gabung Saluran", "check_btn": "💜 Cek Saldo", "limit_batch": "⚠️ Batas batch tercapai pada {} dari {}",
+        "batch_start": "📦 Batch Dimulai: {} **{} file**", "batch_done": "🏁 Selesai! ✅ {} ❌ {}", "batch_done_chan": "🏁 Selesai! ✅ {} ❌ {}",
+        "dl_video": "📥 Mengunduh video...", "dl_audio": "📥 Mengekstrak audio...", "dl_image": "📥 Mengambil gambar...", "dl_sub": "📥 Mengambil subtitel...",
+        "failed_50": "❌ >50MB", "failed_blocked": "❌ Diblokir", "failed_generic": "❌ Gagal",
+        "menu_lang": "🌍 Bahasa", "menu_stats": "📊 Statistik Saya", "menu_help": "💬 Bantuan", "menu_join": "📢 Saluran",
+        "menu_uploads": "🍿 Unggahan", "menu_upload": "📤 Unggah File", "admin_upload_prompt": "📂 Kotak Masuk",
+        "user_upload_prompt": "📤 Unggah File", "upload_success_user": "✅ Dikirim ke Admin!", "upload_limit_reached": "⚠️ Batas unggah tercapai.",
+        "no_uploads": "📭 Belum ada unggahan.", "stats_msg": "📊 **Statistik Anda:**\n• Unduhan Tersisa: {}\n• Batch Tersisa: {}"
+    },
+    "tr": {
+        "welcome": "🚀 **MICHAELBBC VAULT'A HOŞ GELDİNİZ! 🚀✨**\n\n👉 Başlamak için TikTok, FB, Insta, X bağlantısı gönderin! 👇",
+        "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Ses (MP3)", "btn_image": "🖼️ Resimler", "btn_sub": "📝 Altyazı",
+        "ask_format": "👇 Formatı aşağıdan seçin!", "fetching": "📥 İndiriliyor: {}...", "error_generic": "❌ Hata! Bağlantı özel veya engellenmiş.",
+        "error_50mb": "❌ Çok büyük! 50MB sınırı.", "error_no_img": "❌ Resim bulunamadı!", "images_received": "⏳ **{} Resim alındı.**",
+        "select_lang": "🌍 Dilinizi seçin! 👇", "lang_set": "✅ Dil ayarlandı!", "batch_detected": "📦 Toplu bağlantı ({} adet)",
+        "batch_dest": "📦 Nereye gönderilsin?", "btn_chat": "📥 Sohbette", "btn_chan": "📢 Kanala",
+        "limit_reached": "⚠️ Limit doldu! +1 indirme için reklamı izleyin.", "refill_btn": "🔓 Bağlantıyı Aç & +1 Al",
+        "join_btn": "📢 Kanala Katıl", "check_btn": "💜 Bakiyeyi Kontrol Et", "limit_batch": "⚠️ Toplu indirme limiti doldu: {} / {}",
+        "batch_start": "📦 Toplu işlem başladı: {} **{} dosya**", "batch_done": "🏁 Tamamlandı! ✅ {} ❌ {}", "batch_done_chan": "🏁 Tamamlandı! ✅ {} ❌ {}",
+        "dl_video": "📥 Video indiriliyor...", "dl_audio": "📥 Ses çıkarılıyor...", "dl_image": "📥 Resimler alınıyor...", "dl_sub": "📥 Altyazılar alınıyor...",
+        "failed_50": "❌ >50MB", "failed_blocked": "❌ Engellendi", "failed_generic": "❌ Başarısız",
+        "menu_lang": "🌍 Dil", "menu_stats": "📊 İstatistiklerim", "menu_help": "💬 Destek", "menu_join": "📢 Kanal",
+        "menu_uploads": "🍿 Yüklemeler", "menu_upload": "📤 Dosya Yükle", "admin_upload_prompt": "📂 Gelen Kutusu",
+        "user_upload_prompt": "📤 Dosya Yükle", "upload_success_user": "✅ Yöneticiye gönderildi!", "upload_limit_reached": "⚠️ Limit doldu.",
+        "no_uploads": "📭 Yükleme yok.", "stats_msg": "📊 **İstatistikleriniz:**\n• Kalan İndirme: {}\n• Kalan Toplu: {}"
+    },
+    "it": {
+        "welcome": "🚀 **BENVENUTO IN MICHAELBBC VAULT! 🚀✨**\n\n👉 Invia qualsiasi link TikTok, FB, Insta, X per iniziare! 👇",
+        "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Immagini", "btn_sub": "📝 Sottotitoli",
+        "ask_format": "👇 Scegli il formato sotto!", "fetching": "📥 Download in corso di {}...", "error_generic": "❌ Errore! Link privato o bloccato.",
+        "error_50mb": "❌ Troppo grande! Limite 50MB.", "error_no_img": "❌ Nessuna immagine trovata!", "images_received": "⏳ **{} Immagini ricevute.**",
+        "select_lang": "🌍 Seleziona la tua lingua! 👇", "lang_set": "✅ Lingua impostata!", "batch_detected": "📦 Lotto rilevato ({} link)",
+        "batch_dest": "📦 Dove inviare?", "btn_chat": "📥 In chat", "btn_chan": "📢 Al canale",
+        "limit_reached": "⚠️ Limite raggiunto! Guarda l'annuncio per +1 download.", "refill_btn": "🔓 Apri link e ricarica +1",
+        "join_btn": "📢 Unisciti al canale", "check_btn": "💜 Controlla saldo", "limit_batch": "⚠️ Limite lotto raggiunto a {} di {}",
+        "batch_start": "📦 Lotto avviato: {} **{} file**", "batch_done": "🏁 Fatto! ✅ {} ❌ {}", "batch_done_chan": "🏁 Fatto! ✅ {} ❌ {}",
+        "dl_video": "📥 Download video...", "dl_audio": "📥 Estrazione audio...", "dl_image": "📥 Raccolta immagini...", "dl_sub": "📥 Raccolta sottotitoli...",
+        "failed_50": "❌ >50MB", "failed_blocked": "❌ Bloccato", "failed_generic": "❌ Fallito",
+        "menu_lang": "🌍 Lingua", "menu_stats": "📊 Le mie statistiche", "menu_help": "💬 Supporto", "menu_join": "📢 Canale",
+        "menu_uploads": "🍿 Upload", "menu_upload": "📤 Carica file", "admin_upload_prompt": "📂 Posta in arrivo",
+        "user_upload_prompt": "📤 Carica file", "upload_success_user": "✅ Inviato all'admin!", "upload_limit_reached": "⚠️ Limite raggiunto.",
+        "no_uploads": "📭 Nessun upload.", "stats_msg": "📊 **Le tue statistiche:**\n• Download rimasti: {}\n• Lotto rimasto: {}"
     }
 }
 
@@ -284,7 +453,6 @@ def save_tokens(tokens):
 
 # ===================== ADSGRAM MINI APP HELPERS =====================
 def adsgram_start(user_id, kind="wall", msg_start=0, msg_end=0):
-    """Ask the Flask server for a one-time nonce for this user's ad. Returns nonce or None."""
     try:
         r = requests.post(f"{WEB_BASE_URL}/adsgram-start",
                           json={"user_id": int(user_id), "kind": kind, "msg_start": int(msg_start),
@@ -306,7 +474,6 @@ def adsgram_status(user_id):
     return {"status": "error"}
 
 def adsgram_keyboard(user_id, kind="wall", msg_start=0, msg_end=0, extra_rows=None):
-    """Keyboard whose first button opens the Adsgram ad INSIDE a Telegram Mini App."""
     nonce = adsgram_start(user_id, kind, msg_start, msg_end)
     if not nonce:
         return None
@@ -504,7 +671,6 @@ def get_free_disk_mb():
         return 512
 
 def deduct_download_counter(user_id, is_batch=False):
-    # FIX: Only call server once - no local double save - prevents -2 bug
     try:
         requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": is_batch}, headers=API_HEADERS, timeout=3)
     except:
@@ -553,7 +719,14 @@ async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     track_user_activity(update.message.from_user.id)
     lang = get_lang(update.message.from_user.id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
-    keyboard = [[InlineKeyboardButton("🇬🇧 English", callback_data="lang_en")]]
+    keyboard = [
+        [InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"), InlineKeyboardButton("🇪🇸 Español", callback_data="lang_es")],
+        [InlineKeyboardButton("🇫🇷 Français", callback_data="lang_fr"), InlineKeyboardButton("🇩🇪 Deutsch", callback_data="lang_de")],
+        [InlineKeyboardButton("🇵🇹 Português", callback_data="lang_pt"), InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru")],
+        [InlineKeyboardButton("🇸🇦 العربية", callback_data="lang_ar"), InlineKeyboardButton("🇮🇳 हिन्दी", callback_data="lang_hi")],
+        [InlineKeyboardButton("🇮🇩 Bahasa Indonesia", callback_data="lang_id"), InlineKeyboardButton("🇹🇷 Türkçe", callback_data="lang_tr")],
+        [InlineKeyboardButton("🇮🇹 Italiano", callback_data="lang_it")]
+    ]
     await update.message.reply_text(t["select_lang"], reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -617,7 +790,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch", url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
     if user_id == ADMIN_ID:
         keyboard.append([InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")])
-    # Forward tutorial video 108 for Adsterra bypass - ROBUST VERSION - CLAUSE 13 + 12 FIX
     tutorial_sent = False
     try:
         tut = await context.bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
@@ -880,7 +1052,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     if text.strip() in ("🧪 Test Ad", "📢 Ad Info"):
         if user_id != ADMIN_ID:
-            # old keyboards on users' phones still show these buttons: refresh the menu, show nothing else
             await update.message.reply_text("✅ Menu updated.", reply_markup=get_main_keyboard(lang, False))
             return
         if text.strip() == "🧪 Test Ad":
@@ -1111,12 +1282,25 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(txt, parse_mode="Markdown")
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    track_user_activity(update.message.from_user.id)
-    config = load_json_file(CONFIG_FILE)
-    mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
-    free_mb = get_free_disk_mb()
-    cache = load_json_file(CACHE_FILE)
-    await update.message.reply_text(f"🟢 **Status V32 Monetag**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic (Clause 12 fix)\nTest: /testad (Clause 13 fix)\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
+    user_id = update.message.from_user.id
+    track_user_activity(user_id)
+    if user_id == ADMIN_ID:
+        config = load_json_file(CONFIG_FILE)
+        mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
+        free_mb = get_free_disk_mb()
+        cache = load_json_file(CACHE_FILE)
+        await update.message.reply_text(f"🟢 **Status V32 Monetag**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic (Clause 12 fix)\nTest: /testad (Clause 13 fix)\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
+    else:
+        await update.message.reply_text(
+            "🟢 **Bot Status & Info**\n\n"
+            f"• **Official Public Channel:** [Join Here]({PUBLIC_CHANNEL_URL})\n"
+            f"• **Support Service:** Active 🟢 (Use the Support / FAQ menu)\n"
+            f"• **Website / Bridge:** Operational 🌐\n"
+            f"• **Downloader Engines:** TikTok, Instagram, Facebook, Twitter/X Active 🚀\n"
+            f"• **Status:** All systems running smoothly!",
+            parse_mode="Markdown",
+            disable_web_page_preview=True
+        )
 
 async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID:
@@ -1587,7 +1771,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await context.bot.send_message(chat_id=chat_id, text=f"✅ Refilled +{reward}! Send your link again.")
         return
     if data.startswith("adsgram_complete_") or data in ("adsgram_resume_batch",):
-        # Old buttons from before the Mini App fix. They no longer give a reward.
         await query.answer("This button is outdated. Send your link again to get the new Watch Ad button.", show_alert=True)
         return
     if data == "stop_batch":
@@ -1654,7 +1837,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             if user_id != ADMIN_ID:
                 await query.answer("⏰ Open the link and watch the 20s timer first!", show_alert=True)
                 return
-            # Create new token with +1 for test ad demo (admin only)
             reward = get_reward_amount()
             tokens[user_str] = {
                 "user_id": int(user_id),
@@ -1685,7 +1867,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.answer("⏰ Finish 20s timer first! Watch ad via Open Link button!", show_alert=True)
             return
         msg_start, msg_end = token_data.get("msg_start",0), token_data.get("msg_end",0)
-        # FIX: Don't delete token! Keep it and set to +1 optimum (was deleting and recreating as 4!)
         reward = get_reward_amount()
         tokens[user_str]["downloads_left"] = reward
         tokens[user_str]["batch_downloads_left"] = reward * 5
@@ -1779,9 +1960,8 @@ async def send_adsterra_test(message, user_id):
     await message.reply_text(ADSTERRA_TEST_TEXT, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def send_test_ad(message, user_id):
-    """Test Ad follows the Ad Toggle Panel: Monetag, Adsterra, or the Auto split for this user."""
     if get_global_ab_network(user_id) == "adsgram":
-        await send_adsgram_test(message, user_id)      # Monetag Mini App test
+        await send_adsgram_test(message, user_id)
     else:
         await send_adsterra_test(message, user_id)
 
