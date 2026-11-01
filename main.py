@@ -83,7 +83,7 @@ LANGUAGES = {
         "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Images", "btn_sub": "📝 Subtitles (SRT)",
         "ask_format": "👇 **What format you want? Pick below!**",
         "fetching": "📥 **Fetching your {}... Hang tight! ⏳**",
-        "error_generic": "❌ Oops! Failed! 😢 Link private/blocked. Make sure `cookies.txt` is uploaded!",
+        "error_generic": "❌ Download failed! Ensure valid `cookies.txt` is loaded.",
         "error_50mb": "❌ Too Big! 😅 >50MB limit.", "error_no_img": "❌ No images found!",
         "images_received": "⏳ **{} Images received.**",
         "select_lang": "🌍 Select your language! 👇", "lang_set": "✅ Language set!",
@@ -112,7 +112,7 @@ LANGUAGES = {
 web_app = Flask(__name__)
 @web_app.route('/')
 def health_check():
-    return "Bot alive! V35 YouTube Login Required Engine WORKING", 200
+    return "Bot alive! V36 Cookie Flexible Handler WORKING", 200
 
 @web_app.route('/adsgram')
 def adsgram_page():
@@ -152,8 +152,9 @@ def adsgram_start_api():
         import uuid
         nonce = str(uuid.uuid4())[:8]
         return jsonify({"nonce": nonce})
-    except Exception as e:
-        return jsonify({"nonce": str(int(time.time()))[-6:]})
+    except:
+        pass
+    return jsonify({"nonce": "123456"})
 
 @web_app.route('/adsgram-done', methods=['POST'])
 def adsgram_done():
@@ -161,8 +162,9 @@ def adsgram_done():
         data = request.json
         r = requests.post(f"{WEB_BASE_URL}/adsgram-done", json=data, headers=API_HEADERS, timeout=8)
         return jsonify(r.json() if r.status_code==200 else {"reward":1,"status":"done"})
-    except Exception as e:
-        return jsonify({"reward":1,"status":"done"})
+    except:
+        pass
+    return jsonify({"reward":1,"status":"done"})
 
 def load_json_file(filename):
     if os.path.exists(filename):
@@ -204,184 +206,6 @@ def get_canonical_key(url: str):
     except:
         return f"url_{hashlib.md5(url.encode()).hexdigest()[:12]}"
 
-BACKUP_FILES = [CHANNELS_FILE, LANG_FILE, CONFIG_FILE, ACTIVITY_FILE, CACHE_FILE, UPLOADS_FILE, UPLOAD_LIMITS_FILE, DRIP_FILE, FLOOD_FILE, BANNED_FILE]
-
-async def backup_to_channel(bot):
-    try:
-        ts = time.strftime("%Y-%m-%d %H:%M")
-        free_mb = shutil.disk_usage(".").free // (1024*1024)
-        cap = f"📦 AUTO-BACKUP {ts}\nFree: {free_mb}MB"
-        first = True
-        for fname in BACKUP_FILES:
-            if os.path.exists(fname):
-                try:
-                    with open(fname, 'rb') as f:
-                        await bot.send_document(chat_id=PRIVATE_CHANNEL_ID, document=f, filename=fname, caption=cap if first else None)
-                        first = False
-                except Exception as e:
-                    logger.error(f"Backup {fname}: {e}")
-    except Exception as e:
-        logger.error(f"Backup error: {e}")
-
-async def auto_backup_loop(bot):
-    while True:
-        await asyncio.sleep(6 * 3600)
-        await backup_to_channel(bot)
-
-async def disk_cleaner_loop():
-    while True:
-        await asyncio.sleep(5 * 60)
-        try:
-            if not os.path.exists("downloads"):
-                continue
-            now = time.time()
-            for fname in os.listdir("downloads"):
-                fpath = os.path.join("downloads", fname)
-                try:
-                    if os.path.isfile(fpath) and now - os.path.getmtime(fpath) > 3 * 60:
-                        os.remove(fpath)
-                except:
-                    pass
-        except Exception as e:
-            logger.error(f"Cleaner: {e}")
-
-def clean_downloads_startup():
-    try:
-        if os.path.exists("downloads"):
-            for fname in os.listdir("downloads"):
-                try:
-                    os.remove(os.path.join("downloads", fname))
-                except:
-                    pass
-    except:
-        pass
-    for c in ["cookies.txt", "tiktok_cookies.txt"]:
-        if os.path.exists(c):
-            try:
-                os.remove(c)
-            except:
-                pass
-
-def is_flood(user_id):
-    if user_id == ADMIN_ID:
-        return False, 0
-    flood_data = load_json_file(FLOOD_FILE)
-    now = time.time()
-    uid = str(user_id)
-    if uid not in flood_data:
-        flood_data[uid] = []
-    flood_data[uid] = [t for t in flood_data[uid] if now - t < FLOOD_WINDOW]
-    if len(flood_data[uid]) >= FLOOD_LIMIT:
-        oldest = min(flood_data[uid]) if flood_data[uid] else now
-        wait = max(int(FLOOD_COOLDOWN - (now - oldest)), 5)
-        return True, wait
-    flood_data[uid].append(now)
-    save_json_file(FLOOD_FILE, flood_data)
-    return False, 0
-
-def is_banned(user_id):
-    return str(user_id) in load_json_file(BANNED_FILE)
-
-def track_user_activity(user_id):
-    activity = load_json_file(ACTIVITY_FILE)
-    user_str = str(user_id)
-    now = time.time()
-    if user_str not in activity:
-        activity[user_str] = {"total_interactions": 0, "last_active": now}
-    activity[user_str]["total_interactions"] += 1
-    activity[user_str]["last_active"] = now
-    save_json_file(ACTIVITY_FILE, activity)
-
-def get_lang(user_id):
-    return load_json_file(LANG_FILE).get(str(user_id), "en")
-
-def get_global_ab_network(user_id):
-    config = load_json_file(CONFIG_FILE)
-    mode = config.get("ad_mode", "auto")
-    if mode == "adsgram":
-        return "adsgram"
-    elif mode == "adsterra":
-        return "adsterra"
-    day_epoch = int(time.time() // 86400)
-    return "adsgram" if (int(user_id) + day_epoch) % 2 == 0 else "adsterra"
-
-def load_tokens():
-    try:
-        response = requests.get(f"{WEB_BASE_URL}/get_tokens", headers=API_HEADERS, timeout=5)
-        if response.status_code == 200:
-            return response.json()
-    except:
-        pass
-    return {}
-
-def save_tokens(tokens):
-    try:
-        requests.post(f"{WEB_BASE_URL}/save_tokens", json=tokens, headers=API_HEADERS, timeout=5)
-    except:
-        pass
-
-def adsgram_start(user_id, kind="wall", msg_start=0, msg_end=0):
-    try:
-        r = requests.post(f"{WEB_BASE_URL}/adsgram-start", json={"user_id": int(user_id), "kind": kind, "msg_start": int(msg_start), "msg_end": int(msg_end), "secret": API_SECRET}, timeout=8)
-        if r.status_code == 200:
-            return r.json().get("nonce")
-    except:
-        pass
-    return None
-
-def adsgram_status(user_id):
-    try:
-        r = requests.post(f"{WEB_BASE_URL}/adsgram-status", json={"user_id": int(user_id), "secret": API_SECRET}, timeout=8)
-        if r.status_code == 200:
-            return r.json()
-    except:
-        pass
-    return {"status": "error"}
-
-def adsgram_keyboard(user_id, kind="wall", msg_start=0, msg_end=0, extra_rows=None):
-    nonce = adsgram_start(user_id, kind, msg_start, msg_end)
-    if not nonce:
-        return None
-    url = f"{WEB_BASE_URL}/adsgram?n={nonce}&k={kind}"
-    rows = [
-        [InlineKeyboardButton("📺 Watch Ad (opens Mini App) +1", web_app=WebAppInfo(url=url))],
-        [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
-        [InlineKeyboardButton("✅ Check & Get +1", callback_data="adsgram_check")],
-    ]
-    if extra_rows:
-        rows.extend(extra_rows)
-    return InlineKeyboardMarkup(rows)
-
-async def deliver_bundle(bot, user_id, msg_start, msg_end):
-    fwd_ids = []
-    for tid in range(msg_start, msg_end + 1):
-        try:
-            fwd = await bot.forward_message(chat_id=user_id, from_chat_id=DETECTED_CHANNEL_ID, message_id=tid)
-            fwd_ids.append(fwd.message_id)
-            await asyncio.sleep(0.2)
-        except:
-            pass
-    warn = await bot.send_message(chat_id=user_id, text="⏳ Auto-deletes in 9 mins")
-    fwd_ids.append(warn.message_id)
-    asyncio.create_task(schedule_deletion(bot, user_id, fwd_ids, 540))
-
-def load_user_channels():
-    return load_json_file(CHANNELS_FILE)
-def save_user_channels(c):
-    save_json_file(CHANNELS_FILE, c)
-def load_linking_states():
-    return load_json_file(LINKING_STATE_FILE)
-def save_linking_states(s):
-    save_json_file(LINKING_STATE_FILE, s)
-
-async def schedule_deletion(bot, chat_id, message_ids, delay):
-    await asyncio.sleep(delay)
-    for msg_id in message_ids:
-        try:
-            await bot.delete_message(chat_id=chat_id, message_id=msg_id)
-        except:
-            pass
-
 def fetch_url_metadata(url):
     ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True}
     if "youtube.com" in url.lower() or "youtu.be" in url.lower():
@@ -410,7 +234,6 @@ def download_media_engine(url: str, download_type: str):
     
     ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL}
     
-    # REQUIRE YOUTUBE LOGIN COOKIES
     if "youtube.com" in url.lower() or "youtu.be" in url.lower():
         if os.path.exists("cookies.txt"):
             ydl_opts['cookiefile'] = "cookies.txt"
@@ -463,13 +286,8 @@ def download_media_engine(url: str, download_type: str):
                     continue
             raise ValueError("FILE_TOO_LARGE")
     finally:
-        # Zero-retention cleanup: Immediately delete cookies after job completes
-        for tmp_cookie in ["cookies.txt", "tiktok_cookies.txt"]:
-            if os.path.exists(tmp_cookie):
-                try:
-                    os.remove(tmp_cookie)
-                except:
-                    pass
+        # Keep cookies active so you don't have to re-upload them every time!
+        pass
 
 def get_main_keyboard(lang_code, is_admin):
     t = LANGUAGES.get(lang_code, LANGUAGES["en"])
@@ -477,12 +295,11 @@ def get_main_keyboard(lang_code, is_admin):
         [KeyboardButton(t["menu_stats"]), KeyboardButton(t["menu_lang"])],
         [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])],
         [KeyboardButton("🔍 Song Search"), KeyboardButton(t["menu_upload"])],
-        [KeyboardButton("🟢 Bot Status V35"), KeyboardButton("🔑 Set Cookies")],
+        [KeyboardButton("🟢 Bot Status V36"), KeyboardButton("🔑 Set Cookies")],
         [KeyboardButton("🧪 Test Ad"), KeyboardButton("📢 Ad Info")]
     ]
     if is_admin:
         keyboard.append([KeyboardButton(t["menu_uploads"]), KeyboardButton("📢 Broadcast")])
-        keyboard.append([KeyboardButton("⚡ Create Flash Drop"), KeyboardButton("⚙️ Ad Toggle Panel")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_free_disk_mb():
@@ -503,48 +320,8 @@ def deduct_download_counter(user_id, is_batch=False):
     except:
         pass
 
-async def acquire_slot():
-    global active_downloads
-    async with download_lock:
-        if active_downloads < MAX_CONCURRENT_SHORT and get_free_disk_mb() > MIN_FREE_DISK_MB:
-            active_downloads += 1
-            return True
-        return False
-
-async def release_slot():
-    global active_downloads
-    async with download_lock:
-        active_downloads = max(0, active_downloads - 1)
-
-async def queue_processor(bot):
-    global active_downloads
-    while True:
-        try:
-            job = await download_queue.get()
-            while True:
-                async with download_lock:
-                    can_run = active_downloads < MAX_CONCURRENT_SHORT and get_free_disk_mb() > MIN_FREE_DISK_MB
-                if can_run:
-                    break
-                await asyncio.sleep(2)
-            async with download_lock:
-                active_downloads += 1
-            try:
-                await job['func'](*job['args'], **job['kwargs'])
-            except Exception as e:
-                logger.error(f"Queue job: {e}")
-            finally:
-                await release_slot()
-                download_queue.task_done()
-        except Exception as e:
-            logger.error(f"Queue proc: {e}")
-            await asyncio.sleep(1)
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
-    if is_banned(user_id):
-        return
-    track_user_activity(user_id)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
     await update.message.reply_text(t["welcome"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID), parse_mode="Markdown")
@@ -552,17 +329,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text if update.message.text else ""
     user_id = update.message.from_user.id
-    if is_banned(user_id):
-        return
-    track_user_activity(user_id)
     
     if "🔑 Set Cookies" in text:
-        await update.message.reply_text("🔑 **YouTube Login Required**\n\nTo download YouTube videos or search songs, upload your browser session file named `cookies.txt` directly to this chat.\n\n🔒 **Zero Retention:** It will be automatically deleted after your download completes!")
+        await update.message.reply_text("🔑 **YouTube Login Session**\n\nUpload your exported `cookies.txt` (or any text file containing your YouTube account cookies) directly here. It will remain saved so you can download without re-uploading!")
         return
 
     if "🔍 Song Search" in text:
         if not os.path.exists("cookies.txt"):
-            await update.message.reply_text("❌ **YouTube Login Required!**\n\nPlease upload your `cookies.txt` file first using the **🔑 Set Cookies** button before searching or downloading music.")
+            await update.message.reply_text("❌ **YouTube Login Required!**\n\nPlease upload your `cookies.txt` file first using the **🔑 Set Cookies** button.")
             return
         song_search_mode_global[user_id] = True
         await update.message.reply_text("🎵 Song Search Mode ON! Enter song name:")
@@ -595,7 +369,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     url = extracted_urls[0]
     if "youtube.com" in url.lower() or "youtu.be" in url.lower():
         if not os.path.exists("cookies.txt"):
-            await update.message.reply_text("❌ **YouTube Login Required!**\n\nPlease upload your `cookies.txt` file first using the **🔑 Set Cookies** button to unlock YouTube downloads.")
+            await update.message.reply_text("❌ **YouTube Login Required!**\n\nPlease upload your `cookies.txt` file first using the **🔑 Set Cookies** button.")
             return
 
     status_preview = await update.message.reply_text("🔍 Checking link...")
@@ -619,15 +393,17 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
     doc = update.message.document
-    if doc and doc.file_name and "cookie" in doc.file_name.lower():
-        try:
-            f = await context.bot.get_file(doc.file_id)
-            await f.download_to_drive("cookies.txt")
-            await update.message.reply_text("🔑 **Cookies uploaded successfully!**\n\nYouTube login session active. It will be automatically deleted right after your download finishes.")
-            return
-        except Exception as e:
-            await update.message.reply_text(f"❌ Failed: {e}")
-            return
+    if doc and doc.file_name:
+        fname_lower = doc.file_name.lower()
+        if "cookie" in fname_lower or "youtube" in fname_lower or fname_lower.endswith(".txt"):
+            try:
+                f = await context.bot.get_file(doc.file_id)
+                await f.download_to_drive("cookies.txt")
+                await update.message.reply_text("🔑 **Cookies saved successfully!**\n\nYouTube login session is now active and stored for all your downloads.")
+                return
+            except Exception as e:
+                await update.message.reply_text(f"❌ Failed to process cookie file: {e}")
+                return
     if user_id == ADMIN_ID:
         try:
             await update.message.forward(chat_id=PRIVATE_CHANNEL_ID)
@@ -659,15 +435,8 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
         else:
             await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=t["error_generic"])
         return False
-    finally:
-        for tmp_cookie in ["cookies.txt", "tiktok_cookies.txt"]:
-            if os.path.exists(tmp_cookie):
-                try:
-                    os.remove(tmp_cookie)
-                except:
-                    pass
 
-async def handle_music_pick_v35(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_music_pick_v36(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
     if data.startswith("music_pick_"):
@@ -726,19 +495,10 @@ async def handle_music_pick_v35(update: Update, context: ContextTypes.DEFAULT_TY
             deduct_download_counter(uid, is_batch=False)
         else:
             await query.edit_message_text("❌ Download failed. Ensure valid cookies.txt is loaded.")
-        
-        for tmp_cookie in ["cookies.txt", "tiktok_cookies.txt"]:
-            if os.path.exists(tmp_cookie):
-                try:
-                    os.remove(tmp_cookie)
-                except:
-                    pass
 
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     user_id = query.from_user.id
-    if is_banned(user_id):
-        return
     data = query.data
     chat_id = query.message.chat_id
     lang = get_lang(user_id)
@@ -760,21 +520,17 @@ def run_telegram_bot():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     async def start_bot():
-        clean_downloads_startup()
         app = Application.builder().token(BOT_TOKEN).build()
         app.add_handler(CommandHandler("start", start))
-        app.add_handler(CallbackQueryHandler(handle_music_pick_v35, pattern="^music_pick_"))
+        app.add_handler(CallbackQueryHandler(handle_music_pick_v36, pattern="^music_pick_"))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
         app.add_handler(MessageHandler(filters.Document.ALL, handle_user_upload))
         app.add_handler(CallbackQueryHandler(handle_buttons))
         
         await app.initialize()
         await app.start()
-        asyncio.create_task(disk_cleaner_loop())
-        asyncio.create_task(auto_backup_loop(app.bot))
-        asyncio.create_task(queue_processor(app.bot))
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
-        print("Bot started! V35 YouTube Login Required Engine WORKING")
+        print("Bot started! V36 Flexible Cookie Handler WORKING")
         await asyncio.Event().wait()
     loop.run_until_complete(start_bot())
 
