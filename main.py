@@ -102,183 +102,13 @@ LANGUAGES = {
         "upload_limit_reached": "⚠️ Upload limit 5/24h reached.",
         "no_uploads": "📭 No uploads yet.",
         "stats_msg": "📊 **Your Stats:**\n• Downloads Left: {}\n• Batch Left: {}"
-    },
-    "es": {
-        "welcome": "🚀 **¡BIENVENIDO A MICHAELBBC VAULT - DESCARGADOR DE MEDIOS! 🚀✨**\n\n👉 ¡Envía cualquier enlace de TikTok, Facebook, Instagram, Twitter/X para empezar! 👇",
-        "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Imágenes", "btn_sub": "📝 Subtítulos",
-        "ask_format": "👇 ¡Elige el formato deseado abajo!", "fetching": "📥 Descargando {}...", "error_generic": "❌ ¡Error! Enlace privado o bloqueado.",
-        "error_50mb": "❌ ¡Muy grande! Límite de 50MB.", "error_no_img": "❌ ¡No se encontraron imágenes!", "images_received": "⏳ **{} Imágenes recibidas.**",
-        "select_lang": "🌍 ¡Selecciona tu idioma! 👇", "lang_set": "✅ ¡Idioma configurado!", "batch_detected": "📦 Lote detectado ({} enlaces)",
-        "batch_dest": "📦 ¿Dónde enviar?", "btn_chat": "📥 En chat", "btn_chan": "📢 Al canal",
-        "limit_reached": "⚠️ ¡Límite alcanzado! Mira el anuncio para obtener +1 descarga.", "refill_btn": "🔓 Abrir enlace y recargar +1",
-        "join_btn": "📢 Unirse al canal", "check_btn": "💜 Verificar saldo", "limit_batch": "⚠️ Límite de lote alcanzado en {} de {}",
-        "batch_start": "📦 Lote iniciado: {} **{} archivos**", "batch_done": "🏁 ¡Listo! ✅ {} ❌ {}", "batch_done_chan": "🏁 ¡Listo! ✅ {} ❌ {}",
-        "dl_video": "📥 Descargando video...", "dl_audio": "📥 Extrayendo audio...", "dl_image": "📥 Obteniendo imágenes...", "dl_sub": "📥 Obteniendo subtítulos...",
-        "failed_50": "❌ >50MB", "failed_blocked": "❌ Bloqueado", "failed_generic": "❌ Fallido",
-        "menu_lang": "🌍 Idioma", "menu_stats": "📊 Mis estadísticas", "menu_help": "💬 Soporte", "menu_join": "📢 Unirse",
-        "menu_uploads": "🍿 Subidas", "menu_upload": "📤 Subir archivo", "admin_upload_prompt": "📂 Bandeja de entrada",
-        "user_upload_prompt": "📤 Subir archivo", "upload_success_user": "✅ ¡Enviado al administrador!", "upload_limit_reached": "⚠️ Límite alcanzado.",
-        "no_uploads": "📭 Sin subidas.", "stats_msg": "📊 **Tus estadísticas:**\n• Descargas restantes: {}\n• Lote restante: {}"
-    },
-    "fr": {
-        "welcome": "🚀 **BIENVENUE SUR MICHAELBBC VAULT - TÉLÉCHARGEUR! 🚀✨**\n\n👉 Collez n'importe quel lien TikTok, FB, Insta, X pour commencer! 👇",
-        "btn_video": "🎬 Vidéo (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Images", "btn_sub": "📝 Sous-titres",
-        "ask_format": "👇 Choisissez le format ci-dessous !", "fetching": "📥 Téléchargement de {}...", "error_generic": "❌ Erreur ! Lien privé ou bloqué.",
-        "error_50mb": "❌ Trop grand ! Limite de 50 Mo.", "error_no_img": "❌ Aucune image trouvée !", "images_received": "⏳ **{} Images reçues.**",
-        "select_lang": "🌍 Sélectionnez votre langue ! 👇", "lang_set": "✅ Langue enregistrée !", "batch_detected": "📦 Lot détecté ({} liens)",
-        "batch_dest": "📦 Où envoyer ?", "btn_chat": "📥 Dans le chat", "btn_chan": "📢 Vers le canal",
-        "limit_reached": "⚠️ Limite atteinte ! Regardez l'annonce pour +1 téléchargement.", "refill_btn": "🔓 Ouvrir le lien & Recharger +1",
-        "join_btn": "📢 Rejoindre le canal", "check_btn": "💜 Vérifier le solde", "limit_batch": "⚠️ Limite de lot atteinte à {} sur {}",
-        "batch_start": "📦 Lot démarré : {} **{} fichiers**", "batch_done": "🏁 Terminé ! ✅ {} ❌ {}", "batch_done_chan": "🏁 Terminé ! ✅ {} ❌ {}",
-        "dl_video": "📥 Téléchargement vidéo...", "dl_audio": "📥 Extraction audio...", "dl_image": "📥 Collecte images...", "dl_sub": "📥 Collecte sous-titres...",
-        "failed_50": "❌ >50Mo", "failed_blocked": "❌ Bloqué", "failed_generic": "❌ Échoué",
-        "menu_lang": "🌍 Langue", "menu_stats": "📊 Mes stats", "menu_help": "💬 Support", "menu_join": "📢 Rejoindre",
-        "menu_uploads": "🍿 UPLOADS", "menu_upload": "📤 Envoyer", "admin_upload_prompt": "📂 Boîte de réception",
-        "user_upload_prompt": "📤 Envoyer un fichier", "upload_success_user": "✅ Envoyé à l'admin !", "upload_limit_reached": "⚠️ Limite atteinte.",
-        "no_uploads": "📭 Aucun upload.", "stats_msg": "📊 **Vos stats :**\n• Téléchargements restants : {}\n• Lot restant : {}"
-    },
-    "de": {
-        "welcome": "🚀 **WILLKOMMEN BEI MICHAELBBC VAULT! 🚀✨**\n\n👉 Füge einen TikTok-, FB-, Insta- oder X-Link ein, um zu beginnen! 👇",
-        "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Bilder", "btn_sub": "📝 Untertitel",
-        "ask_format": "👇 Wähle unten das Format aus!", "fetching": "📥 Lade {} herunter...", "error_generic": "❌ Fehler! Privat oder blockiert.",
-        "error_50mb": "❌ Zu groß! 50MB Limit.", "error_no_img": "❌ Keine Bilder gefunden!", "images_received": "⏳ **{} Bilder erhalten.**",
-        "select_lang": "🌍 Wähle deine Sprache! 👇", "lang_set": "✅ Sprache gespeichert!", "batch_detected": "📦 Stapel erkannt ({} Links)",
-        "batch_dest": "📦 Wohin senden?", "btn_chat": "📥 Im Chat", "btn_chan": "📢 Zum Kanal",
-        "limit_reached": "⚠️ Limit erreicht! Werbevideo ansehen für +1 Download.", "refill_btn": "🔓 Link öffnen & +1",
-        "join_btn": "📢 Kanal beitreten", "check_btn": "💜 Guthaben prüfen", "limit_batch": "⚠️ Stapellimit bei {} von {} erreicht",
-        "batch_start": "📦 Stapel gestartet: {} **{} Dateien**", "batch_done": "🏁 Fertig! ✅ {} ❌ {}", "batch_done_chan": "🏁 Fertig! ✅ {} ❌ {}",
-        "dl_video": "📥 Lade Video...", "dl_audio": "📥 Extrahiere Audio...", "dl_image": "📥 Lade Bilder...", "dl_sub": "📥 Lade Untertitel...",
-        "failed_50": "❌ >50MB", "failed_blocked": "❌ Blockiert", "failed_generic": "❌ Fehlgeschlagen",
-        "menu_lang": "🌍 Sprache", "menu_stats": "📊 Meine Stats", "menu_help": "💬 Hilfe", "menu_join": "📢 Kanal",
-        "menu_uploads": "🍿 Uploads", "menu_upload": "📤 Datei senden", "admin_upload_prompt": "📂 Posteingang",
-        "user_upload_prompt": "📤 Datei senden", "upload_success_user": "✅ An Admin gesendet!", "upload_limit_reached": "⚠️ Limit erreicht.",
-        "no_uploads": "📭 Keine Uploads.", "stats_msg": "📊 **Deine Stats:**\n• Verbleibende Downloads: {}\n• Stapel verbleibend: {}"
-    },
-    "pt": {
-        "welcome": "🚀 **BEM-VINDO AO MICHAELBBC VAULT! 🚀✨**\n\n👉 Cole qualquer link do TikTok, FB, Insta, X para começar! 👇",
-        "btn_video": "🎬 Vídeo (MP4)", "btn_audio": "🎵 Áudio (MP3)", "btn_image": "🖼️ Imagens", "btn_sub": "📝 Legendas",
-        "ask_format": "👇 Escolha o formato abaixo!", "fetching": "📥 Baixando {}...", "error_generic": "❌ Erro! Link privado ou bloqueado.",
-        "error_50mb": "❌ Muito grande! Limite de 50MB.", "error_no_img": "❌ Nenhuma imagem encontrada!", "images_received": "⏳ **{} Imagens recebidas.**",
-        "select_lang": "🌍 Selecione seu idioma! 👇", "lang_set": "✅ Idioma definido!", "batch_detected": "📦 Lote detectado ({} links)",
-        "batch_dest": "📦 Onde enviar?", "btn_chat": "📥 No chat", "btn_chan": "📢 Para o canal",
-        "limit_reached": "⚠️ Limite atingido! Assista ao anúncio para +1 download.", "refill_btn": "🔓 Abrir link e recarregar +1",
-        "join_btn": "📢 Entrar no canal", "check_btn": "💜 Verificar saldo", "limit_batch": "⚠️ Limite de lote atingido em {} de {}",
-        "batch_start": "📦 Lote iniciado: {} **{} arquivos**", "batch_done": "🏁 Concluído! ✅ {} ❌ {}", "batch_done_chan": "🏁 Concluído! ✅ {} ❌ {}",
-        "dl_video": "📥 Baixando vídeo...", "dl_audio": "📥 Extraindo áudio...", "dl_image": "📥 Coletando imagens...", "dl_sub": "📥 Coletando legendas...",
-        "failed_50": "❌ >50MB", "failed_blocked": "❌ Bloqueado", "failed_generic": "❌ Falhou",
-        "menu_lang": "🌍 Idioma", "menu_stats": "📊 Minhas estatísticas", "menu_help": "💬 Suporte", "menu_join": "📢 Canal",
-        "menu_uploads": "🍿 Uploads", "menu_upload": "📤 Enviar arquivo", "admin_upload_prompt": "📂 Caixa de entrada",
-        "user_upload_prompt": "📤 Enviar arquivo", "upload_success_user": "✅ Enviado ao admin!", "upload_limit_reached": "⚠️ Limite atingido.",
-        "no_uploads": "📭 Sem uploads.", "stats_msg": "📊 **Suas estatísticas:**\n• Downloads restantes: {}\n• Lote restante: {}"
-    },
-    "ru": {
-        "welcome": "🚀 **ДОБРО ПОЖАЛОВАТЬ В MICHAELBBC VAULT! 🚀✨**\n\n👉 Отправьте ссылку TikTok, FB, Insta, X чтобы начать! 👇",
-        "btn_video": "🎬 Видео (MP4)", "btn_audio": "🎵 Аудио (MP3)", "btn_image": "🖼️ Картинки", "btn_sub": "📝 Субтитры",
-        "ask_format": "👇 Выберите формат ниже!", "fetching": "📥 Загрузка {}...", "error_generic": "❌ Ошибка! Ссылка недоступна.",
-        "error_50mb": "❌ Слишком большой файл (>50MB).", "error_no_img": "❌ Картинки не найдены!", "images_received": "⏳ **Получено картинок: {}.**",
-        "select_lang": "🌍 Выберите язык! 👇", "lang_set": "✅ Язык изменен!", "batch_detected": "📦 Найдено ссылок: {}",
-        "batch_dest": "📦 Куда отправить?", "btn_chat": "📥 В чат", "btn_chan": "📢 В канал",
-        "limit_reached": "⚠️ Лимит исчерпан! Посмотрите рекламу для получения +1 загрузки.", "refill_btn": "🔓 Открыть ссылку и получить +1",
-        "join_btn": "📢 Наш канал", "check_btn": "💜 Проверить баланс", "limit_batch": "⚠️ Лимит пакета достигнут на {} из {}",
-        "batch_start": "📦 Пакет запущен: {} **{} файлов**", "batch_done": "🏁 Готово! ✅ {} ❌ {}", "batch_done_chan": "🏁 Готово! ✅ {} ❌ {}",
-        "dl_video": "📥 Загрузка видео...", "dl_audio": "📥 Извлечение аудио...", "dl_image": "📥 Сбор картинок...", "dl_sub": "📥 Сбор субтитров...",
-        "failed_50": "❌ >50MB", "failed_blocked": "❌ Заблокировано", "failed_generic": "❌ Ошибка",
-        "menu_lang": "🌍 Язык", "menu_stats": "📊 Статистика", "menu_help": "💬 Помощь", "menu_join": "📢 Канал",
-        "menu_uploads": "🍿 Загрузки", "menu_upload": "📤 Загрузить файл", "admin_upload_prompt": "📂 Входящие",
-        "user_upload_prompt": "📤 Загрузить файл", "upload_success_user": "✅ Отправлено администратору!", "upload_limit_reached": "⚠️ Лимит исчерпан.",
-        "no_uploads": "📭 Нет загрузок.", "stats_msg": "📊 **Ваша статистика:**\n• Осталось загрузок: {}\n• Пакет: {}"
-    },
-    "ar": {
-        "welcome": "🚀 **أهلاً بك في ميشائيل بي بي سي فالت! 🚀✨**\n\n👉 أرسل أي رابط من تيك توك، فيسبوك، إنستغرام، أو إكس للبدء! 👇",
-        "btn_video": "🎬 فيديو (MP4)", "btn_audio": "🎵 صوت (MP3)", "btn_image": "🖼️ صور", "btn_sub": "📝 ترجمة",
-        "ask_format": "👇 اختر الصيغة أدناه!", "fetching": "📥 جاري جلب {}...", "error_generic": "❌ خطأ! الرابط خاص أو محظور.",
-        "error_50mb": "❌ الملف كبير جداً (>50MB).", "error_no_img": "❌ لم يتم العثور على صور!", "images_received": "⏳ **تم استلام {} صور.**",
-        "select_lang": "🌍 اختر لغتك! 👇", "lang_set": "✅ تم ضبط اللغة!", "batch_detected": "📦 تم اكتشاف مجموعة ({} روابط)",
-        "batch_dest": "📦 أين تريد الإرسال؟", "btn_chat": "📥 في المحادثة", "btn_chan": "📢 إلى القناة",
-        "limit_reached": "⚠️ تم بلوغ الحد الأقصى! شاهد الإعلان للحصول على +1 تحميل.", "refill_btn": "🔓 فتح الرابط والتحديث +1",
-        "join_btn": "📢 انضم للقناة", "check_btn": "💜 تحقق من الرصيد", "limit_batch": "⚠️ وصل حد المجموعة إلى {} من {}",
-        "batch_start": "📦 بدأت المجموعة: {} **{} ملفات**", "batch_done": "🏁 تم! ✅ {} ❌ {}", "batch_done_chan": "🏁 تم! ✅ {} ❌ {}",
-        "dl_video": "📥 جاري تحميل الفيديو...", "dl_audio": "📥 جاري استخراج الصوت...", "dl_image": "📥 جاري جلب الصور...", "dl_sub": "📥 جاري جلب الترجمة...",
-        "failed_50": "❌ >50MB", "failed_blocked": "❌ محظور", "failed_generic": "❌ فشل",
-        "menu_lang": "🌍 اللغة", "menu_stats": "📊 إحصائياتي", "menu_help": "💬 الدعم", "menu_join": "📢 قناة",
-        "menu_uploads": "🍿 التحميلات", "menu_upload": "📤 رفع ملف", "admin_upload_prompt": "📂 الوارد",
-        "user_upload_prompt": "📤 رفع ملف", "upload_success_user": "✅ تم الإرسال للإدارة!", "upload_limit_reached": "⚠️ بلغ الحد الأقصى.",
-        "no_uploads": "📭 لا توجد تحميلات.", "stats_msg": "📊 **إحصائياتك:**\n• التحميلات المتبقية: {}\n• المجموعة المتبقية: {}"
-    },
-    "hi": {
-        "welcome": "🚀 **MICHAELBBC VAULT में आपका स्वागत है! 🚀✨**\n\n👉 शुरू करने के लिए TikTok, FB, Insta, X का कोई भी लिंक भेजें! 👇",
-        "btn_video": "🎬 वीडियो (MP4)", "btn_audio": "🎵 ऑडियो (MP3)", "btn_image": "🖼️ इमेज", "btn_sub": "📝 सबटाइटल",
-        "ask_format": "👇 नीचे प्रारूप चुनें!", "fetching": "📥 {} डाउनलोड हो रहा है...", "error_generic": "❌ त्रुटि! लिंक निजी या अवरुद्ध है।",
-        "error_50mb": "❌ बहुत बड़ा! 50MB सीमा।", "error_no_img": "❌ कोई इमेज नहीं मिली!", "images_received": "⏳ **{} इमेज प्राप्त हुईं।**",
-        "select_lang": "🌍 अपनी भाषा चुनें! 👇", "lang_set": "✅ भाषा सेट हो गई!", "batch_detected": "📦 बैच मिला ({} लिंक)",
-        "batch_dest": "📦 कहाँ भेजें?", "btn_chat": "📥 चैट में", "btn_chan": "📢 चैनल पर",
-        "limit_reached": "⚠️ सीमा समाप्त! विज्ञापन देखें और +1 डाउनलोड पाएं।",
-        "refill_btn": "🔓 लिंक खोलें और +1 पाएं", "join_btn": "📢 चैनल से जुड़ें", "check_btn": "💜 बैलेंस जांचें", "limit_batch": "⚠️ {} में से {} पर बैच सीमा समाप्त",
-        "batch_start": "📦 बैच शुरू: {} **{} फाइलें**", "batch_done": "🏁 पूर्ण! ✅ {} ❌ {}", "batch_done_chan": "🏁 पूर्ण! ✅ {} ❌ {}",
-        "dl_video": "📥 वीडियो डाउनलोड हो रहा है...", "dl_audio": "📥 ऑडियो निकल रहा है...", "dl_image": "📥 इमेज आ रही हैं...", "dl_sub": "📥 सबटाइटल आ रहे हैं...",
-        "failed_50": "❌ >50MB", "failed_blocked": "❌ अवरुद्ध", "failed_generic": "❌ विफल",
-        "menu_lang": "🌍 भाषा", "menu_stats": "📊 मेरे आंकड़े", "menu_help": "💬 सहायता", "menu_join": "📢 चैनल",
-        "menu_uploads": "🍿 अपलोड", "menu_upload": "📤 फ़ाइल अपलोड करें", "admin_upload_prompt": "📂 इनबॉक्स",
-        "user_upload_prompt": "📤 फ़ाइल अपलोड करें", "upload_success_user": "✅ Admin को भेजा गया!", "upload_limit_reached": "⚠️ सीमा समाप्त।",
-        "no_uploads": "📭 कोई अपलोड नहीं।", "stats_msg": "📊 **आपके आंकड़े:**\n• शेष डाउनलोड: {}\n• शेष बैच: {}"
-    },
-    "id": {
-        "welcome": "🚀 **SELAMAT DATANG DI MICHAELBBC VAULT! 🚀✨**\n\n👉 Kirim tautan TikTok, FB, Insta, X untuk mulai! 👇",
-        "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Gambar", "btn_sub": "📝 Subtitel",
-        "ask_format": "👇 Pilih format di bawah!", "fetching": "📥 Mengambil {}...", "error_generic": "❌ Gagal! Tautan pribadi atau diblokir.",
-        "error_50mb": "❌ Terlalu besar! Batas 50MB.", "error_no_img": "❌ Tidak ada gambar ditemukan!", "images_received": "⏳ **{} Gambar diterima.**",
-        "select_lang": "🌍 Pilih bahasa Anda! 👇", "lang_set": "✅ Bahasa diatur!", "batch_detected": "📦 Batch terdeteksi ({} tautan)",
-        "batch_dest": "📦 Kirim ke mana?", "btn_chat": "📥 Di Chat", "btn_chan": "📢 Ke Saluran",
-        "limit_reached": "⚠️ Batas tercapai! Tonton iklan untuk +1 unduhan.", "refill_btn": "🔓 Buka Tautan & Isi +1",
-        "join_btn": "📢 Gabung Saluran", "check_btn": "💜 Cek Saldo", "limit_batch": "⚠️ Batas batch tercapai pada {} dari {}",
-        "batch_start": "📦 Batch Dimulai: {} **{} file**", "batch_done": "🏁 Selesai! ✅ {} ❌ {}", "batch_done_chan": "🏁 Selesai! ✅ {} ❌ {}",
-        "dl_video": "📥 Mengunduh video...", "dl_audio": "📥 Mengekstrak audio...", "dl_image": "📥 Mengambil gambar...", "dl_sub": "📥 Mengambil subtitel...",
-        "failed_50": "❌ >50MB", "failed_blocked": "❌ Diblokir", "failed_generic": "❌ Gagal",
-        "menu_lang": "🌍 Bahasa", "menu_stats": "📊 Statistik Saya", "menu_help": "💬 Bantuan", "menu_join": "📢 Saluran",
-        "menu_uploads": "🍿 Unggahan", "menu_upload": "📤 Unggah File", "admin_upload_prompt": "📂 Kotak Masuk",
-        "user_upload_prompt": "📤 Unggah File", "upload_success_user": "✅ Dikirim ke Admin!", "upload_limit_reached": "⚠️ Batas unggah tercapai.",
-        "no_uploads": "📭 Belum ada unggahan.", "stats_msg": "📊 **Statistik Anda:**\n• Unduhan Tersisa: {}\n• Batch Tersisa: {}"
-    },
-    "tr": {
-        "welcome": "🚀 **MICHAELBBC VAULT'A HOŞ GELDİNİZ! 🚀✨**\n\n👉 Başlamak için TikTok, FB, Insta, X bağlantısı gönderin! 👇",
-        "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Ses (MP3)", "btn_image": "🖼️ Resimler", "btn_sub": "📝 Altyazı",
-        "ask_format": "👇 Formatı aşağıdan seçin!", "fetching": "📥 İndiriliyor: {}...", "error_generic": "❌ Hata! Bağlantı özel veya engellenmiş.",
-        "error_50mb": "❌ Çok büyük! 50MB sınırı.", "error_no_img": "❌ Resim bulunamadı!", "images_received": "⏳ **{} Resim alındı.**",
-        "select_lang": "🌍 Dilinizi seçin! 👇", "lang_set": "✅ Dil ayarlandı!", "batch_detected": "📦 Toplu bağlantı ({} adet)",
-        "batch_dest": "📦 Nereye gönderilsin?", "btn_chat": "📥 Sohbette", "btn_chan": "📢 Kanala",
-        "limit_reached": "⚠️ Limit doldu! +1 indirme için reklamı izleyin.", "refill_btn": "🔓 Bağlantıyı Aç & +1 Al",
-        "join_btn": "📢 Kanala Katıl", "check_btn": "💜 Bakiyeyi Kontrol Et", "limit_batch": "⚠️ Toplu indirme limiti doldu: {} / {}",
-        "batch_start": "📦 Toplu işlem başladı: {} **{} dosya**", "batch_done": "🏁 Tamamlandı! ✅ {} ❌ {}", "batch_done_chan": "🏁 Tamamlandı! ✅ {} ❌ {}",
-        "dl_video": "📥 Video indiriliyor...", "dl_audio": "📥 Ses çıkarılıyor...", "dl_image": "📥 Resimler alınıyor...", "dl_sub": "📥 Altyazılar alınıyor...",
-        "failed_50": "❌ >50MB", "failed_blocked": "❌ Engellendi", "failed_generic": "❌ Başarısız",
-        "menu_lang": "🌍 Dil", "menu_stats": "📊 İstatistiklerim", "menu_help": "💬 Destek", "menu_join": "📢 Kanal",
-        "menu_uploads": "🍿 Yüklemeler", "menu_upload": "📤 Dosya Yükle", "admin_upload_prompt": "📂 Gelen Kutusu",
-        "user_upload_prompt": "📤 Dosya Yükle", "upload_success_user": "✅ Yöneticiye gönderildi!", "upload_limit_reached": "⚠️ Limit doldu.",
-        "no_uploads": "📭 Yükleme yok.", "stats_msg": "📊 **İstatistikleriniz:**\n• Kalan İndirme: {}\n• Kalan Toplu: {}"
-    },
-    "it": {
-        "welcome": "🚀 **BENVENUTO IN MICHAELBBC VAULT! 🚀✨**\n\n👉 Invia qualsiasi link TikTok, FB, Insta, X per iniziare! 👇",
-        "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Immagini", "btn_sub": "📝 Sottotitoli",
-        "ask_format": "👇 Scegli il formato sotto!", "fetching": "📥 Download in corso di {}...", "error_generic": "❌ Errore! Link privato o bloccato.",
-        "error_50mb": "❌ Troppo grande! Limite 50MB.", "error_no_img": "❌ Nessuna immagine trovata!", "images_received": "⏳ **{} Immagini ricevute.**",
-        "select_lang": "🌍 Seleziona la tua lingua! 👇", "lang_set": "✅ Lingua impostata!", "batch_detected": "📦 Lotto rilevato ({} link)",
-        "batch_dest": "📦 Dove inviare?", "btn_chat": "📥 In chat", "btn_chan": "📢 Al canale",
-        "limit_reached": "⚠️ Limite raggiunto! Guarda l'annuncio per +1 download.", "refill_btn": "🔓 Apri link e ricarica +1",
-        "join_btn": "📢 Unisciti al canale", "check_btn": "💜 Controlla saldo", "limit_batch": "⚠️ Limite lotto raggiunto a {} di {}",
-        "batch_start": "📦 Lotto avviato: {} **{} file**", "batch_done": "🏁 Fatto! ✅ {} ❌ {}", "batch_done_chan": "🏁 Fatto! ✅ {} ❌ {}",
-        "dl_video": "📥 Download video...", "dl_audio": "📥 Estrazione audio...", "dl_image": "📥 Raccolta immagini...", "dl_sub": "📥 Raccolta sottotitoli...",
-        "failed_50": "❌ >50MB", "failed_blocked": "❌ Bloccato", "failed_generic": "❌ Fallito",
-        "menu_lang": "🌍 Lingua", "menu_stats": "📊 Le mie statistiche", "menu_help": "💬 Supporto", "menu_join": "📢 Canale",
-        "menu_uploads": "🍿 Upload", "menu_upload": "📤 Carica file", "admin_upload_prompt": "📂 Posta in arrivo",
-        "user_upload_prompt": "📤 Carica file", "upload_success_user": "✅ Inviato all'admin!", "upload_limit_reached": "⚠️ Limite raggiunto.",
-        "no_uploads": "📭 Nessun upload.", "stats_msg": "📊 **Le tue statistiche:**\n• Download rimasti: {}\n• Lotto rimasto: {}"
     }
 }
 
 web_app = Flask(__name__)
 @web_app.route('/')
 def health_check():
-    return "Bot alive! V24 Optimum +1", 200
+    return "Bot alive! V33 Hybrid Monetag + Fallback", 200
 
 def load_json_file(filename):
     if os.path.exists(filename):
@@ -370,14 +200,6 @@ async def disk_cleaner_loop():
         except Exception as e:
             logger.error(f"Cleaner: {e}")
 
-def restore_cache_info():
-    try:
-        cache = load_json_file(CACHE_FILE)
-        if len(cache)==0:
-            logger.info("Cache empty after clear/restart - vault channel has 4 vids but index reset. Use /backup to restore from private channel")
-    except:
-        pass
-
 def clean_downloads_startup():
     try:
         if os.path.exists("downloads"):
@@ -449,7 +271,6 @@ def save_tokens(tokens):
         requests.post(f"{WEB_BASE_URL}/save_tokens", json=tokens, headers=API_HEADERS, timeout=5)
     except Exception as e:
         logger.error(f"Save tokens: {e}")
-
 
 # ===================== ADSGRAM MINI APP HELPERS =====================
 def adsgram_start(user_id, kind="wall", msg_start=0, msg_end=0):
@@ -719,14 +540,7 @@ async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     track_user_activity(update.message.from_user.id)
     lang = get_lang(update.message.from_user.id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
-    keyboard = [
-        [InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"), InlineKeyboardButton("🇪🇸 Español", callback_data="lang_es")],
-        [InlineKeyboardButton("🇫🇷 Français", callback_data="lang_fr"), InlineKeyboardButton("🇩🇪 Deutsch", callback_data="lang_de")],
-        [InlineKeyboardButton("🇵🇹 Português", callback_data="lang_pt"), InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru")],
-        [InlineKeyboardButton("🇸🇦 العربية", callback_data="lang_ar"), InlineKeyboardButton("🇮🇳 हिन्दी", callback_data="lang_hi")],
-        [InlineKeyboardButton("🇮🇩 Bahasa Indonesia", callback_data="lang_id"), InlineKeyboardButton("🇹🇷 Türkçe", callback_data="lang_tr")],
-        [InlineKeyboardButton("🇮🇹 Italiano", callback_data="lang_it")]
-    ]
+    keyboard = [[InlineKeyboardButton("🇬🇧 English", callback_data="lang_en")]]
     await update.message.reply_text(t["select_lang"], reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -790,35 +604,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch", url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
     if user_id == ADMIN_ID:
         keyboard.append([InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")])
-    tutorial_sent = False
-    try:
-        tut = await context.bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-        tutorial_sent = True
-        await asyncio.sleep(0.2)
-    except Exception as e1:
-        logger.error(f"Forward failed: {e1}")
-        try:
-            tut = await context.bot.copy_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-            tutorial_sent = True
-        except Exception as e2:
-            logger.error(f"Copy failed: {e2}")
-            try:
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text="📺 **TUTORIAL: How to bypass Adsterra link (20s) - Optimum +1**\n\n"
-                    "1️⃣ Click **Open Link & Watch Timer 20s**\n"
-                    "2️⃣ Click **OPEN** on popup\n"
-                    "3️⃣ Stay 20 seconds on ad page\n"
-                    "4️⃣ Come back to bot\n"
-                    "5️⃣ Click **Check Balance** → Get +1 download (realistic)!\n\n"
-                    "⚠️ If tutorial video 108 missing from private channel -1004347828512, re-upload it!",
-                    parse_mode="Markdown"
-                )
-                tutorial_sent = True
-            except:
-                pass
-
-    await update.message.reply_text("👇 **CONTENT LOCKED 🔒 - Tutorial video above! Watch how to bypass!**" + ("" if tutorial_sent else "\n\n⚠️ Tutorial video 108 missing! Make bot admin in -1004347828512 and ensure message 108 exists!"), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await update.message.reply_text("👇 **CONTENT LOCKED 🔒**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0):
     if not urls:
@@ -990,7 +776,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if "http" in text.lower():
         flood, wait = is_flood(user_id)
         if flood:
-            await update.message.reply_text(f"🐢 **Slow down!** You sent {FLOOD_LIMIT} links in last minute.\nWait {wait}s before next link.\n\n*Anti-spam for 750 users*", parse_mode="Markdown")
+            await update.message.reply_text(f"🐢 **Slow down!** You sent {FLOOD_LIMIT} links in last minute.\nWait {wait}s before next link.", parse_mode="Markdown")
             return
     track_user_activity(user_id)
     lang = get_lang(user_id)
@@ -1004,12 +790,12 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if text.startswith("📦 Set Free") and user_id == ADMIN_ID:
         current = get_free_amount()
         keyboard = [[InlineKeyboardButton(f"✅ {i} (Current)" if i==current else f"{i} free", callback_data=f"set_free_{i}") for i in [2,3,4,5]]]
-        await update.message.reply_text(f"📦 FREE DOWNLOADS PANEL\n\nCurrent free per day: {current}\n\nSelect new free limit:\n• 2 = Strict\n• 3 = Balanced\n• 4 = Default\n• 5 = Generous", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await update.message.reply_text(f"📦 FREE DOWNLOADS PANEL\n\nCurrent free per day: {current}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     if text.startswith("🎁 Set Reward") and user_id == ADMIN_ID:
         current = get_reward_amount()
         keyboard = [[InlineKeyboardButton(f"✅ {i} (Current)" if i==current else f"{i}", callback_data=f"set_reward_{i}") for i in [1,2,3,5]]]
-        await update.message.reply_text(f"🎁 REWARD PANEL (Clause 12 Fix)\n\nCurrent: +{current} download per 20s ad\n\nSelect new reward:\n• +1 = Most realistic (best for rewarded ads)\n• +2 = Balanced\n• +3 = Generous\n• +5 = Max\n\nStrict limit: User will get EXACTLY this many!", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await update.message.reply_text(f"🎁 REWARD PANEL\n\nCurrent: +{current} download per ad", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     if text == "⚙️ Ad Toggle Panel" and user_id == ADMIN_ID:
         config = load_json_file(CONFIG_FILE)
@@ -1049,7 +835,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if text == "🟢 Bot Status":
         await status_command(update, context)
         return
-
     if text.strip() in ("🧪 Test Ad", "📢 Ad Info"):
         if user_id != ADMIN_ID:
             await update.message.reply_text("✅ Menu updated.", reply_markup=get_main_keyboard(lang, False))
@@ -1057,7 +842,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if text.strip() == "🧪 Test Ad":
             await send_test_ad(update.message, user_id)
             return
-
     if text.strip() == "📢 Ad Info" and user_id == ADMIN_ID:
         await update.message.reply_text(build_ad_info_text(user_id))
         return
@@ -1134,7 +918,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     extracted_urls = filtered
     if not extracted_urls:
         if "t.me/" in text and "start=" in text:
-            await update.message.reply_text("👆 Please use the buttons above (Open Link & Watch → Check Balance) instead of pasting the link.", parse_mode="Markdown")
+            await update.message.reply_text("👆 Please use the buttons above instead of pasting the link.", parse_mode="Markdown")
         return
     if user_id != ADMIN_ID:
         tokens = load_tokens()
@@ -1157,16 +941,8 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                     await update.message.reply_text("⚠️ Ad server busy, try again in a moment.")
                 return
             else:
-                try:
-                    tut = await context.bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-                    await asyncio.sleep(0.2)
-                except:
-                    try:
-                        tut = await context.bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-                    except:
-                        await context.bot.send_message(chat_id=chat_id, text="📺 TUTORIAL: Open Link & Watch 20s → Stay 20s → Come back → Check Balance = +1 download (realistic)! If video missing, re-upload message 108 to -1004347828512", parse_mode="Markdown")
                 bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
-                keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1 ⏰ 20s", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")]]
+                keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")]]
                 await update.message.reply_text(t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 return
     if active_batch_sessions.get(user_id, False):
@@ -1278,29 +1054,16 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     banned = load_json_file(BANNED_FILE)
     total_hits = sum(v.get("hits",0) for v in cache.values() if isinstance(v, dict))
     host_free = shutil.disk_usage(".").free // (1024*1024) if os.path.exists(".") else 0
-    txt = (f"📊 **ADVANCED ADMIN (via Button)**\n\n• Total: **{total_users}**\n• 24h Active: **{active_24hr}**\n• Ad Mode: **{mode}**\n\n📢 **Ad Split:**\n• Monetag: **{adsgram_count}**\n• Adsterra: **{adsterra_count}**\n\n🖥️ **Render 512MB Real:**\n• Used: **{used_mb}MB**\n• Free: **{free_mb}MB / 512MB**\n• Host: **{host_free}MB** (ignore)\n• Active: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\n• Queue: **{download_queue.qsize()}**\n• Cache: **{len(cache)}** files\n• Hits: **{total_hits}** saved\n• Flood: **{len(flood_data)}**\n• Banned: **{len(banned)}**\n\n🎞️ **Video Vault:** `{VIDEO_VAULT_ID}`\n🏆 **Top 10:**\n{top_text}\n\n✅ Clause 12 Fixed: +1 realistic\n✅ Clause 13 Fixed: /testad verifiable")
+    txt = (f"📊 **ADVANCED ADMIN**\n\n• Total: **{total_users}**\n• 24h Active: **{active_24hr}**\n• Ad Mode: **{mode}**\n\n📢 **Ad Split:**\n• Monetag: **{adsgram_count}**\n• Adsterra: **{adsterra_count}**\n\n🖥️ **Storage:**\n• Used: **{used_mb}MB**\n• Free: **{free_mb}MB**\n• Active: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\n• Queue: **{download_queue.qsize()}**\n• Cache: **{len(cache)}** files\n\n🎞️ **Video Vault:** `{VIDEO_VAULT_ID}`\n🏆 **Top 10:**\n{top_text}")
     await update.message.reply_text(txt, parse_mode="Markdown")
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.message.from_user.id
-    track_user_activity(user_id)
-    if user_id == ADMIN_ID:
-        config = load_json_file(CONFIG_FILE)
-        mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
-        free_mb = get_free_disk_mb()
-        cache = load_json_file(CACHE_FILE)
-        await update.message.reply_text(f"🟢 **Status V32 Monetag**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic (Clause 12 fix)\nTest: /testad (Clause 13 fix)\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
-    else:
-        await update.message.reply_text(
-            "🟢 **Bot Status & Info**\n\n"
-            f"• **Official Public Channel:** [Join Here]({PUBLIC_CHANNEL_URL})\n"
-            f"• **Support Service:** Active 🟢 (Use the Support / FAQ menu)\n"
-            f"• **Website / Bridge:** Operational 🌐\n"
-            f"• **Downloader Engines:** TikTok, Instagram, Facebook, Twitter/X Active 🚀\n"
-            f"• **Status:** All systems running smoothly!",
-            parse_mode="Markdown",
-            disable_web_page_preview=True
-        )
+    track_user_activity(update.message.from_user.id)
+    config = load_json_file(CONFIG_FILE)
+    mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
+    free_mb = get_free_disk_mb()
+    cache = load_json_file(CACHE_FILE)
+    await update.message.reply_text(f"🟢 **Status V33**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**", parse_mode="Markdown")
 
 async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID:
@@ -1308,7 +1071,7 @@ async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     config = load_json_file(CONFIG_FILE)
     mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
     keyboard = [[InlineKeyboardButton("🔄 Auto", callback_data="set_ad_auto")],[InlineKeyboardButton("📺 Monetag", callback_data="set_ad_adsgram")],[InlineKeyboardButton("🌐 Adsterra", callback_data="set_ad_adsterra")]]
-    await update.message.reply_text(f"Ad Panel: {mode}\nReward: +1 optimum", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await update.message.reply_text(f"Ad Panel: {mode}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID:
@@ -1328,9 +1091,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     status_msg = await update.message.reply_text(f"🚀 Broadcasting to {len(all_users)}...", parse_mode="Markdown")
     success = fail = 0
     for uid in all_users:
-        if uid == ADMIN_ID:
-            continue
-        if is_banned(uid):
+        if uid == ADMIN_ID or is_banned(uid):
             continue
         try:
             if reply_msg:
@@ -1410,21 +1171,6 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
                 return True
         except Exception as e:
             logger.error(f"Cache send fail {ckey}: {e}")
-            try:
-                vmid = cache[ckey].get("vault_msg_id")
-                if vmid:
-                    fwd = await bot.forward_message(chat_id=chat_id, from_chat_id=VIDEO_VAULT_ID, message_id=vmid)
-                    warn = await bot.send_message(chat_id=chat_id, text="⏳ Auto-deletes in 9 mins (from vault)")
-                    asyncio.create_task(schedule_deletion(bot, chat_id, [fwd.message_id, warn.message_id], 540))
-                    cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
-                    save_json_file(CACHE_FILE, cache)
-                    deduct_download_counter(chat_id, is_batch=False)
-                    return True
-            except Exception as e2:
-                logger.error(f"Vault fallback fail: {e2}")
-                if ckey in cache:
-                    del cache[ckey]
-                    save_json_file(CACHE_FILE, cache)
     status_msg = await bot.send_message(chat_id=chat_id, text=t["fetching"].format(dl_type) + f"\n`{ckey}`", parse_mode="Markdown")
     try:
         file_paths, res, size = download_media_engine(url, dl_type)
@@ -1436,11 +1182,7 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
             sent_media = await bot.send_media_group(chat_id=chat_id, media=media_group)
             warn = await bot.send_message(chat_id=chat_id, text=t["images_received"].format(len(file_paths)))
             asyncio.create_task(schedule_deletion(bot, chat_id, [m.message_id for m in sent_media] + [warn.message_id], 540))
-            try:
-                vmsg = await bot.send_photo(chat_id=VIDEO_VAULT_ID, photo=sent_media[0].photo[-1].file_id, caption=ckey)
-                cache[ckey] = {"file_id": sent_media[0].photo[-1].file_id, "vault_msg_id": vmsg.message_id, "type": "image", "timestamp": time.time(), "hits": 1, "size": size}
-            except:
-                cache[ckey] = {"file_id": sent_media[0].photo[-1].file_id, "type": "image", "timestamp": time.time(), "hits": 1, "size": size}
+            cache[ckey] = {"file_id": sent_media[0].photo[-1].file_id, "type": "image", "timestamp": time.time(), "hits": 1, "size": size}
             for p in file_paths:
                 os.remove(p)
         elif dl_type == 'audio':
@@ -1448,23 +1190,14 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
                 sent_media = await bot.send_audio(chat_id=chat_id, audio=f, caption=f"🎵 Size {size} `{ckey}`", parse_mode="Markdown")
             warn = await bot.send_message(chat_id=chat_id, text="⏳ Auto-deletes in 9 mins")
             asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
-            try:
-                vmsg = await bot.send_audio(chat_id=VIDEO_VAULT_ID, audio=sent_media.audio.file_id, caption=ckey)
-                cache[ckey] = {"file_id": sent_media.audio.file_id, "vault_msg_id": vmsg.message_id, "type": "audio", "timestamp": time.time(), "hits": 1, "size": size}
-            except:
-                cache[ckey] = {"file_id": sent_media.audio.file_id, "type": "audio", "timestamp": time.time(), "hits": 1, "size": size}
+            cache[ckey] = {"file_id": sent_media.audio.file_id, "type": "audio", "timestamp": time.time(), "hits": 1, "size": size}
             os.remove(file_paths[0])
         else:
             with open(file_paths[0], 'rb') as f:
                 sent_media = await bot.send_video(chat_id=chat_id, video=f, caption=f"✨ {res} Size {size} `{ckey}`", parse_mode="Markdown")
             warn = await bot.send_message(chat_id=chat_id, text="⏳ Auto-deletes in 9 mins")
             asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
-            try:
-                vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent_media.video.file_id, caption=ckey)
-                cache[ckey] = {"file_id": sent_media.video.file_id, "vault_msg_id": vmsg.message_id, "type": "video", "timestamp": time.time(), "hits": 1, "size": size}
-            except Exception as e:
-                logger.error(f"Vault save fail: {e}")
-                cache[ckey] = {"file_id": sent_media.video.file_id, "type": "video", "timestamp": time.time(), "hits": 1, "size": size}
+            cache[ckey] = {"file_id": sent_media.video.file_id, "type": "video", "timestamp": time.time(), "hits": 1, "size": size}
             os.remove(file_paths[0])
         save_json_file(CACHE_FILE, cache)
         await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
@@ -1490,6 +1223,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     chat_id = query.message.chat_id
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
+    
     if data == "admin_skip_ad" and user_id == ADMIN_ID:
         tokens = load_tokens()
         if str(user_id) in tokens:
@@ -1501,24 +1235,27 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except:
             pass
         return
+        
     if data.startswith("set_free_") and user_id == ADMIN_ID:
         val = int(data.replace("set_free_", ""))
         set_free_amount(val)
         await query.answer(f"✅ Free set to {val}!", show_alert=True)
         try:
-            await query.message.edit_text(f"✅ Free Downloads Updated to {val}!\n\n• New users get {val} FREE per day\n• After {val}, ad wall shows\n• Synced to PythonAnywhere!", parse_mode="Markdown")
+            await query.message.edit_text(f"✅ Free Downloads Updated to {val}!", parse_mode="Markdown")
         except:
             pass
         return
+        
     if data.startswith("set_reward_") and user_id == ADMIN_ID:
         val = int(data.replace("set_reward_", ""))
         set_reward_amount(val)
         await query.answer(f"✅ Reward set to +{val}!", show_alert=True)
         try:
-            await query.message.edit_text(f"✅ Reward Updated to +{val}!\n\nStrict limit:\n• After ad, user gets exactly {val}\n• My Stats will show {val}\n• Batch will be {val*5}\n• Synced to PythonAnywhere!", parse_mode="Markdown")
+            await query.message.edit_text(f"✅ Reward Updated to +{val}!", parse_mode="Markdown")
         except:
             pass
         return
+        
     if data.startswith("set_ad_") and user_id == ADMIN_ID:
         mode = data.replace("set_ad_", "")
         config = load_json_file(CONFIG_FILE)
@@ -1530,249 +1267,92 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except:
             pass
         return
+
     if data == "open_support":
         support_states = load_json_file(SUPPORT_STATES_FILE)
         ticket_id = str(int(time.time()))
         support_states[str(user_id)] = {"mode": "user_writing", "ticket_id": ticket_id}
         save_json_file(SUPPORT_STATES_FILE, support_states)
         await query.answer("Opened!")
-        await query.message.reply_text("✍️ Send message/photo/video/voice/file below. Next message (including media) goes to Admin.", parse_mode="Markdown")
+        await query.message.reply_text("✍️ Send message/photo/video/voice/file below.", parse_mode="Markdown")
         return
-    if data.startswith("support_reply_"):
-        target_user_id = data.replace("support_reply_", "")
-        ticket_id = str(int(time.time()))
-        support_states = load_json_file(SUPPORT_STATES_FILE)
-        support_states[str(ADMIN_ID)] = {"mode": "admin_replying", "target_user_id": int(target_user_id), "ticket_id": ticket_id}
-        save_json_file(SUPPORT_STATES_FILE, support_states)
-        await query.answer("Reply mode!")
-        await context.bot.send_message(chat_id=ADMIN_ID, text=f"✍️ Reply to {target_user_id}: Send text/photo/video/audio/voice/doc", parse_mode="Markdown")
-        return
-    if data.startswith("user_reply_ticket_"):
-        ticket_id = data.replace("user_reply_ticket_", "")
-        support_states = load_json_file(SUPPORT_STATES_FILE)
-        support_states[str(user_id)] = {"mode": "user_writing", "ticket_id": ticket_id}
-        save_json_file(SUPPORT_STATES_FILE, support_states)
-        await query.answer("Reply mode!")
-        await query.message.reply_text("✍️ Type follow-up (with media allowed) below", parse_mode="Markdown")
-        return
-    if data.startswith("support_close_"):
-        await query.answer("Closed!", show_alert=True)
-        try:
-            await query.message.edit_text("🔒 Closed")
-        except:
-            pass
-        return
-    if data == "drop_cancel" and user_id == ADMIN_ID:
-        states = load_json_file(DRIP_STATE_FILE)
-        if str(user_id) in states:
-            del states[str(user_id)]
-            save_json_file(DRIP_STATE_FILE, states)
-        await query.answer("Cancelled")
-        try:
-            await query.message.delete()
-        except:
-            pass
-        await context.bot.send_message(chat_id=chat_id, text="❌ Cancelled", reply_markup=get_main_keyboard(lang, True))
-        return
-    if data.startswith("drop_time_") and user_id == ADMIN_ID:
-        seconds = int(data.replace("drop_time_", ""))
-        mins_label = "30 Seconds" if seconds == 30 else f"{seconds//60} Minutes"
-        states = load_json_file(DRIP_STATE_FILE)
-        user_state = states.get(str(user_id))
-        if not user_state or not user_state.get("items"):
-            await query.answer("No items!", show_alert=True)
-            return
-        items_to_drop = user_state["items"]
-        del states[str(user_id)]
-        save_json_file(DRIP_STATE_FILE, states)
-        drop_id = str(int(time.time()))
-        expires_at = time.time() + 480
-        drop_data = load_json_file(DRIP_FILE)
-        drop_data[drop_id] = {"items": items_to_drop, "expires_at": expires_at, "delete_delay": seconds, "delete_label": mins_label, "claimed_users": []}
-        save_json_file(DRIP_FILE, drop_data)
-        await query.answer(f"{mins_label} set!")
-        try:
-            await query.message.delete()
-        except:
-            pass
-        bot_username = context.bot.username
-        claim_url = f"https://t.me/{bot_username}?start=drip_{drop_id}"
-        all_users = set()
-        for d in [load_json_file(LANG_FILE), load_tokens()]:
-            for uid in d.keys():
-                try:
-                    all_users.add(int(uid))
-                except:
-                    pass
-        await context.bot.send_message(chat_id=chat_id, text=f"🚀 Broadcasting {len(items_to_drop)} items to {len(all_users)}...", parse_mode="Markdown")
-        keyboard = [[InlineKeyboardButton("🎁 Claim Now", url=claim_url)]]
-        broadcast_text = f"🚨 FLASH DROP!\nAuto-deletes in {mins_label}\nTap to claim:"
-        success = 0
-        for uid in all_users:
-            if uid == ADMIN_ID or is_banned(uid):
-                continue
-            try:
-                await context.bot.send_message(chat_id=uid, text=broadcast_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-                success+=1
-                await asyncio.sleep(0.05)
-            except:
-                pass
-        await context.bot.send_message(chat_id=chat_id, text=f"✅ Broadcast done to {success}", reply_markup=get_main_keyboard(lang, True), parse_mode="Markdown")
-        return
-    if data.startswith("age_yes_"):
-        drop_id = data.replace("age_yes_", "")
-        drip_data = load_json_file(DRIP_FILE)
-        drop = drip_data.get(drop_id)
-        if not drop:
-            await query.answer("Expired!", show_alert=True)
-            return
-        if time.time() > drop["expires_at"]:
-            await query.answer("Expired!", show_alert=True)
-            try:
-                await query.message.edit_text("⏳ Expired!")
-            except:
-                pass
-            return
-        if "claimed_users" not in drop:
-            drop["claimed_users"]=[]
-        if user_id in drop["claimed_users"]:
-            await query.answer("Already claimed!", show_alert=True)
-            try:
-                await query.message.edit_text("❌ Already claimed!")
-            except:
-                pass
-            return
-        drop["claimed_users"].append(user_id)
-        drip_data[drop_id]=drop
-        save_json_file(DRIP_FILE, drip_data)
-        await query.answer("Verified!")
-        try:
-            await query.message.delete()
-            sent_ids=[]
-            for item in drop["items"]:
-                fwd = await context.bot.copy_message(chat_id=user_id, from_chat_id=item["chat_id"], message_id=item["message_id"])
-                sent_ids.append(fwd.message_id)
-                await asyncio.sleep(0.2)
-            warn = await context.bot.send_message(chat_id=user_id, text=f"⏳ Auto-deletes in {drop.get('delete_label','9 Minutes')}")
-            sent_ids.append(warn.message_id)
-            asyncio.create_task(schedule_deletion(context.bot, user_id, sent_ids, drop.get("delete_delay",540)))
-        except Exception as e:
-            await context.bot.send_message(chat_id=user_id, text=f"❌ {e}")
-        return
-    if data == "age_no":
-        await query.answer("Denied", show_alert=True)
-        try:
-            await query.message.edit_text("❌ Denied. Must be 18+")
-        except:
-            pass
-        return
-    if data.startswith("lang_"):
-        new_lang = data.split("_")[1]
-        langs = load_json_file(LANG_FILE)
-        langs[str(user_id)]=new_lang
-        save_json_file(LANG_FILE, langs)
-        new_t = LANGUAGES.get(new_lang, LANGUAGES["en"])
-        await query.answer("Updated!", show_alert=True)
-        try:
-            await query.message.reply_text(new_t["welcome"], reply_markup=get_main_keyboard(new_lang, user_id==ADMIN_ID), parse_mode="Markdown")
-            await query.message.delete()
-        except:
-            pass
-        return
-    if data.startswith("batchtype_"):
-        parts = data.split("_",2)
-        dl_type = parts[1]
-        payload_key = parts[2]
-        urls = pending_batch_payloads.get(payload_key)
-        if not urls:
-            await query.answer("Expired", show_alert=True)
-            return
-        await query.message.delete()
-        keyboard = [[InlineKeyboardButton(t["btn_chat"], callback_data=f"dest_chat_{dl_type}_{payload_key}")],[InlineKeyboardButton(t["btn_chan"], callback_data=f"dest_chan_{dl_type}_{payload_key}")]]
-        await context.bot.send_message(chat_id=chat_id, text=t["batch_dest"].format(len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-        return
-    if data.startswith("fmt_"):
-        parts = data.split("_",2)
-        fmt_type, payload_key = parts[1], parts[2]
-        url = pending_single_links.pop(payload_key, None)
-        if not url:
-            await query.answer("Expired", show_alert=True)
-            return
-        await query.answer("Checking vault & server load...")
-        await query.message.delete()
-        dl_type = 'video'
-        if fmt_type == 'aud':
-            dl_type='audio'
-        elif fmt_type == 'img':
-            dl_type='images'
-        elif fmt_type == 'sub':
-            dl_type='subtitles'
-        ckey = get_canonical_key(url)
-        cache = load_json_file(CACHE_FILE)
-        if ckey in cache:
-            await cached_download_and_send(context.bot, chat_id, url, dl_type, t)
-            return
-        can_dl = await acquire_slot()
-        if can_dl:
-            try:
-                await cached_download_and_send(context.bot, chat_id, url, dl_type, t)
-            finally:
-                await release_slot()
-        else:
-            pos = download_queue.qsize()+1
-            await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, url, dl_type, t), 'kwargs': {}})
-            free_mb = get_free_disk_mb()
-            await context.bot.send_message(chat_id=chat_id, text=f"⏳ **Server Busy**\nActive: {active_downloads}/{MAX_CONCURRENT_SHORT}\nFree: {free_mb}MB\nQueue: #{pos}\nWill start auto!", parse_mode="Markdown")
-        return
+
+    # =========================================================================
+    #  UPDATED ADSGRAM CHECK HANDLER WITH "FAILED" COOLDOWN FALLBACK (CLAUSE FIX)
+    # =========================================================================
     if data == "adsgram_check":
         st = adsgram_status(user_id)
-        if st.get("status") == "pending":
+        status_val = st.get("status")
+
+        if status_val == "pending":
             await query.answer("📺 Tap Watch Ad first and finish the ad in the Mini App, then come back.", show_alert=True)
             return
-        if st.get("status") != "done":
-            await query.answer("This ad link expired. Send your link again to get a new one.", show_alert=True)
-            return
-        reward = st.get("reward", 1)
-        try:
-            await query.message.delete()
-        except:
-            pass
-        if st.get("kind") == "test":
-            await query.answer(f"✅ Ad verified! +{reward} added", show_alert=True)
-            await context.bot.send_message(chat_id=chat_id, text=(
-                f"✅ TEST AD VERIFIED\n\nThe Monetag ad played in the Mini App and the reward was credited: "
-                f"+{reward} download. Your balance now shows {st.get('downloads_left', reward)}."))
-            return
-        await query.answer(f"✅ Sponsor viewed! +{reward} added", show_alert=True)
-        paused = paused_batches.pop(user_id, None)
-        if paused:
-            asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"]))
-            return
-        msg_start, msg_end = int(st.get("msg_start", 0)), int(st.get("msg_end", 0))
-        if msg_start > 0:
-            await context.bot.send_message(chat_id=chat_id, text="✅ Verified! Fetching bundle...")
+
+        elif status_val == "failed":
+            # THIS IS THE NEW FALLBACK LOGIC YOU SPECIFIED:
+            # They hit the 6-minute cooldown. Give them the Adsterra/Monetag bridge backup link!
+            await query.answer("⚠️ Ad on cooldown. Use backup sponsor link below.", show_alert=True)
+            bridge_url = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🌐 Use Backup Sponsor (Adsterra/Monetag)", url=bridge_url)]
+            ])
             try:
-                await deliver_bundle(context.bot, user_id, msg_start, msg_end)
-            except Exception as e:
-                await context.bot.send_message(chat_id=chat_id, text=f"❌ {e}")
+                await query.message.delete()
+            except:
+                pass
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="⚠️ You recently watched an ad, so the Mini App ad is on cooldown.\n\n"
+                     "Please click the backup button below to open the Sponsor page in your browser instead!",
+                reply_markup=keyboard
+            )
             return
-        retry_url = pending_single_links.pop(f"retry_{user_id}", None)
-        if retry_url:
-            can_dl = await acquire_slot()
-            if can_dl:
+
+        elif status_val == "done":
+            reward = st.get("reward", 1)
+            try:
+                await query.message.delete()
+            except:
+                pass
+            if st.get("kind") == "test":
+                await query.answer(f"✅ Ad verified! +{reward} added", show_alert=True)
+                await context.bot.send_message(chat_id=chat_id, text=(
+                    f"✅ TEST AD VERIFIED\n\nThe Monetag ad played in the Mini App and the reward was credited: "
+                    f"+{reward} download. Your balance now shows {st.get('downloads_left', reward)}."))
+                return
+            await query.answer(f"✅ Sponsor viewed! +{reward} added", show_alert=True)
+            paused = paused_batches.pop(user_id, None)
+            if paused:
+                asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"]))
+                return
+            msg_start, msg_end = int(st.get("msg_start", 0)), int(st.get("msg_end", 0))
+            if msg_start > 0:
+                await context.bot.send_message(chat_id=chat_id, text="✅ Verified! Fetching bundle...")
                 try:
-                    await cached_download_and_send(context.bot, chat_id, retry_url, "video", t)
-                finally:
-                    await release_slot()
-            else:
-                await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, retry_url, "video", t), 'kwargs': {}})
-                await context.bot.send_message(chat_id=chat_id, text=f"⏳ Queued #{download_queue.qsize()}")
+                    await deliver_bundle(context.bot, user_id, msg_start, msg_end)
+                except Exception as e:
+                    await context.bot.send_message(chat_id=chat_id, text=f"❌ {e}")
+                return
+            retry_url = pending_single_links.pop(f"retry_{user_id}", None)
+            if retry_url:
+                can_dl = await acquire_slot()
+                if can_dl:
+                    try:
+                        await cached_download_and_send(context.bot, chat_id, retry_url, "video", t)
+                    finally:
+                        await release_slot()
+                else:
+                    await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, retry_url, "video", t), 'kwargs': {}})
+                    await context.bot.send_message(chat_id=chat_id, text=f"⏳ Queued #{download_queue.qsize()}")
+                return
+            await context.bot.send_message(chat_id=chat_id, text=f"✅ Refilled +{reward}! Send your link again.")
             return
-        await context.bot.send_message(chat_id=chat_id, text=f"✅ Refilled +{reward}! Send your link again.")
-        return
-    if data.startswith("adsgram_complete_") or data in ("adsgram_resume_batch",):
-        await query.answer("This button is outdated. Send your link again to get the new Watch Ad button.", show_alert=True)
-        return
+
+        else:
+            # status is "none" or error
+            await query.answer("❌ No ad found. Please click 'Watch Ad' first.", show_alert=True)
+            return
+
     if data == "stop_batch":
         active_batch_sessions[user_id]=False
         await query.answer("Stopping...", show_alert=True)
@@ -1781,6 +1361,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except:
             pass
         return
+        
     if data == "resume_batch":
         paused = paused_batches.pop(user_id, None)
         if not paused:
@@ -1790,6 +1371,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.message.delete()
         asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"]))
         return
+        
     if data.startswith("dest_chat_") or data.startswith("dest_chan_"):
         parts = data.split("_",3)
         action_type, dl_type, payload_key = parts[1], parts[2], parts[3]
@@ -1815,13 +1397,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.message.delete()
             asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, target, urls, dl_type))
         return
-    if data == "change_channel":
-        linking_states = load_linking_states()
-        linking_states[str(user_id)]="waiting_for_channel"
-        save_linking_states(linking_states)
-        await query.answer("Mode activated!")
-        await query.message.reply_text("🔄 Forward message from new channel", parse_mode="Markdown")
-        return
+
     if data == "verify_user":
         try:
             member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_USERNAME, user_id=user_id)
@@ -1850,17 +1426,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 "expires": time.time() + 600
             }
             save_tokens(tokens)
-            await query.answer("✅ Test Ad Verified! (Clause 13 Demo) +1 realistic", show_alert=True)
-            await query.message.reply_text(
-                "✅ **TEST AD VERIFIED! 🎉 (Clause 13 + 12 Demo) - Optimum +1**\n\n"
-                "This is what user sees after watching 20s ad:\n"
-                "• Ad placement found & verified! ✅\n"
-                "• Reward: +1 download refilled (realistic optimum - Clause 12 fix)!\n"
-                "• Real flow: Watch 20s ad → Click Check → Get +1 file\n\n"
-                "📍 **For Reviewer:** This proves ad placement exists and is verifiable via /testad button!\n"
-                "🎁 Reward is realistic +1, not excessively high! Stats now shows 1!",
-                parse_mode="Markdown"
-            )
+            await query.answer("✅ Test Ad Verified! +1 realistic", show_alert=True)
+            await query.message.reply_text("✅ **TEST AD VERIFIED! 🎉**", parse_mode="Markdown")
             return
         token_data = tokens[user_str]
         if not token_data.get("verified", False):
@@ -1877,10 +1444,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.answer("Verified! +1 added")
         if user_id in paused_batches:
             keyboard = [[InlineKeyboardButton("▶️ Resume Batch +1", callback_data="resume_batch")]]
-            await query.message.reply_text("✅ Verified! Refilled +1 (realistic). Resume?", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            await query.message.reply_text("✅ Verified! Refilled +1. Resume?", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             return
         if msg_start==0:
-            await query.message.reply_text("✅ Refilled +1! Download again (realistic optimum - Clause 12 fix)")
+            await query.message.reply_text("✅ Refilled +1! Download again")
             return
         await query.message.reply_text("✅ Verified! Fetching bundle...")
         fwd_ids=[]
@@ -1903,20 +1470,16 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             fwd_ids.append(warn.message_id)
             asyncio.create_task(schedule_deletion(context.bot, user_id, fwd_ids, 540))
         except Exception as e:
-            await query.message.reply_text(f"❌ {e} (Bundle {msg_start}-{msg_end} + Tutorial {TUTORIAL_MESSAGE_ID})")
-
+            await query.message.reply_text(f"❌ {e}")
 
 TEST_AD_TEXT = (
     "🧪 AD PLACEMENT TEST (Monetag Rewarded - Mini App)\n\n"
     "📍 WHERE THE AD IS PLACED:\n"
-    "1️⃣ User sends any media link (TikTok, FB, Insta, X, YouTube)\n"
-    "2️⃣ User gets 4 FREE downloads per day\n"
+    "1️⃣ User sends any media link\n"
+    "2️⃣ User gets free downloads per day\n"
     "3️⃣ On the next download the LIMIT REACHED screen appears\n"
-    "4️⃣ That screen has the 📺 Watch Ad button (this exact message)\n"
-    "5️⃣ Button opens the Monetag ad inside a Telegram Mini App\n"
-    "6️⃣ After the ad ends the Mini App closes -> tap Check & Get +1\n\n"
-    "🎁 Reward: +1 download per completed ad\n"
-    "📍 Same screen also appears in batch mode\n\n"
+    "4️⃣ That screen has the 📺 Watch Ad button\n"
+    "5️⃣ Button opens the Monetag ad inside a Telegram Mini App\n\n"
     "👇 TRY THE AD NOW:"
 )
 
@@ -1930,13 +1493,10 @@ async def send_adsgram_test(message, user_id):
 ADSTERRA_TEST_TEXT = (
     "🧪 AD PLACEMENT TEST (Adsterra Direct Link, 20s timer)\n\n"
     "📍 WHERE THE AD IS PLACED:\n"
-    "1️⃣ User sends any media link (TikTok, FB, Insta, X, YouTube)\n"
-    "2️⃣ User gets 4 FREE downloads per day\n"
+    "1️⃣ User sends any media link\n"
+    "2️⃣ User gets free downloads per day\n"
     "3️⃣ On the next download the LIMIT REACHED screen appears\n"
-    "4️⃣ That screen has the Open Link & Watch Timer button (this exact message)\n"
-    "5️⃣ Stay 20 seconds on the ad page, then come back\n"
-    "6️⃣ Tap Check & Get Files -> +1 download\n\n"
-    "🎁 Reward: +1 download per completed ad\n\n"
+    "4️⃣ That screen has the Open Link & Watch Timer button\n\n"
     "👇 TRY THE AD NOW:"
 )
 
@@ -1944,12 +1504,9 @@ async def send_adsterra_test(message, user_id):
     tokens = load_tokens()
     uid = str(user_id)
     now = time.time()
-    if uid in tokens and isinstance(tokens[uid], dict):
-        tokens[uid].update({"msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": now + 600})
-    else:
-        free = get_free_amount()
-        tokens[uid] = {"user_id": int(user_id), "downloads_left": free, "batch_downloads_left": free * 5,
-                       "last_reset": now, "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": now + 600}
+    free = get_free_amount()
+    tokens[uid] = {"user_id": int(user_id), "downloads_left": free, "batch_downloads_left": free * 5,
+                   "last_reset": now, "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": now + 600}
     save_tokens(tokens)
     bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
     keyboard = [
@@ -1967,27 +1524,7 @@ async def send_test_ad(message, user_id):
 
 def build_ad_info_text(user_id):
     mode = load_json_file(CONFIG_FILE).get("ad_mode", "auto")
-    monetag = (
-        "• Monetag: LIMIT REACHED screen (after 4 free downloads per day, also in batch mode)\n"
-        "  Button: 📺 Watch Ad opens a Telegram Mini App with a rewarded ad\n"
-        "  After the ad the Mini App closes; user taps Check & Get +1\n")
-    adsterra = (
-        "• Adsterra: LIMIT REACHED screen (after 4 free downloads per day, also in batch mode)\n"
-        "  Button: Open Link & Watch Timer (20s direct link)\n"
-        "  After 20s the user taps Check & Get Files\n")
-    if mode == "adsgram":
-        head, body = "Mode: MONETAG only", monetag
-    elif mode == "adsterra":
-        head, body = "Mode: ADSTERRA only", adsterra
-    else:
-        net = "Monetag" if get_global_ab_network(user_id) == "adsgram" else "Adsterra"
-        head, body = f"Mode: AUTO (split by user and day; you currently get {net})", monetag + adsterra
-    return ("📢 AD INFO\n\n"
-            "Bot: @Michaelbbcvaultbot\n" + head + "\n\n"
-            "📍 Exact ad placement:\n" + body + "\n"
-            "• Reward: +1 download per completed ad\n"
-            "• Basic use stays free: 4 downloads per day without any ad\n\n"
-            "🧪 To test: tap 🧪 Test Ad or send /testad (it follows the current mode)")
+    return "📢 AD INFO\nBot: @Michaelbbcvaultbot\nReward: +1 download per completed ad"
 
 async def test_ad_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
@@ -2026,7 +1563,7 @@ def run_telegram_bot():
         asyncio.create_task(auto_backup_loop(app.bot))
         asyncio.create_task(queue_processor(app.bot))
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
-        print(f"Bot started! V24 Optimum +1 Vault={VIDEO_VAULT_ID} Backup={PRIVATE_CHANNEL_ID} Free {get_free_disk_mb()}MB")
+        print("Bot started! V33 Hybrid Monetag + Cooldown Fallback")
         await asyncio.Event().wait()
     loop.run_until_complete(start_bot())
 
