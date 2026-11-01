@@ -1116,7 +1116,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
     free_mb = get_free_disk_mb()
     cache = load_json_file(CACHE_FILE)
-    await update.message.reply_text(f"🟢 **Status V34 Monetag**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic (Clause 12 fix)\nTest: /testad (Clause 13 fix)\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
+    await update.message.reply_text(f"🟢 **Status V37 Monetag**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic (Clause 12 fix)\nTest: /testad (Clause 13 fix)\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
 
 async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID:
@@ -1825,6 +1825,29 @@ async def test_ad_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await send_test_ad(update.message, update.effective_user.id)
 
+async def tokencheck_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin only: compares the bot token on Render with the one on PythonAnywhere WITHOUT showing either token."""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    mine = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()[:8] if BOT_TOKEN else "none"
+    try:
+        s = requests.get(f"{WEB_BASE_URL}/adsgram-selfcheck", timeout=15).json()
+    except Exception as e:
+        await update.message.reply_text(f"❌ Could not reach the PythonAnywhere server: {type(e).__name__}")
+        return
+    same = (s.get("fingerprint") == mine)
+    lines = [
+        "🔐 TOKEN CHECK (no tokens shown)",
+        f"Render bot: fingerprint {mine}, length {len(BOT_TOKEN)}",
+        f"PythonAnywhere: fingerprint {s.get('fingerprint')}, length {s.get('token_len')}",
+        f"PythonAnywhere token works with Telegram: {s.get('telegram_ok')}" + (f" (@{s.get('bot_username')})" if s.get("bot_username") else ""),
+    ]
+    if s.get("telegram_error"):
+        lines.append(f"Telegram error: {s['telegram_error']}")
+    lines.append("")
+    lines.append("✅ MATCH - both use the same token" if same else "❌ DIFFERENT - fix TELEGRAM_TOKEN in the PythonAnywhere WSGI file (copy it again from the Render value), then Reload")
+    await update.message.reply_text("\n".join(lines))
+
 async def ad_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
@@ -1842,6 +1865,7 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("status", status_command))
         app.add_handler(CommandHandler("testad", test_ad_command))
         app.add_handler(CommandHandler("adinfo", ad_info_command))
+        app.add_handler(CommandHandler("tokencheck", tokencheck_command))
         app.add_handler(CommandHandler("toggleads", toggle_ads_command))
         app.add_handler(CommandHandler("broadcast", broadcast_command))
         app.add_handler(CommandHandler("ban", ban_command))
