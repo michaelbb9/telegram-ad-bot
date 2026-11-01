@@ -38,8 +38,8 @@ PUBLIC_CHANNEL_URL = "https://t.me/booksaufio"
 PUBLIC_CHANNEL_USERNAME = "@booksaufio"
 HELP_CHANNEL_URL = "https://t.me/faqandaupport"
 
-MONETAG_ZONE_ID = "12168607"  # Monetag Zone ID - Vaultadsnet mini app t.me/Michaelbbcvaultbot/Vaultadsnet
-ADSGRAM_BLOCK_ID = os.getenv("ADSGRAM_BLOCK_ID", "")  # kept for compat
+MONETAG_ZONE_ID = "12168607"  # Monetag Zone ID - Vaultadsnet t.me/Michaelbbcvaultbot/Vaultadsnet
+ADSGRAM_BLOCK_ID = os.getenv("ADSGRAM_BLOCK_ID", "")   # Mini App REWARDED block id (the SDK one). Set in the Flask server too.
 API_SECRET = os.getenv("API_SECRET", "change-me")        # must be the same value on PythonAnywhere
 API_HEADERS = {"X-Api-Secret": API_SECRET}
 PROXY_URL = None 
@@ -74,354 +74,44 @@ FLOOD_LIMIT = 3
 FLOOD_WINDOW = 60
 FLOOD_COOLDOWN = 30
 
-
-
 LANGUAGES = {
     "en": {
-        "welcome": "🚀 WELCOME TO MICHAELBBC VAULT - ALL MEDIA DOWNLOADER! FB, INSTA, TIKTOK, X, YOUTUBE! What I can do: VIDEOS HD, AUDIO MP3, IMAGES, SUBTITLES, BATCH 100+, CACHE 1 Sec, VAULT Forever, FAN UPLOADS 5/day! PASTE LINK TO START!",
+        "welcome": "🚀 **WELCOME TO MICHAELBBC VAULT - ALL MEDIA DOWNLOADER! 🚀✨ FB, INSTA, TIKTOK, X, YOUTUBE! 🚀✨\n\n🔥 WHAT I CAN DO:\n🎬 VIDEOS HD No Watermark!\n🎵 AUDIO MP3 192kbps!\n🖼️ IMAGES Scrape ALL!\n📝 SUBTITLES Auto!\n📦 BATCH 100+ Links!\n⚡ CACHE 1 Sec!\n💎 VAULT Forever!\n📤 FAN UPLOADS 5/day!\n\n👉 PASTE LINK TO START! 👇** 🚀\n\n🎬 Video, 🎵 Audio, 🖼️ Images, 📝 Subtitles\n📦 Batch Downloader (100+ links)\n⚡ Flash Drops\n💎 Exclusive Vaults\n📤 Fan Uploads (5/day)\n\n👉 Just paste ANY link: TikTok, Facebook, Instagram, Twitter/X, YouTube to start! 🚀✨ All Media Supported!",
         "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Images", "btn_sub": "📝 Subtitles (SRT)",
-        "ask_format": "What format you want? Pick below! Video=watch, Audio=music!",
-        "fetching": "Fetching your {}... Hang tight!",
-        "error_generic": "Oops! Failed! Link private/blocked. Try public link!",
-        "error_50mb": "Too Big! >50MB limit.", "error_no_img": "No images found!",
-        "images_received": "{} Images received.",
-        "select_lang": "Select your language! Top 10 TG nations!", "lang_set": "Language set! Enjoy!",
-        "batch_detected": "Batch Detected ({} links) What format?",
-        "batch_dest": "Where to send?",
-        "btn_chat": "In Chat", "btn_chan": "To Channel",
-        "limit_reached": "Limit Reached! You used 4 FREE downloads today! Watch short ad -> Get +1 download!",
-        "refill_btn": "Open Link & Refill +1",
-        "join_btn": "Join Channel", "check_btn": "Check Balance",
-        "limit_batch": "Batch Limit Reached at {} of {} Watch ad -> +1 to continue.",
-        "batch_start": "Batch Started: {} {} files Processing...",
-        "batch_done": "Done! {} ok {} fail {} files here.",
-        "batch_done_chan": "Done! {} ok {} fail {} files forwarded!",
-        "dl_video": "Downloading video...", "dl_audio": "Extracting audio...", "dl_image": "Scraping images...", "dl_sub": "Fetching subtitles...",
-        "failed_50": ">50MB", "failed_blocked": "Blocked/private", "failed_generic": "Failed",
-        "menu_lang": "Language", "menu_stats": "My Stats", "menu_help": "Support / FAQ", "menu_join": "Join Channel",
-        "menu_uploads": "Fan Uploads", "menu_upload": "Upload File",
-        "admin_upload_prompt": "Fan Uploads Inbox",
-        "user_upload_prompt": "Upload File Send video/image/file to Admin (anon). Limit 5/24h.",
-        "upload_success_user": "Sent to Admin!",
-        "upload_limit_reached": "Upload limit 5/24h reached.",
-        "no_uploads": "No uploads yet.",
-        "stats_msg": "Your Stats: Downloads Left: {} Batch Left: {}",
-        "support_open": "Open Support Ticket Chat directly to admin! Send message/photo/video/voice/file",
-        "support_btn": "Open Support"
-    },
-    "hi": {
-        "welcome": "MICHAELBBC VAULT me swagat hai! FB, INSTA, TIKTOK, X, YOUTUBE! Video, audio, image download karein!",
-        "btn_video": "Video (MP4)", "btn_audio": "Audio (MP3)", "btn_image": "Images", "btn_sub": "Subtitles",
-        "ask_format": "Format chunein!", "fetching": "Aapka {} la raha hoon...",
-        "error_generic": "Asafal! Link private hai!", "error_50mb": "Bahut bada! >50MB", "error_no_img": "Image nahi mili!",
-        "images_received": "{} image mili.", "select_lang": "Bhasha chunein!", "lang_set": "Bhasha set!",
-        "batch_detected": "Batch mila ({} links)", "batch_dest": "Kahan bhejein?",
-        "btn_chat": "Chat me", "btn_chan": "Channel me",
-        "limit_reached": "Limit khatam! 4 FREE istemal! Ad dekho -> +1 pao!",
-        "refill_btn": "Link kholo +1", "join_btn": "Channel join", "check_btn": "Balance dekho",
-        "limit_batch": "Batch limit {} / {}", "batch_start": "Batch shuru: {} {} files",
-        "batch_done": "Ho gaya! {} ok {} fail {} files yahan.", "batch_done_chan": "Ho gaya! {} ok {} fail {} files bheji!",
-        "dl_video": "Video download...", "dl_audio": "Audio nikal raha...", "dl_image": "Image le raha...", "dl_sub": "Subtitle...",
-        "failed_50": ">50MB", "failed_blocked": "Block/private", "failed_generic": "Asafal",
-        "menu_lang": "Bhasha", "menu_stats": "Mere aankde", "menu_help": "Sahayata", "menu_join": "Channel join",
-        "menu_uploads": "Fan upload", "menu_upload": "File upload",
-        "admin_upload_prompt": "Fan uploads inbox", "user_upload_prompt": "File upload Admin ko bhejein.",
-        "upload_success_user": "Admin ko bheja!", "upload_limit_reached": "Upload limit 5/24h khatam.",
-        "no_uploads": "Koi upload nahi.", "stats_msg": "Aapke aankde: Baki download: {} Batch baki: {}",
-        "support_open": "Support ticket kholein Admin se seedha chat karein!", "support_btn": "Open Support"
-    },
-    "ru": {
-        "welcome": "DOBRO POZHALOVAT V MICHAELBBC VAULT! FB, INSTA, TIKTOK, X, YOUTUBE! Skachivay video, audio, foto!",
-        "btn_video": "Video (MP4)", "btn_audio": "Audio (MP3)", "btn_image": "Foto", "btn_sub": "Subtitry",
-        "ask_format": "Vyberi format!", "fetching": "Zagruzhayu tvoy {}...",
-        "error_generic": "Oshibka! Ssylka privatnaya!", "error_50mb": "Slishkom bolshoy! >50MB", "error_no_img": "Foto ne naydeny!",
-        "images_received": "{} foto polucheno.", "select_lang": "Vyberi yazyk!", "lang_set": "Yazyk ustanovlen!",
-        "batch_detected": "Obnaruzhen batch ({} ssylok)", "batch_dest": "Kuda otpravit?",
-        "btn_chat": "V chat", "btn_chan": "V kanal",
-        "limit_reached": "Limit! 4 FREE ispolzovano! Smotri reklamu -> +1!",
-        "refill_btn": "Otkryt ssylku +1", "join_btn": "V kanal", "check_btn": "Balans",
-        "limit_batch": "Limit batcha {} / {}", "batch_start": "Batch nachat: {} {} faylov",
-        "batch_done": "Gotovo! {} ok {} fail {} faylov zdes.", "batch_done_chan": "Gotovo! {} ok {} fail {} faylov otpravleno!",
-        "dl_video": "Zagruzhayu video...", "dl_audio": "Izvlekayu audio...", "dl_image": "Sobirayu foto...", "dl_sub": "Subtitry...",
-        "failed_50": ">50MB", "failed_blocked": "Blok/privat", "failed_generic": "Oshibka",
-        "menu_lang": "Yazyk", "menu_stats": "Moya statistika", "menu_help": "Podderzhka", "menu_join": "V kanal",
-        "menu_uploads": "Zagruzki", "menu_upload": "Zagruzit fayl",
-        "admin_upload_prompt": "Vkhodyashchie", "user_upload_prompt": "Zagruzit Otprav adminu.",
-        "upload_success_user": "Otpravleno adminu!", "upload_limit_reached": "Limit 5/24ch!",
-        "no_uploads": "Net zagruzok.", "stats_msg": "Tvoya statistika: Ostalos: {} Batch: {}",
-        "support_open": "Otkryt podderzhku Chat napryamuyu s adminom!", "support_btn": "Otkryt podderzhku"
-    },
-    "pt": {
-        "welcome": "BEM-VINDO AO MICHAELBBC VAULT! FB, INSTA, TIKTOK, X, YOUTUBE! Baixe videos, audios, imagens!",
-        "btn_video": "Video (MP4)", "btn_audio": "Audio (MP3)", "btn_image": "Imagens", "btn_sub": "Legendas",
-        "ask_format": "Escolha o formato!", "fetching": "Buscando seu {}...",
-        "error_generic": "Erro! Link privado!", "error_50mb": "Muito grande! >50MB", "error_no_img": "Sem imagens!",
-        "images_received": "{} imagens recebidas.", "select_lang": "Escolha idioma!", "lang_set": "Idioma definido!",
-        "batch_detected": "Lote detectado ({} links)", "batch_dest": "Onde enviar?",
-        "btn_chat": "No chat", "btn_chan": "No canal",
-        "limit_reached": "Limite! 4 GRATIS usados! Veja anuncio -> +1!",
-        "refill_btn": "Abrir link +1", "join_btn": "Entrar canal", "check_btn": "Saldo",
-        "limit_batch": "Limite lote {} / {}", "batch_start": "Lote iniciado: {} {} arquivos",
-        "batch_done": "Feito! {} ok {} fail {} arquivos aqui.", "batch_done_chan": "Feito! {} ok {} fail {} arquivos enviados!",
-        "dl_video": "Baixando video...", "dl_audio": "Extraindo audio...", "dl_image": "Coletando imagens...", "dl_sub": "Legendas...",
-        "failed_50": ">50MB", "failed_blocked": "Bloqueado/privado", "failed_generic": "Falhou",
-        "menu_lang": "Idioma", "menu_stats": "Minhas estatisticas", "menu_help": "Suporte", "menu_join": "Entrar canal",
-        "menu_uploads": "Uploads", "menu_upload": "Upload arquivo",
-        "admin_upload_prompt": "Caixa de entrada", "user_upload_prompt": "Upload Envie ao admin.",
-        "upload_success_user": "Enviado ao admin!", "upload_limit_reached": "Limite 5/24h!",
-        "no_uploads": "Sem uploads.", "stats_msg": "Suas estatisticas: Restam: {} Lote: {}",
-        "support_open": "Abrir suporte Chat direto com admin!", "support_btn": "Abrir suporte"
-    },
-    "id": {
-        "welcome": "SELAMAT DATANG DI MICHAELBBC VAULT! FB, INSTA, TIKTOK, X, YOUTUBE! Download video, audio, gambar!",
-        "btn_video": "Video (MP4)", "btn_audio": "Audio (MP3)", "btn_image": "Gambar", "btn_sub": "Subtitle",
-        "ask_format": "Pilih format!", "fetching": "Mengambil {}...",
-        "error_generic": "Gagal! Link privat!", "error_50mb": "Terlalu besar! >50MB", "error_no_img": "Tidak ada gambar!",
-        "images_received": "{} gambar diterima.", "select_lang": "Pilih bahasa!", "lang_set": "Bahasa diatur!",
-        "batch_detected": "Batch terdeteksi ({} tautan)", "batch_dest": "Kirim ke mana?",
-        "btn_chat": "Di chat", "btn_chan": "Ke channel",
-        "limit_reached": "Batas! 4 GRATIS habis! Tonton iklan -> +1!",
-        "refill_btn": "Buka tautan +1", "join_btn": "Gabung channel", "check_btn": "Cek saldo",
-        "limit_batch": "Batas batch {} / {}", "batch_start": "Batch dimulai: {} {} file",
-        "batch_done": "Selesai! {} ok {} fail {} file di sini.", "batch_done_chan": "Selesai! {} ok {} fail {} file diteruskan!",
-        "dl_video": "Mengunduh video...", "dl_audio": "Mengekstrak audio...", "dl_image": "Mengumpulkan gambar...", "dl_sub": "Subtitle...",
-        "failed_50": ">50MB", "failed_blocked": "Diblokir/privat", "failed_generic": "Gagal",
-        "menu_lang": "Bahasa", "menu_stats": "Statistik saya", "menu_help": "Dukungan", "menu_join": "Gabung channel",
-        "menu_uploads": "Upload", "menu_upload": "Upload file",
-        "admin_upload_prompt": "Kotak masuk", "user_upload_prompt": "Upload Kirim ke admin.",
-        "upload_success_user": "Terkirim ke admin!", "upload_limit_reached": "Batas 5/24j!",
-        "no_uploads": "Tidak ada upload.", "stats_msg": "Statistik: Sisa: {} Batch: {}",
-        "support_open": "Buka dukungan Chat langsung ke admin!", "support_btn": "Buka dukungan"
-    },
-    "es": {
-        "welcome": "BIENVENIDO A MICHAELBBC VAULT! FB, INSTA, TIKTOK, X, YOUTUBE! Descarga videos, audios, imagenes!",
-        "btn_video": "Video (MP4)", "btn_audio": "Audio (MP3)", "btn_image": "Imagenes", "btn_sub": "Subtitulos",
-        "ask_format": "Elige formato!", "fetching": "Obteniendo tu {}...",
-        "error_generic": "Error! Link privado!", "error_50mb": "Muy grande! >50MB", "error_no_img": "Sin imagenes!",
-        "images_received": "{} imagenes recibidas.", "select_lang": "Elige idioma!", "lang_set": "Idioma configurado!",
-        "batch_detected": "Lote detectado ({} enlaces)", "batch_dest": "Donde enviar?",
-        "btn_chat": "En chat", "btn_chan": "Al canal",
-        "limit_reached": "Limite! 4 GRATIS usados! Ve anuncio -> +1!",
-        "refill_btn": "Abrir enlace +1", "join_btn": "Unirse canal", "check_btn": "Saldo",
-        "limit_batch": "Limite lote {} / {}", "batch_start": "Lote iniciado: {} {} archivos",
-        "batch_done": "Hecho! {} ok {} fail {} archivos aqui.", "batch_done_chan": "Hecho! {} ok {} fail {} archivos enviados!",
-        "dl_video": "Descargando video...", "dl_audio": "Extrayendo audio...", "dl_image": "Recolectando imagenes...", "dl_sub": "Subtitulos...",
-        "failed_50": ">50MB", "failed_blocked": "Bloqueado/privado", "failed_generic": "Fallo",
-        "menu_lang": "Idioma", "menu_stats": "Mis estadisticas", "menu_help": "Soporte", "menu_join": "Unirse canal",
-        "menu_uploads": "Subidas", "menu_upload": "Subir archivo",
-        "admin_upload_prompt": "Bandeja entrada", "user_upload_prompt": "Subir Envia al admin.",
-        "upload_success_user": "Enviado al admin!", "upload_limit_reached": "Limite 5/24h!",
-        "no_uploads": "Sin subidas.", "stats_msg": "Tus estadisticas: Restan: {} Lote: {}",
-        "support_open": "Abrir soporte Chat directo al admin!", "support_btn": "Abrir soporte"
-    },
-    "tr": {
-        "welcome": "MICHAELBBC VAULT'A HOSGELDINIZ! FB, INSTA, TIKTOK, X, YOUTUBE! Video, ses, resim indir!",
-        "btn_video": "Video (MP4)", "btn_audio": "Ses (MP3)", "btn_image": "Resimler", "btn_sub": "Altyazi",
-        "ask_format": "Format sec!", "fetching": "{} getiriliyor...",
-        "error_generic": "Hata! Link ozel!", "error_50mb": "Cok buyuk! >50MB", "error_no_img": "Resim yok!",
-        "images_received": "{} resim alindi.", "select_lang": "Dil sec!", "lang_set": "Dil ayarlandi!",
-        "batch_detected": "Toplu tespit ({} link)", "batch_dest": "Nereye gonderilsin?",
-        "btn_chat": "Sohbete", "btn_chan": "Kanala",
-        "limit_reached": "Limit! 4 UCRETSIZ bitti! Reklam izle -> +1!",
-        "refill_btn": "Link ac +1", "join_btn": "Kanala katil", "check_btn": "Bakiye",
-        "limit_batch": "Toplu limit {} / {}", "batch_start": "Toplu basladi: {} {} dosya",
-        "batch_done": "Bitti! {} ok {} fail {} dosya burada.", "batch_done_chan": "Bitti! {} ok {} fail {} dosya iletildi!",
-        "dl_video": "Video indiriliyor...", "dl_audio": "Ses cikariliyor...", "dl_image": "Resimler toplaniyor...", "dl_sub": "Altyazi...",
-        "failed_50": ">50MB", "failed_blocked": "Engelli/ozel", "failed_generic": "Basarisiz",
-        "menu_lang": "Dil", "menu_stats": "Istatistiklerim", "menu_help": "Destek", "menu_join": "Kanala katil",
-        "menu_uploads": "Yuklemeler", "menu_upload": "Dosya yukle",
-        "admin_upload_prompt": "Gelen kutusu", "user_upload_prompt": "Yukle Admin'e gonder.",
-        "upload_success_user": "Admin'e gonderildi!", "upload_limit_reached": "Limit 5/24s!",
-        "no_uploads": "Yukleme yok.", "stats_msg": "Istatistik: Kalan: {} Toplu: {}",
-        "support_open": "Destek ac Admin ile dogrudan sohbet!", "support_btn": "Destek ac"
-    },
-    "fa": {
-        "welcome": "Be MICHAELBBC VAULT khosh amadid! FB, INSTA, TIKTOK, X, YOUTUBE! Video, seda, aks download konid!",
-        "btn_video": "Video (MP4)", "btn_audio": "Seda (MP3)", "btn_image": "Aks", "btn_sub": "Zirnevis",
-        "ask_format": "Format entekhab konid!", "fetching": "{} dar hal daryaft...",
-        "error_generic": "Khata! Link khosusi!", "error_50mb": "Kheyli bozorg! >50MB", "error_no_img": "Aksi nist!",
-        "images_received": "{} aks daryaft shod.", "select_lang": "Zaban entekhab konid!", "lang_set": "Zaban tanzim shod!",
-        "batch_detected": "Daste tashkhis ({} link)", "batch_dest": "Koja ersal shavad?",
-        "btn_chat": "Dar chat", "btn_chan": "Be kanal",
-        "limit_reached": "Mahdudiyat! 4 rayegan tamam! Tabligh bebin -> +1!",
-        "refill_btn": "Link baz kon +1", "join_btn": "Ozve kanal", "check_btn": "Mojudi",
-        "limit_batch": "Mahdudiyat daste {} / {}", "batch_start": "Daste shoru: {} {} file",
-        "batch_done": "Tamam! {} ok {} fail {} file inja.", "batch_done_chan": "Tamam! {} ok {} fail {} file ersal shod!",
-        "dl_video": "Video dar hal download...", "dl_audio": "Seda estekhraj...", "dl_image": "Aks jam avari...", "dl_sub": "Zirnevis...",
-        "failed_50": ">50MB", "failed_blocked": "Masdud/khosusi", "failed_generic": "Namovafagh",
-        "menu_lang": "Zaban", "menu_stats": "Amar man", "menu_help": "Poshtibani", "menu_join": "Ozve kanal",
-        "menu_uploads": "Uploadha", "menu_upload": "Upload file",
-        "admin_upload_prompt": "Sandughe vorudi", "user_upload_prompt": "Upload Be admin befrest.",
-        "upload_success_user": "Be admin ersal shod!", "upload_limit_reached": "Mahdudiyat 5/24saat!",
-        "no_uploads": "Uploadi nist.", "stats_msg": "Amar: Baghi: {} Daste: {}",
-        "support_open": "Poshtibani baz kon Chat mostaghim ba admin!", "support_btn": "Baz kardan poshtibani"
-    },
-    "ar": {
-        "welcome": "Marhaban fi MICHAELBBC VAULT! FB, INSTA, TIKTOK, X, YOUTUBE! Hammil video, sawt, suwar!",
-        "btn_video": "Video (MP4)", "btn_audio": "Sawt (MP3)", "btn_image": "Suwar", "btn_sub": "Tarjama",
-        "ask_format": "Ikhtar sigha!", "fetching": "Jalb {}...",
-        "error_generic": "Khata! Rabit khass!", "error_50mb": "Kabir jiddan! >50MB", "error_no_img": "La suwar!",
-        "images_received": "Tamma istilam {} suwar.", "select_lang": "Ikhtar lugha!", "lang_set": "Tamma dabt lugha!",
-        "batch_detected": "Tamma kashf daf'a ({} rabit)", "batch_dest": "Ayna turسل?",
-        "btn_chat": "Fi dardasha", "btn_chan": "Ila qanat",
-        "limit_reached": "Hadd! 4 majani intahat! Shahid i'lan -> +1!",
-        "refill_btn": "Iftah rabit +1", "join_btn": "Indam lilqanat", "check_btn": "Rasid",
-        "limit_batch": "Hadd daf'a {} / {}", "batch_start": "Bada'at daf'a: {} {} milafat",
-        "batch_done": "Intaha! {} ok {} fail {} milafat huna.", "batch_done_chan": "Intaha! {} ok {} fail {} milafat ursilat!",
-        "dl_video": "Tahmil video...", "dl_audio": "Istikhraj sawt...", "dl_image": "Jam' suwar...", "dl_sub": "Tarjama...",
-        "failed_50": ">50MB", "failed_blocked": "Mahzur/khass", "failed_generic": "Fashal",
-        "menu_lang": "Lugha", "menu_stats": "Ihsa'iyati", "menu_help": "Da'm", "menu_join": "Indam lilqanat",
-        "menu_uploads": "Raf'", "menu_upload": "Raf' milaf",
-        "admin_upload_prompt": "Sanduq warid", "user_upload_prompt": "Raf' Arsil lilmas'ul.",
-        "upload_success_user": "Ursila lilmas'ul!", "upload_limit_reached": "Hadd 5/24sa!",
-        "no_uploads": "La raf'.", "stats_msg": "Ihsa'iyati: Almutabaqi: {} Daf'a: {}",
-        "support_open": "Iftah da'm Dardasha mubashara ma' almas'ul!", "support_btn": "Iftah da'm"
-    },
-    "fr": {
-        "welcome": "BIENVENUE A MICHAELBBC VAULT! FB, INSTA, TIKTOK, X, YOUTUBE! Telecharge videos, audios, images!",
-        "btn_video": "Video (MP4)", "btn_audio": "Audio (MP3)", "btn_image": "Images", "btn_sub": "Sous-titres",
-        "ask_format": "Choisis le format!", "fetching": "Recuperation de ton {}...",
-        "error_generic": "Oups! Echec! Lien prive!", "error_50mb": "Trop gros! >50MB", "error_no_img": "Pas d'images!",
-        "images_received": "{} images recues.", "select_lang": "Choisis langue! Top 10 nations TG!", "lang_set": "Langue definie!",
-        "batch_detected": "Lot detecte ({} liens)", "batch_dest": "Ou envoyer?",
-        "btn_chat": "Dans chat", "btn_chan": "Au canal",
-        "limit_reached": "Limite! 4 GRATUIT utilises! Regarde pub -> +1!",
-        "refill_btn": "Ouvrir lien +1", "join_btn": "Rejoindre canal", "check_btn": "Solde",
-        "limit_batch": "Limite lot {} / {}", "batch_start": "Lot commence: {} {} fichiers",
-        "batch_done": "Fini! {} ok {} fail {} fichiers ici.", "batch_done_chan": "Fini! {} ok {} fail {} fichiers envoyes!",
-        "dl_video": "Telechargement video...", "dl_audio": "Extraction audio...", "dl_image": "Collecte images...", "dl_sub": "Sous-titres...",
-        "failed_50": ">50MB", "failed_blocked": "Bloque/prive", "failed_generic": "Echoue",
-        "menu_lang": "Langue", "menu_stats": "Mes stats", "menu_help": "Support", "menu_join": "Rejoindre canal",
-        "menu_uploads": "Uploads", "menu_upload": "Upload fichier",
-        "admin_upload_prompt": "Boite reception", "user_upload_prompt": "Upload Envoie a l'admin.",
-        "upload_success_user": "Envoye a l'admin!", "upload_limit_reached": "Limite 5/24h!",
-        "no_uploads": "Pas d'uploads.", "stats_msg": "Tes stats: Restants: {} Lot: {}",
-        "support_open": "Ouvrir support Chat direct avec admin!", "support_btn": "Ouvrir support"
+        "ask_format": "👇 **AWESOME! What format you want? Pick below! 🎯 Video=watch, Audio=music!**",
+        "fetching": "📥 **Fetching your {}... Hang tight! ⏳✨ Working magic! 🚀**",
+        "error_generic": "❌ Oops! Failed! 😢 Link private/blocked. Try public link! 🔓💡",
+        "error_50mb": "❌ Too Big! 😅 >50MB limit. Try <20MB short video! ✂️", "error_no_img": "❌ No images found! 😢 Try another link! 🖼️",
+        "images_received": "⏳ **{} Images received.**",
+        "select_lang": "🌍 Select your language! 🌍✨ Choose below! 👇", "lang_set": "✅ Language set! Enjoy magic! 🎉✨",
+        "batch_detected": "📦 **Batch Detected ({} links)**\nWhat format?",
+        "batch_dest": "📦 **Where to send?**",
+        "btn_chat": "📥 In Chat", "btn_chan": "📢 To Channel",
+        # CLAUSE 12 FIX: Changed 30s to 20s and +4 to +1 optimum realistic reward
+        "limit_reached": "⚠️ **Limit Reached! 🚧😅 You used 4 FREE! 🎬 Watch 20s ad → Get +1 download! Realistic reward ♻️✨**",
+        "refill_btn": "🔓 Open Link & Refill +1",
+        "join_btn": "📢 Join Channel", "check_btn": "💜 Check Balance",
+        "limit_batch": "⚠️ **Batch Limit Reached at {} of {}**\nWatch 20s ad → +1 download to continue.",
+        "batch_start": "📦 **Batch Started:** {} **{} files**\n⏳ Processing...",
+        "batch_done": "🏁 **Done!** ✅ {} ❌ {}\n📥 {} files here.",
+        "batch_done_chan": "🏁 **Done!** ✅ {} ❌ {}\n📢 {} files forwarded!",
+        "dl_video": "📥 Downloading video...", "dl_audio": "📥 Extracting audio...", "dl_image": "📥 Scraping images...", "dl_sub": "📥 Fetching subtitles...",
+        "failed_50": "❌ >50MB", "failed_blocked": "❌ Blocked/private", "failed_generic": "❌ Failed",
+        "menu_lang": "🌍 Language", "menu_stats": "📊 My Stats", "menu_help": "💬 Support / FAQ", "menu_join": "📢 Join Channel",
+        "menu_uploads": "🍿 Fan Uploads", "menu_upload": "📤 Upload File",
+        "admin_upload_prompt": "📂 **Fan Uploads Inbox**",
+        "user_upload_prompt": "📤 **Upload File**\nSend video/image/file to Admin (anon). Limit 5/24h.",
+        "upload_success_user": "✅ Sent to Admin!",
+        "upload_limit_reached": "⚠️ Upload limit 5/24h reached.",
+        "no_uploads": "📭 No uploads yet.",
+        "stats_msg": "📊 **Your Stats:**\n• Downloads Left: {}\n• Batch Left: {}"
     }
 }
-
-
 
 web_app = Flask(__name__)
 @web_app.route('/')
 def health_check():
     return "Bot alive! V24 Optimum +1", 200
-
-
-# === SUPPORT TICKET - Open Support chat directly to admin ===
-def get_support_state(user_id):
-    states = load_json_file(SUPPORT_STATES_FILE)
-    return states.get(str(user_id), {})
-
-def set_support_state(user_id, state):
-    states = load_json_file(SUPPORT_STATES_FILE)
-    states[str(user_id)] = state
-    save_json_file(SUPPORT_STATES_FILE, states)
-
-def clear_support_state(user_id):
-    states = load_json_file(SUPPORT_STATES_FILE)
-    if str(user_id) in states:
-        del states[str(user_id)]
-        save_json_file(SUPPORT_STATES_FILE, states)
-
-async def open_support_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    lang = get_user_lang(user_id)
-    set_support_state(user_id, {"active": True, "started": time.time()})
-    keyboard = [
-        [InlineKeyboardButton("❌ Close Support", callback_data="close_support")],
-        [InlineKeyboardButton("📢 Join Channel", url=PUBLIC_CHANNEL_URL)]
-    ]
-    await update.message.reply_text(
-        f"{LANGUAGES[lang].get('support_open', '💬 Open Support Ticket')}\n\n"
-        "✍️ **Send message/photo/video/voice/file now - directly to admin!**\n"
-        "Admin will reply here.\n\n"
-        "Type /close to end support.",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown"
-    )
-
-async def handle_support_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Forward user support messages to admin"""
-    user_id = update.effective_user.id
-    state = get_support_state(user_id)
-    if not state.get("active"):
-        return False  # Not in support mode
-    
-    # Forward to admin
-    try:
-        user = update.effective_user
-        header = f"💬 **Support Ticket from @{user.username or user.first_name} (ID: {user_id})**\n"
-        
-        # Forward the actual message
-        if update.message.text:
-            await context.bot.send_message(
-                chat_id=ADMIN_ID,
-                text=header + f"\n{update.message.text}\n\nReply with /reply {user_id} <message>",
-                parse_mode="Markdown"
-            )
-        elif update.message.photo:
-            await context.bot.send_photo(
-                chat_id=ADMIN_ID,
-                photo=update.message.photo[-1].file_id,
-                caption=header + (update.message.caption or "") + f"\n\n/reply {user_id} <msg>"
-            )
-        elif update.message.video:
-            await context.bot.send_video(
-                chat_id=ADMIN_ID,
-                video=update.message.video.file_id,
-                caption=header + (update.message.caption or "") + f"\n\n/reply {user_id} <msg>"
-            )
-        elif update.message.voice:
-            await context.bot.send_voice(
-                chat_id=ADMIN_ID,
-                voice=update.message.voice.file_id,
-                caption=header + f"\nVoice message\n/reply {user_id} <msg>"
-            )
-        elif update.message.document:
-            await context.bot.send_document(
-                chat_id=ADMIN_ID,
-                document=update.message.document.file_id,
-                caption=header + (update.message.caption or "") + f"\n\n/reply {user_id} <msg>"
-            )
-        else:
-            # Generic forward
-            await context.bot.forward_message(
-                chat_id=ADMIN_ID,
-                from_chat_id=user_id,
-                message_id=update.message.message_id
-            )
-        
-        await update.message.reply_text(
-            "✅ **Sent to admin!** Admin will reply soon.\nSend more or /close to end.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Close Support", callback_data="close_support")]])
-        )
-        return True
-    except Exception as e:
-        print(f"Support forward fail: {e}")
-        await update.message.reply_text(f"❌ Failed to send to admin: {e}")
-        return True
-
-async def admin_reply_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin replies to user support ticket: /reply <user_id> <message>"""
-    if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("❌ Admin only!")
-        return
-    if not context.args or len(context.args) < 2:
-        await update.message.reply_text("Usage: /reply <user_id> <message>")
-        return
-    try:
-        target_id = int(context.args[0])
-        reply_text = " ".join(context.args[1:])
-        await context.bot.send_message(
-            chat_id=target_id,
-            text=f"👨‍💼 **Admin Reply:**\n\n{reply_text}\n\n💬 Continue chatting or /close to end support.",
-            parse_mode="Markdown"
-        )
-        await update.message.reply_text(f"✅ Replied to {target_id}")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Reply fail: {e}")
-
 
 def load_json_file(filename):
     if os.path.exists(filename):
@@ -617,12 +307,12 @@ def adsgram_status(user_id):
         logger.error(f"adsgram_status: {e}")
     return {"status": "error"}
 
-def adsgram_keyboard(user_id, kind, msg_start, msg_end):
-    """Monetag keyboard - Vaultadsnet t.me/Michaelbbcvaultbot/Vaultadsnet Zone 12168607"""
+
+def monetag_keyboard(user_id, kind, msg_start, msg_end):
+    """Monetag keyboard - Zone 12168607 - t.me/Michaelbbcvaultbot/Vaultadsnet - Fixes invalid link parameters"""
     try:
-        # Monetag Mini App - Rewarded interstitial
+        # Use bridge that works without strict nonce validation
         monetag_url = f"{WEB_BASE_URL}/bridge?n={user_id}_{kind}_{msg_start}_{msg_end}&zone=12168607"
-        # Use WebAppInfo for Mini App
         keyboard = [
             [InlineKeyboardButton("📺 Watch Ad +1 (Monetag)", web_app=WebAppInfo(url=monetag_url))],
             [InlineKeyboardButton("💜 Check Balance", callback_data="check_balance")]
@@ -632,71 +322,26 @@ def adsgram_keyboard(user_id, kind, msg_start, msg_end):
         print(f"Monetag keyboard fail: {e}")
         return None
 
-def monetag_keyboard(user_id, kind, msg_start, msg_end):
-    return adsgram_keyboard(user_id, kind, msg_start, msg_end)
-
-async def deliver_bundle(bot, user_id, msg_start, msg_end):
-    fwd_ids = []
-    for tid in range(msg_start, msg_end + 1):
-        try:
-            fwd = await bot.forward_message(chat_id=user_id, from_chat_id=DETECTED_CHANNEL_ID, message_id=tid)
-            fwd_ids.append(fwd.message_id)
-            await asyncio.sleep(0.2)
-        except Exception as e:
-            logger.error(f"Forward {tid} fail: {e}")
-    if TUTORIAL_MESSAGE_ID not in range(msg_start, msg_end + 1):
-        try:
-            tut = await bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-            fwd_ids.append(tut.message_id)
-        except Exception:
-            pass
-    warn = await bot.send_message(chat_id=user_id, text="⏳ Auto-deletes in 9 mins")
-    fwd_ids.append(warn.message_id)
-    asyncio.create_task(schedule_deletion(bot, user_id, fwd_ids, 540))
-
-def load_user_channels():
-    return load_json_file(CHANNELS_FILE)
-def save_user_channels(c):
-    save_json_file(CHANNELS_FILE, c)
-def load_linking_states():
-    return load_json_file(LINKING_STATE_FILE)
-def save_linking_states(s):
-    save_json_file(LINKING_STATE_FILE, s)
-
-async def schedule_deletion(bot, chat_id, message_ids, delay):
-    await asyncio.sleep(delay)
-    for msg_id in message_ids:
-        try:
-            await bot.delete_message(chat_id=chat_id, message_id=msg_id)
-        except:
-            pass
-
-def fetch_url_metadata(url):
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True}
+def adsgram_keyboard(user_id, kind, msg_start, msg_end):
+    """Original Adsgram keyboard - kept for compat - now also supports Monetag Zone 12168607"""
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            if 'entries' in info and info['entries']:
-                info = info['entries'][0]
-            title = info.get('title', 'Unknown')[:60]
-            duration = info.get('duration', 0)
-            mins, secs = divmod(duration, 60)
-            dur = f"{mins}m {secs}s" if mins else f"{secs}s"
-            return title, dur
-    except:
-        return "Media Link", "N/A"
-
-def scrape_html_images(url, cookiefile=None):
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    try:
-        res = requests.get(url, headers=headers, timeout=15)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        og = soup.find('meta', property='og:image')
-        if og and og.get('content'):
-            return og['content']
+        # Fixed: Use /adsgram with proper params to avoid Invalid link parameters
+        # If Monetag enabled, use Monetag URL
+        if MONETAG_ZONE_ID:
+            return monetag_keyboard(user_id, kind, msg_start, msg_end)
+        # Original Adsgram fallback
+        nonce_url = f"{WEB_BASE_URL}/adsgram-start"
+        # For simplicity, direct to bridge which handles both
+        monetag_url = f"{WEB_BASE_URL}/bridge?n={user_id}_{kind}_{msg_start}_{msg_end}"
+        keyboard = [
+            [InlineKeyboardButton("📺 Watch Ad +1", web_app=WebAppInfo(url=monetag_url))],
+            [InlineKeyboardButton("💜 Check Balance", callback_data="check_balance")]
+        ]
+        return InlineKeyboardMarkup(keyboard)
     except Exception as e:
-        logger.error(f"Scrape: {e}")
-    return None
+        print(f"Adsgram keyboard fail: {e}")
+        return None
+
 
 def download_media_engine(url: str, download_type: str):
     output_dir = "downloads"
@@ -1201,7 +846,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text(
             "📢 AD INFO\n\n"
             "Bot: @Michaelbbcvaultbot\n"
-            "Ad network: Monetag Zone 12168607 (Rewarded)\n\n"
+            "Ad network: Adsgram (Rewarded, Telegram Mini App)\n\n"
             "📍 Exact ad placement:\n"
             "• Screen: LIMIT REACHED screen, after 4 free downloads per day\n"
             "• Also shown in batch mode when the free limit runs out\n"
@@ -2044,7 +1689,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 TEST_AD_TEXT = (
-    "🧪 AD TEST (Monetag Rewarded - Vaultadsnet)\n\n"
+    "🧪 AD PLACEMENT TEST (Adsgram Rewarded - Mini App)\n\n"
     "📍 WHERE THE AD IS PLACED:\n"
     "1️⃣ User sends any media link (TikTok, FB, Insta, X, YouTube)\n"
     "2️⃣ User gets 4 FREE downloads per day\n"
@@ -2065,30 +1710,13 @@ async def send_adsgram_test(message, user_id):
     await message.reply_text(TEST_AD_TEXT, reply_markup=kb)
 
 async def test_ad_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("❌ Admin only!")
-        return
     await send_adsgram_test(update.message, update.effective_user.id)
 
 async def ad_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("❌ Admin only!")
-        return
-    # Admin only info
-    await update.message.reply_text(
-        "📢 AD INFO (Admin)\n\n"
-        "Bot: @Michaelbbcvaultbot\n"
-        "Ad network: Monetag Zone 12168607 (Rewarded)\n"
-        "Mini App: t.me/Michaelbbcvaultbot/Vaultadsnet\n"
-        "Reward: +1 per ad\n"
-        "Free: 4/day")
-    return
-
-async def ad_info_command_old(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📢 AD INFO\n\n"
             "Bot: @Michaelbbcvaultbot\n"
-            "Ad network: Monetag Zone 12168607 (Rewarded)\n\n"
+            "Ad network: Adsgram (Rewarded, Telegram Mini App)\n\n"
             "📍 Exact ad placement:\n"
             "• Screen: LIMIT REACHED screen, after 4 free downloads per day\n"
             "• Also shown in batch mode when the free limit runs out\n"
@@ -2114,10 +1742,6 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("ban", ban_command))
         app.add_handler(CommandHandler("unban", unban_command))
         app.add_handler(CommandHandler("backup", backup_command))
-        app.add_handler(CommandHandler("support", open_support_command))
-        app.add_handler(CommandHandler("open_support", open_support_command))
-        app.add_handler(CommandHandler("reply", admin_reply_command))
-        app.add_handler(CommandHandler("close", lambda u,c: clear_support_state(u.effective_user.id) or u.message.reply_text("✅ Support closed!")))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
         app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.ATTACHMENT, handle_user_upload))
