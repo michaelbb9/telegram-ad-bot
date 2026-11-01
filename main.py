@@ -1116,7 +1116,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
     free_mb = get_free_disk_mb()
     cache = load_json_file(CACHE_FILE)
-    await update.message.reply_text(f"🟢 **Status V37 Monetag**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic (Clause 12 fix)\nTest: /testad (Clause 13 fix)\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
+    await update.message.reply_text(f"🟢 **Status V38 Monetag**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic (Clause 12 fix)\nTest: /testad (Clause 13 fix)\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
 
 async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID:
@@ -1553,7 +1553,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if data == "adsgram_check":
         st = adsgram_status(user_id)
         if st.get("status") == "pending":
-            await query.answer("📺 Tap Watch Ad first and finish the ad in the Mini App, then come back.", show_alert=True)
+            await query.answer("📺 Tap Watch Ad and finish the ad in the Mini App (or use the 20s sponsor link inside it), then come back.", show_alert=True)
             return
         if st.get("status") != "done":
             await query.answer("This ad link expired. Send your link again to get a new one.", show_alert=True)
@@ -1566,7 +1566,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if st.get("kind") == "test":
             await query.answer(f"✅ Ad verified! +{reward} added", show_alert=True)
             await context.bot.send_message(chat_id=chat_id, text=(
-                f"✅ TEST AD VERIFIED\n\nThe Monetag ad played in the Mini App and the reward was credited: "
+                f"✅ TEST AD VERIFIED\n\nThe ad was completed and the reward was credited: "
                 f"+{reward} download. Your balance now shows {st.get('downloads_left', reward)}."))
             return
         await query.answer(f"✅ Sponsor viewed! +{reward} added", show_alert=True)
