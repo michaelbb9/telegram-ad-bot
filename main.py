@@ -113,7 +113,7 @@ LANGUAGES = {
 web_app = Flask(__name__)
 @web_app.route('/')
 def health_check():
-    return "Bot alive! V32 Direct Deezer + Cobalt + YouTube Engine WORKING", 200
+    return "Bot alive! V33 Song Search + Cobalt + yt-dlp Fallback + Secure Zero-Retention Cookies WORKING", 200
 
 # ===================== ADSGRAM MINI APP ROUTES =====================
 @web_app.route('/adsgram')
@@ -270,6 +270,13 @@ def clean_downloads_startup():
                     pass
     except:
         pass
+    # Wipe any lingering cookies on startup
+    for c in ["cookies.txt", "tiktok_cookies.txt"]:
+        if os.path.exists(c):
+            try:
+                os.remove(c)
+            except:
+                pass
 
 def is_flood(user_id):
     if user_id == ADMIN_ID:
@@ -443,49 +450,58 @@ def download_media_engine(url: str, download_type: str):
     if cookiefile:
         ydl_opts['cookiefile'] = cookiefile
         
-    if download_type == 'audio':
-        ydl_opts.update({
-            'format': 'bestaudio/best', 
-            'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 
-            'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 
-            'ffmpeg_location': ffmpeg_path
-        })
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            base = os.path.splitext(ydl.prepare_filename(info))[0]
-            path = f"{base}.mp3"
-            if os.path.exists(path):
-                return [path], "MP3", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
-        raise ValueError("FILE_NOT_FOUND")
-    elif download_type == 'images':
-        img_url = scrape_html_images(url, cookiefile)
-        if img_url:
-            data = requests.get(img_url, headers=http_headers, timeout=15).content
-            path = os.path.join(output_dir, f"img_{int(time.time())}.jpg")
-            with open(path, 'wb') as f:
-                f.write(data)
-            if os.path.getsize(path) > 1000:
-                return [path], "Image", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
-        raise ValueError("NO_IMAGES")
-    else:
-        for fmt in ["best", "bestvideo+bestaudio/best"]:
-            try:
-                ydl_opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path})
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    path = ydl.prepare_filename(info)
-                    if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0]+".mp4"):
-                        path = os.path.splitext(path)[0]+".mp4"
-                    if os.path.exists(path):
-                        if os.path.getsize(path) > 50*1024*1024:
-                            os.remove(path)
-                            continue
-                        return [path], f"{info.get('height', 'HD')}p", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
-            except Exception as e:
-                if "Unsupported URL" in str(e) or "403" in str(e):
-                    raise e
-                continue
-        raise ValueError("FILE_TOO_LARGE")
+    try:
+        if download_type == 'audio':
+            ydl_opts.update({
+                'format': 'bestaudio/best', 
+                'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 
+                'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 
+                'ffmpeg_location': ffmpeg_path
+            })
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                base = os.path.splitext(ydl.prepare_filename(info))[0]
+                path = f"{base}.mp3"
+                if os.path.exists(path):
+                    return [path], "MP3", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
+            raise ValueError("FILE_NOT_FOUND")
+        elif download_type == 'images':
+            img_url = scrape_html_images(url, cookiefile)
+            if img_url:
+                data = requests.get(img_url, headers=http_headers, timeout=15).content
+                path = os.path.join(output_dir, f"img_{int(time.time())}.jpg")
+                with open(path, 'wb') as f:
+                    f.write(data)
+                if os.path.getsize(path) > 1000:
+                    return [path], "Image", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
+            raise ValueError("NO_IMAGES")
+        else:
+            for fmt in ["best", "bestvideo+bestaudio/best"]:
+                try:
+                    ydl_opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path})
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(url, download=True)
+                        path = ydl.prepare_filename(info)
+                        if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0]+".mp4"):
+                            path = os.path.splitext(path)[0]+".mp4"
+                        if os.path.exists(path):
+                            if os.path.getsize(path) > 50*1024*1024:
+                                os.remove(path)
+                                continue
+                            return [path], f"{info.get('height', 'HD')}p", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
+                except Exception as e:
+                    if "Unsupported URL" in str(e) or "403" in str(e):
+                        raise e
+                    continue
+            raise ValueError("FILE_TOO_LARGE")
+    finally:
+        # Zero-retention cleanup: Ensure any temporary session cookie files are deleted immediately
+        for tmp_cookie in ["cookies.txt", "tiktok_cookies.txt"]:
+            if os.path.exists(tmp_cookie):
+                try:
+                    os.remove(tmp_cookie)
+                except:
+                    pass
 
 def get_main_keyboard(lang_code, is_admin):
     t = LANGUAGES.get(lang_code, LANGUAGES["en"])
@@ -493,7 +509,7 @@ def get_main_keyboard(lang_code, is_admin):
         [KeyboardButton(t["menu_stats"]), KeyboardButton(t["menu_lang"])],
         [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])],
         [KeyboardButton("🔍 Song Search"), KeyboardButton(t["menu_upload"])],
-        [KeyboardButton("🟢 Bot Status V32")],
+        [KeyboardButton("🟢 Bot Status V33")],
         [KeyboardButton("🧪 Test Ad"), KeyboardButton("📢 Ad Info")]
     ]
     if is_admin:
@@ -850,7 +866,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     track_user_activity(user_id)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
-    menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🟢 Bot Status V32", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel"]
+    menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🟢 Bot Status V33", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel"]
     if text in menu_texts or "Bot Status" in text:
         if "Bot Status" in text:
             await status_command(update, context)
@@ -909,7 +925,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         user_id = update.effective_user.id
         song_search_mode_global[user_id] = True
         last_song_search_time[user_id] = time.time()
-        await update.message.reply_text("🎵 Song Search Mode ON! V32 Direct Deezer + Cobalt MP3 Engine\n\nInstant 10 suggestions via Deezer API\nHigh Quality MP3 via Cobalt API\n\nEnter song name (e.g. Koleyewon or Blinding Lights):")
+        await update.message.reply_text("🎵 Song Search Mode ON! V33 Deezer + Cobalt + yt-dlp Fallback Engine\n\nInstant suggestions via Deezer API\nHigh Quality MP3 via Cobalt & yt-dlp\n\nEnter song name (e.g. Koleyewon or Blinding Lights):")
         return
 
     if "Test Ad" in text or text.strip() == "🧪 Test Ad":
@@ -1130,7 +1146,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     total_users = len(tokens)
     active_24hr = sum(1 for d in activity.values() if now - d.get("last_active",0) < 86400)
     mode = config.get("ad_mode","auto").upper()
-    txt = f"📊 ADMIN V32 Deezer + Cobalt + YouTube\nTotal {total_users} Active {active_24hr} Mode {mode}\nVault {VIDEO_VAULT_ID}"
+    txt = f"📊 ADMIN V33 Deezer + Cobalt + yt-dlp Fallback\nTotal {total_users} Active {active_24hr} Mode {mode}\nVault {VIDEO_VAULT_ID}"
     await update.message.reply_text(txt, parse_mode="Markdown")
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1139,7 +1155,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     mode = config.get("ad_mode","auto").upper()
     free_mb = get_free_disk_mb()
     cache = load_json_file(CACHE_FILE)
-    await update.message.reply_text(f"🟢 **Status V32 Direct Deezer + Cobalt + YouTube Engine WORKING**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1\nDeezer API search + Cobalt MP3 + YouTube download with zero-retention cookie cleanup", parse_mode="Markdown")
+    await update.message.reply_text(f"🟢 **Status V33 Engine WORKING**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1\nDeezer API search + Cobalt + yt-dlp Fallback + Secure Cookie Cleanup", parse_mode="Markdown")
 
 async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID:
@@ -1302,7 +1318,6 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
             pass
         return False
     finally:
-        # Zero-retention cleanup: Ensure temporary cookies/sessions or stray artifacts are purged after each job
         for tmp_cookie in ["cookies.txt", "tiktok_cookies.txt"]:
             if os.path.exists(tmp_cookie):
                 try:
@@ -1310,8 +1325,8 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
                 except:
                     pass
 
-# ===================== SONG SEARCH PICK & COBALT DOWNLOAD HANDLER =====================
-async def handle_music_pick_v32(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ===================== SONG SEARCH PICK & COBALT/YT-DLP FALLBACK DOWNLOAD HANDLER =====================
+async def handle_music_pick_v33(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
     
@@ -1332,8 +1347,8 @@ async def handle_music_pick_v32(update: Update, context: ContextTypes.DEFAULT_TY
             uid = int(parts[-1])
             track_id = parts[2]
             
-            await query.answer("Downloading MP3 via Cobalt...")
-            await query.edit_message_text("🎵 Fetching track info and downloading high quality MP3 via Cobalt...")
+            await query.answer("Processing MP3 download...")
+            await query.edit_message_text("🎵 Fetching song and downloading high quality MP3...")
             
             tracks = context.bot_data.get(f"music_search_{uid}", [])
             title, artist = "Unknown", "Unknown"
@@ -1360,7 +1375,7 @@ async def handle_music_pick_v32(update: Update, context: ContextTypes.DEFAULT_TY
                 except:
                     pass
 
-            def cobalt_download_sync(tt, aa):
+            def music_download_sync(tt, aa):
                 try:
                     import tempfile, shutil
                     search_query = f"{tt} {aa}"
@@ -1376,10 +1391,11 @@ async def handle_music_pick_v32(update: Update, context: ContextTypes.DEFAULT_TY
                     if not youtube_url:
                         return None, None, "no_url"
 
+                    # Attempt 1: Cobalt API
                     payload = {"url": youtube_url, "isAudioOnly": True, "aFormat": "mp3"}
                     for inst in ["https://api.cobalt.tools", "https://co.wuk.sh", "https://cobalt-api.kwiatekmiki.com"]:
                         try:
-                            resp = requests.post(f"{inst}/", json=payload, headers={"Accept":"application/json","Content-Type":"application/json"}, timeout=25)
+                            resp = requests.post(f"{inst}/", json=payload, headers={"Accept":"application/json","Content-Type":"application/json"}, timeout=20)
                             if resp.status_code == 200:
                                 dj = resp.json()
                                 dl = dj.get("url")
@@ -1393,22 +1409,40 @@ async def handle_music_pick_v32(update: Update, context: ContextTypes.DEFAULT_TY
                                                 if ch:
                                                     f.write(ch)
                                         if os.path.exists(fp) and os.path.getsize(fp) > 10000:
-                                            return fp, td, inst
+                                            return fp, td, "cobalt"
                                         shutil.rmtree(td, ignore_errors=True)
-                        except Exception as e:
+                        except Exception:
                             continue
+
+                    # Attempt 2: yt-dlp Direct Audio Fallback Engine
+                    td = tempfile.mkdtemp()
+                    ydl_opts = {
+                        'format': 'bestaudio/best',
+                        'outtmpl': os.path.join(td, '%(id)s.%(ext)s'),
+                        'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
+                        'ffmpeg_location': ffmpeg_path,
+                        'quiet': True,
+                        'no_warnings': True
+                    }
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(youtube_url, download=True)
+                        base = os.path.splitext(ydl.prepare_filename(info))[0]
+                        path = f"{base}.mp3"
+                        if os.path.exists(path) and os.path.getsize(path) > 10000:
+                            return path, td, "ytdlp"
+                    shutil.rmtree(td, ignore_errors=True)
                 except Exception as e:
-                    pass
+                    logger.error(f"Music download engine error: {e}")
                 return None, None, "failed"
 
             loop = asyncio.get_event_loop()
             from concurrent.futures import ThreadPoolExecutor
             executor = ThreadPoolExecutor(max_workers=2)
-            fp, td, src = await loop.run_in_executor(executor, cobalt_download_sync, title, artist)
+            fp, td, src = await loop.run_in_executor(executor, music_download_sync, title, artist)
 
             if fp and os.path.exists(fp):
                 with open(fp, 'rb') as af:
-                    sent = await context.bot.send_audio(chat_id=uid, audio=af, title=title, performer=artist, caption=f"{title} - {artist} 🎵 Full MP3 via Cobalt")
+                    sent = await context.bot.send_audio(chat_id=uid, audio=af, title=title, performer=artist, caption=f"{title} - {artist} 🎵 Full MP3 ({src})")
                 try:
                     await context.bot.send_audio(chat_id=MUSIC_VAULT_CHANNEL_ID, audio=sent.audio.file_id, title=title, performer=artist)
                     cache[cache_key] = {"file_id": sent.audio.file_id, "title": title, "artist": artist, "source": src, "timestamp": time.time()}
@@ -1420,14 +1454,13 @@ async def handle_music_pick_v32(update: Update, context: ContextTypes.DEFAULT_TY
                 await query.edit_message_text(f"✅ Sent {title} - {artist} Full MP3!")
                 deduct_download_counter(uid, is_batch=False)
             else:
-                await query.edit_message_text(f"❌ Could not download '{title} - {artist}' via Cobalt. Try another song.")
+                await query.edit_message_text(f"❌ Could not download '{title} - {artist}'. Try another song.")
         except Exception as e:
             try:
                 await query.answer(f"Error: {e}")
             except:
                 pass
         finally:
-            # Zero-retention cleanup: wipe cookie files if any left behind
             for tmp_cookie in ["cookies.txt", "tiktok_cookies.txt"]:
                 if os.path.exists(tmp_cookie):
                     try:
@@ -1870,7 +1903,7 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("backup", backup_command))
         
         # Song search & pick handlers
-        app.add_handler(CallbackQueryHandler(handle_music_pick_v32, pattern="^music_pick_|^music_search_again_"))
+        app.add_handler(CallbackQueryHandler(handle_music_pick_v33, pattern="^music_pick_|^music_search_again_"))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
         app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.ATTACHMENT, handle_user_upload))
@@ -1882,13 +1915,13 @@ def run_telegram_bot():
         asyncio.create_task(auto_backup_loop(app.bot))
         asyncio.create_task(queue_processor(app.bot))
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
-        print(f"Bot started! V32 Direct Deezer + Cobalt + YouTube Engine WORKING Vault={VIDEO_VAULT_ID}")
+        print(f"Bot started! V33 Deezer + Cobalt + yt-dlp Fallback Working Vault={VIDEO_VAULT_ID}")
         await asyncio.Event().wait()
     loop.run_until_complete(start_bot())
 
 if not getattr(web_app, '_bot_started', False):
     web_app._bot_started = True
-    print("Starting bot thread V32...")
+    print("Starting bot thread V33...")
     threading.Thread(target=run_telegram_bot, daemon=True).start()
 
 if __name__ == "__main__":
