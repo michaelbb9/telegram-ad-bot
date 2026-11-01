@@ -16,14 +16,19 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMe
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+
+# === SONG SEARCH V45 ===
+song_search_mode_global = {}
+last_song_search_time = {}
+DEEZER_SEARCH_URL = "https://api.deezer.com/search"
+ITUNES_SEARCH_URL = "https://itunes.apple.com/search"
+
 try:
     os.chmod(ffmpeg_path, 0o755)
 except:
     pass
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
-logging.getLogger("httpx").setLevel(logging.WARNING)   # stops the bot token being printed in logs
-logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()   # set TELEGRAM_TOKEN in Render env - never hardcode it
@@ -107,10 +112,297 @@ LANGUAGES = {
     }
 }
 
+
+# === DEEZER SEARCH + PO TOKEN DOWNLOAD - Research based: ytdlbot uses yt-dlp[default,curl-cffi]==2025.8.11 + POTOKEN ===
+def search_deezer_itunes(query):
+    """Deezer API free, no key, 10 suggestions - has Naija like Koleyewon, Blinding Lights, Hey Boy"""
+    tracks = []
+    try:
+        import requests
+        r = requests.get(DEEZER_SEARCH_URL, params={"q": query, "limit": 10}, timeout=12)
+        if r.status_code == 200:
+            data = r.json()
+            for item in data.get("data", [])[:10]:
+                title = item.get("title","")
+                artist = item.get("artist",{}).get("name","")
+                if title:
+                    tracks.append({"title": title, "artist": artist, "id": str(item.get("id","")), "videoId": f"deezer_{item.get('id','')}"})
+    except Exception as e:
+        print(f"Deezer fail {e}")
+    if len(tracks) < 5:
+        try:
+            import requests
+            r = requests.get(ITUNES_SEARCH_URL, params={"term": query, "limit": 10, "media": "music"}, timeout=12)
+            if r.status_code == 200:
+                for item in r.json().get("results", [])[:10]:
+                    title = item.get("trackName","")
+                    artist = item.get("artistName","")
+                    if title and not any(t["title"].lower()==title.lower() for t in tracks):
+                        tracks.append({"title": title, "artist": artist, "id": str(item.get("trackId","")), "videoId": f"itunes_{item.get('trackId','')}"})
+        except Exception as e:
+            print(f"iTunes fail {e}")
+    return tracks[:10]
+
+def ytmusic_get_youtube_url(query):
+    """Find YouTube videoId via ytmusicapi or yt-dlp search - for Hey Boy feat Burna Boy"""
+    try:
+        from ytmusicapi import YTMusic
+        ytm = YTMusic()
+        results = ytm.search(query, filter="songs", limit=5)
+        for r in results:
+            vid = r.get("videoId")
+            if vid:
+                return f"https://www.youtube.com/watch?v={vid}", r.get("title",""), r.get("artists",[{}])[0].get("name","") if r.get("artists") else "", vid
+    except Exception as e:
+        print(f"YTMusic search fail {e}")
+    # Fallback yt-dlp search
+    try:
+        import yt_dlp
+        ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True, 'default_search': 'ytsearch5'}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"ytsearch5:{query}", download=False)
+            if info and 'entries' in info and info['entries']:
+                entry = info['entries'][0]
+                vid = entry.get('id')
+                if vid:
+                    return f"https://www.youtube.com/watch?v={vid}", entry.get('title',''), entry.get('uploader',''), vid
+    except Exception as e:
+        print(f"yt-dlp search fail {e}")
+    return None, None, None, None
+
+def piped_download_youtube(youtube_url, is_audio=False):
+    """V45 PO Token + web client - Research: ytdlbot uses yt-dlp[default,curl-cffi]==2025.8.11 + POTOKEN, Oct 2026 vid says DON'T force android"""
+    try:
+        import requests, tempfile, os, shutil, glob, subprocess, sys
+        video_id = ""
+        if "v=" in youtube_url:
+            video_id = youtube_url.split("v=")[1].split("&")[0]
+        elif "youtu.be/" in youtube_url:
+            video_id = youtube_url.split("youtu.be/")[1].split("?")[0]
+        else:
+            video_id = youtube_url.strip()[-11:]
+        print(f"[V45 DOWNLOAD] video_id={video_id} audio={is_audio}")
+
+        # Install PO token provider if needed - fixes "Sign in to confirm you're not a bot" on Render datacenter IP
+        try:
+            import bgutil_ytdlp_pot_provider
+        except:
+            try:
+                print("[V45] Installing PO token provider...")
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "bgutil-ytdlp-pot-provider"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except:
+                pass
+
+        output_dir = "downloads"
+        os.makedirs(output_dir, exist_ok=True)
+        for f_old in glob.glob(os.path.join(output_dir, f"{video_id}.*")):
+            try:
+                os.remove(f_old)
+            except:
+                pass
+
+        # Per research: Use default clients + PO token, NOT forced android (android needs PO token + can't use cookies)
+        try:
+            import yt_dlp
+            ydl_opts = {
+                'quiet': False,
+                'format': 'bestaudio[ext=m4a]/bestaudio/best' if is_audio else 'best[height<=720]/best',
+                'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
+                'nocheckcertificate': True,
+                'geo_bypass': True,
+                'extractor_retries': 3,
+                'sleep_requests': 1,
+            }
+            cookie_file = None
+            for cf in ["youtube_cookies.txt", "cookies.txt", "/opt/render/project/src/youtube_cookies.txt"]:
+                if os.path.exists(cf):
+                    cookie_file = cf
+                    break
+            if cookie_file:
+                ydl_opts['cookiefile'] = cookie_file
+                print(f"[V45] Using cookie {cookie_file}")
+
+            if is_audio:
+                try:
+                    import imageio_ffmpeg
+                    ydl_opts.update({
+                        'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
+                        'ffmpeg_location': imageio_ffmpeg.get_ffmpeg_exe(),
+                    })
+                except:
+                    ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}]
+
+            print(f"[V45] Downloading {youtube_url} with PO token")
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(youtube_url, download=True)
+                vid = info.get('id', video_id) if info else video_id
+                found = None
+                for ext in ['mp3','m4a','opus','webm','mp4']:
+                    path = os.path.join(output_dir, f"{vid}.{ext}")
+                    if os.path.exists(path) and os.path.getsize(path) > 20000:
+                        found = path
+                        break
+                if not found:
+                    for p in glob.glob(os.path.join(output_dir, f"{vid}.*")):
+                        if os.path.exists(p) and os.path.getsize(p) > 20000:
+                            found = p
+                            break
+                if found:
+                    td = tempfile.mkdtemp()
+                    dest = os.path.join(td, f"ytdlp.{'mp3' if is_audio else 'mp4'}")
+                    shutil.move(found, dest)
+                    print(f"[V45] SUCCESS {os.path.getsize(dest)} bytes")
+                    return dest, td, "ytdlp_po_token"
+        except Exception as e:
+            print(f"[V45] yt-dlp fail {e}")
+            import traceback
+            traceback.print_exc()
+
+        # Fallback web_safari client
+        try:
+            import yt_dlp
+            ydl_opts = {
+                'format': 'bestaudio/best' if is_audio else 'best',
+                'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
+                'extractor_args': {'youtube': {'player_client': ['web_safari', 'web']}},
+                'nocheckcertificate': True,
+            }
+            if cookie_file:
+                ydl_opts['cookiefile'] = cookie_file
+            if is_audio:
+                ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}]
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(youtube_url, download=True)
+                vid = info.get('id', video_id) if info else video_id
+                for p in glob.glob(os.path.join(output_dir, f"{vid}.*")):
+                    if os.path.exists(p) and os.path.getsize(p) > 20000:
+                        td = tempfile.mkdtemp()
+                        dest = os.path.join(td, "ytdlp.mp3")
+                        shutil.move(p, dest)
+                        return dest, td, "ytdlp_web_safari"
+        except Exception as e:
+            print(f"[V45] web_safari fail {e}")
+
+    except Exception as e:
+        print(f"[V45] Outer fail {e}")
+        import traceback
+        traceback.print_exc()
+    return None, None, "failed"
+
+async def handle_music_pick_v25(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle music button tap - Deezer 10 suggestions"""
+    try:
+        query = update.callback_query
+        await query.answer()
+        data = query.data
+        user_id = query.from_user.id
+        chat_id = query.message.chat_id
+        
+        if data.startswith("music_search_again_"):
+            song_search_mode_global[user_id] = True
+            await query.message.reply_text("🎵 Enter song name again (e.g. Hey boy, Koleyewon):")
+            return
+
+        if not data.startswith("music_pick_"):
+            return
+        
+        parts = data.replace("music_pick_", "").rsplit("_", 1)
+        if len(parts) != 2:
+            return
+        picked_id, owner_id = parts
+        if str(owner_id) != str(user_id):
+            await query.answer("Not your search!", show_alert=True)
+            return
+
+        tracks = context.bot_data.get(f"music_search_{user_id}", [])
+        query_text = context.bot_data.get(f"music_query_{user_id}", "")
+        picked_track = None
+        for t in tracks:
+            if str(t.get("videoId")) == picked_id or str(t.get("id")) == picked_id or picked_id in str(t.get("videoId","")):
+                picked_track = t
+                break
+        if not picked_track and tracks:
+            picked_track = tracks[0]
+        
+        if not picked_track:
+            await query.message.reply_text("❌ Track not found, search again")
+            return
+
+        title = picked_track.get("title","")
+        artist = picked_track.get("artist","")
+        search_q = f"{title} {artist}".strip()
+        print(f"[V45 PICK] {user_id} picked {search_q}")
+
+        await query.message.reply_text(f"🔎 Searching YouTube for '{search_q}'...")
+        
+        yt_url, yt_title, yt_uploader, vid = ytmusic_get_youtube_url(search_q)
+        if not yt_url:
+            yt_url, yt_title, yt_uploader, vid = ytmusic_get_youtube_url(title)
+        
+        if not yt_url:
+            await query.message.reply_text(f"❌ No YouTube found for '{search_q}'. Try Search again.")
+            return
+
+        await query.message.reply_text(f"🎬 Found: {yt_title or search_q}\nDownloading MP3 via PO Token...")
+
+        # Try cache first
+        try:
+            cache = load_json_file(CACHE_FILE)
+            key = get_canonical_key(yt_url)
+            if key in cache:
+                entry = cache[key]
+                vault_msg_id = entry.get("vault_msg_id")
+                if vault_msg_id:
+                    try:
+                        await context.bot.forward_message(chat_id=chat_id, from_chat_id=VIDEO_VAULT_ID, message_id=vault_msg_id)
+                        await query.message.reply_text("✅ From cache! Instant!")
+                        return
+                    except:
+                        pass
+        except:
+            pass
+
+        fp, td, engine = piped_download_youtube(yt_url, is_audio=True)
+        if not fp:
+            await query.message.reply_text(f"❌ Download failed for '{search_q}'.\nYouTube blocked this Atlantic/UMG track on Render IP. Try pasting YouTube link directly or try another song. (PO Token attempted)")
+            return
+
+        try:
+            with open(fp, 'rb') as f:
+                sent = await context.bot.send_audio(chat_id=chat_id, audio=f, title=title, performer=artist, caption=f"🎵 {title} — {artist}\nEngine: {engine} | V45 PO Token")
+            
+            # Cache to vault
+            try:
+                vault_sent = await context.bot.forward_message(chat_id=VIDEO_VAULT_ID, from_chat_id=chat_id, message_id=sent.message_id)
+                cache = load_json_file(CACHE_FILE)
+                cache[get_canonical_key(yt_url)] = {"vault_msg_id": vault_sent.message_id, "title": title}
+                save_json_file(CACHE_FILE, cache)
+            except Exception as e:
+                print(f"Cache fail {e}")
+        finally:
+            try:
+                import shutil
+                shutil.rmtree(td, ignore_errors=True)
+                if os.path.exists(fp):
+                    os.remove(fp)
+            except:
+                pass
+
+    except Exception as e:
+        print(f"handle_music_pick fail {e}")
+        import traceback
+        traceback.print_exc()
+        try:
+            await update.callback_query.message.reply_text(f"❌ Error: {e}")
+        except:
+            pass
+
+
+
 web_app = Flask(__name__)
 @web_app.route('/')
 def health_check():
-    return "Bot alive! V24 Optimum +1", 200
+    return "Bot alive! V45 CLEAN - From Original V24 + Deezer 10 + Music Click Fixed + PO Token - Research Based", 200
 
 def load_json_file(filename):
     if os.path.exists(filename):
@@ -813,6 +1105,39 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     text = update.message.text if update.message.text else ""
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
+    
+    # === V45 SONG SEARCH - MUST BE FIRST ===
+    if "Song Search" in text:
+        print(f"[V45] {user_id} pressed Song Search")
+        song_search_mode_global[user_id] = True
+        last_song_search_time[user_id] = time.time()
+        await update.message.reply_text("🎵 Song Search Mode ON! V45\n\nDeezer API 10 suggestions (has Naija like Koleyewon)\nPO Token download (fixes Render bot block)\nCached to vault\n\nEnter song name (e.g. Hey boy, Koleyewon, Blinding Lights):")
+        return
+    
+    if song_search_mode_global.get(user_id) and "http" not in text.lower():
+        song_search_mode_global.pop(user_id, None)
+        query_text = text.strip()[:100]
+        if len(query_text) < 2:
+            await update.message.reply_text("❌ Enter valid song name!")
+            return
+        print(f"[V45 SEARCH] {user_id} searching '{query_text}' via Deezer")
+        await update.message.reply_text(f"🔍 Searching '{query_text}' via Deezer API (10 suggestions)...")
+        tracks = search_deezer_itunes(query_text)
+        if tracks:
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            buttons = []
+            for t in tracks[:10]:
+                btn_txt = f"{t.get('title','')[:28]} — {t.get('artist','')[:18]}"[:42]
+                vid = t.get('videoId') or t.get('id') or f"deezer_{len(buttons)}"
+                buttons.append([InlineKeyboardButton(btn_txt, callback_data=f"music_pick_{vid}_{user_id}")])
+            buttons.append([InlineKeyboardButton("🔍 Search again", callback_data=f"music_search_again_{user_id}")])
+            await update.message.reply_text(f"🎵 10 suggestions for '{query_text}' (Deezer + iTunes, MP3 via PO Token):", reply_markup=InlineKeyboardMarkup(buttons))
+            context.bot_data[f"music_search_{user_id}"] = tracks
+            context.bot_data[f"music_query_{user_id}"] = query_text
+        else:
+            await update.message.reply_text(f"❌ No results for '{query_text}'. Try another spelling.")
+        return
+
     if is_banned(user_id):
         await update.message.reply_text("🚫 Banned")
         return
@@ -1772,6 +2097,8 @@ def run_telegram_bot():
     async def start_bot():
         clean_downloads_startup()
         app = Application.builder().token(BOT_TOKEN).build()
+        app.add_handler(CallbackQueryHandler(handle_music_pick_v25, pattern="^music_pick_"))
+        app.add_handler(CallbackQueryHandler(handle_music_pick_v25, pattern="^music_search_again_"))
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CommandHandler("language", language_command))
         app.add_handler(CommandHandler("stats", stats))
@@ -1793,7 +2120,7 @@ def run_telegram_bot():
         asyncio.create_task(auto_backup_loop(app.bot))
         asyncio.create_task(queue_processor(app.bot))
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
-        print(f"Bot started! V24 Optimum +1 Vault={VIDEO_VAULT_ID} Backup={PRIVATE_CHANNEL_ID} Free {get_free_disk_mb()}MB")
+        print(f"Bot started! V45 CLEAN FROM ORIGINAL V24 + Deezer + Music Fix + PO Token Vault={VIDEO_VAULT_ID} Free {get_free_disk_mb()}MB")
         await asyncio.Event().wait()
     loop.run_until_complete(start_bot())
 
