@@ -1116,7 +1116,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
     free_mb = get_free_disk_mb()
     cache = load_json_file(CACHE_FILE)
-    await update.message.reply_text(f"🟢 **Status V31 Monetag**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic (Clause 12 fix)\nTest: /testad (Clause 13 fix)\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
+    await update.message.reply_text(f"🟢 **Status V32 Monetag**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic (Clause 12 fix)\nTest: /testad (Clause 13 fix)\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
 
 async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID:
@@ -1340,7 +1340,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         config = load_json_file(CONFIG_FILE)
         config["ad_mode"] = mode
         save_json_file(CONFIG_FILE, config)
-        await query.answer(f"Updated to {mode.upper()}", show_alert=True)
+        await query.answer(f"Updated to {mode.upper().replace('ADSGRAM', 'MONETAG')}", show_alert=True)
         try:
             await query.message.edit_text(f"✅ Mode: {mode.upper().replace('ADSGRAM','MONETAG')}", parse_mode="Markdown")
         except:
@@ -1651,7 +1651,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         tokens = load_tokens()
         user_str = str(user_id)
         if user_str not in tokens:
-            # Create new token with +1 for test ad demo (not 4!)
+            if user_id != ADMIN_ID:
+                await query.answer("⏰ Open the link and watch the 20s timer first!", show_alert=True)
+                return
+            # Create new token with +1 for test ad demo (admin only)
             reward = get_reward_amount()
             tokens[user_str] = {
                 "user_id": int(user_id),
@@ -1678,8 +1681,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
             return
         token_data = tokens[user_str]
-        is_test_ad = token_data.get("msg_start", 0) == 0 and token_data.get("msg_end", 0) == 0
-        if not is_test_ad and not token_data.get("verified",False):
+        if not token_data.get("verified", False):
             await query.answer("⏰ Finish 20s timer first! Watch ad via Open Link button!", show_alert=True)
             return
         msg_start, msg_end = token_data.get("msg_start",0), token_data.get("msg_end",0)
