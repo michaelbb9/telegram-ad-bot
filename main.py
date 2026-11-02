@@ -443,11 +443,10 @@ def download_media_engine(url: str, download_type: str):
 def get_main_keyboard(lang_code, is_admin):
     t = LANGUAGES.get(lang_code, LANGUAGES["en"])
     keyboard = [
-        [KeyboardButton("📁 File to Link"), KeyboardButton("📋 My Links")],
+        [KeyboardButton("📁 File to Link")],
         [KeyboardButton(t["menu_stats"]), KeyboardButton(t["menu_lang"])],
         [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])],
         [KeyboardButton(t["menu_upload"])],
-        [KeyboardButton("⚙️ Default settings"), KeyboardButton("❓ Help")],
         [KeyboardButton("🟢 Bot Status")],
         [KeyboardButton("🧪 Test Ad"), KeyboardButton("📢 Ad Info")]
     ]
@@ -826,7 +825,7 @@ async def file_to_link_entry(update: Update, context: ContextTypes.DEFAULT_TYPE)
             kb = monetag_keyboard(user_id, "filelink", 0, 0)
             if not kb:
                 kb = adsgram_keyboard(user_id, "filelink", 0, 0)
-            await update.message.reply_text("⚠️ File to Link Limit Reached! You used 4 FREE! Watch ad → +1 file-to-link!", reply_markup=kb)
+            await update.message.reply_text("File to Link Limit Reached! Watch ad +1 file-to-link!", reply_markup=kb)
             return
     sessions = get_file_sessions()
     sessions[str(user_id)] = {"files": [], "started": time.time(), "message_id": None}
@@ -835,10 +834,37 @@ async def file_to_link_entry(update: Update, context: ContextTypes.DEFAULT_TYPE)
     states[str(user_id)] = "WAITING_FOR_FILES"
     save_file_link_states(states)
     kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("My Links", callback_data="my_links"), InlineKeyboardButton("Default settings", callback_data="open_settings")],
+        [InlineKeyboardButton("Help", callback_data="filelink_help")],
+        [InlineKeyboardButton("Make my link", callback_data="make_file_link")],
+        [InlineKeyboardButton("Cancel", callback_data="cancel_file_link")]
+    ])
+    msg = await update.message.reply_text("File to Link - Send your files one by one or all at once. Files so far: 0. Send photos, videos, docs, audios. Then tap Make my link. Secondary buttons below.", reply_markup=kb)
+    sessions[str(user_id)]["message_id"] = msg.message_id
+    save_file_sessions(sessions)
+
+
+    states = get_file_link_states()
+    states[str(user_id)] = "WAITING_FOR_FILES"
+    save_file_link_states(states)
+    # Secondary inline buttons after clicking File to Link
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📋 My Links", callback_data="my_links"), InlineKeyboardButton("⚙️ Default settings", callback_data="open_settings")],
+        [InlineKeyboardButton("❓ Help", callback_data="filelink_help")],
         [InlineKeyboardButton("✅ Make my link", callback_data="make_file_link")],
         [InlineKeyboardButton("❌ Cancel", callback_data="cancel_file_link")]
     ])
-    msg = await update.message.reply_text("📁 File to Link - Send your files, one by one or all at once.\n\nFiles so far: 0\n\nSend photos, videos, documents, audios. Then tap ✅ Make my link", reply_markup=kb)
+    msg = await update.message.reply_text("📁 File to Link - Send your files, one by one or all at once. Files so far: 0 - Send photos, videos, documents, audios. Then tap Make my link - Secondary: My Links, Default settings, Help below", reply_markup=kb)
+    sessions[str(user_id)]["message_id"] = msg.message_id
+    save_file_sessions(sessions)
+    states = get_file_link_states()
+    states[str(user_id)] = "WAITING_FOR_FILES"
+    save_file_link_states(states)
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Make my link", callback_data="make_file_link")],
+        [InlineKeyboardButton("❌ Cancel", callback_data="cancel_file_link")]
+    ])
+    msg = await update.message.reply_text("📁 File to Link - Send your files, one by one or all at once.\n\nFiles so far: 0 - Send photos, videos, documents, audios. Then tap ✅ Make my link", reply_markup=kb)
     sessions[str(user_id)]["message_id"] = msg.message_id
     save_file_sessions(sessions)
 
@@ -846,7 +872,7 @@ async def handle_file_link_files(update: Update, context: ContextTypes.DEFAULT_T
     user_id = update.effective_user.id
     states = get_file_link_states()
     if states.get(str(user_id)) != "WAITING_FOR_FILES":
-        return False
+        return  # Not in file-to-link mode, let other handlers handle
     sessions = get_file_sessions()
     session = sessions.get(str(user_id))
     if not session:
@@ -973,6 +999,25 @@ async def deliver_file_link_files(update_or_query, context, token, link_data):
 
 
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    text = update.message.text or "" if update.message else ""
+    # File to Link - Handle button click (must be first!)
+    if "File to Link" in text:
+        await file_to_link_entry(update, context)
+        return
+    if "My Links" in text:
+        await my_links_command(update, context)
+        return
+    if "Default settings" in text:
+        await default_settings_command(update, context)
+        return
+    # Help for File to Link handled via inline buttons, not reply keyboardle as filelink help if user is in filelink mode
+        states = get_file_link_states()
+        if states.get(str(update.effective_user.id)) == "WAITING_FOR_FILES":
+            await help_command_filelink(update, context)
+            return
+    text = update.message.text or ""  # Re-get text after filelink check
+    if False:
+        pass
     text = update.message.text if update.message.text else ""
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
@@ -1946,10 +1991,10 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("ban", ban_command))
         app.add_handler(CommandHandler("unban", unban_command))
         app.add_handler(CommandHandler("backup", backup_command))
-        app.add_handler(MessageHandler(filters.Regex("^(📁 File to Link)$"), file_to_link_entry))
-        app.add_handler(MessageHandler(filters.Regex("^(📋 My Links)$"), my_links_command))
-        app.add_handler(MessageHandler(filters.Regex("^(⚙️ Default settings)$"), default_settings_command))
-        app.add_handler(MessageHandler(filters.Regex("^(❓ Help)$"), help_command_filelink))
+        app.add_handler(MessageHandler(filters.Regex("File to Link"), file_to_link_entry))
+        app.add_handler(MessageHandler(filters.Regex("My Links"), my_links_command))
+        app.add_handler(MessageHandler(filters.Regex("Default settings"), default_settings_command))
+        app.add_handler(MessageHandler(filters.Regex("Help"), help_command_filelink))
         app.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO | filters.Document.ALL | filters.AUDIO | filters.VOICE | filters.ANIMATION, handle_file_link_files))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
