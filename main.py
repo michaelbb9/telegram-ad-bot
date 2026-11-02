@@ -8,6 +8,7 @@ import logging
 import re
 import shutil
 import hashlib
+import uuid
 import imageio_ffmpeg
 import yt_dlp
 from bs4 import BeautifulSoup
@@ -323,6 +324,29 @@ def adsgram_keyboard(user_id, kind="wall", msg_start=0, msg_end=0, extra_rows=No
         rows.extend(extra_rows)
     return InlineKeyboardMarkup(rows)
 
+async def report_vault_delivery(user_id, msg_start, msg_end, delivered_message_ids):
+    """Report one completed catalogue delivery; Flask deduplicates retries."""
+    if not delivered_message_ids:
+        return
+    try:
+        response = requests.post(
+            f"{WEB_BASE_URL}/api/item-delivered",
+            json={
+                "user_id": int(user_id),
+                "msg_start": int(msg_start),
+                "msg_end": int(msg_end),
+                "delivered_message_ids": [int(x) for x in delivered_message_ids],
+                "event_id": uuid.uuid4().hex,
+            },
+            headers=API_HEADERS,
+            timeout=8,
+        )
+        if response.status_code != 200:
+            logger.warning("Vault analytics rejected delivery: %s %s", response.status_code, response.text[:200])
+    except Exception as e:
+        # Delivery must never fail just because analytics is temporarily offline.
+        logger.warning("Vault analytics report failed: %s", e)
+
 async def deliver_bundle(bot, user_id, msg_start, msg_end):
     fwd_ids = []
     for tid in range(msg_start, msg_end + 1):
@@ -332,6 +356,7 @@ async def deliver_bundle(bot, user_id, msg_start, msg_end):
             await asyncio.sleep(0.2)
         except Exception as e:
             logger.error(f"Forward {tid} fail: {e}")
+    await report_vault_delivery(user_id, msg_start, msg_end, fwd_ids)
     if TUTORIAL_MESSAGE_ID not in range(msg_start, msg_end + 1):
         try:
             tut = await bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
@@ -1959,6 +1984,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 except Exception as inner_e:
                     logger.error(f"Forward {tid} fail: {inner_e}")
                     continue
+            await report_vault_delivery(user_id, msg_start, msg_end, fwd_ids)
             if TUTORIAL_MESSAGE_ID not in range(msg_start, msg_end+1):
                 try:
                     tut = await context.bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
