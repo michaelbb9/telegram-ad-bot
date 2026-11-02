@@ -13,7 +13,7 @@ import yt_dlp
 from bs4 import BeautifulSoup
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ChatMemberHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 try:
@@ -58,7 +58,6 @@ BANNED_FILE = "banned_users.json"
 REWARD_FILE = "reward_config.json"
 FILE_LINKS_FILE = "file_links.json"
 FILE_LINK_STATE_FILE = "file_link_states.json"
-FILE_LINK_PENDING_FILE = "file_link_pending.json"
 FILE_LINK_STORAGE_ID = -1003906423952
 
 active_batch_sessions = {}
@@ -339,7 +338,7 @@ async def deliver_bundle(bot, user_id, msg_start, msg_end):
             fwd_ids.append(tut.message_id)
         except Exception:
             pass
-    warn = await bot.send_message(chat_id=user_id, text="⏳ Auto-deletes in 9 mins")
+    warn = await bot.send_message(chat_id=user_id, text="⏳ Auto-deletes in 9 mins", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
     fwd_ids.append(warn.message_id)
     asyncio.create_task(schedule_deletion(bot, user_id, fwd_ids, 540))
 
@@ -443,8 +442,7 @@ def get_main_keyboard(lang_code, is_admin):
     keyboard = [
         [KeyboardButton(t["menu_stats"]), KeyboardButton(t["menu_lang"])],
         [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])],
-        [KeyboardButton(t["menu_upload"])],
-        [KeyboardButton("🔗 File-to-Link")],
+        [KeyboardButton(t["menu_upload"]), KeyboardButton("🔗 File-to-Link")],
         [KeyboardButton("🟢 Bot Status")]
     ]
     if is_admin:
@@ -630,80 +628,22 @@ async def file_link_deep_link(update: Update, context: ContextTypes.DEFAULT_TYPE
     await send_file_link_payload(update, context, token, record)
 
 async def send_file_link_payload(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str, record: dict) -> None:
-    """Deliver now if joined; otherwise persist a pending delivery for chat-member updates."""
+    """Check required channel, then copy stored media to the recipient."""
     user_id = update.effective_user.id
     try:
         member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_USERNAME, user_id=user_id)
         if member.status not in ("member", "administrator", "creator"):
             raise ValueError("not joined")
     except Exception:
-        pending = load_json_file(FILE_LINK_PENDING_FILE)
-        pending[str(user_id)] = {"token": token, "record": record, "created_at": time.time()}
-        save_json_file(FILE_LINK_PENDING_FILE, pending)
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("📢 Join channel", url=PUBLIC_CHANNEL_URL)]])
-        await update.effective_message.reply_text(
-            "📢 Join the required channel. I’ll send your files automatically as soon as Telegram confirms your membership.",
-            reply_markup=kb)
+        await update.effective_message.reply_text("📢 Join our required channel first, then open this link again: " + PUBLIC_CHANNEL_URL)
         return
-    await deliver_file_link_record(context.bot, user_id, token, record)
-    await update.effective_message.reply_text("✅ Your files have been sent.")
-
-
-async def deliver_file_link_record(bot, user_id: int, token: str, record: dict) -> None:
-    """Copy the stored payload once membership is confirmed and persist use count."""
     for item in record.get("items", []):
-        await bot.copy_message(chat_id=user_id, from_chat_id=FILE_LINK_STORAGE_ID, message_id=item["message_id"])
+        await context.bot.copy_message(chat_id=user_id, from_chat_id=FILE_LINK_STORAGE_ID, message_id=item["message_id"])
+    record["clicks"] = record.get("clicks", 0) + 1
     links = load_json_file(FILE_LINKS_FILE)
-    current = links.get(token, record)
-    current["clicks"] = int(current.get("clicks", 0) or 0) + 1
-    links[token] = current
+    links[token] = record
     save_json_file(FILE_LINKS_FILE, links)
-
-
-async def on_required_channel_member(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Automatically fulfill pending File-to-Link deliveries when a user joins."""
-    cm = update.chat_member
-    if not cm:
-        return
-
-    # Match the configured public channel robustly (Telegram may provide the
-    # username with or without the leading @). Ignore unrelated chat updates.
-    configured_username = str(PUBLIC_CHANNEL_USERNAME or "").lstrip("@").lower()
-    observed_username = str(cm.chat.username or "").lstrip("@").lower()
-    if configured_username and observed_username != configured_username:
-        return
-
-    new_status = cm.new_chat_member.status
-    if new_status not in ("member", "administrator", "creator"):
-        return
-    old_status = cm.old_chat_member.status
-    if old_status in ("member", "administrator", "creator"):
-        return  # Not a new join; avoid duplicate delivery attempts.
-
-    uid = str(cm.new_chat_member.user.id)
-    pending = load_json_file(FILE_LINK_PENDING_FILE)
-    item = pending.get(uid)
-    if not item:
-        return
-    token = item.get("token")
-    links = load_json_file(FILE_LINKS_FILE)
-    record = links.get(token)
-    if not record or (record.get("expires_at") and time.time() > record["expires_at"]):
-        pending.pop(uid, None); save_json_file(FILE_LINK_PENDING_FILE, pending)
-        try: await context.bot.send_message(chat_id=int(uid), text="❌ This file link has expired.")
-        except Exception: pass
-        return
-    if record.get("max_clicks", 0) and int(record.get("clicks", 0) or 0) >= int(record["max_clicks"]):
-        pending.pop(uid, None); save_json_file(FILE_LINK_PENDING_FILE, pending)
-        try: await context.bot.send_message(chat_id=int(uid), text="⛔ This link has reached its usage limit.")
-        except Exception: pass
-        return
-    try:
-        await deliver_file_link_record(context.bot, int(uid), token, record)
-        pending.pop(uid, None); save_json_file(FILE_LINK_PENDING_FILE, pending)
-        await context.bot.send_message(chat_id=int(uid), text="✅ You joined the channel. Your files are here!")
-    except Exception:
-        logger.exception("Automatic File-to-Link delivery failed")
+    await update.effective_message.reply_text("✅ Your files have been sent.")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
@@ -891,7 +831,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
         pass
     if user_id not in paused_batches:
         dest = t["batch_done_chan"].format(success_count, fail_count, success_count) if target_destination_id != chat_id else t["batch_done"].format(success_count, fail_count, success_count)
-        await bot.send_message(chat_id=chat_id, text=dest, parse_mode="Markdown")
+        await bot.send_message(chat_id=chat_id, text=dest, reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID), parse_mode="Markdown")
 
 async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
@@ -938,7 +878,7 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if user_id == ADMIN_ID:
         try:
             await update.message.forward(chat_id=PRIVATE_CHANNEL_ID)
-            await update.message.reply_text("✅ Saved to vault!")
+            await update.message.reply_text("✅ Saved to vault!", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
         except Exception as e:
             await update.message.reply_text(f"❌ {e}")
     else:
@@ -947,7 +887,7 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         now = time.time()
         if user_str in limits and now - limits[user_str]["timestamp"] < 86400:
             if limits[user_str]["count"] >= 5:
-                await update.message.reply_text(t["upload_limit_reached"])
+                await update.message.reply_text(t["upload_limit_reached"], reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
                 return
             limits[user_str]["count"] += 1
         else:
@@ -958,7 +898,7 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
             uploads[str(int(time.time()))] = {"user_id": user_id, "msg_id": update.message.message_id}
             save_json_file(UPLOADS_FILE, uploads)
             await update.message.forward(chat_id=ADMIN_ID)
-            await update.message.reply_text(t["upload_success_user"])
+            await update.message.reply_text(t["upload_success_user"], reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
         except:
             await update.message.reply_text("❌ Failed")
 
@@ -977,9 +917,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     track_user_activity(user_id)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
-    if text.strip() in ("🔗 File-to-Link", "File-to-Link"):
-        await file_to_link_command(update, context)
-        return
     fl_states = load_json_file(FILE_LINK_STATE_FILE)
     fl_state = fl_states.get(str(user_id))
     if fl_state and fl_state.get("mode") == "file_link_password":
@@ -995,12 +932,15 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             await update.message.reply_text("⛔ This link has reached its usage limit."); return
         await send_file_link_payload(update, context, token, record)
         return
-    menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🟢 Bot Status", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel"]
+    menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🔗 File-to-Link", "🟢 Bot Status", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel"]
     if text in menu_texts:
         support_states = load_json_file(SUPPORT_STATES_FILE)
         if str(user_id) in support_states:
             del support_states[str(user_id)]
             save_json_file(SUPPORT_STATES_FILE, support_states)
+    if text.strip() == "🔗 File-to-Link":
+        await file_to_link_command(update, context)
+        return
     fl_states = load_json_file(FILE_LINK_STATE_FILE)
     fl_state = fl_states.get(str(user_id))
     if fl_state and fl_state.get("mode") == "file_link_set_password":
@@ -1560,22 +1500,29 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 except: pass
                 remaining = int(profile.get("downloads_left", get_free_amount()) or 0)
                 if remaining <= 0:
-                    await query.answer("No free daily downloads left", show_alert=True)
+                    # Use the same existing ad-reward route as ordinary downloads.
+                    await query.answer("Daily free limit reached. Watch an ad to earn more downloads.", show_alert=True)
                     assigned_network = get_global_ab_network(user_id)
                     if assigned_network == "adsgram":
-                        ad_kb = adsgram_keyboard(user_id, "wall", 0, 0)
-                        if ad_kb:
-                            await query.message.reply_text(t["limit_reached"], reply_markup=ad_kb, parse_mode="Markdown")
+                        kb = adsgram_keyboard(user_id, "wall", 0, 0)
+                        if kb:
+                            await query.message.reply_text(t["limit_reached"], reply_markup=kb, parse_mode="Markdown")
                         else:
-                            await query.message.reply_text("⚠️ Ad server busy, try again in a moment.")
+                            await query.message.reply_text("⚠️ Ad server busy, try again in a moment.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
                     else:
                         try:
-                            await context.bot.forward_message(chat_id=query.message.chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+                            await context.bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+                            await asyncio.sleep(0.2)
                         except Exception:
-                            pass
+                            try:
+                                await context.bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+                            except Exception:
+                                await context.bot.send_message(chat_id=chat_id, text="📺 Watch the tutorial, open the ad link for 20 seconds, then return and check your balance.")
                         bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
-                        ad_kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")]])
-                        await query.message.reply_text(t["limit_reached"], reply_markup=ad_kb, parse_mode="Markdown")
+                        reward_kb = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)],
+                                     [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
+                                     [InlineKeyboardButton("💜 Check & Get +1", callback_data="verify_user")]]
+                        await query.message.reply_text(t["limit_reached"], reply_markup=InlineKeyboardMarkup(reward_kb), parse_mode="Markdown")
                     return
                 profile["downloads_left"] = remaining - 1
                 tokens[str(user_id)] = profile; save_tokens(tokens)
@@ -2156,7 +2103,6 @@ def run_telegram_bot():
             logger.warning(f"Could not set bot menu commands: {e}")
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CommandHandler("filetolink", file_to_link_command))
-        app.add_handler(ChatMemberHandler(on_required_channel_member, ChatMemberHandler.CHAT_MEMBER))
         app.add_handler(CommandHandler("language", language_command))
         app.add_handler(CommandHandler("stats", stats))
         app.add_handler(CommandHandler("status", status_command))
