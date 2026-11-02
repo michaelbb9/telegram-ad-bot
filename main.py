@@ -13,7 +13,7 @@ import yt_dlp
 from bs4 import BeautifulSoup
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ChatMemberHandler, filters, ContextTypes
 
 ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 try:
@@ -58,6 +58,7 @@ BANNED_FILE = "banned_users.json"
 REWARD_FILE = "reward_config.json"
 FILE_LINKS_FILE = "file_links.json"
 FILE_LINK_STATE_FILE = "file_link_states.json"
+FILE_LINK_PENDING_FILE = "file_link_pending.json"
 FILE_LINK_STORAGE_ID = -1003906423952
 
 active_batch_sessions = {}
@@ -443,6 +444,7 @@ def get_main_keyboard(lang_code, is_admin):
         [KeyboardButton(t["menu_stats"]), KeyboardButton(t["menu_lang"])],
         [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])],
         [KeyboardButton(t["menu_upload"])],
+        [KeyboardButton("🔗 File-to-Link")],
         [KeyboardButton("🟢 Bot Status")]
     ]
     if is_admin:
@@ -628,22 +630,80 @@ async def file_link_deep_link(update: Update, context: ContextTypes.DEFAULT_TYPE
     await send_file_link_payload(update, context, token, record)
 
 async def send_file_link_payload(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str, record: dict) -> None:
-    """Check required channel, then copy stored media to the recipient."""
+    """Deliver now if joined; otherwise persist a pending delivery for chat-member updates."""
     user_id = update.effective_user.id
     try:
         member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_USERNAME, user_id=user_id)
         if member.status not in ("member", "administrator", "creator"):
             raise ValueError("not joined")
     except Exception:
-        await update.effective_message.reply_text("📢 Join our required channel first, then open this link again: " + PUBLIC_CHANNEL_URL)
+        pending = load_json_file(FILE_LINK_PENDING_FILE)
+        pending[str(user_id)] = {"token": token, "record": record, "created_at": time.time()}
+        save_json_file(FILE_LINK_PENDING_FILE, pending)
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("📢 Join channel", url=PUBLIC_CHANNEL_URL)]])
+        await update.effective_message.reply_text(
+            "📢 Join the required channel. I’ll send your files automatically as soon as Telegram confirms your membership.",
+            reply_markup=kb)
         return
-    for item in record.get("items", []):
-        await context.bot.copy_message(chat_id=user_id, from_chat_id=FILE_LINK_STORAGE_ID, message_id=item["message_id"])
-    record["clicks"] = record.get("clicks", 0) + 1
-    links = load_json_file(FILE_LINKS_FILE)
-    links[token] = record
-    save_json_file(FILE_LINKS_FILE, links)
+    await deliver_file_link_record(context.bot, user_id, token, record)
     await update.effective_message.reply_text("✅ Your files have been sent.")
+
+
+async def deliver_file_link_record(bot, user_id: int, token: str, record: dict) -> None:
+    """Copy the stored payload once membership is confirmed and persist use count."""
+    for item in record.get("items", []):
+        await bot.copy_message(chat_id=user_id, from_chat_id=FILE_LINK_STORAGE_ID, message_id=item["message_id"])
+    links = load_json_file(FILE_LINKS_FILE)
+    current = links.get(token, record)
+    current["clicks"] = int(current.get("clicks", 0) or 0) + 1
+    links[token] = current
+    save_json_file(FILE_LINKS_FILE, links)
+
+
+async def on_required_channel_member(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Automatically fulfill pending File-to-Link deliveries when a user joins."""
+    cm = update.chat_member
+    if not cm:
+        return
+
+    # Match the configured public channel robustly (Telegram may provide the
+    # username with or without the leading @). Ignore unrelated chat updates.
+    configured_username = str(PUBLIC_CHANNEL_USERNAME or "").lstrip("@").lower()
+    observed_username = str(cm.chat.username or "").lstrip("@").lower()
+    if configured_username and observed_username != configured_username:
+        return
+
+    new_status = cm.new_chat_member.status
+    if new_status not in ("member", "administrator", "creator"):
+        return
+    old_status = cm.old_chat_member.status
+    if old_status in ("member", "administrator", "creator"):
+        return  # Not a new join; avoid duplicate delivery attempts.
+
+    uid = str(cm.new_chat_member.user.id)
+    pending = load_json_file(FILE_LINK_PENDING_FILE)
+    item = pending.get(uid)
+    if not item:
+        return
+    token = item.get("token")
+    links = load_json_file(FILE_LINKS_FILE)
+    record = links.get(token)
+    if not record or (record.get("expires_at") and time.time() > record["expires_at"]):
+        pending.pop(uid, None); save_json_file(FILE_LINK_PENDING_FILE, pending)
+        try: await context.bot.send_message(chat_id=int(uid), text="❌ This file link has expired.")
+        except Exception: pass
+        return
+    if record.get("max_clicks", 0) and int(record.get("clicks", 0) or 0) >= int(record["max_clicks"]):
+        pending.pop(uid, None); save_json_file(FILE_LINK_PENDING_FILE, pending)
+        try: await context.bot.send_message(chat_id=int(uid), text="⛔ This link has reached its usage limit.")
+        except Exception: pass
+        return
+    try:
+        await deliver_file_link_record(context.bot, int(uid), token, record)
+        pending.pop(uid, None); save_json_file(FILE_LINK_PENDING_FILE, pending)
+        await context.bot.send_message(chat_id=int(uid), text="✅ You joined the channel. Your files are here!")
+    except Exception:
+        logger.exception("Automatic File-to-Link delivery failed")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
@@ -917,6 +977,9 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     track_user_activity(user_id)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
+    if text.strip() in ("🔗 File-to-Link", "File-to-Link"):
+        await file_to_link_command(update, context)
+        return
     fl_states = load_json_file(FILE_LINK_STATE_FILE)
     fl_state = fl_states.get(str(user_id))
     if fl_state and fl_state.get("mode") == "file_link_password":
@@ -1497,7 +1560,23 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 except: pass
                 remaining = int(profile.get("downloads_left", get_free_amount()) or 0)
                 if remaining <= 0:
-                    await query.answer("No free daily downloads left", show_alert=True); return
+                    await query.answer("No free daily downloads left", show_alert=True)
+                    assigned_network = get_global_ab_network(user_id)
+                    if assigned_network == "adsgram":
+                        ad_kb = adsgram_keyboard(user_id, "wall", 0, 0)
+                        if ad_kb:
+                            await query.message.reply_text(t["limit_reached"], reply_markup=ad_kb, parse_mode="Markdown")
+                        else:
+                            await query.message.reply_text("⚠️ Ad server busy, try again in a moment.")
+                    else:
+                        try:
+                            await context.bot.forward_message(chat_id=query.message.chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+                        except Exception:
+                            pass
+                        bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
+                        ad_kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")]])
+                        await query.message.reply_text(t["limit_reached"], reply_markup=ad_kb, parse_mode="Markdown")
+                    return
                 profile["downloads_left"] = remaining - 1
                 tokens[str(user_id)] = profile; save_tokens(tokens)
             token = hashlib.sha256(f"{user_id}:{time.time_ns()}".encode()).hexdigest()[:12]
@@ -2077,6 +2156,7 @@ def run_telegram_bot():
             logger.warning(f"Could not set bot menu commands: {e}")
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CommandHandler("filetolink", file_to_link_command))
+        app.add_handler(ChatMemberHandler(on_required_channel_member, ChatMemberHandler.CHAT_MEMBER))
         app.add_handler(CommandHandler("language", language_command))
         app.add_handler(CommandHandler("stats", stats))
         app.add_handler(CommandHandler("status", status_command))
