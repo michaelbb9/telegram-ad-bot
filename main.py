@@ -38,6 +38,7 @@ PUBLIC_CHANNEL_URL = "https://t.me/booksaufio"
 PUBLIC_CHANNEL_USERNAME = "@booksaufio"
 HELP_CHANNEL_URL = "https://t.me/faqandaupport"
 
+ADSGRAM_BLOCK_ID = os.getenv("ADSGRAM_BLOCK_ID", "")   # Mini App REWARDED block id (the SDK one). Set in the Flask server too.
 API_SECRET = os.getenv("API_SECRET", "change-me")        # must be the same value on PythonAnywhere
 API_HEADERS = {"X-Api-Secret": API_SECRET}
 PROXY_URL = None 
@@ -56,6 +57,11 @@ CACHE_FILE = "download_cache.json"
 FLOOD_FILE = "flood_control.json"
 BANNED_FILE = "banned_users.json"
 REWARD_FILE = "reward_config.json"
+FILE_LINKS_FILE = "file_links.json"
+FILE_SESSIONS_FILE = "file_sessions.json"
+FILE_SETTINGS_FILE = "file_link_settings.json"
+FILE_LINK_STATES_FILE = "file_link_states.json"
+STORAGE_CHANNEL_ID = -1003906423952
 
 active_batch_sessions = {}
 pending_batch_payloads = {}
@@ -440,10 +446,10 @@ def get_main_keyboard(lang_code, is_admin):
         [KeyboardButton(t["menu_stats"]), KeyboardButton(t["menu_lang"])],
         [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])],
         [KeyboardButton(t["menu_upload"])],
-        [KeyboardButton("🟢 Bot Status")]
+        [KeyboardButton("🟢 Bot Status")],
+        [KeyboardButton("🧪 Test Ad"), KeyboardButton("📢 Ad Info")]
     ]
     if is_admin:
-        keyboard.append([KeyboardButton("🧪 Test Ad"), KeyboardButton("📢 Ad Info")])
         keyboard.append([KeyboardButton(t["menu_uploads"]), KeyboardButton("📢 Broadcast")])
         keyboard.append([KeyboardButton("⚡ Create Flash Drop"), KeyboardButton("⚙️ Ad Toggle Panel")])
         keyboard.append([KeyboardButton("🎁 Set Reward (1/2/3/5)"), KeyboardButton("📦 Set Free DL (2/3/4/5)")])
@@ -808,6 +814,162 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except:
             await update.message.reply_text("❌ Failed")
 
+
+async def file_to_link_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id != ADMIN_ID:
+        tokens = load_tokens()
+        profile = get_user_profile(user_id, tokens)
+        if profile.get("downloads_left", 0) <= 0:
+            kb = monetag_keyboard(user_id, "filelink", 0, 0)
+            if not kb:
+                kb = adsgram_keyboard(user_id, "filelink", 0, 0)
+            await update.message.reply_text("⚠️ File to Link Limit Reached! You used 4 FREE! Watch ad → +1 file-to-link!", reply_markup=kb)
+            return
+    sessions = get_file_sessions()
+    sessions[str(user_id)] = {"files": [], "started": time.time(), "message_id": None}
+    save_file_sessions(sessions)
+    states = get_file_link_states()
+    states[str(user_id)] = "WAITING_FOR_FILES"
+    save_file_link_states(states)
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Make my link", callback_data="make_file_link")],
+        [InlineKeyboardButton("❌ Cancel", callback_data="cancel_file_link")]
+    ])
+    msg = await update.message.reply_text("📁 File to Link - Send your files, one by one or all at once.\n\nFiles so far: 0\n\nSend photos, videos, documents, audios. Then tap ✅ Make my link", reply_markup=kb)
+    sessions[str(user_id)]["message_id"] = msg.message_id
+    save_file_sessions(sessions)
+
+async def handle_file_link_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    states = get_file_link_states()
+    if states.get(str(user_id)) != "WAITING_FOR_FILES":
+        return False
+    sessions = get_file_sessions()
+    session = sessions.get(str(user_id))
+    if not session:
+        return False
+    file_info = None
+    if update.message.photo:
+        file_info = {"type": "photo", "file_id": update.message.photo[-1].file_id}
+    elif update.message.document:
+        file_info = {"type": "document", "file_id": update.message.document.file_id}
+    elif update.message.video:
+        file_info = {"type": "video", "file_id": update.message.video.file_id}
+    elif update.message.audio:
+        file_info = {"type": "audio", "file_id": update.message.audio.file_id}
+    elif update.message.voice:
+        file_info = {"type": "voice", "file_id": update.message.voice.file_id}
+    elif update.message.video_note:
+        file_info = {"type": "video_note", "file_id": update.message.video_note.file_id}
+    elif update.message.animation:
+        file_info = {"type": "animation", "file_id": update.message.animation.file_id}
+    if not file_info:
+        return False
+    session["files"].append(file_info)
+    save_file_sessions(sessions)
+    try:
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Make my link", callback_data="make_file_link")],
+            [InlineKeyboardButton("❌ Cancel", callback_data="cancel_file_link")]
+        ])
+        await context.bot.edit_message_text(chat_id=user_id, message_id=session.get("message_id"), text=f"📁 File to Link - Send your files\n\nFiles so far: {len(session['files'])}\n\nKeep sending or tap ✅ Make my link", reply_markup=kb)
+    except:
+        pass
+    await update.message.reply_text(f"✅ Added! Files so far: {len(session['files'])}", quote=False)
+    return True
+
+async def my_links_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    links = get_file_links()
+    user_links = {k: v for k, v in links.items() if v.get("owner_id") == user_id}
+    if not user_links:
+        await update.message.reply_text("📋 You have no file links yet. Tap 📁 File to Link to create one!")
+        return
+    text = "📋 Your File Links:\n\n"
+    for token, data in list(user_links.items())[-10:]:
+        count = len(data.get("channel_message_ids", []))
+        expiry = data.get("settings", {}).get("expiry", "never")
+        text += f"🔗 {token} - {count} files - Expiry: {expiry}\nhttps://t.me/{(await context.bot.get_me()).username}?start={token}\n\n"
+    await update.message.reply_text(text)
+
+async def default_settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    settings = get_file_settings(user_id)
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"⏰ Expiry: {settings['expiry']}", callback_data="settings_expiry")],
+        [InlineKeyboardButton(f"🔐 Access: {settings['access']}", callback_data="settings_access")],
+        [InlineKeyboardButton(f"🗑️ Auto-delete: {settings['auto_delete']} mins" if settings['auto_delete'] else "🗑️ Auto-delete: Never", callback_data="settings_autodelete")],
+        [InlineKeyboardButton("✅ Save", callback_data="settings_save"), InlineKeyboardButton("❌ Close", callback_data="settings_close")]
+    ])
+    await update.message.reply_text(f"⚙️ Default settings for file links:\n\nExpiry: {settings['expiry']}\nAccess: {settings['access']}\nAuto-delete: {settings['auto_delete']} mins\n\nTap to change:", reply_markup=kb)
+
+async def help_command_filelink(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❓ File to Link Help:\n\n📁 File to Link: Send files → Get shareable link → Receiver must join channel then gets files\n📋 My Links: View your links\n⚙️ Default settings: Expiry (1h,1d,7d,30d,Never), Access (Anyone vs Channel Subscribers), Auto-delete (5 mins post-delivery)\n💰 Monetisation: Only creator needs free quota, receiver just joins channel, no ads!\n🔗 Flow: You → 📁 File to Link → Send files → ✅ Make my link → https://t.me/bot?start=TOKEN → Share → Receiver → Join channel → Gets files")
+
+async def handle_start_with_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    args = context.args
+    if not args:
+        return False
+    token = args[0].strip()
+    links = get_file_links()
+    link_data = links.get(token)
+    if not link_data:
+        await update.message.reply_text("❌ Invalid or expired link!")
+        return True
+    created = link_data.get("created", 0)
+    expiry = link_data.get("settings", {}).get("expiry", "never")
+    if expiry != "never":
+        mapping = {"1h":3600, "1 hour":3600, "1d":86400, "1 day":86400, "7d":604800, "7 days":604800, "30d":2592000, "30 days":2592000}
+        expiry_seconds = mapping.get(expiry, 0)
+        if expiry_seconds and time.time() - created > expiry_seconds:
+            await update.message.reply_text("❌ This link has expired!")
+            del links[token]
+            save_file_links(links)
+            return True
+    access = link_data.get("settings", {}).get("access", "anyone")
+    if access == "subscribers":
+        is_mem = await is_user_member(context.bot, user_id, PUBLIC_CHANNEL_USERNAME)
+        if not is_mem:
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("📢 Join Channel", url=PUBLIC_CHANNEL_URL)],
+                [InlineKeyboardButton("🔄 Check Subscription", callback_data=f"check_sub_{token}")]
+            ])
+            await update.message.reply_text("📢 Join Channel Required - You must join our channel to get this file!", reply_markup=kb)
+            return True
+    await deliver_file_link_files(update, context, token, link_data)
+    return True
+
+async def deliver_file_link_files(update_or_query, context, token, link_data):
+    try:
+        user_id = update_or_query.effective_user.id if hasattr(update_or_query, 'effective_user') else update_or_query.from_user.id
+    except:
+        user_id = update_or_query.from_user.id if hasattr(update_or_query, 'from_user') else 0
+    channel_message_ids = link_data.get("channel_message_ids", [])
+    if not channel_message_ids:
+        await context.bot.send_message(chat_id=user_id, text="❌ No files in this link!")
+        return
+    await context.bot.send_message(chat_id=user_id, text=f"📥 Delivering {len(channel_message_ids)} files...")
+    delivered = []
+    for mid in channel_message_ids:
+        try:
+            copied = await context.bot.copy_message(chat_id=user_id, from_chat_id=STORAGE_CHANNEL_ID, message_id=mid)
+            delivered.append(copied.message_id)
+            await asyncio.sleep(0.3)
+        except Exception as e:
+            logger.error(f"Deliver {mid} fail: {e}")
+            continue
+    auto_delete = link_data.get("settings", {}).get("auto_delete", 0)
+    if auto_delete and auto_delete > 0:
+        await context.bot.send_message(chat_id=user_id, text=f"⏰ These files will auto-delete in {auto_delete} mins")
+        asyncio.create_task(schedule_file_link_deletion(context.bot, user_id, delivered, auto_delete*60))
+    links = get_file_links()
+    if token in links:
+        links[token]["downloads"] = links[token].get("downloads",0)+1
+        save_file_links(links)
+
+
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text if update.message.text else ""
     user_id = update.message.from_user.id
@@ -837,12 +999,12 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if text.startswith("🎁 Set Reward") and user_id == ADMIN_ID:
         current = get_reward_amount()
         keyboard = [[InlineKeyboardButton(f"✅ {i} (Current)" if i==current else f"{i}", callback_data=f"set_reward_{i}") for i in [1,2,3,5]]]
-        await update.message.reply_text(f"🎁 REWARD PANEL (Clause 12 Fix)\n\nCurrent: +{current} download per 20s ad\n\nSelect new reward:\n• +1 = Most realistic (best for rewarded ads)\n• +2 = Balanced\n• +3 = Generous\n• +5 = Max\n\nStrict limit: User will get EXACTLY this many!", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await update.message.reply_text(f"🎁 REWARD PANEL (Clause 12 Fix)\n\nCurrent: +{current} download per 20s ad\n\nSelect new reward:\n• +1 = Most realistic (best for Adsgram)\n• +2 = Balanced\n• +3 = Generous\n• +5 = Max\n\nStrict limit: User will get EXACTLY this many!", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     if text == "⚙️ Ad Toggle Panel" and user_id == ADMIN_ID:
         config = load_json_file(CONFIG_FILE)
         mode = config.get("ad_mode", "auto").upper()
-        keyboard = [[InlineKeyboardButton("🔄 Auto", callback_data="set_ad_auto")],[InlineKeyboardButton("📺 Monetag", callback_data="set_ad_adsgram")],[InlineKeyboardButton("🌐 Adsterra", callback_data="set_ad_adsterra")]]
+        keyboard = [[InlineKeyboardButton("🔄 Auto", callback_data="set_ad_auto")],[InlineKeyboardButton("📺 Adsgram", callback_data="set_ad_adsgram")],[InlineKeyboardButton("🌐 Adsterra", callback_data="set_ad_adsterra")]]
         await update.message.reply_text(f"⚙️ Ad Panel\nCurrent: {mode}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     support_states = load_json_file(SUPPORT_STATES_FILE)
@@ -878,17 +1040,22 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await status_command(update, context)
         return
 
-    if text.strip() in ("🧪 Test Ad", "📢 Ad Info"):
-        if user_id != ADMIN_ID:
-            # old keyboards on users' phones still show these buttons: refresh the menu, show nothing else
-            await update.message.reply_text("✅ Menu updated.", reply_markup=get_main_keyboard(lang, False))
-            return
-        if text.strip() == "🧪 Test Ad":
-            await send_test_ad(update.message, user_id)
-            return
+    if "Test Ad" in text or text.strip() == "🧪 Test Ad":
+        await send_adsgram_test(update.message, user_id)
+        return
 
-    if text.strip() == "📢 Ad Info" and user_id == ADMIN_ID:
-        await update.message.reply_text(build_ad_info_text(user_id))
+    if "Ad Info" in text:
+        await update.message.reply_text(
+            "📢 AD INFO\n\n"
+            "Bot: @Michaelbbcvaultbot\n"
+            "Ad network: Adsgram (Rewarded, Telegram Mini App)\n\n"
+            "📍 Exact ad placement:\n"
+            "• Screen: LIMIT REACHED screen, after 4 free downloads per day\n"
+            "• Also shown in batch mode when the free limit runs out\n"
+            "• Button: 📺 Watch Ad (opens the Mini App with the ad)\n"
+            "• Reward: +1 download per completed ad\n"
+            "• Basic use stays free: 4 downloads per day without any ad\n\n"
+            "🧪 To test: tap 🧪 Test Ad or send /testad")
         return
     if text == "📢 Broadcast" and user_id == ADMIN_ID:
         await update.message.reply_text("📢 /broadcast [message] or reply with /broadcast", parse_mode="Markdown")
@@ -1082,7 +1249,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     now = time.time()
     total_users = len(tokens)
     active_24hr = sum(1 for d in activity.values() if now - d.get("last_active",0) < 86400)
-    mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
+    mode = config.get("ad_mode","auto").upper()
     adsgram_count = adsterra_count = 0
     for uid in tokens.keys():
         try:
@@ -1107,23 +1274,23 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     banned = load_json_file(BANNED_FILE)
     total_hits = sum(v.get("hits",0) for v in cache.values() if isinstance(v, dict))
     host_free = shutil.disk_usage(".").free // (1024*1024) if os.path.exists(".") else 0
-    txt = (f"📊 **ADVANCED ADMIN (via Button)**\n\n• Total: **{total_users}**\n• 24h Active: **{active_24hr}**\n• Ad Mode: **{mode}**\n\n📢 **Ad Split:**\n• Monetag: **{adsgram_count}**\n• Adsterra: **{adsterra_count}**\n\n🖥️ **Render 512MB Real:**\n• Used: **{used_mb}MB**\n• Free: **{free_mb}MB / 512MB**\n• Host: **{host_free}MB** (ignore)\n• Active: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\n• Queue: **{download_queue.qsize()}**\n• Cache: **{len(cache)}** files\n• Hits: **{total_hits}** saved\n• Flood: **{len(flood_data)}**\n• Banned: **{len(banned)}**\n\n🎞️ **Video Vault:** `{VIDEO_VAULT_ID}`\n🏆 **Top 10:**\n{top_text}\n\n✅ Clause 12 Fixed: +1 realistic\n✅ Clause 13 Fixed: /testad verifiable")
+    txt = (f"📊 **ADVANCED ADMIN (via Button)**\n\n• Total: **{total_users}**\n• 24h Active: **{active_24hr}**\n• Ad Mode: **{mode}**\n\n📢 **Ad Split:**\n• Adsgram: **{adsgram_count}**\n• Adsterra: **{adsterra_count}**\n\n🖥️ **Render 512MB Real:**\n• Used: **{used_mb}MB**\n• Free: **{free_mb}MB / 512MB**\n• Host: **{host_free}MB** (ignore)\n• Active: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\n• Queue: **{download_queue.qsize()}**\n• Cache: **{len(cache)}** files\n• Hits: **{total_hits}** saved\n• Flood: **{len(flood_data)}**\n• Banned: **{len(banned)}**\n\n🎞️ **Video Vault:** `{VIDEO_VAULT_ID}`\n🏆 **Top 10:**\n{top_text}\n\n✅ Clause 12 Fixed: +1 realistic\n✅ Clause 13 Fixed: /testad verifiable")
     await update.message.reply_text(txt, parse_mode="Markdown")
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     track_user_activity(update.message.from_user.id)
     config = load_json_file(CONFIG_FILE)
-    mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
+    mode = config.get("ad_mode","auto").upper()
     free_mb = get_free_disk_mb()
     cache = load_json_file(CACHE_FILE)
-    await update.message.reply_text(f"🟢 **Status V38 Monetag**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic (Clause 12 fix)\nTest: /testad (Clause 13 fix)\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
+    await update.message.reply_text(f"🟢 **Status V24 Optimum**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic (Clause 12 fix)\nTest: /testad (Clause 13 fix)\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
 
 async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID:
         return
     config = load_json_file(CONFIG_FILE)
-    mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
-    keyboard = [[InlineKeyboardButton("🔄 Auto", callback_data="set_ad_auto")],[InlineKeyboardButton("📺 Monetag", callback_data="set_ad_adsgram")],[InlineKeyboardButton("🌐 Adsterra", callback_data="set_ad_adsterra")]]
+    mode = config.get("ad_mode","auto").upper()
+    keyboard = [[InlineKeyboardButton("🔄 Auto", callback_data="set_ad_auto")],[InlineKeyboardButton("📺 Adsgram", callback_data="set_ad_adsgram")],[InlineKeyboardButton("🌐 Adsterra", callback_data="set_ad_adsterra")]]
     await update.message.reply_text(f"Ad Panel: {mode}\nReward: +1 optimum", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1340,9 +1507,9 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         config = load_json_file(CONFIG_FILE)
         config["ad_mode"] = mode
         save_json_file(CONFIG_FILE, config)
-        await query.answer(f"Updated to {mode.upper().replace('ADSGRAM', 'MONETAG')}", show_alert=True)
+        await query.answer(f"Updated to {mode.upper()}", show_alert=True)
         try:
-            await query.message.edit_text(f"✅ Mode: {mode.upper().replace('ADSGRAM','MONETAG')}", parse_mode="Markdown")
+            await query.message.edit_text(f"✅ Mode: {mode.upper()}", parse_mode="Markdown")
         except:
             pass
         return
@@ -1540,20 +1707,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             free_mb = get_free_disk_mb()
             await context.bot.send_message(chat_id=chat_id, text=f"⏳ **Server Busy**\nActive: {active_downloads}/{MAX_CONCURRENT_SHORT}\nFree: {free_mb}MB\nQueue: #{pos}\nWill start auto!", parse_mode="Markdown")
         return
-    if data == "admin_sim_ad" and user_id == ADMIN_ID:
-        # Admin-only: pretend the ad finished so you can test Check & Get +1 when the ad network has no ad to show
-        try:
-            r = requests.get(f"{WEB_BASE_URL}/adsgram-reward", params={"userid": user_id, "secret": API_SECRET}, timeout=8)
-            ok = r.status_code == 200
-        except Exception as e:
-            logger.error(f"simulate ad: {e}")
-            ok = False
-        await query.answer("🛠 Simulated! Now tap Check & Get +1" if ok else "❌ Server not reachable", show_alert=True)
-        return
     if data == "adsgram_check":
         st = adsgram_status(user_id)
         if st.get("status") == "pending":
-            await query.answer("📺 Tap Watch Ad and finish the ad in the Mini App (or use the 20s sponsor link inside it), then come back.", show_alert=True)
+            await query.answer("📺 Tap Watch Ad first and finish the ad in the Mini App, then come back.", show_alert=True)
             return
         if st.get("status") != "done":
             await query.answer("This ad link expired. Send your link again to get a new one.", show_alert=True)
@@ -1566,7 +1723,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if st.get("kind") == "test":
             await query.answer(f"✅ Ad verified! +{reward} added", show_alert=True)
             await context.bot.send_message(chat_id=chat_id, text=(
-                f"✅ TEST AD VERIFIED\n\nThe ad was completed and the reward was credited: "
+                f"✅ TEST AD VERIFIED\n\nThe Adsgram ad played in the Mini App and the reward was credited: "
                 f"+{reward} download. Your balance now shows {st.get('downloads_left', reward)}."))
             return
         await query.answer(f"✅ Sponsor viewed! +{reward} added", show_alert=True)
@@ -1661,10 +1818,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         tokens = load_tokens()
         user_str = str(user_id)
         if user_str not in tokens:
-            if user_id != ADMIN_ID:
-                await query.answer("⏰ Open the link and watch the 20s timer first!", show_alert=True)
-                return
-            # Create new token with +1 for test ad demo (admin only)
+            # Create new token with +1 for test ad demo (not 4!)
             reward = get_reward_amount()
             tokens[user_str] = {
                 "user_id": int(user_id),
@@ -1685,13 +1839,14 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 "• Ad placement found & verified! ✅\n"
                 "• Reward: +1 download refilled (realistic optimum - Clause 12 fix)!\n"
                 "• Real flow: Watch 20s ad → Click Check → Get +1 file\n\n"
-                "📍 **For Reviewer:** This proves ad placement exists and is verifiable via /testad button!\n"
+                "📍 **For Adsgram Reviewer:** This proves ad placement exists and is verifiable via /testad button!\n"
                 "🎁 Reward is realistic +1, not excessively high! Stats now shows 1!",
                 parse_mode="Markdown"
             )
             return
         token_data = tokens[user_str]
-        if not token_data.get("verified", False):
+        is_test_ad = token_data.get("msg_start", 0) == 0 and token_data.get("msg_end", 0) == 0
+        if not is_test_ad and not token_data.get("verified",False):
             await query.answer("⏰ Finish 20s timer first! Watch ad via Open Link button!", show_alert=True)
             return
         msg_start, msg_end = token_data.get("msg_start",0), token_data.get("msg_end",0)
@@ -1736,13 +1891,13 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 TEST_AD_TEXT = (
-    "🧪 AD PLACEMENT TEST (Monetag Rewarded - Mini App)\n\n"
+    "🧪 AD PLACEMENT TEST (Adsgram Rewarded - Mini App)\n\n"
     "📍 WHERE THE AD IS PLACED:\n"
     "1️⃣ User sends any media link (TikTok, FB, Insta, X, YouTube)\n"
     "2️⃣ User gets 4 FREE downloads per day\n"
     "3️⃣ On the next download the LIMIT REACHED screen appears\n"
     "4️⃣ That screen has the 📺 Watch Ad button (this exact message)\n"
-    "5️⃣ Button opens the Monetag ad inside a Telegram Mini App\n"
+    "5️⃣ Button opens the Adsgram ad inside a Telegram Mini App\n"
     "6️⃣ After the ad ends the Mini App closes -> tap Check & Get +1\n\n"
     "🎁 Reward: +1 download per completed ad\n"
     "📍 Same screen also appears in batch mode\n\n"
@@ -1750,108 +1905,27 @@ TEST_AD_TEXT = (
 )
 
 async def send_adsgram_test(message, user_id):
-    extra = [[InlineKeyboardButton("🛠 Admin: simulate ad finished", callback_data="admin_sim_ad")]] if user_id == ADMIN_ID else None
-    kb = adsgram_keyboard(user_id, "test", 0, 0, extra)
+    kb = adsgram_keyboard(user_id, "test", 0, 0)
     if not kb:
         await message.reply_text("⚠️ Ad server not reachable right now. Try again in a minute.")
         return
     await message.reply_text(TEST_AD_TEXT, reply_markup=kb)
 
-ADSTERRA_TEST_TEXT = (
-    "🧪 AD PLACEMENT TEST (Adsterra Direct Link, 20s timer)\n\n"
-    "📍 WHERE THE AD IS PLACED:\n"
-    "1️⃣ User sends any media link (TikTok, FB, Insta, X, YouTube)\n"
-    "2️⃣ User gets 4 FREE downloads per day\n"
-    "3️⃣ On the next download the LIMIT REACHED screen appears\n"
-    "4️⃣ That screen has the Open Link & Watch Timer button (this exact message)\n"
-    "5️⃣ Stay 20 seconds on the ad page, then come back\n"
-    "6️⃣ Tap Check & Get Files -> +1 download\n\n"
-    "🎁 Reward: +1 download per completed ad\n\n"
-    "👇 TRY THE AD NOW:"
-)
-
-async def send_adsterra_test(message, user_id):
-    tokens = load_tokens()
-    uid = str(user_id)
-    now = time.time()
-    if uid in tokens and isinstance(tokens[uid], dict):
-        tokens[uid].update({"msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": now + 600})
-    else:
-        free = get_free_amount()
-        tokens[uid] = {"user_id": int(user_id), "downloads_left": free, "batch_downloads_left": free * 5,
-                       "last_reset": now, "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": now + 600}
-    save_tokens(tokens)
-    bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
-    keyboard = [
-        [InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)],
-        [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
-        [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")],
-    ]
-    await message.reply_text(ADSTERRA_TEST_TEXT, reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def send_test_ad(message, user_id):
-    """Test Ad follows the Ad Toggle Panel: Monetag, Adsterra, or the Auto split for this user."""
-    if get_global_ab_network(user_id) == "adsgram":
-        await send_adsgram_test(message, user_id)      # Monetag Mini App test
-    else:
-        await send_adsterra_test(message, user_id)
-
-def build_ad_info_text(user_id):
-    mode = load_json_file(CONFIG_FILE).get("ad_mode", "auto")
-    monetag = (
-        "• Monetag: LIMIT REACHED screen (after 4 free downloads per day, also in batch mode)\n"
-        "  Button: 📺 Watch Ad opens a Telegram Mini App with a rewarded ad\n"
-        "  After the ad the Mini App closes; user taps Check & Get +1\n")
-    adsterra = (
-        "• Adsterra: LIMIT REACHED screen (after 4 free downloads per day, also in batch mode)\n"
-        "  Button: Open Link & Watch Timer (20s direct link)\n"
-        "  After 20s the user taps Check & Get Files\n")
-    if mode == "adsgram":
-        head, body = "Mode: MONETAG only", monetag
-    elif mode == "adsterra":
-        head, body = "Mode: ADSTERRA only", adsterra
-    else:
-        net = "Monetag" if get_global_ab_network(user_id) == "adsgram" else "Adsterra"
-        head, body = f"Mode: AUTO (split by user and day; you currently get {net})", monetag + adsterra
-    return ("📢 AD INFO\n\n"
-            "Bot: @Michaelbbcvaultbot\n" + head + "\n\n"
-            "📍 Exact ad placement:\n" + body + "\n"
-            "• Reward: +1 download per completed ad\n"
-            "• Basic use stays free: 4 downloads per day without any ad\n\n"
-            "🧪 To test: tap 🧪 Test Ad or send /testad (it follows the current mode)")
-
 async def test_ad_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return
-    await send_test_ad(update.message, update.effective_user.id)
-
-async def tokencheck_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin only: compares the bot token on Render with the one on PythonAnywhere WITHOUT showing either token."""
-    if update.effective_user.id != ADMIN_ID:
-        return
-    mine = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()[:8] if BOT_TOKEN else "none"
-    try:
-        s = requests.get(f"{WEB_BASE_URL}/adsgram-selfcheck", timeout=15).json()
-    except Exception as e:
-        await update.message.reply_text(f"❌ Could not reach the PythonAnywhere server: {type(e).__name__}")
-        return
-    same = (s.get("fingerprint") == mine)
-    lines = [
-        "🔐 TOKEN CHECK (no tokens shown)",
-        f"Render bot: fingerprint {mine}, length {len(BOT_TOKEN)}",
-        f"PythonAnywhere: fingerprint {s.get('fingerprint')}, length {s.get('token_len')}",
-        f"PythonAnywhere token works with Telegram: {s.get('telegram_ok')}" + (f" (@{s.get('bot_username')})" if s.get("bot_username") else ""),
-    ]
-    if s.get("telegram_error"):
-        lines.append(f"Telegram error: {s['telegram_error']}")
-    lines.append("")
-    lines.append("✅ MATCH - both use the same token" if same else "❌ DIFFERENT - fix TELEGRAM_TOKEN in the PythonAnywhere WSGI file (copy it again from the Render value), then Reload")
-    await update.message.reply_text("\n".join(lines))
+    await send_adsgram_test(update.message, update.effective_user.id)
 
 async def ad_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return
-    await update.message.reply_text(build_ad_info_text(update.effective_user.id))
+    await update.message.reply_text(
+        "📢 AD INFO\n\n"
+            "Bot: @Michaelbbcvaultbot\n"
+            "Ad network: Adsgram (Rewarded, Telegram Mini App)\n\n"
+            "📍 Exact ad placement:\n"
+            "• Screen: LIMIT REACHED screen, after 4 free downloads per day\n"
+            "• Also shown in batch mode when the free limit runs out\n"
+            "• Button: 📺 Watch Ad (opens the Mini App with the ad)\n"
+            "• Reward: +1 download per completed ad\n"
+            "• Basic use stays free: 4 downloads per day without any ad\n\n"
+            "🧪 To test: tap 🧪 Test Ad or send /testad")
 
 def run_telegram_bot():
     loop = asyncio.new_event_loop()
@@ -1865,12 +1939,16 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("status", status_command))
         app.add_handler(CommandHandler("testad", test_ad_command))
         app.add_handler(CommandHandler("adinfo", ad_info_command))
-        app.add_handler(CommandHandler("tokencheck", tokencheck_command))
         app.add_handler(CommandHandler("toggleads", toggle_ads_command))
         app.add_handler(CommandHandler("broadcast", broadcast_command))
         app.add_handler(CommandHandler("ban", ban_command))
         app.add_handler(CommandHandler("unban", unban_command))
         app.add_handler(CommandHandler("backup", backup_command))
+        app.add_handler(MessageHandler(filters.Regex("^(📁 File to Link)$"), file_to_link_entry))
+        app.add_handler(MessageHandler(filters.Regex("^(📋 My Links)$"), my_links_command))
+        app.add_handler(MessageHandler(filters.Regex("^(⚙️ Default settings)$"), default_settings_command))
+        app.add_handler(MessageHandler(filters.Regex("^(❓ Help)$"), help_command_filelink))
+        app.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO | filters.Document.ALL | filters.AUDIO | filters.VOICE | filters.ANIMATION, handle_file_link_files))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
         app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.ATTACHMENT, handle_user_upload))
