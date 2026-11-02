@@ -443,9 +443,11 @@ def download_media_engine(url: str, download_type: str):
 def get_main_keyboard(lang_code, is_admin):
     t = LANGUAGES.get(lang_code, LANGUAGES["en"])
     keyboard = [
+        [KeyboardButton("📁 File to Link"), KeyboardButton("📋 My Links")],
         [KeyboardButton(t["menu_stats"]), KeyboardButton(t["menu_lang"])],
         [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])],
         [KeyboardButton(t["menu_upload"])],
+        [KeyboardButton("⚙️ Default settings"), KeyboardButton("❓ Help")],
         [KeyboardButton("🟢 Bot Status")],
         [KeyboardButton("🧪 Test Ad"), KeyboardButton("📢 Ad Info")]
     ]
