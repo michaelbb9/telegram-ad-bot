@@ -38,6 +38,26 @@ PUBLIC_CHANNEL_URL = "https://t.me/booksaufio"
 PUBLIC_CHANNEL_USERNAME = "@booksaufio"
 HELP_CHANNEL_URL = "https://t.me/faqandaupport"
 
+MONETAG_ZONE_ID = "12168607"  # Your Monetag Zone - Vaultadsnet t.me/Michaelbbcvaultbot/Vaultadsnet
+ADSGRAM_BLOCK_ID = ""  # Kept for backup
+
+def monetag_keyboard(user_id, kind="wall", msg_start=0, msg_end=0, extra_rows=None):
+    """Monetag Rewarded Ad keyboard - Zone 12168607"""
+    try:
+        nonce = adsgram_start(user_id, kind, msg_start, msg_end) if 'adsgram_start' in globals() else f"{user_id}_{kind}_{msg_start}_{msg_end}_{int(time.time())}"
+        url = f"{WEB_BASE_URL}/adsgram?n={nonce}&k={kind}&zone={MONETAG_ZONE_ID}"
+        rows = [
+            [InlineKeyboardButton(f"📺 Watch Ad +1 (Monetag {MONETAG_ZONE_ID})", web_app=WebAppInfo(url=url))],
+            [InlineKeyboardButton("📢 Join Public Channel", url=PUBLIC_CHANNEL_URL)],
+            [InlineKeyboardButton("✅ Check Balance", callback_data="check_balance")],
+        ]
+        if extra_rows:
+            rows.extend(extra_rows)
+        return InlineKeyboardMarkup(rows)
+    except Exception as e:
+        logger.error(f"monetag_keyboard fail: {e}")
+        return None
+
 ADSGRAM_BLOCK_ID = os.getenv("ADSGRAM_BLOCK_ID", "")   # Mini App REWARDED block id (the SDK one). Set in the Flask server too.
 API_SECRET = os.getenv("API_SECRET", "change-me")        # must be the same value on PythonAnywhere
 API_HEADERS = {"X-Api-Secret": API_SECRET}
@@ -825,7 +845,7 @@ async def file_to_link_entry(update: Update, context: ContextTypes.DEFAULT_TYPE)
             kb = monetag_keyboard(user_id, "filelink", 0, 0)
             if not kb:
                 kb = adsgram_keyboard(user_id, "filelink", 0, 0)
-            await update.message.reply_text("File to Link Limit Reached! Watch ad +1 file-to-link!", reply_markup=kb)
+            await update.message.reply_text("File to Link Limit Reached! Watch ad +1 (Monetag 12168607)!", reply_markup=kb)
             return
     sessions = get_file_sessions()
     sessions[str(user_id)] = {"files": [], "started": time.time(), "message_id": None}
@@ -839,32 +859,7 @@ async def file_to_link_entry(update: Update, context: ContextTypes.DEFAULT_TYPE)
         [InlineKeyboardButton("Make my link", callback_data="make_file_link")],
         [InlineKeyboardButton("Cancel", callback_data="cancel_file_link")]
     ])
-    msg = await update.message.reply_text("File to Link - Send your files one by one or all at once. Files so far: 0. Send photos, videos, docs, audios. Then tap Make my link. Secondary buttons below.", reply_markup=kb)
-    sessions[str(user_id)]["message_id"] = msg.message_id
-    save_file_sessions(sessions)
-
-
-    states = get_file_link_states()
-    states[str(user_id)] = "WAITING_FOR_FILES"
-    save_file_link_states(states)
-    # Secondary inline buttons after clicking File to Link
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📋 My Links", callback_data="my_links"), InlineKeyboardButton("⚙️ Default settings", callback_data="open_settings")],
-        [InlineKeyboardButton("❓ Help", callback_data="filelink_help")],
-        [InlineKeyboardButton("✅ Make my link", callback_data="make_file_link")],
-        [InlineKeyboardButton("❌ Cancel", callback_data="cancel_file_link")]
-    ])
-    msg = await update.message.reply_text("📁 File to Link - Send your files, one by one or all at once. Files so far: 0 - Send photos, videos, documents, audios. Then tap Make my link - Secondary: My Links, Default settings, Help below", reply_markup=kb)
-    sessions[str(user_id)]["message_id"] = msg.message_id
-    save_file_sessions(sessions)
-    states = get_file_link_states()
-    states[str(user_id)] = "WAITING_FOR_FILES"
-    save_file_link_states(states)
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ Make my link", callback_data="make_file_link")],
-        [InlineKeyboardButton("❌ Cancel", callback_data="cancel_file_link")]
-    ])
-    msg = await update.message.reply_text("📁 File to Link - Send your files, one by one or all at once.\n\nFiles so far: 0 - Send photos, videos, documents, audios. Then tap ✅ Make my link", reply_markup=kb)
+    msg = await update.message.reply_text("File to Link - Send your files one by one or all at once. Files so far: 0. Send photos, videos, docs, audios. Then tap Make my link.", reply_markup=kb)
     sessions[str(user_id)]["message_id"] = msg.message_id
     save_file_sessions(sessions)
 
@@ -999,7 +994,7 @@ async def deliver_file_link_files(update_or_query, context, token, link_data):
 
 
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    text = update.message.text or "" if update.message else ""
+    text = update.message.text if update.message and update.message.text else ""
     # File to Link - Handle button click (must be first!)
     if "File to Link" in text:
         await file_to_link_entry(update, context)
@@ -1010,14 +1005,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if "Default settings" in text:
         await default_settings_command(update, context)
         return
-    # Help for File to Link handled via inline buttons, not reply keyboardle as filelink help if user is in filelink mode
-        states = get_file_link_states()
-        if states.get(str(update.effective_user.id)) == "WAITING_FOR_FILES":
-            await help_command_filelink(update, context)
-            return
-    text = update.message.text or ""  # Re-get text after filelink check
-    if False:
-        pass
     text = update.message.text if update.message.text else ""
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
