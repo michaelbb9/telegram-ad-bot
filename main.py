@@ -263,12 +263,12 @@ def get_lang(user_id):
 def get_global_ab_network(user_id):
     config = load_json_file(CONFIG_FILE)
     mode = config.get("ad_mode", "auto")
-    if mode == "adsgram":
-        return "adsgram"
+    if mode in ("monetag", "adsgram"):
+        return "monetag"
     elif mode == "adsterra":
         return "adsterra"
     day_epoch = int(time.time() // 86400)
-    return "adsgram" if (int(user_id) + day_epoch) % 2 == 0 else "adsterra"
+    return "monetag" if (int(user_id) + day_epoch) % 2 == 0 else "adsterra"
 
 def load_tokens():
     try:
@@ -290,7 +290,7 @@ def save_tokens(tokens):
 def adsgram_start(user_id, kind="wall", msg_start=0, msg_end=0):
     """Ask the Flask server for a one-time nonce for this user's ad. Returns nonce or None."""
     try:
-        r = requests.post(f"{WEB_BASE_URL}/adsgram-start",
+        r = requests.post(f"{WEB_BASE_URL}/monetag-start",
                           json={"user_id": int(user_id), "kind": kind, "msg_start": int(msg_start),
                                 "msg_end": int(msg_end), "secret": API_SECRET}, timeout=8)
         if r.status_code == 200:
@@ -302,7 +302,7 @@ def adsgram_start(user_id, kind="wall", msg_start=0, msg_end=0):
 
 def adsgram_status(user_id):
     try:
-        r = requests.post(f"{WEB_BASE_URL}/adsgram-status", json={"user_id": int(user_id), "secret": API_SECRET}, timeout=8)
+        r = requests.post(f"{WEB_BASE_URL}/monetag-status", json={"user_id": int(user_id), "secret": API_SECRET}, timeout=8)
         if r.status_code == 200:
             return r.json()
     except Exception as e:
@@ -314,11 +314,12 @@ def adsgram_keyboard(user_id, kind="wall", msg_start=0, msg_end=0, extra_rows=No
     nonce = adsgram_start(user_id, kind, msg_start, msg_end)
     if not nonce:
         return None
-    url = f"{WEB_BASE_URL}/adsgram?n={nonce}&k={kind}"
+    url = f"{WEB_BASE_URL}/monetag?n={nonce}&k={kind}"
     rows = [
-        [InlineKeyboardButton("📺 Watch Ad (opens Mini App) +1", web_app=WebAppInfo(url=url))],
+        [InlineKeyboardButton("📺 Watch Monetag Ad +1", web_app=WebAppInfo(url=url))],
         [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
-        [InlineKeyboardButton("✅ Check & Get +1", callback_data="adsgram_check")],
+        [InlineKeyboardButton("✅ Check & Get +1", callback_data="monetag_check")],
+        [InlineKeyboardButton("↪️ Use Adsterra fallback (after 2 failures)", callback_data="monetag_fallback")],
     ]
     if extra_rows:
         rows.extend(extra_rows)
@@ -720,7 +721,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     assigned_network = get_global_ab_network(user_id)
     tokens = load_tokens()
-    if assigned_network == "adsgram":
+    if assigned_network == "monetag":
         extra = [[InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")]] if user_id == ADMIN_ID else None
         kb = adsgram_keyboard(user_id, "wall", msg_start, msg_end, extra)
         if kb:
@@ -788,7 +789,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
         d_left = tokens.get(str(user_id), {}).get("downloads_left", 4)
         if res_data.get("status") != "allowed" and d_left <= 0 and user_id != ADMIN_ID:
             assigned_network = get_global_ab_network(user_id)
-            if assigned_network == "adsgram":
+            if assigned_network == "monetag":
                 paused_batches[user_id] = {"urls": urls, "next_index": index-1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
                 kb = adsgram_keyboard(user_id, "wall", 0, 0)
                 await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=kb, parse_mode="Markdown")
@@ -992,7 +993,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if text == "⚙️ Ad Toggle Panel" and user_id == ADMIN_ID:
         config = load_json_file(CONFIG_FILE)
         mode = config.get("ad_mode", "auto").upper()
-        keyboard = [[InlineKeyboardButton("🔄 Auto", callback_data="set_ad_auto")],[InlineKeyboardButton("📺 Monetag", callback_data="set_ad_adsgram")],[InlineKeyboardButton("🌐 Adsterra", callback_data="set_ad_adsterra")]]
+        keyboard = [[InlineKeyboardButton("🔄 Auto", callback_data="set_ad_auto")],[InlineKeyboardButton("📺 Monetag", callback_data="set_ad_monetag")],[InlineKeyboardButton("🌐 Adsterra", callback_data="set_ad_adsterra")]]
         await update.message.reply_text(f"⚙️ Ad Panel\nCurrent: {mode}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     support_states = load_json_file(SUPPORT_STATES_FILE)
@@ -1128,7 +1129,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 msg_start = user_profile.get("msg_start", 0)
                 msg_end = user_profile.get("msg_end", 0)
             assigned_network = get_global_ab_network(user_id)
-            if assigned_network == "adsgram":
+            if assigned_network == "monetag":
                 kb = adsgram_keyboard(user_id, "wall", msg_start, msg_end)
                 if kb:
                     await update.message.reply_text(t["limit_reached"], reply_markup=kb, parse_mode="Markdown")
@@ -1240,7 +1241,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         try:
             uid_int = int(str(uid).strip())
             net = get_global_ab_network(uid_int)
-            if net == "adsgram":
+            if net == "monetag":
                 adsgram_count+=1
             else:
                 adsterra_count+=1
@@ -1275,7 +1276,7 @@ async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
     config = load_json_file(CONFIG_FILE)
     mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
-    keyboard = [[InlineKeyboardButton("🔄 Auto", callback_data="set_ad_auto")],[InlineKeyboardButton("📺 Monetag", callback_data="set_ad_adsgram")],[InlineKeyboardButton("🌐 Adsterra", callback_data="set_ad_adsterra")]]
+    keyboard = [[InlineKeyboardButton("🔄 Auto", callback_data="set_ad_auto")],[InlineKeyboardButton("📺 Monetag", callback_data="set_ad_monetag")],[InlineKeyboardButton("🌐 Adsterra", callback_data="set_ad_adsterra")]]
     await update.message.reply_text(f"Ad Panel: {mode}\nReward: +1 optimum", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1528,7 +1529,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     # Use the same existing ad-reward route as ordinary downloads.
                     await query.answer("Daily free limit reached. Watch an ad to earn more downloads.", show_alert=True)
                     assigned_network = get_global_ab_network(user_id)
-                    if assigned_network == "adsgram":
+                    if assigned_network == "monetag":
                         kb = adsgram_keyboard(user_id, "wall", 0, 0)
                         if kb:
                             await query.message.reply_text(t["limit_reached"], reply_markup=kb, parse_mode="Markdown")
@@ -1599,6 +1600,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     if data.startswith("set_ad_") and user_id == ADMIN_ID:
         mode = data.replace("set_ad_", "")
+        if mode == "adsgram": mode = "monetag"
         config = load_json_file(CONFIG_FILE)
         config["ad_mode"] = mode
         save_json_file(CONFIG_FILE, config)
@@ -1805,17 +1807,35 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if data == "admin_sim_ad" and user_id == ADMIN_ID:
         # Admin-only: pretend the ad finished so you can test Check & Get +1 when the ad network has no ad to show
         try:
-            r = requests.get(f"{WEB_BASE_URL}/adsgram-reward", params={"userid": user_id, "secret": API_SECRET}, timeout=8)
+            r = requests.get(f"{WEB_BASE_URL}/monetag-reward", params={"userid": user_id, "secret": API_SECRET}, timeout=8)
             ok = r.status_code == 200
         except Exception as e:
             logger.error(f"simulate ad: {e}")
             ok = False
         await query.answer("🛠 Simulated! Now tap Check & Get +1" if ok else "❌ Server not reachable", show_alert=True)
         return
-    if data == "adsgram_check":
+    if data == "monetag_fallback":
+        st = adsgram_status(user_id)
+        if st.get("status") != "fallback_available":
+            await query.answer("Complete two failed Monetag attempts first.", show_alert=True)
+            return
+        bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
+        tokens = load_tokens()
+        tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0,
+                                "clicked_ad": False, "verified": False, "expires": time.time() + 600}
+        save_tokens(tokens)
+        await query.message.reply_text("🌐 Monetag failed twice. Continue with Adsterra:",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔓 Open Adsterra Link", url=bridge_link)],
+                                               [InlineKeyboardButton("✅ Check & Get +1", callback_data="verify_user")]]))
+        await query.answer("Adsterra fallback ready", show_alert=True)
+        return
+    if data in ("monetag_check", "adsgram_check"):
         st = adsgram_status(user_id)
         if st.get("status") == "pending":
-            await query.answer("📺 Tap Watch Ad and finish the ad in the Mini App (or use the 20s sponsor link inside it), then come back.", show_alert=True)
+            await query.answer("📺 Finish the Monetag ad in the Mini App, then come back and check again.", show_alert=True)
+            return
+        if st.get("status") == "fallback_available":
+            await query.answer("Monetag failed twice. Use the Adsterra fallback button below.", show_alert=True)
             return
         if st.get("status") != "done":
             await query.answer("This ad link expired. Send your link again to get a new one.", show_alert=True)
@@ -2054,7 +2074,7 @@ async def send_adsterra_test(message, user_id):
 
 async def send_test_ad(message, user_id):
     """Test Ad follows the Ad Toggle Panel: Monetag, Adsterra, or the Auto split for this user."""
-    if get_global_ab_network(user_id) == "adsgram":
+    if get_global_ab_network(user_id) == "monetag":
         await send_adsgram_test(message, user_id)      # Monetag Mini App test
     else:
         await send_adsterra_test(message, user_id)
@@ -2069,12 +2089,12 @@ def build_ad_info_text(user_id):
         "• Adsterra: LIMIT REACHED screen (after 4 free downloads per day, also in batch mode)\n"
         "  Button: Open Link & Watch Timer (20s direct link)\n"
         "  After 20s the user taps Check & Get Files\n")
-    if mode == "adsgram":
+    if mode in ("monetag", "adsgram"):
         head, body = "Mode: MONETAG only", monetag
     elif mode == "adsterra":
         head, body = "Mode: ADSTERRA only", adsterra
     else:
-        net = "Monetag" if get_global_ab_network(user_id) == "adsgram" else "Adsterra"
+        net = "Monetag" if get_global_ab_network(user_id) == "monetag" else "Adsterra"
         head, body = f"Mode: AUTO (split by user and day; you currently get {net})", monetag + adsterra
     return ("📢 AD INFO\n\n"
             "Bot: @Michaelbbcvaultbot\n" + head + "\n\n"
@@ -2094,7 +2114,7 @@ async def tokencheck_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
     mine = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()[:8] if BOT_TOKEN else "none"
     try:
-        s = requests.get(f"{WEB_BASE_URL}/adsgram-selfcheck", timeout=15).json()
+        s = requests.get(f"{WEB_BASE_URL}/monetag-selfcheck", timeout=15).json()
     except Exception as e:
         await update.message.reply_text(f"❌ Could not reach the PythonAnywhere server: {type(e).__name__}")
         return
