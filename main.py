@@ -424,11 +424,28 @@ def download_media_engine(url: str, download_type: str):
         cookiefile = "tiktok_cookies.txt"
     elif os.path.exists("cookies.txt"):
         cookiefile = "cookies.txt"
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL}
+        
+    ydl_opts = {
+        'quiet': True, 
+        'no_warnings': True, 
+        'http_headers': http_headers, 
+        'proxy': PROXY_URL,
+        'noplaylist': True
+    }
     if cookiefile:
         ydl_opts['cookiefile'] = cookiefile
+
     if download_type == 'audio':
-        ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path})
+        ydl_opts.update({
+            'format': 'bestaudio/best', 
+            'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio', 
+                'preferredcodec': 'mp3', 
+                'preferredquality': '192'
+            }], 
+            'ffmpeg_location': ffmpeg_path
+        })
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             base = os.path.splitext(ydl.prepare_filename(info))[0]
@@ -436,6 +453,7 @@ def download_media_engine(url: str, download_type: str):
             if os.path.exists(path):
                 return [path], "MP3", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("FILE_NOT_FOUND")
+
     elif download_type == 'images':
         img_url = scrape_html_images(url, cookiefile)
         if img_url:
@@ -446,21 +464,35 @@ def download_media_engine(url: str, download_type: str):
             if os.path.getsize(path) > 1000:
                 return [path], "Image", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("NO_IMAGES")
+
     else:
-        for fmt in ["best", "bestvideo+bestaudio/best"]:
+        # Heavily optimized format fallback chain to prevent large file failures
+        video_formats = [
+            "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
+            "bestvideo[height<=480]+bestaudio/best[height<=480]/best",
+            "worst[ext=mp4]/worst"
+        ]
+        
+        for fmt in video_formats:
             try:
-                ydl_opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path})
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                current_opts = ydl_opts.copy()
+                current_opts.update({
+                    'format': fmt, 
+                    'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 
+                    'merge_output_format': 'mp4', 
+                    'ffmpeg_location': ffmpeg_path
+                })
+                with yt_dlp.YoutubeDL(current_opts) as ydl:
                     info = ydl.extract_info(url, download=True)
                     path = ydl.prepare_filename(info)
-                    if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0]+".mp4"):
-                        path = os.path.splitext(path)[0]+".mp4"
+                    if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0] + ".mp4"):
+                        path = os.path.splitext(path)[0] + ".mp4"
                     if os.path.exists(path):
                         file_size_mb = os.path.getsize(path) / (1024 * 1024)
                         if file_size_mb > 450:
                             os.remove(path)
                             continue
-                        return [path], f"{info.get('height', 'HD')}p", f"{file_size_mb:.1f}MB"
+                        return [path], f"{info.get('height', 'SD/HD')}p", f"{file_size_mb:.1f}MB"
             except Exception as e:
                 if "Unsupported URL" in str(e) or "403" in str(e):
                     raise e
@@ -1980,7 +2012,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 "This is what user sees after watching 20s ad:\n"
                 "• Ad placement found & verified! ✅\n"
                 "• Reward: +1 download refilled (realistic optimum - Clause 12 fix)!\n"
-                "• Real flow: Watch 20s ad → Click Check → Get +1 file\n\n"
+                "• Real flow: Watch 20s ad → Check → Get +1 file\n\n"
                 "📍 **For Reviewer:** This proves ad placement exists and is verifiable via /testad button!\n"
                 "🎁 Reward is realistic +1, not excessively high! Stats now shows 1!",
                 parse_mode="Markdown"
