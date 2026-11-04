@@ -9,7 +9,6 @@ import re
 import shutil
 import hashlib
 import uuid
-import types
 import imageio_ffmpeg
 import yt_dlp
 from bs4 import BeautifulSoup
@@ -84,7 +83,7 @@ LANGUAGES = {
         "ask_format": "👇 **AWESOME! What format you want? Pick below! 🎯 Video=watch, Audio=music!**",
         "fetching": "📥 **Fetching your {}... Hang tight! ⏳✨ Working magic! 🚀**",
         "error_generic": "❌ Oops! Failed! 😢 Link private/blocked. Try public link! 🔓💡",
-        "error_50mb": "❌ Too Big! 😅 This video is over 300MB even at low quality. Try a shorter one! ✂️", "error_no_img": "❌ No images found! 😢 Try another link! 🖼️",
+        "error_50mb": "❌ Too Big! 😅 >50MB limit. Try <20MB short video! ✂️", "error_no_img": "❌ No images found! 😢 Try another link! 🖼️",
         "images_received": "⏳ **{} Images received.**",
         "select_lang": "🌍 Select your language! 🌍✨ Choose below! 👇", "lang_set": "✅ Language set! Enjoy magic! 🎉✨",
         "batch_detected": "📦 **Batch Detected ({} links)**\nWhat format?",
@@ -99,7 +98,7 @@ LANGUAGES = {
         "batch_done": "🏁 **Done!** ✅ {} ❌ {}\n📥 {} files here.",
         "batch_done_chan": "🏁 **Done!** ✅ {} ❌ {}\n📢 {} files forwarded!",
         "dl_video": "📥 Downloading video...", "dl_audio": "📥 Extracting audio...", "dl_image": "📥 Scraping images...", "dl_sub": "📥 Fetching subtitles...",
-        "failed_50": "❌ >300MB", "failed_blocked": "❌ Blocked/private", "failed_generic": "❌ Failed",
+        "failed_50": "❌ >50MB", "failed_blocked": "❌ Blocked/private", "failed_generic": "❌ Failed",
         "menu_lang": "🌍 Language", "menu_stats": "📊 My Stats", "menu_help": "💬 Support / FAQ", "menu_join": "📢 Join Channel",
         "menu_uploads": "🍿 Fan Uploads", "menu_upload": "📤 Upload File",
         "admin_upload_prompt": "📂 **Fan Uploads Inbox**",
@@ -413,10 +412,7 @@ def scrape_html_images(url, cookiefile=None):
         logger.error(f"Scrape: {e}")
     return None
 
-def download_media_engine(url: str, download_type: str, max_mb=None):
-    """Downloads one item. Files up to max_mb are accepted (anything over 49MB is uploaded through MTProto later)."""
-    cap_mb = int(max_mb or MTPROTO_MAX_MB)
-    cap_bytes = cap_mb * 1024 * 1024
+def download_media_engine(url: str, download_type: str):
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     http_headers = {'User-Agent': 'Mozilla/5.0'}
@@ -429,15 +425,12 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
     if cookiefile:
         ydl_opts['cookiefile'] = cookiefile
     if download_type == 'audio':
-        ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
+        ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path})
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             base = os.path.splitext(ydl.prepare_filename(info))[0]
             path = f"{base}.mp3"
             if os.path.exists(path):
-                if os.path.getsize(path) > cap_bytes:
-                    os.remove(path)
-                    raise ValueError("FILE_TOO_LARGE")
                 return [path], "MP3", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("FILE_NOT_FOUND")
     elif download_type == 'images':
@@ -451,39 +444,24 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                 return [path], "Image", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("NO_IMAGES")
     else:
-        # Best quality first, then step down until the file fits under the limit.
-        tiers = ["best",
-                 "bv*[height<=720]+ba/b[height<=720]",
-                 "bv*[height<=480]+ba/b[height<=480]",
-                 "bv*[height<=360]+ba/b[height<=360]",
-                 "worst"]
-        too_big = False
-        last_err = None
-        for fmt in tiers:
+        for fmt in ["best", "bestvideo+bestaudio/best"]:
             try:
-                opts = dict(ydl_opts)
-                opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'merge_output_format': 'mp4',
-                             'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
-                with yt_dlp.YoutubeDL(opts) as ydl:
+                ydl_opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path})
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(url, download=True)
                     path = ydl.prepare_filename(info)
                     if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0]+".mp4"):
                         path = os.path.splitext(path)[0]+".mp4"
                     if os.path.exists(path):
-                        if os.path.getsize(path) > cap_bytes:
+                        if os.path.getsize(path) > 50*1024*1024:
                             os.remove(path)
-                            too_big = True
                             continue
                         return [path], f"{info.get('height', 'HD')}p", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
-                    too_big = True              # nothing was written: the size limit skipped this quality
             except Exception as e:
                 if "Unsupported URL" in str(e) or "403" in str(e):
                     raise e
-                last_err = e
                 continue
-        if too_big or last_err is None:
-            raise ValueError("FILE_TOO_LARGE")
-        raise last_err                           # every quality failed for a real reason (private, blocked, ...)
+        raise ValueError("FILE_TOO_LARGE")
 
 def get_main_keyboard(lang_code, is_admin):
     t = LANGUAGES.get(lang_code, LANGUAGES["en"])
@@ -800,6 +778,8 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
     for index, url in enumerate(urls[start_index:], start=start_index+1):
         if not active_batch_sessions.get(user_id, False):
             break
+        if "youtube.com" in url.lower():
+            continue
         try:
             response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": True}, headers=API_HEADERS, timeout=5)
             res_data = response.json() if response.status_code == 200 else {}
@@ -839,9 +819,10 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     continue
                 except:
                     pass
-            file_paths, res, size = await asyncio.to_thread(download_media_engine, url, download_type, mtproto_limit_mb())
+            file_paths, res, size = download_media_engine(url, download_type)
             if file_paths and os.path.exists(file_paths[0]):
-                sent = await send_video_file(bot, chat_id, target_destination_id, file_paths[0], f"Item {index}/{len(urls)} Size {size}", None, status_msg)
+                with open(file_paths[0], 'rb') as f:
+                    sent = await bot.send_video(chat_id=target_destination_id, video=f, caption=f"Item {index}/{len(urls)} Size {size}")
                 if target_destination_id == chat_id:
                     warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
                     asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
@@ -1198,6 +1179,9 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text(t["batch_detected"].format(len(extracted_urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     url = extracted_urls[0]
+    if "youtube.com" in url.lower():
+        await update.message.reply_text("❌ YouTube paused")
+        return
     status_preview = await update.message.reply_text("🔍 Checking link...")
     title, dur = fetch_url_metadata(url)
     try:
@@ -1412,7 +1396,7 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
                     save_json_file(CACHE_FILE, cache)
     status_msg = await bot.send_message(chat_id=chat_id, text=t["fetching"].format(dl_type) + f"\n`{ckey}`", parse_mode="Markdown")
     try:
-        file_paths, res, size = await asyncio.to_thread(download_media_engine, url, dl_type, mtproto_limit_mb())
+        file_paths, res, size = download_media_engine(url, dl_type)
         if not file_paths:
             raise ValueError("FILE_NOT_FOUND")
         cache = load_json_file(CACHE_FILE)
@@ -1429,7 +1413,8 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
             for p in file_paths:
                 os.remove(p)
         elif dl_type == 'audio':
-            sent_media = await send_audio_file(bot, chat_id, file_paths[0], f"🎵 Size {size} `{ckey}`", "Markdown", status_msg)
+            with open(file_paths[0], 'rb') as f:
+                sent_media = await bot.send_audio(chat_id=chat_id, audio=f, caption=f"🎵 Size {size} `{ckey}`", parse_mode="Markdown")
             warn = await bot.send_message(chat_id=chat_id, text="⏳ Auto-deletes in 9 mins")
             asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
             try:
@@ -1439,7 +1424,8 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
                 cache[ckey] = {"file_id": sent_media.audio.file_id, "type": "audio", "timestamp": time.time(), "hits": 1, "size": size}
             os.remove(file_paths[0])
         else:
-            sent_media = await send_video_file(bot, chat_id, chat_id, file_paths[0], f"✨ {res} Size {size} `{ckey}`", "Markdown", status_msg)
+            with open(file_paths[0], 'rb') as f:
+                sent_media = await bot.send_video(chat_id=chat_id, video=f, caption=f"✨ {res} Size {size} `{ckey}`", parse_mode="Markdown")
             warn = await bot.send_message(chat_id=chat_id, text="⏳ Auto-deletes in 9 mins")
             asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
             try:
@@ -1455,14 +1441,7 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
         return True
     except Exception as e:
         logger.error(f"DL {ckey}: {e}")
-        if "FILE_TOO_LARGE" in str(e):
-            err = t["error_50mb"]
-        elif "MTPROTO_OFF" in str(e):
-            err = "⚠️ Big files (over 50MB) need fast mode, which is offline right now. Please try again later."
-        elif "MTPROTO_PEER" in str(e):
-            err = "⚠️ Send /start to this bot once, then send the link again."
-        else:
-            err = t["error_generic"]
+        err = t["error_50mb"] if "FILE_TOO_LARGE" in str(e) else t["error_generic"]
         try:
             await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=err)
         except:
@@ -2195,153 +2174,10 @@ def run_telegram_bot():
         await asyncio.Event().wait()
     loop.run_until_complete(start_bot())
 
-# =====================================================================
-#  MTProto worker (Pyrogram) - lets the bot SEND files bigger than 50MB (up to 2GB)
-#  It runs quietly in its own thread. The normal bot hands big files to it; users never see a command.
-#  Needs: pip packages "pyrogram" and "tgcrypto", and env vars API_ID + API_HASH (from my.telegram.org).
-#  If any of that is missing the rest of the bot keeps working, and files over 50MB are politely refused.
-# =====================================================================
-try:
-    API_ID = int(os.getenv("API_ID", "0") or "0")
-except ValueError:
-    API_ID = 0
-API_HASH = os.getenv("API_HASH", "").strip()
-MTPROTO_MAX_MB = 300                # biggest file accepted (the host disk is small, merging needs spare room)
-BOT_API_LIMIT_BYTES = 49 * 1024 * 1024
-MTPROTO = {"client": None, "loop": None, "ready": threading.Event(), "no_parse": None}
-
-def mtproto_limit_mb():
-    """Biggest download allowed right now: shared fairly between the downloads that are already running."""
-    spare = get_free_disk_mb() - MIN_FREE_DISK_MB
-    if not MTPROTO["ready"].is_set():
-        return 49                   # fast mode offline: keep the old 50MB behaviour
-    return int(max(50, min(MTPROTO_MAX_MB, spare // max(1, active_downloads))))
-
-def probe_video(path):
-    """Duration, size and a small preview picture, so big uploads show up properly in Telegram."""
-    import subprocess
-    info = {"duration": 0, "width": 0, "height": 0, "thumb": None}
-    try:
-        text = subprocess.run([ffmpeg_path, "-hide_banner", "-i", path], capture_output=True, text=True, timeout=60).stderr or ""
-        m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", text)
-        if m:
-            info["duration"] = int(int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)))
-        m = re.search(r"Video:.*?,\s*(\d{2,5})x(\d{2,5})[\s,\[]", text)
-        if m:
-            info["width"], info["height"] = int(m.group(1)), int(m.group(2))
-        thumb = path + ".jpg"
-        subprocess.run([ffmpeg_path, "-y", "-ss", "1", "-i", path, "-vframes", "1", "-vf", "scale=320:-2", thumb], capture_output=True, timeout=60)
-        if os.path.exists(thumb) and os.path.getsize(thumb) > 0:
-            info["thumb"] = thumb
-    except Exception as e:
-        logger.error(f"probe_video: {e}")
-    return info
-
-async def mtproto_upload(kind, chat_id, path, caption, **extra):
-    if not MTPROTO["ready"].is_set():
-        raise RuntimeError("MTPROTO_OFF")
-    client, loop = MTPROTO["client"], MTPROTO["loop"]
-    kwargs = dict(chat_id=chat_id, caption=caption, **extra)
-    if MTPROTO["no_parse"] is not None:
-        kwargs["parse_mode"] = MTPROTO["no_parse"]
-    async def _send():
-        if kind == "audio":
-            return await client.send_audio(audio=path, **kwargs)
-        return await client.send_video(video=path, supports_streaming=True, **kwargs)
-    fut = asyncio.run_coroutine_threadsafe(_send(), loop)
-    try:
-        return await asyncio.wait_for(asyncio.wrap_future(fut), timeout=1800)
-    except Exception as e:
-        if "PEER_ID_INVALID" in str(e).upper() or "PEER ID INVALID" in str(e).upper():
-            raise RuntimeError("MTPROTO_PEER")
-        raise
-
-async def _tell_uploading(status_msg, path):
-    if status_msg is None:
-        return
-    try:
-        await status_msg.edit_text(f"\U0001F4E4 Uploading {os.path.getsize(path)/(1024*1024):.0f}MB in fast mode... this can take a minute.")
-    except Exception:
-        pass
-
-async def send_video_file(bot, chat_id, target_id, path, caption, parse_mode, status_msg=None):
-    """Sends a video. Up to 49MB the normal way; bigger files through MTProto. Returns an object with
-    .message_id and .video.file_id so the code that calls it does not change."""
-    if os.path.getsize(path) <= BOT_API_LIMIT_BYTES:
-        with open(path, 'rb') as f:
-            return await bot.send_video(chat_id=target_id, video=f, caption=caption, parse_mode=parse_mode)
-    await _tell_uploading(status_msg, path)
-    info = await asyncio.to_thread(probe_video, path)
-    try:
-        extra = {k: v for k, v in (("duration", info["duration"]), ("width", info["width"]), ("height", info["height"]), ("thumb", info["thumb"])) if v}
-        msg = await mtproto_upload("video", chat_id, path, caption.replace("`", ""), **extra)
-    finally:
-        if info.get("thumb") and os.path.exists(info["thumb"]):
-            os.remove(info["thumb"])
-    media = msg.video or msg.document
-    file_id, message_id = media.file_id, msg.id
-    if target_id != chat_id:                    # e.g. a linked channel: copy it there, then remove the temporary copy
-        copied = await bot.copy_message(chat_id=target_id, from_chat_id=chat_id, message_id=message_id)
-        try:
-            await bot.delete_message(chat_id=chat_id, message_id=message_id)
-        except Exception:
-            pass
-        message_id = copied.message_id
-    return types.SimpleNamespace(message_id=message_id, video=types.SimpleNamespace(file_id=file_id))
-
-async def send_audio_file(bot, chat_id, path, caption, parse_mode, status_msg=None):
-    if os.path.getsize(path) <= BOT_API_LIMIT_BYTES:
-        with open(path, 'rb') as f:
-            return await bot.send_audio(chat_id=chat_id, audio=f, caption=caption, parse_mode=parse_mode)
-    await _tell_uploading(status_msg, path)
-    msg = await mtproto_upload("audio", chat_id, path, caption.replace("`", ""))
-    media = msg.audio or msg.document
-    return types.SimpleNamespace(message_id=msg.id, audio=types.SimpleNamespace(file_id=media.file_id))
-
-def run_mtproto_worker():
-    """Runs the Pyrogram MTProto client in its own thread with its own event loop."""
-    if not API_ID or not API_HASH:
-        print("MTProto worker skipped: API_ID or API_HASH missing in environment variables.")
-        return
-    try:
-        # Imported here and renamed so they can never replace the python-telegram-bot names used by the rest of the file.
-        from pyrogram import Client as PyroClient
-    except ImportError:
-        print("MTProto worker skipped: add pyrogram and tgcrypto to requirements.txt")
-        return
-    try:
-        from pyrogram import enums as pyro_enums
-        MTPROTO["no_parse"] = pyro_enums.ParseMode.DISABLED
-    except Exception:
-        MTPROTO["no_parse"] = None
-    import inspect
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        client = PyroClient("mtproto_web_worker", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN, in_memory=True)
-        print("Starting MTProto Worker Thread...")
-        started = client.start()
-        if inspect.isawaitable(started):
-            loop.run_until_complete(started)
-        MTPROTO["client"], MTPROTO["loop"] = client, loop
-        MTPROTO["ready"].set()
-        print("MTProto worker is running (files up to 2GB can be sent).")
-        loop.run_forever()
-    except Exception as e:
-        MTPROTO["ready"].clear()
-        logger.error(f"MTProto worker stopped: {e}")
-
 if not getattr(web_app, '_bot_started', False):
     web_app._bot_started = True
     print("Starting bot thread...")
     threading.Thread(target=run_telegram_bot, daemon=True).start()
-
-if not getattr(web_app, '_mtproto_started', False):
-    web_app._mtproto_started = True
-    if API_ID and API_HASH:
-        threading.Thread(target=run_mtproto_worker, daemon=True).start()
-    else:
-        print("MTProto worker not started (API_ID / API_HASH not set).")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
