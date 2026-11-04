@@ -1,4 +1,3 @@
-# V39 - FLEXIBLE TYPING + COMMANDS AS TEXT - Updated 2026-05-13 - Commands send as /backup text
 import time
 import json
 import os
