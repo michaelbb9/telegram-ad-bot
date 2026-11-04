@@ -430,7 +430,8 @@ def download_media_engine(url: str, download_type: str):
         'no_warnings': True, 
         'http_headers': http_headers, 
         'proxy': PROXY_URL,
-        'noplaylist': True
+        'noplaylist': True,
+        'max_filesize': 100 * 1024 * 1024,  # ABORT immediately if file exceeds 100MB
     }
     if cookiefile:
         ydl_opts['cookiefile'] = cookiefile
@@ -466,9 +467,8 @@ def download_media_engine(url: str, download_type: str):
         raise ValueError("NO_IMAGES")
 
     else:
-        # Heavily optimized format fallback chain to prevent large file failures
+        # Strict low-resolution formats for instant downloading and light files
         video_formats = [
-            "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
             "bestvideo[height<=480]+bestaudio/best[height<=480]/best",
             "worst[ext=mp4]/worst"
         ]
@@ -489,12 +489,12 @@ def download_media_engine(url: str, download_type: str):
                         path = os.path.splitext(path)[0] + ".mp4"
                     if os.path.exists(path):
                         file_size_mb = os.path.getsize(path) / (1024 * 1024)
-                        if file_size_mb > 450:
-                            os.remove(path)
-                            continue
-                        return [path], f"{info.get('height', 'SD/HD')}p", f"{file_size_mb:.1f}MB"
+                        return [path], f"{info.get('height', 'SD')}p", f"{file_size_mb:.1f}MB"
             except Exception as e:
-                if "Unsupported URL" in str(e) or "403" in str(e):
+                err_str = str(e)
+                if "File is larger than max-filesize" in err_str:
+                    raise ValueError("FILE_TOO_LARGE")
+                if "Unsupported URL" in err_str or "403" in err_str:
                     raise e
                 continue
         raise ValueError("FILE_TOO_LARGE")
