@@ -86,7 +86,7 @@ FLOOD_COOLDOWN = 30
 
 LANGUAGES = {
     "en": {
-        "welcome": "🚀 **WELCOME TO MICHAELBBC VAULT - ALL MEDIA DOWNLOADER! 🚀✨ FB, INSTA, TIKTOK, X, YOUTUBE! 🚀✨\n\n🔥 WHAT I CAN DO:\n🎬 VIDEOS HD No Watermark!\n🎵 AUDIO MP3 192kbps!\n🖼️ IMAGES Scrape ALL!\n📝 SUBTITLES Auto!\n📦 BATCH 100+ Links!\n⚡ CACHE 1 Sec!\n💎 VAULT Forever!\n📤 UPLOAD FILES!\n🔗 FILE-TO-LINK: Create shareable links! (1 free download credit/link)\n🌐 Other features: Check the web app!\n\n👉 PASTE LINK TO START! 👇** 🚀\n\n🎬 Video, 🎵 Audio, 🖼️ Images, 📝 Subtitles\n📦 Batch Downloader (100+ links)\n⚡ Flash Drops\n💎 Exclusive Vaults\n📤 Upload files\n🔗 File-to-Link: Create shareable file links (costs 1 free download)\n🌐 Other features: Check the web app\n\n👉 Just paste ANY link: TikTok, Facebook, Instagram, Twitter/X, YouTube to start! 🚀✨ All Media Supported!",
+        "welcome": "🚀 **WELCOME TO MICHAELBBC VAULT - ALL MEDIA DOWNLOADER! 🚀✨ FB, INSTA, TIKTOK, X, YOUTUBE! ✨\n\n🔥 WHAT I CAN DO:\n🎬 VIDEOS HD No Watermark!\n🎵 AUDIO MP3 192kbps!\n🖼️ IMAGES Scrape ALL!\n📝 SUBTITLES Auto!\n📦 BATCH 100+ Links!\n⚡ CACHE 1 Sec!\n💎 VAULT Forever!\n📤 UPLOAD FILES!\n🔗 FILE-TO-LINK: Create shareable links! (1 free download credit/link)\n🌐 Other features: Check the web app!\n\n👉 PASTE LINK TO START! 👇** 🚀\n\n🎬 Video, 🎵 Audio, 🖼️ Images, 📝 Subtitles\n📦 Batch Downloader (100+ links)\n⚡ Flash Drops\n💎 Exclusive Vaults\n📤 Upload files\n🔗 File-to-Link: Create shareable file links (costs 1 free download)\n🌐 Other features: Check the web app\n\n👉 Just paste ANY link: TikTok, Facebook, Instagram, Twitter/X, YouTube to start! ✨ All Media Supported!",
         "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Images", "btn_sub": "📝 Subtitles (SRT)",
         "ask_format": "👇 **AWESOME! What format you want? Pick below! 🎯 Video=watch, Audio=music!**",
         "fetching": "📥 **Fetching your {}... Hang tight! ⏳✨ Working magic! 🚀**",
@@ -138,48 +138,71 @@ def save_json_file(filename, data):
     except Exception as e:
         logger.error(f"Save {filename}: {e}")
 
-async def get_canonical_key(url: str):
-    # 1. Resolve short links to their full destination (TikTok, YouTube, Twitter, etc.)
-    if "vt.tiktok.com" in url.lower() or "vm.tiktok.com" in url.lower() or "youtu.be" in url.lower() or "t.co" in url.lower():
-        try:
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-            # Use asyncio.to_thread for the blocking requests call to avoid freezing the bot
-            def resolve_redirect():
-                return requests.get(url, headers=headers, allow_redirects=True, timeout=10).url
-            resolved_url = await asyncio.to_thread(resolve_redirect)
-            url = resolved_url
-            logger.info(f"Resolved short link to: {url}")
-        except Exception as e:
-            logger.error(f"Failed to resolve URL: {e}")
+# --- NEW UNIVERSAL RESOLVER WITH TELEGRAM DEBUGGING ---
+async def get_canonical_key(url: str, chat_id=None, bot=None):
+    original_url = url
+    
+    # Helper to send debug messages to Telegram
+    async def send_debug(text):
+        if chat_id and bot:
+            try:
+                await bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
+            except:
+                pass
 
-    # 2. Try to get the exact Video ID using yt-dlp
+    await send_debug(f"🔍 <b>Processing Link:</b>\n<code>{url}</code>")
+
+    # 1. Resolve short links
+    short_link_domains = ["vt.tiktok.com", "vm.tiktok.com", "youtu.be/", "t.co/", "instagr.am/", "fb.watch/"]
+    is_short_link = any(domain in url.lower() for domain in short_link_domains)
+
+    if is_short_link:
+        await send_debug("🔄 Resolving short link...")
+        try:
+            # Mobile User-Agent often gets better redirects from TikTok
+            headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15'}
+            response = requests.get(url, headers=headers, allow_redirects=True, timeout=15)
+            resolved_url = response.url
+            
+            if resolved_url != original_url:
+                url = resolved_url
+                await send_debug(f"✅ Resolved to:\n<code>{url}</code>")
+            else:
+                await send_debug("⚠️ Link didn't redirect.")
+        except Exception as e:
+            await send_debug(f"❌ Redirect failed: {str(e)[:100]}")
+
+    # 2. REGEX EXTRACTION (The "Different Approach")
+    # This bypasses yt-dlp entirely for TikTok by looking for the ID in the URL path
+    # TikTok IDs are usually 19 digits long in the path /video/1234567890123456789
+    tiktok_match = re.search(r'/video/(\d{15,20})', url)
+    if tiktok_match:
+        vid_id = tiktok_match.group(1)
+        await send_debug(f"🎯 <b>TikTok Regex Match!</b>\nVideo ID: <code>{vid_id}</code>")
+        return f"tiktok_{vid_id}"
+
+    # 3. Try yt-dlp for other platforms (YouTube, etc.)
+    await send_debug("🤖 Trying yt-dlp extraction...")
     try:
         ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True}
-        if os.path.exists("tiktok_cookies.txt") and "tiktok.com" in url.lower():
-            ydl_opts['cookiefile'] = "tiktok_cookies.txt"
-        elif os.path.exists("cookies.txt"):
-            ydl_opts['cookiefile'] = "cookies.txt"
-
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            if not info:
-                raise ValueError("no info")
-            if 'entries' in info and info['entries']:
-                info = info['entries'][0]
-            extractor = info.get('extractor', 'generic').replace(':', '').replace(' ', '')
-            vid_id = info.get('id', '')
-            if vid_id:
-                return f"{extractor}_{vid_id}"
+            if info:
+                if 'entries' in info and info['entries']:
+                    info = info['entries'][0]
+                extractor = info.get('extractor', 'generic').replace(':', '').replace(' ', '')
+                vid_id = info.get('id', '')
+                if vid_id:
+                    await send_debug(f"✅ yt-dlp found ID: <code>{vid_id}</code>")
+                    return f"{extractor}_{vid_id}"
     except Exception as e:
-        logger.info(f"Key extract fail: {e}")
-        
-    # 3. Fallback: Hash the RESOLVED full URL
-    try:
-        clean = url.split('?')[0].split('&')[0].lower().strip('/').replace('https://','').replace('http://','')
-        h = hashlib.md5(clean.encode()).hexdigest()[:12]
-        return f"url_{h}"
-    except:
-        return f"url_{hashlib.md5(url.encode()).hexdigest()[:12]}"
+        await send_debug(f"⚠️ yt-dlp failed: {str(e)[:50]}")
+
+    # 4. Fallback: Hash the resolved URL
+    await send_debug("🎲 Using URL hash fallback.")
+    clean = url.split('?')[0].split('&')[0].lower().strip('/').replace('https://','').replace('http://','')
+    h = hashlib.md5(clean.encode()).hexdigest()[:12]
+    return f"url_{h}"
 
 async def backup_to_channel(bot):
     try:
@@ -226,6 +249,14 @@ async def disk_cleaner_loop():
                 logger.info(f"Cleaner deleted {deleted}")
         except Exception as e:
             logger.error(f"Cleaner: {e}")
+
+def restore_cache_info():
+    try:
+        cache = load_json_file(CACHE_FILE)
+        if len(cache)==0:
+            logger.info("Cache empty after clear/restart")
+    except:
+        pass
 
 def clean_downloads_startup():
     try:
@@ -795,7 +826,8 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             break
         status_msg = await bot.send_message(chat_id=chat_id, text=f"📥 [{index}/{len(urls)}] {t['dl_video']}")
         try:
-            ckey = await get_canonical_key(url)
+            # UPDATED CALLER
+            ckey = await get_canonical_key(url, chat_id, bot)
             cache = load_json_file(CACHE_FILE)
             if ckey in cache:
                 try:
@@ -1158,7 +1190,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         
     document = update.message.document
     
-    # SMART RESTORE: Handles ANY file in the BACKUP_FILES list
     if user_id == ADMIN_ID and document.file_name in BACKUP_FILES:
         await update.message.reply_text(f"🔄 Restoring <b>{document.file_name}</b>...", parse_mode="HTML")
         try:
@@ -1358,7 +1389,8 @@ async def set_mtproto_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def cached_download_and_send(bot, chat_id, url, dl_type, t):
     cache = load_json_file(CACHE_FILE)
-    ckey = await get_canonical_key(url)
+    # UPDATED CALLER
+    ckey = await get_canonical_key(url, chat_id, bot)
     if ckey in cache:
         try:
             cached = cache[ckey]
@@ -1741,7 +1773,9 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if fmt_type == 'aud': dl_type='audio'
         elif fmt_type == 'img': dl_type='images'
         elif fmt_type == 'sub': dl_type='subtitles'
-        ckey = await get_canonical_key(url)
+        
+        # UPDATED CALLER
+        ckey = await get_canonical_key(url, chat_id, context.bot)
         cache = load_json_file(CACHE_FILE)
         if ckey in cache:
             await cached_download_and_send(context.bot, chat_id, url, dl_type, t)
