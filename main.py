@@ -193,7 +193,6 @@ async def get_canonical_key(url: str, chat_id=None, bot=None):
         return f"tiktok_{vid_id}"
 
     # YOUTUBE REGEX (Fallback if yt-dlp hangs)
-    # Matches youtube.com/watch?v=ID or youtu.be/ID
     yt_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})(?:[&?]|$)', url)
     if yt_match:
         vid_id = yt_match.group(1)
@@ -203,7 +202,6 @@ async def get_canonical_key(url: str, chat_id=None, bot=None):
     # Try yt-dlp for other platforms
     await send_debug("🤖 Trying yt-dlp extraction...")
     try:
-        # Run yt-dlp in a separate thread with a strict timeout to prevent bot freezing
         loop = asyncio.get_running_loop()
         def extract():
             with yt_dlp.YoutubeDL(YDL_OPTS_BASE) as ydl:
@@ -469,7 +467,6 @@ def fetch_url_metadata_sync(url):
 async def fetch_url_metadata(url):
     loop = asyncio.get_running_loop()
     try:
-        # Force a 20-second timeout. If yt-dlp hangs, the bot stays alive!
         title, dur = await asyncio.wait_for(
             loop.run_in_executor(None, lambda: fetch_url_metadata_sync(url)), 
             timeout=20
@@ -512,7 +509,6 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
     elif os.path.exists("cookies.txt"):
         cookiefile = "cookies.txt"
     
-    # Use the fixed YDL_OPTS_BASE which includes the YouTube bypass
     ydl_opts = dict(YDL_OPTS_BASE)
     ydl_opts['http_headers'] = http_headers
     ydl_opts['proxy'] = PROXY_URL
@@ -961,10 +957,43 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text(t["upload_success_user"], reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
         except: await update.message.reply_text("❌ Failed")
 
+# --- BULLETPROOF CHANNEL LINKING LOGIC ---
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text if update.message.text else ""
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
+    
+    # ✅ FIX: Check for channel linking FIRST with robust error handling
+    try:
+        linking_states = load_linking_states()
+        if linking_states.get(str(user_id)) == "waiting_for_channel":
+            forward_origin = getattr(update.message, 'forward_origin', None)
+            
+            if forward_origin:
+                origin_type = getattr(forward_origin, 'type', None)
+                
+                if origin_type == 'channel':
+                    f_chat = forward_origin.chat
+                    user_channels = load_user_channels()
+                    user_channels[str(user_id)] = f_chat.id
+                    save_user_channels(user_channels)
+                    
+                    del linking_states[str(user_id)]
+                    save_linking_states(linking_states)
+                    
+                    await update.message.reply_text(f"✅ Linked {f_chat.title}", parse_mode="Markdown")
+                    return
+                else:
+                    await update.message.reply_text(f"❌ This was forwarded from a {origin_type}, not a channel. Please forward from a channel.", parse_mode="Markdown")
+                    return
+            else:
+                await update.message.reply_text("❌ Please FORWARD a message from your channel (don't just send text).", parse_mode="Markdown")
+                return
+    except Exception as e:
+        logger.error(f"Channel linking error: {e}")
+        await update.message.reply_text(f"❌ Error detecting channel: {str(e)[:100]}", parse_mode="Markdown")
+        return
+
     if is_banned(user_id):
         await update.message.reply_text("🚫 Banned")
         return
@@ -1185,20 +1214,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 await update.message.reply_text(t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 return
     if active_batch_sessions.get(user_id, False): return
-    linking_states = load_linking_states()
-    if linking_states.get(str(user_id)) == "waiting_for_channel":
-        if update.message.forward_origin and getattr(update.message.forward_origin, 'type', None) == 'channel':
-            f_chat = update.message.forward_origin.chat
-            user_channels = load_user_channels()
-            user_channels[str(user_id)] = f_chat.id
-            save_user_channels(user_channels)
-            del linking_states[str(user_id)]
-            save_linking_states(linking_states)
-            await update.message.reply_text(f"✅ Linked {f_chat.title}", parse_mode="Markdown")
-            return
-        else:
-            await update.message.reply_text("❌ Forward from channel")
-            return
+    
     if update.message.forward_origin and getattr(update.message.forward_origin, 'type', None) == 'channel':
         f_chat = update.message.forward_origin.chat
         user_channels = load_user_channels()
@@ -1215,7 +1231,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     url = extracted_urls[0]
     status_preview = await update.message.reply_text("🔍 Checking link...")
     
-    # FIXED: Use async wrapper with timeout so bot doesn't freeze on YouTube
     title, dur = await fetch_url_metadata(url)
     
     try: await status_preview.delete()
