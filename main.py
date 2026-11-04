@@ -24,11 +24,11 @@ except:
     pass
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
-logging.getLogger("httpx").setLevel(logging.WARNING)   # stops the bot token being printed in logs
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()   # set TELEGRAM_TOKEN in Render env - never hardcode it
+BOT_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
 ADMIN_ID = 6248570946
 DETECTED_CHANNEL_ID = -1004347828512
 PRIVATE_CHANNEL_ID = -1004347828512
@@ -40,7 +40,7 @@ PUBLIC_CHANNEL_URL = "https://t.me/booksaufio"
 PUBLIC_CHANNEL_USERNAME = "@booksaufio"
 HELP_CHANNEL_URL = "https://t.me/faqandaupport"
 
-API_SECRET = os.getenv("API_SECRET", "change-me")        # must be the same value on PythonAnywhere
+API_SECRET = os.getenv("API_SECRET", "change-me")
 API_HEADERS = {"X-Api-Secret": API_SECRET}
 PROXY_URL = None 
 
@@ -68,7 +68,8 @@ paused_batches = {}
 pending_single_links = {}
 
 MAX_CONCURRENT_SHORT = 3
-MIN_FREE_DISK_MB = 150
+MIN_FREE_DISK_MB = 150  # Default fallback
+MTPROTO_MAX_MB = 300    # Default fallback
 active_downloads = 0
 download_lock = asyncio.Lock()
 download_queue = asyncio.Queue()
@@ -90,7 +91,6 @@ LANGUAGES = {
         "batch_detected": "📦 **Batch Detected ({} links)**\nWhat format?",
         "batch_dest": "📦 **Where to send?**",
         "btn_chat": "📥 In Chat", "btn_chan": "📢 To Channel",
-        # CLAUSE 12 FIX: Changed 30s to 20s and +4 to +1 optimum realistic reward
         "limit_reached": "⚠️ **Limit Reached! 🚧😅 You used 4 FREE! 🎬 Watch 20s ad → Get +1 download! Realistic reward ♻️✨**",
         "refill_btn": "🔓 Open Link & Refill +1",
         "join_btn": "📢 Join Channel", "check_btn": "💜 Check Balance",
@@ -286,10 +286,7 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Save tokens: {e}")
 
-
-# ===================== ADSGRAM MINI APP HELPERS =====================
 def adsgram_start(user_id, kind="wall", msg_start=0, msg_end=0):
-    """Ask the Flask server for a one-time nonce for this user's ad. Returns nonce or None."""
     try:
         r = requests.post(f"{WEB_BASE_URL}/monetag-start",
                           json={"user_id": int(user_id), "kind": kind, "msg_start": int(msg_start),
@@ -311,7 +308,6 @@ def adsgram_status(user_id):
     return {"status": "error"}
 
 def adsgram_keyboard(user_id, kind="wall", msg_start=0, msg_end=0, extra_rows=None):
-    """Keyboard whose first button opens the Adsgram ad INSIDE a Telegram Mini App."""
     nonce = adsgram_start(user_id, kind, msg_start, msg_end)
     if not nonce:
         return None
@@ -327,7 +323,6 @@ def adsgram_keyboard(user_id, kind="wall", msg_start=0, msg_end=0, extra_rows=No
     return InlineKeyboardMarkup(rows)
 
 async def report_vault_delivery(user_id, msg_start, msg_end, delivered_message_ids):
-    """Report one completed catalogue delivery; Flask deduplicates retries."""
     if not delivered_message_ids:
         return
     try:
@@ -346,7 +341,6 @@ async def report_vault_delivery(user_id, msg_start, msg_end, delivered_message_i
         if response.status_code != 200:
             logger.warning("Vault analytics rejected delivery: %s %s", response.status_code, response.text[:200])
     except Exception as e:
-        # Delivery must never fail just because analytics is temporarily offline.
         logger.warning("Vault analytics report failed: %s", e)
 
 async def deliver_bundle(bot, user_id, msg_start, msg_end):
@@ -414,8 +408,7 @@ def scrape_html_images(url, cookiefile=None):
     return None
 
 def download_media_engine(url: str, download_type: str, max_mb=None):
-    """Downloads one item. Files up to max_mb are accepted (anything over 49MB is uploaded through MTProto later)."""
-    cap_mb = int(max_mb or MTPROTO_MAX_MB)
+    cap_mb = int(max_mb or get_mtproto_max_mb())
     cap_bytes = cap_mb * 1024 * 1024
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
@@ -451,7 +444,6 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                 return [path], "Image", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("NO_IMAGES")
     else:
-        # Best quality first, then step down until the file fits under the limit.
         tiers = ["best",
                  "bv*[height<=720]+ba/b[height<=720]",
                  "bv*[height<=480]+ba/b[height<=480]",
@@ -475,7 +467,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                             too_big = True
                             continue
                         return [path], f"{info.get('height', 'HD')}p", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
-                    too_big = True              # nothing was written: the size limit skipped this quality
+                    too_big = True
             except Exception as e:
                 if "Unsupported URL" in str(e) or "403" in str(e):
                     raise e
@@ -483,7 +475,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                 continue
         if too_big or last_err is None:
             raise ValueError("FILE_TOO_LARGE")
-        raise last_err                           # every quality failed for a real reason (private, blocked, ...)
+        raise last_err
 
 def get_main_keyboard(lang_code, is_admin):
     t = LANGUAGES.get(lang_code, LANGUAGES["en"])
@@ -494,14 +486,54 @@ def get_main_keyboard(lang_code, is_admin):
         [KeyboardButton("🟢 Bot Status")]
     ]
     if is_admin:
-        keyboard.append([KeyboardButton("/stats"), KeyboardButton("/toggleads")])
-        keyboard.append([KeyboardButton("/testad"), KeyboardButton("/adinfo")])
-        keyboard.append([KeyboardButton("/tokencheck"), KeyboardButton("/broadcast")])
-        keyboard.append([KeyboardButton("/ban"), KeyboardButton("/unban")])
-        keyboard.append([KeyboardButton("/backup")])
         keyboard.append([KeyboardButton(t["menu_uploads"]), KeyboardButton("⚡ Create Flash Drop")])
         keyboard.append([KeyboardButton("🎁 Set Reward (1/2/3/5)"), KeyboardButton("📦 Set Free DL (2/3/4/5)")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+def get_admin_panel_keyboard():
+    keyboard = [
+        [InlineKeyboardButton("📊 Stats", callback_data="cmd_stats"),
+         InlineKeyboardButton("🔄 Toggle Ads", callback_data="cmd_toggleads")],
+        [InlineKeyboardButton("🧪 Test Ad", callback_data="cmd_testad"),
+         InlineKeyboardButton("📢 Ad Info", callback_data="cmd_adinfo")],
+        [InlineKeyboardButton("🔐 Token Check", callback_data="cmd_tokencheck"),
+         InlineKeyboardButton("📢 Broadcast", callback_data="cmd_broadcast")],
+        [InlineKeyboardButton("🚫 Ban", callback_data="cmd_ban"),
+         InlineKeyboardButton("✅ Unban", callback_data="cmd_unban")],
+        [InlineKeyboardButton("💾 Backup", callback_data="cmd_backup")],
+        [InlineKeyboardButton("💾 Disk Config", callback_data="config_disk"),
+         InlineKeyboardButton("⚡ MTProto Config", callback_data="config_mtproto")],
+        [InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_disk_config_keyboard():
+    config = load_json_file(CONFIG_FILE)
+    current_min = config.get("min_free_disk_mb", MIN_FREE_DISK_MB)
+    keyboard = [
+        [InlineKeyboardButton(f"Current Min Free: {current_min}MB", callback_data="noop")],
+        [InlineKeyboardButton("100MB", callback_data="set_disk_100"),
+         InlineKeyboardButton("250MB", callback_data="set_disk_250")],
+        [InlineKeyboardButton("500MB", callback_data="set_disk_500"),
+         InlineKeyboardButton("1000MB", callback_data="set_disk_1000")],
+        [InlineKeyboardButton("⌨️ Or type: /setdisk <value>", callback_data="noop")],
+        [InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_mtproto_config_keyboard():
+    config = load_json_file(CONFIG_FILE)
+    current_max = config.get("mtproto_max_mb", MTPROTO_MAX_MB)
+    keyboard = [
+        [InlineKeyboardButton(f"Current Max Upload: {current_max}MB", callback_data="noop")],
+        [InlineKeyboardButton("200MB", callback_data="set_mtproto_200"),
+         InlineKeyboardButton("500MB", callback_data="set_mtproto_500")],
+        [InlineKeyboardButton("1000MB", callback_data="set_mtproto_1000"),
+         InlineKeyboardButton("2000MB", callback_data="set_mtproto_2000")],
+        [InlineKeyboardButton("⌨️ Or type: /setmtproto <value>", callback_data="noop")],
+        [InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
 def get_downloads_usage_mb():
     try:
@@ -515,6 +547,14 @@ def get_downloads_usage_mb():
         return total // (1024*1024)
     except:
         return 0
+
+def get_min_free_disk_mb():
+    config = load_json_file(CONFIG_FILE)
+    return config.get("min_free_disk_mb", MIN_FREE_DISK_MB)
+
+def get_mtproto_max_mb():
+    config = load_json_file(CONFIG_FILE)
+    return config.get("mtproto_max_mb", MTPROTO_MAX_MB)
 
 def get_reward_amount():
     try:
@@ -553,12 +593,11 @@ def set_free_amount(val):
 def get_free_disk_mb():
     try:
         used = get_downloads_usage_mb()
-        return max(0, 512 - used)
+        return max(0, 512 - used) # Note: 512 is Render free tier. Upgrade will auto-detect via shutil
     except:
         return 512
 
 def deduct_download_counter(user_id, is_batch=False):
-    # FIX: Only call server once - no local double save - prevents -2 bug
     try:
         requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": is_batch}, headers=API_HEADERS, timeout=3)
     except:
@@ -567,8 +606,9 @@ def deduct_download_counter(user_id, is_batch=False):
 async def acquire_slot():
     global active_downloads
     async with download_lock:
-        free_mb = get_free_disk_mb()
-        if active_downloads < MAX_CONCURRENT_SHORT and free_mb > MIN_FREE_DISK_MB:
+        free_mb = shutil.disk_usage(".").free // (1024*1024)
+        min_free = get_min_free_disk_mb()
+        if active_downloads < MAX_CONCURRENT_SHORT and free_mb > min_free:
             active_downloads += 1
             return True
         return False
@@ -584,9 +624,10 @@ async def queue_processor(bot):
         try:
             job = await download_queue.get()
             while True:
-                free_mb = get_free_disk_mb()
+                free_mb = shutil.disk_usage(".").free // (1024*1024)
+                min_free = get_min_free_disk_mb()
                 async with download_lock:
-                    can_run = active_downloads < MAX_CONCURRENT_SHORT and free_mb > MIN_FREE_DISK_MB
+                    can_run = active_downloads < MAX_CONCURRENT_SHORT and free_mb > min_free
                 if can_run:
                     break
                 await asyncio.sleep(2)
@@ -623,7 +664,6 @@ def file_link_keyboard(state):
     return InlineKeyboardMarkup(kb)
 
 async def file_link_add_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Capture an incoming file for a user's active File-to-Link session."""
     if not update.effective_message or not update.effective_user:
         return False
     uid = str(update.effective_user.id)
@@ -645,7 +685,6 @@ async def file_link_add_media(update: Update, context: ContextTypes.DEFAULT_TYPE
     return True
 
 async def file_to_link_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Start File-to-Link collection through the Telegram command/menu."""
     user_id = update.effective_user.id
     if is_banned(user_id):
         await update.effective_message.reply_text("🚫 You are banned.")
@@ -661,7 +700,6 @@ async def file_to_link_command(update: Update, context: ContextTypes.DEFAULT_TYP
         reply_markup=file_link_keyboard(state), parse_mode="Markdown")
 
 async def file_link_deep_link(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str) -> None:
-    """Deliver stored files to the recipient; no creator credit or ad wall is applied."""
     links = load_json_file(FILE_LINKS_FILE)
     record = links.get(token)
     if not record or (record.get("expires_at") and time.time() > record["expires_at"]):
@@ -679,7 +717,6 @@ async def file_link_deep_link(update: Update, context: ContextTypes.DEFAULT_TYPE
     await send_file_link_payload(update, context, token, record)
 
 async def send_file_link_payload(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str, record: dict) -> None:
-    """Check required channel, then copy stored media to the recipient."""
     user_id = update.effective_user.id
     try:
         member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_USERNAME, user_id=user_id)
@@ -760,7 +797,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch", url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
     if user_id == ADMIN_ID:
         keyboard.append([InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")])
-    # Forward tutorial video 108 for Adsterra bypass - ROBUST VERSION - CLAUSE 13 + 12 FIX
     tutorial_sent = False
     try:
         tut = await context.bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
@@ -842,7 +878,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     continue
                 except:
                     pass
-            file_paths, res, size = await asyncio.to_thread(download_media_engine, url, download_type, mtproto_limit_mb())
+            file_paths, res, size = await asyncio.to_thread(download_media_engine, url, download_type, get_mtproto_max_mb())
             if file_paths and os.path.exists(file_paths[0]):
                 sent = await send_video_file(bot, chat_id, target_destination_id, file_paths[0], f"Item {index}/{len(urls)} Size {size}", None, status_msg)
                 if target_destination_id == chat_id:
@@ -1048,12 +1084,11 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text("⚡ Flash Drop Mode: Send files", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True), parse_mode="Markdown")
         return
     if text == "🟢 Bot Status":
-        await status_command(update, context)
+        await bot_status_command(update, context)
         return
 
     if text.strip() in ("🧪 Test Ad", "📢 Ad Info"):
         if user_id != ADMIN_ID:
-            # old keyboards on users' phones still show these buttons: refresh the menu, show nothing else
             await update.message.reply_text("✅ Menu updated.", reply_markup=get_main_keyboard(lang, False))
             return
         if text.strip() == "🧪 Test Ad":
@@ -1272,23 +1307,52 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         top_text+=f"{idx}. `{uid}` — {info.get('total_interactions',0)}\n"
     if not top_text:
         top_text="No activity yet"
-    free_mb = get_free_disk_mb()
+    free_mb = shutil.disk_usage(".").free // (1024*1024)
     used_mb = get_downloads_usage_mb()
     cache = load_json_file(CACHE_FILE)
     flood_data = load_json_file(FLOOD_FILE)
     banned = load_json_file(BANNED_FILE)
     total_hits = sum(v.get("hits",0) for v in cache.values() if isinstance(v, dict))
     host_free = shutil.disk_usage(".").free // (1024*1024) if os.path.exists(".") else 0
-    txt = (f"📊 **ADVANCED ADMIN (via Button)**\n\n• Total: **{total_users}**\n• 24h Active: **{active_24hr}**\n• Ad Mode: **{mode}**\n\n📢 **Ad Split:**\n• Monetag: **{adsgram_count}**\n• Adsterra: **{adsterra_count}**\n\n🖥️ **Render 512MB Real:**\n• Used: **{used_mb}MB**\n• Free: **{free_mb}MB / 512MB**\n• Host: **{host_free}MB** (ignore)\n• Active: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\n• Queue: **{download_queue.qsize()}**\n• Cache: **{len(cache)}** files\n• Hits: **{total_hits}** saved\n• Flood: **{len(flood_data)}**\n• Banned: **{len(banned)}**\n\n🎞️ **Video Vault:** `{VIDEO_VAULT_ID}`\n🏆 **Top 10:**\n{top_text}\n\n✅ Clause 12 Fixed: +1 realistic\n✅ Clause 13 Fixed: /testad verifiable")
+    txt = (f"📊 **ADVANCED ADMIN (via Button)**\n\n• Total: **{total_users}**\n• 24h Active: **{active_24hr}**\n• Ad Mode: **{mode}**\n\n📢 **Ad Split:**\n• Monetag: **{adsgram_count}**\n• Adsterra: **{adsterra_count}**\n\n🖥️ **Render Real:**\n• Used: **{used_mb}MB**\n• Free: **{free_mb}MB**\n• Host Free: **{host_free}MB**\n• Active: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\n• Queue: **{download_queue.qsize()}**\n• Cache: **{len(cache)}** files\n• Hits: **{total_hits}** saved\n• Flood: **{len(flood_data)}**\n• Banned: **{len(banned)}**\n\n🎞️ **Video Vault:** `{VIDEO_VAULT_ID}`\n🏆 **Top 10:**\n{top_text}\n\n✅ Clause 12 Fixed: +1 realistic\n✅ Clause 13 Fixed: /testad verifiable")
     await update.message.reply_text(txt, parse_mode="Markdown")
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     track_user_activity(update.message.from_user.id)
     config = load_json_file(CONFIG_FILE)
     mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
-    free_mb = get_free_disk_mb()
+    free_mb = shutil.disk_usage(".").free // (1024*1024)
     cache = load_json_file(CACHE_FILE)
     await update.message.reply_text(f"🟢 **Status V38 Monetag**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic (Clause 12 fix)\nTest: /testad (Clause 13 fix)\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
+
+async def bot_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    if is_banned(user_id):
+        await update.effective_message.reply_text("🚫 You are banned.")
+        return
+    track_user_activity(user_id)
+    
+    if user_id == ADMIN_ID:
+        config = load_json_file(CONFIG_FILE)
+        mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
+        free_mb = shutil.disk_usage(".").free // (1024*1024)
+        cache = load_json_file(CACHE_FILE)
+        min_free = get_min_free_disk_mb()
+        mtproto_max = get_mtproto_max_mb()
+        
+        status_text = (f"🟢 **BOT STATUS & ADMIN PANEL**\n\n"
+                      f"• Mode: **{mode}**\n"
+                      f"• Free Disk: **{free_mb}MB** (Min required: {min_free}MB)\n"
+                      f"• MTProto Max: **{mtproto_max}MB**\n"
+                      f"• Downloads: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\n"
+                      f"• Queue: **{download_queue.qsize()}**\n"
+                      f"• Cache: **{len(cache)}** files\n"
+                      f"• Vault: **{VIDEO_VAULT_ID}**\n\n"
+                      f"👇 **Select a command or config:**")
+        
+        await update.effective_message.reply_text(status_text, reply_markup=get_admin_panel_keyboard(), parse_mode="Markdown")
+    else:
+        await status_command(update, context)
 
 async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID:
@@ -1371,6 +1435,42 @@ async def backup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await backup_to_channel(context.bot)
     await update.message.reply_text("✅ Backup sent!")
 
+async def set_disk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    if not context.args:
+        await update.message.reply_text("Usage: `/setdisk <mb>`\nExample: `/setdisk 500`", parse_mode="Markdown")
+        return
+    try:
+        value = int(context.args[0])
+        if value < 50:
+            await update.message.reply_text("⚠️ Value must be at least 50MB.")
+            return
+        config = load_json_file(CONFIG_FILE)
+        config["min_free_disk_mb"] = value
+        save_json_file(CONFIG_FILE, config)
+        await update.message.reply_text(f"✅ Minimum free disk space set to **{value}MB**", parse_mode="Markdown")
+    except ValueError:
+        await update.message.reply_text("❌ Invalid number. Please use an integer (e.g., 500).")
+
+async def set_mtproto_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    if not context.args:
+        await update.message.reply_text("Usage: `/setmtproto <mb>`\nExample: `/setmtproto 1000`", parse_mode="Markdown")
+        return
+    try:
+        value = int(context.args[0])
+        if value < 50:
+            await update.message.reply_text("⚠️ Value must be at least 50MB.")
+            return
+        config = load_json_file(CONFIG_FILE)
+        config["mtproto_max_mb"] = value
+        save_json_file(CONFIG_FILE, config)
+        await update.message.reply_text(f"✅ MTProto max upload size set to **{value}MB**", parse_mode="Markdown")
+    except ValueError:
+        await update.message.reply_text("❌ Invalid number. Please use an integer (e.g., 1000).")
+
 async def cached_download_and_send(bot, chat_id, url, dl_type, t):
     cache = load_json_file(CACHE_FILE)
     ckey = get_canonical_key(url)
@@ -1415,7 +1515,7 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
                     save_json_file(CACHE_FILE, cache)
     status_msg = await bot.send_message(chat_id=chat_id, text=t["fetching"].format(dl_type) + f"\n`{ckey}`", parse_mode="Markdown")
     try:
-        file_paths, res, size = await asyncio.to_thread(download_media_engine, url, dl_type, mtproto_limit_mb())
+        file_paths, res, size = await asyncio.to_thread(download_media_engine, url, dl_type, get_mtproto_max_mb())
         if not file_paths:
             raise ValueError("FILE_NOT_FOUND")
         cache = load_json_file(CACHE_FILE)
@@ -1461,7 +1561,7 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
         if "FILE_TOO_LARGE" in str(e):
             err = t["error_50mb"]
         elif "MTPROTO_OFF" in str(e):
-            err = "⚠️ Big files (over 50MB) need fast mode, which is offline right now. Please try again later."
+            err = "⚠️ Big files need fast mode, which is offline right now. Please try again later."
         elif "MTPROTO_PEER" in str(e):
             err = "⚠️ Send /start to this bot once, then send the link again."
         else:
@@ -1483,6 +1583,87 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     chat_id = query.message.chat_id
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
+    
+    if data == "admin_panel":
+        await bot_status_command(update, context)
+        await query.answer()
+        return
+    
+    if data == "back_to_menu":
+        await query.message.delete()
+        await update.effective_message.reply_text(t["welcome"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID), parse_mode="Markdown")
+        await query.answer()
+        return
+    
+    if data == "cmd_stats":
+        await query.message.reply_text("/stats")
+        await query.answer("Command sent!")
+        return
+    if data == "cmd_toggleads":
+        await query.message.reply_text("/toggleads")
+        await query.answer("Command sent!")
+        return
+    if data == "cmd_testad":
+        await query.message.reply_text("/testad")
+        await query.answer("Command sent!")
+        return
+    if data == "cmd_adinfo":
+        await query.message.reply_text("/adinfo")
+        await query.answer("Command sent!")
+        return
+    if data == "cmd_tokencheck":
+        await query.message.reply_text("/tokencheck")
+        await query.answer("Command sent!")
+        return
+    if data == "cmd_broadcast":
+        await query.message.reply_text("/broadcast")
+        await query.answer("Command sent!")
+        return
+    if data == "cmd_ban":
+        await query.message.reply_text("/ban <user_id>")
+        await query.answer("Command sent! Add user ID after /ban")
+        return
+    if data == "cmd_unban":
+        await query.message.reply_text("/unban <user_id>")
+        await query.answer("Command sent! Add user ID after /unban")
+        return
+    if data == "cmd_backup":
+        await query.message.reply_text("/backup")
+        await query.answer("Command sent!")
+        return
+    
+    if data == "config_disk":
+        await query.message.edit_text("💾 **Disk Space Configuration**\n\nSet minimum free disk space to maintain before pausing downloads:", reply_markup=get_disk_config_keyboard(), parse_mode="Markdown")
+        await query.answer()
+        return
+    
+    if data == "config_mtproto":
+        await query.message.edit_text("⚡ **MTProto Configuration**\n\nSet maximum upload file size allowed:", reply_markup=get_mtproto_config_keyboard(), parse_mode="Markdown")
+        await query.answer()
+        return
+    
+    if data.startswith("set_disk_"):
+        value = int(data.replace("set_disk_", ""))
+        config = load_json_file(CONFIG_FILE)
+        config["min_free_disk_mb"] = value
+        save_json_file(CONFIG_FILE, config)
+        await query.message.edit_text(f"✅ Min free disk space set to {value}MB", reply_markup=get_disk_config_keyboard(), parse_mode="Markdown")
+        await query.answer(f"Set to {value}MB")
+        return
+    
+    if data.startswith("set_mtproto_"):
+        value = int(data.replace("set_mtproto_", ""))
+        config = load_json_file(CONFIG_FILE)
+        config["mtproto_max_mb"] = value
+        save_json_file(CONFIG_FILE, config)
+        await query.message.edit_text(f"✅ MTProto max upload set to {value}MB", reply_markup=get_mtproto_config_keyboard(), parse_mode="Markdown")
+        await query.answer(f"Set to {value}MB")
+        return
+    
+    if data == "noop":
+        await query.answer()
+        return
+    
     if data.startswith("fl_"):
         states = load_json_file(FILE_LINK_STATE_FILE)
         state = states.get(str(user_id))
@@ -1538,7 +1719,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             items = state.get("items", [])
             if not items:
                 await query.answer("Send at least one file first", show_alert=True); return
-            # Creator pays exactly one free daily download, using the same profile store as the bot.
             if user_id != ADMIN_ID:
                 tokens = load_tokens(); profile = tokens.get(str(user_id))
                 if not isinstance(profile, dict):
@@ -1550,7 +1730,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 except: pass
                 remaining = int(profile.get("downloads_left", get_free_amount()) or 0)
                 if remaining <= 0:
-                    # Use the same existing ad-reward route as ordinary downloads.
                     await query.answer("Daily free limit reached. Watch an ad to earn more downloads.", show_alert=True)
                     assigned_network = get_global_ab_network(user_id)
                     if assigned_network == "monetag":
@@ -1825,11 +2004,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         else:
             pos = download_queue.qsize()+1
             await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, url, dl_type, t), 'kwargs': {}})
-            free_mb = get_free_disk_mb()
+            free_mb = shutil.disk_usage(".").free // (1024*1024)
             await context.bot.send_message(chat_id=chat_id, text=f"⏳ **Server Busy**\nActive: {active_downloads}/{MAX_CONCURRENT_SHORT}\nFree: {free_mb}MB\nQueue: #{pos}\nWill start auto!", parse_mode="Markdown")
         return
     if data == "admin_sim_ad" and user_id == ADMIN_ID:
-        # Admin-only: pretend the ad finished so you can test Check & Get +1 when the ad network has no ad to show
         try:
             r = requests.get(f"{WEB_BASE_URL}/monetag-reward", params={"userid": user_id, "secret": API_SECRET}, timeout=8)
             ok = r.status_code == 200
@@ -1903,7 +2081,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await context.bot.send_message(chat_id=chat_id, text=f"✅ Refilled +{reward}! Send your link again.")
         return
     if data.startswith("adsgram_complete_") or data in ("adsgram_resume_batch",):
-        # Old buttons from before the Mini App fix. They no longer give a reward.
         await query.answer("This button is outdated. Send your link again to get the new Watch Ad button.", show_alert=True)
         return
     if data == "stop_batch":
@@ -1970,7 +2147,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             if user_id != ADMIN_ID:
                 await query.answer("⏰ Open the link and watch the 20s timer first!", show_alert=True)
                 return
-            # Create new token with +1 for test ad demo (admin only)
             reward = get_reward_amount()
             tokens[user_str] = {
                 "user_id": int(user_id),
@@ -2001,7 +2177,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.answer("⏰ Finish 20s timer first! Watch ad via Open Link button!", show_alert=True)
             return
         msg_start, msg_end = token_data.get("msg_start",0), token_data.get("msg_end",0)
-        # FIX: Don't delete token! Keep it and set to +1 optimum (was deleting and recreating as 4!)
         reward = get_reward_amount()
         tokens[user_str]["downloads_left"] = reward
         tokens[user_str]["batch_downloads_left"] = reward * 5
@@ -2040,7 +2215,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             asyncio.create_task(schedule_deletion(context.bot, user_id, fwd_ids, 540))
         except Exception as e:
             await query.message.reply_text(f"❌ {e} (Bundle {msg_start}-{msg_end} + Tutorial {TUTORIAL_MESSAGE_ID})")
-
 
 TEST_AD_TEXT = (
     "🧪 AD PLACEMENT TEST (Monetag Rewarded - Mini App)\n\n"
@@ -2097,9 +2271,8 @@ async def send_adsterra_test(message, user_id):
     await message.reply_text(ADSTERRA_TEST_TEXT, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def send_test_ad(message, user_id):
-    """Test Ad follows the Ad Toggle Panel: Monetag, Adsterra, or the Auto split for this user."""
     if get_global_ab_network(user_id) == "monetag":
-        await send_adsgram_test(message, user_id)      # Monetag Mini App test
+        await send_adsgram_test(message, user_id)
     else:
         await send_adsterra_test(message, user_id)
 
@@ -2133,7 +2306,6 @@ async def test_ad_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_test_ad(update.message, update.effective_user.id)
 
 async def tokencheck_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin only: compares the bot token on Render with the one on PythonAnywhere WITHOUT showing either token."""
     if update.effective_user.id != ADMIN_ID:
         return
     mine = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()[:8] if BOT_TOKEN else "none"
@@ -2184,6 +2356,8 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("ban", ban_command))
         app.add_handler(CommandHandler("unban", unban_command))
         app.add_handler(CommandHandler("backup", backup_command))
+        app.add_handler(CommandHandler("setdisk", set_disk_command))
+        app.add_handler(CommandHandler("setmtproto", set_mtproto_command))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
         app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.ATTACHMENT, handle_user_upload))
@@ -2194,34 +2368,27 @@ def run_telegram_bot():
         asyncio.create_task(auto_backup_loop(app.bot))
         asyncio.create_task(queue_processor(app.bot))
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
-        print(f"Bot started! V24 Optimum +1 Vault={VIDEO_VAULT_ID} Backup={PRIVATE_CHANNEL_ID} Free {get_free_disk_mb()}MB")
+        print(f"Bot started! V24 Optimum +1 Vault={VIDEO_VAULT_ID} Backup={PRIVATE_CHANNEL_ID}")
         await asyncio.Event().wait()
     loop.run_until_complete(start_bot())
 
-# =====================================================================
-#  MTProto worker (Pyrogram) - lets the bot SEND files bigger than 50MB (up to 2GB)
-#  It runs quietly in its own thread. The normal bot hands big files to it; users never see a command.
-#  Needs: pip packages "pyrogram" and "tgcrypto", and env vars API_ID + API_HASH (from my.telegram.org).
-#  If any of that is missing the rest of the bot keeps working, and files over 50MB are politely refused.
-# =====================================================================
 try:
     API_ID = int(os.getenv("API_ID", "0") or "0")
 except ValueError:
     API_ID = 0
 API_HASH = os.getenv("API_HASH", "").strip()
-MTPROTO_MAX_MB = 300                # biggest file accepted (the host disk is small, merging needs spare room)
 BOT_API_LIMIT_BYTES = 49 * 1024 * 1024
 MTPROTO = {"client": None, "loop": None, "ready": threading.Event(), "no_parse": None}
 
 def mtproto_limit_mb():
-    """Biggest download allowed right now: shared fairly between the downloads that are already running."""
-    spare = get_free_disk_mb() - MIN_FREE_DISK_MB
+    max_mb = get_mtproto_max_mb()
+    min_free = get_min_free_disk_mb()
+    spare = (shutil.disk_usage(".").free // (1024*1024)) - min_free
     if not MTPROTO["ready"].is_set():
-        return 49                   # fast mode offline: keep the old 50MB behaviour
-    return int(max(50, min(MTPROTO_MAX_MB, spare // max(1, active_downloads))))
+        return 49
+    return int(max(50, min(max_mb, spare // max(1, active_downloads))))
 
 def probe_video(path):
-    """Duration, size and a small preview picture, so big uploads show up properly in Telegram."""
     import subprocess
     info = {"duration": 0, "width": 0, "height": 0, "thumb": None}
     try:
@@ -2263,13 +2430,11 @@ async def _tell_uploading(status_msg, path):
     if status_msg is None:
         return
     try:
-        await status_msg.edit_text(f"\U0001F4E4 Uploading {os.path.getsize(path)/(1024*1024):.0f}MB in fast mode... this can take a minute.")
+        await status_msg.edit_text(f"📤 Uploading {os.path.getsize(path)/(1024*1024):.0f}MB in fast mode... this can take a minute.")
     except Exception:
         pass
 
 async def send_video_file(bot, chat_id, target_id, path, caption, parse_mode, status_msg=None):
-    """Sends a video. Up to 49MB the normal way; bigger files through MTProto. Returns an object with
-    .message_id and .video.file_id so the code that calls it does not change."""
     if os.path.getsize(path) <= BOT_API_LIMIT_BYTES:
         with open(path, 'rb') as f:
             return await bot.send_video(chat_id=target_id, video=f, caption=caption, parse_mode=parse_mode)
@@ -2283,7 +2448,7 @@ async def send_video_file(bot, chat_id, target_id, path, caption, parse_mode, st
             os.remove(info["thumb"])
     media = msg.video or msg.document
     file_id, message_id = media.file_id, msg.id
-    if target_id != chat_id:                    # e.g. a linked channel: copy it there, then remove the temporary copy
+    if target_id != chat_id:
         copied = await bot.copy_message(chat_id=target_id, from_chat_id=chat_id, message_id=message_id)
         try:
             await bot.delete_message(chat_id=chat_id, message_id=message_id)
@@ -2302,12 +2467,10 @@ async def send_audio_file(bot, chat_id, path, caption, parse_mode, status_msg=No
     return types.SimpleNamespace(message_id=msg.id, audio=types.SimpleNamespace(file_id=media.file_id))
 
 def run_mtproto_worker():
-    """Runs the Pyrogram MTProto client in its own thread with its own event loop."""
     if not API_ID or not API_HASH:
         print("MTProto worker skipped: API_ID or API_HASH missing in environment variables.")
         return
     try:
-        # Imported here and renamed so they can never replace the python-telegram-bot names used by the rest of the file.
         from pyrogram import Client as PyroClient
     except ImportError:
         print("MTProto worker skipped: add pyrogram and tgcrypto to requirements.txt")
