@@ -84,6 +84,22 @@ FLOOD_LIMIT = 3
 FLOOD_WINDOW = 60
 FLOOD_COOLDOWN = 30
 
+# --- YOUTUBE FIX: Global Options to prevent hanging and bypass throttling ---
+YDL_OPTS_BASE = {
+    'quiet': True,
+    'no_warnings': True,
+    'skip_download': True,
+    'noplaylist': True,
+    'socket_timeout': 15,  # CRITICAL: Stops YouTube hanging forever
+    'retries': 2,
+    'fragment_retries': 2,
+    'extractor_args': {
+        'youtube': {
+            'player_client': ['ios', 'web'] # CRITICAL: Tricks YouTube to bypass throttling
+        }
+    }
+}
+
 LANGUAGES = {
     "en": {
         "welcome": "🚀 **WELCOME TO MICHAELBBC VAULT - ALL MEDIA DOWNLOADER! 🚀✨ FB, INSTA, TIKTOK, X, YOUTUBE! ✨\n\n🔥 WHAT I CAN DO:\n🎬 VIDEOS HD No Watermark!\n🎵 AUDIO MP3 192kbps!\n🖼️ IMAGES Scrape ALL!\n📝 SUBTITLES Auto!\n📦 BATCH 100+ Links!\n⚡ CACHE 1 Sec!\n💎 VAULT Forever!\n📤 UPLOAD FILES!\n🔗 FILE-TO-LINK: Create shareable links! (1 free download credit/link)\n🌐 Other features: Check the web app!\n\n👉 PASTE LINK TO START! 👇** 🚀\n\n🎬 Video, 🎵 Audio, 🖼️ Images, 📝 Subtitles\n📦 Batch Downloader (100+ links)\n⚡ Flash Drops\n💎 Exclusive Vaults\n📤 Upload files\n🔗 File-to-Link: Create shareable file links (costs 1 free download)\n🌐 Other features: Check the web app\n\n👉 Just paste ANY link: TikTok, Facebook, Instagram, Twitter/X, YouTube to start! ✨ All Media Supported!",
@@ -138,11 +154,10 @@ def save_json_file(filename, data):
     except Exception as e:
         logger.error(f"Save {filename}: {e}")
 
-# --- NEW UNIVERSAL RESOLVER WITH TELEGRAM DEBUGGING ---
+# --- UNIVERSAL RESOLVER WITH TELEGRAM DEBUGGING ---
 async def get_canonical_key(url: str, chat_id=None, bot=None):
     original_url = url
     
-    # Helper to send debug messages to Telegram
     async def send_debug(text):
         if chat_id and bot:
             try:
@@ -152,14 +167,12 @@ async def get_canonical_key(url: str, chat_id=None, bot=None):
 
     await send_debug(f"🔍 <b>Processing Link:</b>\n<code>{url}</code>")
 
-    # 1. Resolve short links
     short_link_domains = ["vt.tiktok.com", "vm.tiktok.com", "youtu.be/", "t.co/", "instagr.am/", "fb.watch/"]
     is_short_link = any(domain in url.lower() for domain in short_link_domains)
 
     if is_short_link:
         await send_debug("🔄 Resolving short link...")
         try:
-            # Mobile User-Agent often gets better redirects from TikTok
             headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15'}
             response = requests.get(url, headers=headers, allow_redirects=True, timeout=15)
             resolved_url = response.url
@@ -172,33 +185,46 @@ async def get_canonical_key(url: str, chat_id=None, bot=None):
         except Exception as e:
             await send_debug(f"❌ Redirect failed: {str(e)[:100]}")
 
-    # 2. REGEX EXTRACTION (The "Different Approach")
-    # This bypasses yt-dlp entirely for TikTok by looking for the ID in the URL path
-    # TikTok IDs are usually 19 digits long in the path /video/1234567890123456789
+    # REGEX FOR TIKTOK
     tiktok_match = re.search(r'/video/(\d{15,20})', url)
     if tiktok_match:
         vid_id = tiktok_match.group(1)
         await send_debug(f"🎯 <b>TikTok Regex Match!</b>\nVideo ID: <code>{vid_id}</code>")
         return f"tiktok_{vid_id}"
 
-    # 3. Try yt-dlp for other platforms (YouTube, etc.)
+    # YOUTUBE REGEX (Fallback if yt-dlp hangs)
+    # Matches youtube.com/watch?v=ID or youtu.be/ID
+    yt_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})(?:[&?]|$)', url)
+    if yt_match:
+        vid_id = yt_match.group(1)
+        await send_debug(f"🎯 <b>YouTube Regex Match!</b>\nVideo ID: <code>{vid_id}</code>")
+        return f"youtube_{vid_id}"
+
+    # Try yt-dlp for other platforms
     await send_debug("🤖 Trying yt-dlp extraction...")
     try:
-        ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            if info:
-                if 'entries' in info and info['entries']:
-                    info = info['entries'][0]
-                extractor = info.get('extractor', 'generic').replace(':', '').replace(' ', '')
-                vid_id = info.get('id', '')
-                if vid_id:
-                    await send_debug(f"✅ yt-dlp found ID: <code>{vid_id}</code>")
-                    return f"{extractor}_{vid_id}"
+        # Run yt-dlp in a separate thread with a strict timeout to prevent bot freezing
+        loop = asyncio.get_running_loop()
+        def extract():
+            with yt_dlp.YoutubeDL(YDL_OPTS_BASE) as ydl:
+                return ydl.extract_info(url, download=False)
+        
+        info = await asyncio.wait_for(loop.run_in_executor(None, extract), timeout=20)
+        
+        if info:
+            if 'entries' in info and info['entries']:
+                info = info['entries'][0]
+            extractor = info.get('extractor', 'generic').replace(':', '').replace(' ', '')
+            vid_id = info.get('id', '')
+            if vid_id:
+                await send_debug(f"✅ yt-dlp found ID: <code>{vid_id}</code>")
+                return f"{extractor}_{vid_id}"
+    except asyncio.TimeoutError:
+        await send_debug("⚠️ yt-dlp timed out (YouTube throttling?). Using URL hash.")
     except Exception as e:
         await send_debug(f"⚠️ yt-dlp failed: {str(e)[:50]}")
 
-    # 4. Fallback: Hash the resolved URL
+    # Fallback: Hash the resolved URL
     await send_debug("🎲 Using URL hash fallback.")
     clean = url.split('?')[0].split('&')[0].lower().strip('/').replace('https://','').replace('http://','')
     h = hashlib.md5(clean.encode()).hexdigest()[:12]
@@ -424,8 +450,9 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
         except:
             pass
 
-def fetch_url_metadata(url):
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True}
+# --- FIXED METADATA FETCHER (Prevents Bot Freezing) ---
+def fetch_url_metadata_sync(url):
+    ydl_opts = dict(YDL_OPTS_BASE)
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -436,7 +463,21 @@ def fetch_url_metadata(url):
             mins, secs = divmod(duration, 60)
             dur = f"{mins}m {secs}s" if mins else f"{secs}s"
             return title, dur
-    except:
+    except Exception:
+        return "Media Link", "N/A"
+
+async def fetch_url_metadata(url):
+    loop = asyncio.get_running_loop()
+    try:
+        # Force a 20-second timeout. If yt-dlp hangs, the bot stays alive!
+        title, dur = await asyncio.wait_for(
+            loop.run_in_executor(None, lambda: fetch_url_metadata_sync(url)), 
+            timeout=20
+        )
+        return title, dur
+    except asyncio.TimeoutError:
+        return "Media Link (Timeout)", "N/A"
+    except Exception:
         return "Media Link", "N/A"
 
 def scrape_html_images(url, cookiefile=None):
@@ -470,9 +511,15 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
         cookiefile = "tiktok_cookies.txt"
     elif os.path.exists("cookies.txt"):
         cookiefile = "cookies.txt"
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL}
+    
+    # Use the fixed YDL_OPTS_BASE which includes the YouTube bypass
+    ydl_opts = dict(YDL_OPTS_BASE)
+    ydl_opts['http_headers'] = http_headers
+    ydl_opts['proxy'] = PROXY_URL
+    
     if cookiefile:
         ydl_opts['cookiefile'] = cookiefile
+        
     if download_type == 'audio':
         ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -826,7 +873,6 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             break
         status_msg = await bot.send_message(chat_id=chat_id, text=f"📥 [{index}/{len(urls)}] {t['dl_video']}")
         try:
-            # UPDATED CALLER
             ckey = await get_canonical_key(url, chat_id, bot)
             cache = load_json_file(CACHE_FILE)
             if ckey in cache:
@@ -1168,7 +1214,10 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
     url = extracted_urls[0]
     status_preview = await update.message.reply_text("🔍 Checking link...")
-    title, dur = fetch_url_metadata(url)
+    
+    # FIXED: Use async wrapper with timeout so bot doesn't freeze on YouTube
+    title, dur = await fetch_url_metadata(url)
+    
     try: await status_preview.delete()
     except: pass
     payload_key = f"single_{user_id}_{int(time.time())}"
@@ -1389,7 +1438,6 @@ async def set_mtproto_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def cached_download_and_send(bot, chat_id, url, dl_type, t):
     cache = load_json_file(CACHE_FILE)
-    # UPDATED CALLER
     ckey = await get_canonical_key(url, chat_id, bot)
     if ckey in cache:
         try:
@@ -1774,7 +1822,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         elif fmt_type == 'img': dl_type='images'
         elif fmt_type == 'sub': dl_type='subtitles'
         
-        # UPDATED CALLER
         ckey = await get_canonical_key(url, chat_id, context.bot)
         cache = load_json_file(CACHE_FILE)
         if ckey in cache:
