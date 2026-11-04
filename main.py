@@ -84,7 +84,7 @@ LANGUAGES = {
         "ask_format": "👇 **AWESOME! What format you want? Pick below! 🎯 Video=watch, Audio=music!**",
         "fetching": "📥 **Fetching your {}... Hang tight! ⏳✨ Working magic! 🚀**",
         "error_generic": "❌ Oops! Failed! 😢 Link private/blocked. Try public link! 🔓💡",
-        "error_50mb": "❌ Too Big! 😅 This video is over 300MB even at low quality. Try a shorter one! ✂️", "error_no_img": "❌ No images found! 😢 Try another link! 🖼️",
+        "error_50mb": "❌ Too Big! 😅 This video exceeds your size limit. Try a shorter one! ✂️", "error_no_img": "❌ No images found! 😢 Try another link! 🖼️",
         "images_received": "⏳ **{} Images received.**",
         "select_lang": "🌍 Select your language! 🌍✨ Choose below! 👇", "lang_set": "✅ Language set! Enjoy magic! 🎉✨",
         "batch_detected": "📦 **Batch Detected ({} links)**\nWhat format?",
@@ -99,7 +99,7 @@ LANGUAGES = {
         "batch_done": "🏁 **Done!** ✅ {} ❌ {}\n📥 {} files here.",
         "batch_done_chan": "🏁 **Done!** ✅ {} ❌ {}\n📢 {} files forwarded!",
         "dl_video": "📥 Downloading video...", "dl_audio": "📥 Extracting audio...", "dl_image": "📥 Scraping images...", "dl_sub": "📥 Fetching subtitles...",
-        "failed_50": "❌ >300MB", "failed_blocked": "❌ Blocked/private", "failed_generic": "❌ Failed",
+        "failed_50": "❌ Too Large", "failed_blocked": "❌ Blocked/private", "failed_generic": "❌ Failed",
         "menu_lang": "🌍 Language", "menu_stats": "📊 My Stats", "menu_help": "💬 Support / FAQ", "menu_join": "📢 Join Channel",
         "menu_uploads": "🍿 Fan Uploads", "menu_upload": "📤 Upload File",
         "admin_upload_prompt": "📂 **Fan Uploads Inbox**",
@@ -415,7 +415,7 @@ def scrape_html_images(url, cookiefile=None):
 
 def download_media_engine(url: str, download_type: str, max_mb=None):
     """Downloads one item. Files up to max_mb are accepted (anything over 49MB is uploaded through MTProto later)."""
-    cap_mb = int(max_mb or MTPROTO_MAX_MB)
+    cap_mb = int(max_mb or mtproto_max_mb_config())
     cap_bytes = cap_mb * 1024 * 1024
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
@@ -547,15 +547,40 @@ def set_free_amount(val):
     except:
         pass
 
-def get_free_disk_mb():
+# --- CONFIGURABLE DISK CAPACITY & MTPROTO LIMIT HELPERS ---
+def total_disk_capacity_mb():
     try:
-        used = get_downloads_usage_mb()
-        return max(0, 512 - used)
+        cfg = load_json_file(CONFIG_FILE)
+        return int(cfg.get("total_disk_mb", 512))
     except:
         return 512
 
+def set_total_disk_capacity_mb(val):
+    cfg = load_json_file(CONFIG_FILE)
+    cfg["total_disk_mb"] = int(val)
+    save_json_file(CONFIG_FILE, cfg)
+
+def mtproto_max_mb_config():
+    try:
+        cfg = load_json_file(CONFIG_FILE)
+        return int(cfg.get("mtproto_max_mb", 300))
+    except:
+        return 300
+
+def set_mtproto_max_mb_config(val):
+    cfg = load_json_file(CONFIG_FILE)
+    cfg["mtproto_max_mb"] = int(val)
+    save_json_file(CONFIG_FILE, cfg)
+
+def get_free_disk_mb():
+    try:
+        used = get_downloads_usage_mb()
+        capacity = total_disk_capacity_mb()
+        return max(0, capacity - used)
+    except:
+        return total_disk_capacity_mb()
+
 def deduct_download_counter(user_id, is_batch=False):
-    # FIX: Only call server once - no local double save - prevents -2 bug
     try:
         requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": is_batch}, headers=API_HEADERS, timeout=3)
     except:
@@ -1271,21 +1296,50 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         top_text="No activity yet"
     free_mb = get_free_disk_mb()
     used_mb = get_downloads_usage_mb()
+    cap_mb = total_disk_capacity_mb()
+    mt_max = mtproto_max_mb_config()
     cache = load_json_file(CACHE_FILE)
     flood_data = load_json_file(FLOOD_FILE)
     banned = load_json_file(BANNED_FILE)
     total_hits = sum(v.get("hits",0) for v in cache.values() if isinstance(v, dict))
     host_free = shutil.disk_usage(".").free // (1024*1024) if os.path.exists(".") else 0
-    txt = (f"📊 **ADVANCED ADMIN (via Button)**\n\n• Total: **{total_users}**\n• 24h Active: **{active_24hr}**\n• Ad Mode: **{mode}**\n\n📢 **Ad Split:**\n• Monetag: **{adsgram_count}**\n• Adsterra: **{adsterra_count}**\n\n🖥️ **Render 512MB Real:**\n• Used: **{used_mb}MB**\n• Free: **{free_mb}MB / 512MB**\n• Host: **{host_free}MB** (ignore)\n• Active: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\n• Queue: **{download_queue.qsize()}**\n• Cache: **{len(cache)}** files\n• Hits: **{total_hits}** saved\n• Flood: **{len(flood_data)}**\n• Banned: **{len(banned)}**\n\n🎞️ **Video Vault:** `{VIDEO_VAULT_ID}`\n🏆 **Top 10:**\n{top_text}\n\n✅ Clause 12 Fixed: +1 realistic\n✅ Clause 13 Fixed: /testad verifiable")
+    txt = (f"📊 **ADVANCED ADMIN (via Button)**\n\n• Total: **{total_users}**\n• 24h Active: **{active_24hr}**\n• Ad Mode: **{mode}**\n\n📢 **Ad Split:**\n• Monetag: **{adsgram_count}**\n• Adsterra: **{adsterra_count}**\n\n🖥️ **Storage & Limits:**\n• Config Capacity: **{cap_mb}MB**\n• Used: **{used_mb}MB**\n• Free Space Calc: **{free_mb}MB**\n• MTProto Max Size: **{mt_max}MB**\n• Host: **{host_free}MB** (ignore)\n• Active: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\n• Queue: **{download_queue.qsize()}**\n• Cache: **{len(cache)}** files\n• Hits: **{total_hits}** saved\n• Flood: **{len(flood_data)}**\n• Banned: **{len(banned)}**\n\n🎞️ **Video Vault:** `{VIDEO_VAULT_ID}`\n🏆 **Top 10:**\n{top_text}\n\n✅ Clause 12 Fixed: +1 realistic\n✅ Clause 13 Fixed: /testad verifiable")
     await update.message.reply_text(txt, parse_mode="Markdown")
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     track_user_activity(update.message.from_user.id)
+    user_id = update.message.from_user.id
     config = load_json_file(CONFIG_FILE)
     mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
     free_mb = get_free_disk_mb()
+    cap_mb = total_disk_capacity_mb()
+    mt_max = mtproto_max_mb_config()
     cache = load_json_file(CACHE_FILE)
-    await update.message.reply_text(f"🟢 **Status V38 Monetag**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic (Clause 12 fix)\nTest: /testad (Clause 13 fix)\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
+    
+    status_text = (f"🟢 **Status V38 Monetag**\n"
+                   f"Mode: **{mode}**\n"
+                   f"Total Capacity: **{cap_mb}MB** | Free: **{free_mb}MB**\n"
+                   f"MTProto Max Limit: **{mt_max}MB**\n"
+                   f"DL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\n"
+                   f"Queue: **{download_queue.qsize()}**\n"
+                   f"Cache: **{len(cache)}**\n"
+                   f"Vault: **{VIDEO_VAULT_ID}**\n"
+                   f"Reward: +1 realistic (Clause 12 fix)\n"
+                   f"Test: /testad (Clause 13 fix)\n"
+                   f"Flood: **ON**\n"
+                   f"Backup: **6hr to {PRIVATE_CHANNEL_ID}**")
+    
+    # If the user is the admin, add interactive configuration buttons directly under Bot Status
+    if user_id == ADMIN_ID:
+        keyboard = [
+            [InlineKeyboardButton("💾 Set Disk Size (512MB)", callback_data="set_disk_512"),
+             InlineKeyboardButton("💾 Set Disk Size (5GB)", callback_data="set_disk_5120")],
+            [InlineKeyboardButton("🚀 MTProto Limit (300MB)", callback_data="set_mt_300"),
+             InlineKeyboardButton("🚀 MTProto Limit (1500MB)", callback_data="set_mt_1500")]
+        ]
+        await update.message.reply_text(status_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    else:
+        await update.message.reply_text(status_text, parse_mode="Markdown")
 
 async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID:
@@ -1480,6 +1534,30 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     chat_id = query.message.chat_id
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
+    
+    # --- ADMIN CONFIGURATION CALLBACKS FOR DISK & MTPROTO LIMITS ---
+    if user_id == ADMIN_ID:
+        if data == "set_disk_512":
+            set_total_disk_capacity_mb(512)
+            await query.answer("✅ Total Disk Capacity updated to 512 MB", show_alert=True)
+            await status_command(update, context)
+            return
+        elif data == "set_disk_5120":
+            set_total_disk_capacity_mb(5120)
+            await query.answer("✅ Total Disk Capacity updated to 5120 MB (5 GB)", show_alert=True)
+            await status_command(update, context)
+            return
+        elif data == "set_mt_300":
+            set_mtproto_max_mb_config(300)
+            await query.answer("✅ MTProto Max File Size updated to 300 MB", show_alert=True)
+            await status_command(update, context)
+            return
+        elif data == "set_mt_1500":
+            set_mtproto_max_mb_config(1500)
+            await query.answer("✅ MTProto Max File Size updated to 1500 MB (1.5 GB)", show_alert=True)
+            await status_command(update, context)
+            return
+
     if data.startswith("fl_"):
         states = load_json_file(FILE_LINK_STATE_FILE)
         state = states.get(str(user_id))
@@ -2206,16 +2284,16 @@ try:
 except ValueError:
     API_ID = 0
 API_HASH = os.getenv("API_HASH", "").strip()
-MTPROTO_MAX_MB = 300                # biggest file accepted (the host disk is small, merging needs spare room)
 BOT_API_LIMIT_BYTES = 49 * 1024 * 1024
 MTPROTO = {"client": None, "loop": None, "ready": threading.Event(), "no_parse": None}
 
 def mtproto_limit_mb():
     """Biggest download allowed right now: shared fairly between the downloads that are already running."""
     spare = get_free_disk_mb() - MIN_FREE_DISK_MB
+    max_mb = mtproto_max_mb_config()
     if not MTPROTO["ready"].is_set():
         return 49                   # fast mode offline: keep the old 50MB behaviour
-    return int(max(50, min(MTPROTO_MAX_MB, spare // max(1, active_downloads))))
+    return int(max(50, min(max_mb, spare // max(1, active_downloads))))
 
 def probe_video(path):
     """Duration, size and a small preview picture, so big uploads show up properly in Telegram."""
