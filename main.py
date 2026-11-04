@@ -1256,17 +1256,34 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text("🔄 Restoring cache from forwarded file...")
         try:
             file = await context.bot.get_file(document.file_id)
-            await file.download_to_drive(CACHE_FILE)
-            cache = load_json_file(CACHE_FILE)
+            # Download to a temporary location first to verify it's valid JSON
+            temp_path = "temp_restore.json"
+            await file.download_to_drive(temp_path)
+            
+            # Try to load and verify the JSON
+            with open(temp_path, 'r') as f:
+                cache_data = json.load(f)
+            
+            # If valid, move it to the actual cache file
+            os.replace(temp_path, CACHE_FILE)
+            
             await update.message.reply_text(
-                f"✅ **Cache Restored Successfully!**\n\n"
-                f"📊 Restored **{len(cache)}** cached items.\n"
+                f"✅ <b>Cache Restored Successfully!</b>\n\n"
+                f"📊 Restored <b>{len(cache_data)}</b> cached items.\n"
                 f"Bot will now use cached file_ids for instant downloads! ⚡",
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
+            return
+        except json.JSONDecodeError:
+            await update.message.reply_text("❌ Restore failed: The file is not a valid JSON file.")
+            # Clean up temp file if it exists
+            if os.path.exists("temp_restore.json"):
+                os.remove("temp_restore.json")
             return
         except Exception as e:
             await update.message.reply_text(f"❌ Restore failed: {str(e)}")
+            if os.path.exists("temp_restore.json"):
+                os.remove("temp_restore.json")
             return
 
     if not document.file_name or not document.file_name.endswith('.txt'):
