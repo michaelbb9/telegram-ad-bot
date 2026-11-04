@@ -507,7 +507,7 @@ def get_main_keyboard(lang_code, is_admin):
         keyboard.append([KeyboardButton("/testad"), KeyboardButton("/adinfo")])
         keyboard.append([KeyboardButton("/tokencheck"), KeyboardButton("/broadcast")])
         keyboard.append([KeyboardButton("/ban"), KeyboardButton("/unban")])
-        keyboard.append([KeyboardButton("/backup")])
+        keyboard.append([KeyboardButton("/backup"), KeyboardButton("/restore")])
         keyboard.append([KeyboardButton("💾 Disk Config"), KeyboardButton("⚡ MTProto Config")])
         keyboard.append([KeyboardButton(t["menu_uploads"]), KeyboardButton("⚡ Create Flash Drop")])
         keyboard.append([KeyboardButton("🎁 Set Reward (1/2/3/5)"), KeyboardButton("📦 Set Free DL (2/3/4/5)")])
@@ -1248,7 +1248,27 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
     if await file_link_add_media(update, context):
         return
+        
     document = update.message.document
+    
+    # NEW: Handle cache restore via forwarded file from admin
+    if user_id == ADMIN_ID and document.file_name == "download_cache.json":
+        await update.message.reply_text("🔄 Restoring cache from forwarded file...")
+        try:
+            file = await context.bot.get_file(document.file_id)
+            await file.download_to_drive(CACHE_FILE)
+            cache = load_json_file(CACHE_FILE)
+            await update.message.reply_text(
+                f"✅ **Cache Restored Successfully!**\n\n"
+                f"📊 Restored **{len(cache)}** cached items.\n"
+                f"Bot will now use cached file_ids for instant downloads! ⚡",
+                parse_mode="Markdown"
+            )
+            return
+        except Exception as e:
+            await update.message.reply_text(f"❌ Restore failed: {str(e)}")
+            return
+
     if not document.file_name or not document.file_name.endswith('.txt'):
         await handle_user_upload(update, context)
         return
@@ -1312,6 +1332,19 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     free_mb = shutil.disk_usage(".").free // (1024*1024)
     cache = load_json_file(CACHE_FILE)
     await update.message.reply_text(f"🟢 **Status V38 Monetag**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic (Clause 12 fix)\nTest: /testad (Clause 13 fix)\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
+
+async def restore_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Instruct admin on how to restore the cache"""
+    if update.effective_user.id != ADMIN_ID:
+        return
+    await update.message.reply_text(
+        "🔄 **Restore Cache**\n\n"
+        "1. Go to your private backup channel.\n"
+        "2. Find the latest `download_cache.json` backup file.\n"
+        "3. **Forward** that file directly to this bot.\n\n"
+        "I will automatically detect it and restore your cache instantly! ⚡",
+        parse_mode="Markdown"
+    )
 
 async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID:
@@ -2243,6 +2276,7 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("ban", ban_command))
         app.add_handler(CommandHandler("unban", unban_command))
         app.add_handler(CommandHandler("backup", backup_command))
+        app.add_handler(CommandHandler("restore", restore_command))
         app.add_handler(CommandHandler("setdisk", set_disk_command))
         app.add_handler(CommandHandler("setmtproto", set_mtproto_command))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
