@@ -61,6 +61,7 @@ REWARD_FILE = "reward_config.json"
 FILE_LINKS_FILE = "file_links.json"
 FILE_LINK_STATE_FILE = "file_link_states.json"
 FILE_LINK_STORAGE_ID = -1003906423952
+ADMIN_INPUT_STATE_FILE = "admin_input_states.json"
 
 active_batch_sessions = {}
 pending_batch_payloads = {}
@@ -90,7 +91,6 @@ LANGUAGES = {
         "batch_detected": "📦 **Batch Detected ({} links)**\nWhat format?",
         "batch_dest": "📦 **Where to send?**",
         "btn_chat": "📥 In Chat", "btn_chan": "📢 To Channel",
-        # CLAUSE 12 FIX: Changed 30s to 20s and +4 to +1 optimum realistic reward
         "limit_reached": "⚠️ **Limit Reached! 🚧😅 You used 4 FREE! 🎬 Watch 20s ad → Get +1 download! Realistic reward ♻️✨**",
         "refill_btn": "🔓 Open Link & Refill +1",
         "join_btn": "📢 Join Channel", "check_btn": "💜 Check Balance",
@@ -187,7 +187,7 @@ async def auto_backup_loop(bot):
 def get_cleaner_interval():
     try:
         cfg = load_json_file(CONFIG_FILE)
-        return int(cfg.get("cleaner_interval_min", 5)) * 60  # stored in minutes, converted to seconds
+        return int(cfg.get("cleaner_interval_min", 5)) * 60  
     except:
         return 5 * 60
 
@@ -199,7 +199,7 @@ def set_cleaner_interval(mins):
 def get_cleaner_age():
     try:
         cfg = load_json_file(CONFIG_FILE)
-        return int(cfg.get("cleaner_age_min", 3)) * 60  # stored in minutes, converted to seconds
+        return int(cfg.get("cleaner_age_min", 3)) * 60  
     except:
         return 3 * 60
 
@@ -232,14 +232,6 @@ async def disk_cleaner_loop():
                 logger.info(f"Cleaner deleted {deleted} files older than {max_age//60} mins")
         except Exception as e:
             logger.error(f"Cleaner: {e}")
-
-def restore_cache_info():
-    try:
-        cache = load_json_file(CACHE_FILE)
-        if len(cache)==0:
-            logger.info("Cache empty after clear/restart - vault channel has 4 vids but index reset. Use /backup to restore from private channel")
-    except:
-        pass
 
 def clean_downloads_startup():
     try:
@@ -313,17 +305,13 @@ def save_tokens(tokens):
     except Exception as e:
         logger.error(f"Save tokens: {e}")
 
-
-# ===================== ADSGRAM MINI APP HELPERS =====================
 def adsgram_start(user_id, kind="wall", msg_start=0, msg_end=0):
-    """Ask the Flask server for a one-time nonce for this user's ad. Returns nonce or None."""
     try:
         r = requests.post(f"{WEB_BASE_URL}/monetag-start",
                           json={"user_id": int(user_id), "kind": kind, "msg_start": int(msg_start),
                                 "msg_end": int(msg_end), "secret": API_SECRET}, timeout=8)
         if r.status_code == 200:
             return r.json().get("nonce")
-        logger.error(f"adsgram_start HTTP {r.status_code}: {r.text[:200]}")
     except Exception as e:
         logger.error(f"adsgram_start: {e}")
     return None
@@ -338,7 +326,6 @@ def adsgram_status(user_id):
     return {"status": "error"}
 
 def adsgram_keyboard(user_id, kind="wall", msg_start=0, msg_end=0, extra_rows=None):
-    """Keyboard whose first button opens the Adsgram ad INSIDE a Telegram Mini App."""
     nonce = adsgram_start(user_id, kind, msg_start, msg_end)
     if not nonce:
         return None
@@ -354,11 +341,10 @@ def adsgram_keyboard(user_id, kind="wall", msg_start=0, msg_end=0, extra_rows=No
     return InlineKeyboardMarkup(rows)
 
 async def report_vault_delivery(user_id, msg_start, msg_end, delivered_message_ids):
-    """Report one completed catalogue delivery; Flask deduplicates retries."""
     if not delivered_message_ids:
         return
     try:
-        response = requests.post(
+        requests.post(
             f"{WEB_BASE_URL}/api/item-delivered",
             json={
                 "user_id": int(user_id),
@@ -370,10 +356,7 @@ async def report_vault_delivery(user_id, msg_start, msg_end, delivered_message_i
             headers=API_HEADERS,
             timeout=8,
         )
-        if response.status_code != 200:
-            logger.warning("Vault analytics rejected delivery: %s %s", response.status_code, response.text[:200])
     except Exception as e:
-        # Delivery must never fail just because analytics is temporarily offline.
         logger.warning("Vault analytics report failed: %s", e)
 
 async def deliver_bundle(bot, user_id, msg_start, msg_end):
@@ -441,7 +424,6 @@ def scrape_html_images(url, cookiefile=None):
     return None
 
 def download_media_engine(url: str, download_type: str, max_mb=None):
-    """Downloads one item. Files up to max_mb are accepted (anything over 49MB is uploaded through MTProto later)."""
     cap_mb = int(max_mb or mtproto_max_mb_config())
     cap_bytes = cap_mb * 1024 * 1024
     output_dir = "downloads"
@@ -478,7 +460,6 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                 return [path], "Image", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("NO_IMAGES")
     else:
-        # Best quality first, then step down until the file fits under the limit.
         tiers = ["best",
                  "bv*[height<=720]+ba/b[height<=720]",
                  "bv*[height<=480]+ba/b[height<=480]",
@@ -502,7 +483,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                             too_big = True
                             continue
                         return [path], f"{info.get('height', 'HD')}p", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
-                    too_big = True              # nothing was written: the size limit skipped this quality
+                    too_big = True              
             except Exception as e:
                 if "Unsupported URL" in str(e) or "403" in str(e):
                     raise e
@@ -510,7 +491,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                 continue
         if too_big or last_err is None:
             raise ValueError("FILE_TOO_LARGE")
-        raise last_err                           # every quality failed for a real reason (private, blocked, ...)
+        raise last_err                           
 
 def get_main_keyboard(lang_code, is_admin):
     t = LANGUAGES.get(lang_code, LANGUAGES["en"])
@@ -671,7 +652,6 @@ def file_link_keyboard(state):
     return InlineKeyboardMarkup(kb)
 
 async def file_link_add_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Capture an incoming file for a user's active File-to-Link session."""
     if not update.effective_message or not update.effective_user:
         return False
     uid = str(update.effective_user.id)
@@ -693,7 +673,6 @@ async def file_link_add_media(update: Update, context: ContextTypes.DEFAULT_TYPE
     return True
 
 async def file_to_link_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Start File-to-Link collection through the Telegram command/menu."""
     user_id = update.effective_user.id
     if is_banned(user_id):
         await update.effective_message.reply_text("🚫 You are banned.")
@@ -709,7 +688,6 @@ async def file_to_link_command(update: Update, context: ContextTypes.DEFAULT_TYP
         reply_markup=file_link_keyboard(state), parse_mode="Markdown")
 
 async def file_link_deep_link(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str) -> None:
-    """Deliver stored files to the recipient; no creator credit or ad wall is applied."""
     links = load_json_file(FILE_LINKS_FILE)
     record = links.get(token)
     if not record or (record.get("expires_at") and time.time() > record["expires_at"]):
@@ -727,7 +705,6 @@ async def file_link_deep_link(update: Update, context: ContextTypes.DEFAULT_TYPE
     await send_file_link_payload(update, context, token, record)
 
 async def send_file_link_payload(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str, record: dict) -> None:
-    """Check required channel, then copy stored media to the recipient."""
     user_id = update.effective_user.id
     try:
         member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_USERNAME, user_id=user_id)
@@ -808,35 +785,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch", url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
     if user_id == ADMIN_ID:
         keyboard.append([InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")])
-    tutorial_sent = False
     try:
-        tut = await context.bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-        tutorial_sent = True
+        await context.bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
         await asyncio.sleep(0.2)
     except Exception as e1:
         logger.error(f"Forward failed: {e1}")
-        try:
-            tut = await context.bot.copy_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-            tutorial_sent = True
-        except Exception as e2:
-            logger.error(f"Copy failed: {e2}")
-            try:
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text="📺 **TUTORIAL: How to bypass Adsterra link (20s) - Optimum +1**\n\n"
-                    "1️⃣ Click **Open Link & Watch Timer 20s**\n"
-                    "2️⃣ Click **OPEN** on popup\n"
-                    "3️⃣ Stay 20 seconds on ad page\n"
-                    "4️⃣ Come back to bot\n"
-                    "5️⃣ Click **Check Balance** → Get +1 download (realistic)!\n\n"
-                    "⚠️ If tutorial video 108 missing from private channel -1004347828512, re-upload it!",
-                    parse_mode="Markdown"
-                )
-                tutorial_sent = True
-            except:
-                pass
 
-    await update.message.reply_text("👇 **CONTENT LOCKED 🔒 - Tutorial video above! Watch how to bypass!**" + ("" if tutorial_sent else "\n\n⚠️ Tutorial video 108 missing! Make bot admin in -1004347828512 and ensure message 108 exists!"), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await update.message.reply_text("👇 **CONTENT LOCKED 🔒 - Tutorial video above! Watch how to bypass!**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0):
     if not urls:
@@ -889,7 +844,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     continue
                 except:
                     pass
-            file_paths, res, size = await asyncio.to_thread(download_media_engine, url, download_type, mtproto_limit_mb())
+            file_paths, res, size = await asyncio.to_thread(download_media_engine, url, download_type, mtproto_max_mb_config())
             if file_paths and os.path.exists(file_paths[0]):
                 sent = await send_video_file(bot, chat_id, target_destination_id, file_paths[0], f"Item {index}/{len(urls)} Size {size}", None, status_msg)
                 if target_destination_id == chat_id:
@@ -1004,6 +959,34 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if is_banned(user_id):
         await update.message.reply_text("🚫 Banned")
         return
+        
+    # --- ADMIN CONFIGURATION TYPING INPUT HANDLER ---
+    if user_id == ADMIN_ID:
+        admin_states = load_json_file(ADMIN_INPUT_STATE_FILE)
+        if str(ADMIN_ID) in admin_states:
+            st = admin_states[str(ADMIN_ID)]
+            del admin_states[str(ADMIN_ID)]
+            save_json_file(ADMIN_INPUT_STATE_FILE, admin_states)
+            mode = st.get("mode")
+            try:
+                val = int(text.strip())
+                if mode == "set_disk":
+                    set_total_disk_capacity_mb(val)
+                    await update.message.reply_text(f"✅ Total Disk Capacity successfully updated to **{val} MB**!", parse_mode="Markdown")
+                elif mode == "set_mt":
+                    set_mtproto_max_mb_config(val)
+                    await update.message.reply_text(f"✅ MTProto Max File Size successfully updated to **{val} MB**!", parse_mode="Markdown")
+                elif mode == "set_cleaner_int":
+                    set_cleaner_interval(val)
+                    await update.message.reply_text(f"✅ Cleaner check frequency updated to every **{val} minutes**!", parse_mode="Markdown")
+                elif mode == "set_cleaner_age":
+                    set_cleaner_age(val)
+                    await update.message.reply_text(f"✅ Cleaner file age threshold updated to **{val} minutes**!", parse_mode="Markdown")
+                return
+            except ValueError:
+                await update.message.reply_text("❌ Invalid number. Please type a valid integer number.")
+                return
+
     if "http" in text.lower():
         flood, wait = is_flood(user_id)
         if flood:
@@ -1206,13 +1189,10 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 return
             else:
                 try:
-                    tut = await context.bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+                    await context.bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
                     await asyncio.sleep(0.2)
                 except:
-                    try:
-                        tut = await context.bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-                    except:
-                        await context.bot.send_message(chat_id=chat_id, text="📺 TUTORIAL: Open Link & Watch 20s → Stay 20s → Come back → Check Balance = +1 download (realistic)! If video missing, re-upload message 108 to -1004347828512", parse_mode="Markdown")
+                    pass
                 bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
                 keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1 ⏰ 20s", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")]]
                 await update.message.reply_text(t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
@@ -1355,14 +1335,10 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     
     if user_id == ADMIN_ID:
         keyboard = [
-            [InlineKeyboardButton("💾 Disk: 512MB", callback_data="set_disk_512"),
-             InlineKeyboardButton("💾 Disk: 5GB", callback_data="set_disk_5120")],
-            [InlineKeyboardButton("🚀 MTProto: 300MB", callback_data="set_mt_300"),
-             InlineKeyboardButton("🚀 MTProto: 1500MB", callback_data="set_mt_1500")],
-            [InlineKeyboardButton("🧹 Cleaner Run: 5m", callback_data="set_cint_5"),
-             InlineKeyboardButton("🧹 Cleaner Run: 10m", callback_data="set_cint_10")],
-            [InlineKeyboardButton("🗑️ File Age: 3m", callback_data="set_cage_3"),
-             InlineKeyboardButton("🗑️ File Age: 10m", callback_data="set_cage_10")],
+            [InlineKeyboardButton("💾 Set Disk Capacity (Type MB)", callback_data="type_disk_mb")],
+            [InlineKeyboardButton("🚀 Set MTProto Max Size (Type MB)", callback_data="type_mt_mb")],
+            [InlineKeyboardButton("🧹 Set Cleaner Interval (Type Min)", callback_data="type_cint_min")],
+            [InlineKeyboardButton("🗑️ Set File Age Limit (Type Min)", callback_data="type_cage_min")],
             [InlineKeyboardButton("🔐 Token Check", callback_data="btn_tokencheck"),
              InlineKeyboardButton("📦 Run Backup", callback_data="btn_backup")],
             [InlineKeyboardButton("📢 Ad Info", callback_data="btn_adinfo"),
@@ -1373,7 +1349,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(status_text, parse_mode="Markdown")
 
 async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message.from_user.id != ADMIN_ID:
+    if update.effective_user.id != ADMIN_ID:
         return
     config = load_json_file(CONFIG_FILE)
     mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
@@ -1447,11 +1423,11 @@ async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(f"❌ {e}")
 
 async def backup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message.from_user.id != ADMIN_ID:
+    if update.effective_user.id != ADMIN_ID:
         return
-    await update.message.reply_text(f"📦 Backing up to {PRIVATE_CHANNEL_ID}...")
+    await update.message.reply_text(f"📦 Backing up files to private channel {PRIVATE_CHANNEL_ID}...")
     await backup_to_channel(context.bot)
-    await update.message.reply_text("✅ Backup sent!")
+    await update.message.reply_text("✅ Backup completed and sent successfully!")
 
 async def cached_download_and_send(bot, chat_id, url, dl_type, t):
     cache = load_json_file(CACHE_FILE)
@@ -1497,7 +1473,7 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
                     save_json_file(CACHE_FILE, cache)
     status_msg = await bot.send_message(chat_id=chat_id, text=t["fetching"].format(dl_type) + f"\n`{ckey}`", parse_mode="Markdown")
     try:
-        file_paths, res, size = await asyncio.to_thread(download_media_engine, url, dl_type, mtproto_limit_mb())
+        file_paths, res, size = await asyncio.to_thread(download_media_engine, url, dl_type, mtproto_max_mb_config())
         if not file_paths:
             raise ValueError("FILE_NOT_FOUND")
         cache = load_json_file(CACHE_FILE)
@@ -1566,63 +1542,48 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
     
-    # --- ADMIN CONFIGURATION CALLBACKS FOR DISK, MTPROTO, CLEANER & COMMAND BUTTONS ---
+    # --- ADMIN TYPING INPUT PROMPTS & FUNCTION BUTTONS ---
     if user_id == ADMIN_ID:
-        if data == "set_disk_512":
-            set_total_disk_capacity_mb(512)
-            await query.answer("✅ Total Disk Capacity updated to 512 MB", show_alert=True)
-            await status_command(update, context)
+        admin_states = load_json_file(ADMIN_INPUT_STATE_FILE)
+        if data == "type_disk_mb":
+            admin_states[str(ADMIN_ID)] = {"mode": "set_disk"}
+            save_json_file(ADMIN_INPUT_STATE_FILE, admin_states)
+            await query.answer()
+            await query.message.reply_text("⌨️ **Type the total disk capacity in MB** (e.g., `512` or `5120` for 5GB):", parse_mode="Markdown")
             return
-        elif data == "set_disk_5120":
-            set_total_disk_capacity_mb(5120)
-            await query.answer("✅ Total Disk Capacity updated to 5120 MB (5 GB)", show_alert=True)
-            await status_command(update, context)
+        elif data == "type_mt_mb":
+            admin_states[str(ADMIN_ID)] = {"mode": "set_mt"}
+            save_json_file(ADMIN_INPUT_STATE_FILE, admin_states)
+            await query.answer()
+            await query.message.reply_text("⌨️ **Type the MTProto max file size in MB** (e.g., `300` or `1500`):", parse_mode="Markdown")
             return
-        elif data == "set_mt_300":
-            set_mtproto_max_mb_config(300)
-            await query.answer("✅ MTProto Max File Size updated to 300 MB", show_alert=True)
-            await status_command(update, context)
+        elif data == "type_cint_min":
+            admin_states[str(ADMIN_ID)] = {"mode": "set_cleaner_int"}
+            save_json_file(ADMIN_INPUT_STATE_FILE, admin_states)
+            await query.answer()
+            await query.message.reply_text("⌨️ **Type how often the cleaner should run in minutes** (e.g., `5` or `10`):", parse_mode="Markdown")
             return
-        elif data == "set_mt_1500":
-            set_mtproto_max_mb_config(1500)
-            await query.answer("✅ MTProto Max File Size updated to 1500 MB (1.5 GB)", show_alert=True)
-            await status_command(update, context)
-            return
-        elif data == "set_cint_5":
-            set_cleaner_interval(5)
-            await query.answer("✅ Cleaner frequency set to every 5 minutes", show_alert=True)
-            await status_command(update, context)
-            return
-        elif data == "set_cint_10":
-            set_cleaner_interval(10)
-            await query.answer("✅ Cleaner frequency set to every 10 minutes", show_alert=True)
-            await status_command(update, context)
-            return
-        elif data == "set_cage_3":
-            set_cleaner_age(3)
-            await query.answer("✅ File age threshold set to 3 minutes", show_alert=True)
-            await status_command(update, context)
-            return
-        elif data == "set_cage_10":
-            set_cleaner_age(10)
-            await query.answer("✅ File age threshold set to 10 minutes", show_alert=True)
-            await status_command(update, context)
+        elif data == "type_cage_min":
+            admin_states[str(ADMIN_ID)] = {"mode": "set_cleaner_age"}
+            save_json_file(ADMIN_INPUT_STATE_FILE, admin_states)
+            await query.answer()
+            await query.message.reply_text("⌨️ **Type the file age limit in minutes before deletion** (e.g., `3` or `15`):", parse_mode="Markdown")
             return
         elif data == "btn_tokencheck":
             await query.answer("Running token check...")
-            await tokencheck_command(update, context)
+            await tokencheck_command(query, context)
             return
         elif data == "btn_backup":
-            await query.answer("Running backup...")
-            await backup_command(update, context)
+            await query.answer("Triggering backup...")
+            await backup_command(query, context)
             return
         elif data == "btn_adinfo":
             await query.answer("Loading ad info...")
-            await ad_info_command(update, context)
+            await ad_info_command(query, context)
             return
         elif data == "btn_toggleads":
             await query.answer("Opening Ad Panel...")
-            await toggle_ads_command(update, context)
+            await toggle_ads_command(query, context)
             return
 
     if data.startswith("fl_"):
@@ -1704,10 +1665,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                             await context.bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
                             await asyncio.sleep(0.2)
                         except Exception:
-                            try:
-                                await context.bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-                            except Exception:
-                                await context.bot.send_message(chat_id=chat_id, text="📺 Watch the tutorial, open the ad link for 20 seconds, then return and check your balance.")
+                            pass
                         bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
                         reward_kb = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)],
                                      [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
@@ -2121,15 +2079,11 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 "expires": time.time() + 600
             }
             save_tokens(tokens)
-            await query.answer("✅ Test Ad Verified! (Clause 13 Demo) +1 realistic", show_alert=True)
+            await query.answer("✅ Test Ad Verified! +1 realistic", show_alert=True)
             await query.message.reply_text(
-                "✅ **TEST AD VERIFIED! 🎉 (Clause 13 + 12 Demo) - Optimum +1**\n\n"
-                "This is what user sees after watching 20s ad:\n"
-                "• Ad placement found & verified! ✅\n"
-                "• Reward: +1 download refilled (realistic optimum - Clause 12 fix)!\n"
-                "• Real flow: Watch 20s ad → Click Check → Get +1 file\n\n"
-                "📍 **For Reviewer:** This proves ad placement exists and is verifiable via /testad button!\n"
-                "🎁 Reward is realistic +1, not excessively high! Stats now shows 1!",
+                "✅ **TEST AD VERIFIED! 🎉**\n\n"
+                "• Reward: +1 download refilled!\n"
+                "• Stats now shows 1!",
                 parse_mode="Markdown"
             )
             return
@@ -2151,7 +2105,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.message.reply_text("✅ Verified! Refilled +1 (realistic). Resume?", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             return
         if msg_start==0:
-            await query.message.reply_text("✅ Refilled +1! Download again (realistic optimum - Clause 12 fix)")
+            await query.message.reply_text("✅ Refilled +1! Download again")
             return
         await query.message.reply_text("✅ Verified! Fetching bundle...")
         fwd_ids=[]
@@ -2175,43 +2129,20 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             fwd_ids.append(warn.message_id)
             asyncio.create_task(schedule_deletion(context.bot, user_id, fwd_ids, 540))
         except Exception as e:
-            await query.message.reply_text(f"❌ {e} (Bundle {msg_start}-{msg_end} + Tutorial {TUTORIAL_MESSAGE_ID})")
+            await query.message.reply_text(f"❌ {e}")
 
 
-TEST_AD_TEXT = (
-    "🧪 AD PLACEMENT TEST (Monetag Rewarded - Mini App)\n\n"
-    "📍 WHERE THE AD IS PLACED:\n"
-    "1️⃣ User sends any media link (TikTok, FB, Insta, X, YouTube)\n"
-    "2️⃣ User gets 4 FREE downloads per day\n"
-    "3️⃣ On the next download the LIMIT REACHED screen appears\n"
-    "4️⃣ That screen has the 📺 Watch Ad button (this exact message)\n"
-    "5️⃣ Button opens the Monetag ad inside a Telegram Mini App\n"
-    "6️⃣ After the ad ends the Mini App closes -> tap Check & Get +1\n\n"
-    "🎁 Reward: +1 download per completed ad\n"
-    "📍 Same screen also appears in batch mode\n\n"
-    "👇 TRY THE AD NOW:"
-)
+TEST_AD_TEXT = "🧪 AD PLACEMENT TEST (Monetag Rewarded - Mini App)\n\n👇 TRY THE AD NOW:"
 
 async def send_adsgram_test(message, user_id):
     extra = [[InlineKeyboardButton("🛠 Admin: simulate ad finished", callback_data="admin_sim_ad")]] if user_id == ADMIN_ID else None
     kb = adsgram_keyboard(user_id, "test", 0, 0, extra)
     if not kb:
-        await message.reply_text("⚠️ Ad server not reachable right now. Try again in a minute.")
+        await message.reply_text("⚠️ Ad server not reachable right now.")
         return
     await message.reply_text(TEST_AD_TEXT, reply_markup=kb)
 
-ADSTERRA_TEST_TEXT = (
-    "🧪 AD PLACEMENT TEST (Adsterra Direct Link, 20s timer)\n\n"
-    "📍 WHERE THE AD IS PLACED:\n"
-    "1️⃣ User sends any media link (TikTok, FB, Insta, X, YouTube)\n"
-    "2️⃣ User gets 4 FREE downloads per day\n"
-    "3️⃣ On the next download the LIMIT REACHED screen appears\n"
-    "4️⃣ That screen has the Open Link & Watch Timer button (this exact message)\n"
-    "5️⃣ Stay 20 seconds on the ad page, then come back\n"
-    "6️⃣ Tap Check & Get Files -> +1 download\n\n"
-    "🎁 Reward: +1 download per completed ad\n\n"
-    "👇 TRY THE AD NOW:"
-)
+ADSTERRA_TEST_TEXT = "🧪 AD PLACEMENT TEST (Adsterra Direct Link, 20s timer)\n\n👇 TRY THE AD NOW:"
 
 async def send_adsterra_test(message, user_id):
     tokens = load_tokens()
@@ -2239,60 +2170,43 @@ async def send_test_ad(message, user_id):
         await send_adsterra_test(message, user_id)
 
 def build_ad_info_text(user_id):
-    mode = load_json_file(CONFIG_FILE).get("ad_mode", "auto")
-    monetag = (
-        "• Monetag: LIMIT REACHED screen (after 4 free downloads per day, also in batch mode)\n"
-        "  Button: 📺 Watch Ad opens a Telegram Mini App with a rewarded ad\n"
-        "  After the ad the Mini App closes; user taps Check & Get +1\n")
-    adsterra = (
-        "• Adsterra: LIMIT REACHED screen (after 4 free downloads per day, also in batch mode)\n"
-        "  Button: Open Link & Watch Timer (20s direct link)\n"
-        "  After 20s the user taps Check & Get Files\n")
-    if mode in ("monetag", "adsgram"):
-        head, body = "Mode: MONETAG only", monetag
-    elif mode == "adsterra":
-        head, body = "Mode: ADSTERRA only", adsterra
-    else:
-        net = "Monetag" if get_global_ab_network(user_id) == "monetag" else "Adsterra"
-        head, body = f"Mode: AUTO (split by user and day; you currently get {net})", monetag + adsterra
-    return ("📢 AD INFO\n\n"
-            "Bot: @Michaelbbcvaultbot\n" + head + "\n\n"
-            "📍 Exact ad placement:\n" + body + "\n"
-            "• Reward: +1 download per completed ad\n"
-            "• Basic use stays free: 4 downloads per day without any ad\n\n"
-            "🧪 To test: tap 🧪 Test Ad or send /testad (it follows the current mode)")
+    config = load_json_file(CONFIG_FILE)
+    mode = config.get("ad_mode", "auto")
+    return f"📢 **AD INFO**\n\n• Current Ad Mode: **{mode.upper()}**\n• Reward per completed ad: **+{get_reward_amount()} download**\n• Free allowance: **{get_free_amount()} per day**"
 
 async def test_ad_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
     await send_test_ad(update.message, update.effective_user.id)
 
-async def tokencheck_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
+async def tokencheck_command(update_or_query, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update_or_query.effective_user.id if hasattr(update_or_query, "effective_user") else update_or_query.from_user.id
+    if user_id != ADMIN_ID:
         return
+    msg = update_or_query.message if hasattr(update_or_query, "message") else update_or_query.effective_message
     mine = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()[:8] if BOT_TOKEN else "none"
     try:
         s = requests.get(f"{WEB_BASE_URL}/monetag-selfcheck", timeout=15).json()
     except Exception as e:
-        await update.message.reply_text(f"❌ Could not reach the PythonAnywhere server: {type(e).__name__}")
+        await msg.reply_text(f"❌ Could not reach the PythonAnywhere server: {type(e).__name__}")
         return
     same = (s.get("fingerprint") == mine)
     lines = [
-        "🔐 TOKEN CHECK (no tokens shown)",
-        f"Render bot: fingerprint {mine}, length {len(BOT_TOKEN)}",
-        f"PythonAnywhere: fingerprint {s.get('fingerprint')}, length {s.get('token_len')}",
-        f"PythonAnywhere token works with Telegram: {s.get('telegram_ok')}" + (f" (@{s.get('bot_username')})" if s.get("bot_username") else ""),
+        "🔐 TOKEN CHECK",
+        f"Render bot fingerprint: {mine}",
+        f"PythonAnywhere fingerprint: {s.get('fingerprint')}",
+        f"Telegram OK: {s.get('telegram_ok')}" + (f" (@{s.get('bot_username')})" if s.get("bot_username") else ""),
+        "",
+        "✅ MATCH - tokens match!" if same else "❌ DIFFERENT - update TELEGRAM_TOKEN on PythonAnywhere!"
     ]
-    if s.get("telegram_error"):
-        lines.append(f"Telegram error: {s['telegram_error']}")
-    lines.append("")
-    lines.append("✅ MATCH - both use the same token" if same else "❌ DIFFERENT - fix TELEGRAM_TOKEN in the PythonAnywhere WSGI file (copy it again from the Render value), then Reload")
-    await update.message.reply_text("\n".join(lines))
+    await msg.reply_text("\n".join(lines))
 
-async def ad_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
+async def ad_info_command(update_or_query, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update_or_query.effective_user.id if hasattr(update_or_query, "effective_user") else update_or_query.from_user.id
+    if user_id != ADMIN_ID:
         return
-    await update.message.reply_text(build_ad_info_text(update.effective_user.id))
+    msg = update_or_query.message if hasattr(update_or_query, "message") else update_or_query.effective_message
+    await msg.reply_text(build_ad_info_text(user_id), parse_mode="Markdown")
 
 def run_telegram_bot():
     loop = asyncio.new_event_loop()
@@ -2302,7 +2216,21 @@ def run_telegram_bot():
         app = Application.builder().token(BOT_TOKEN).build()
         try:
             from telegram import BotCommand
-            await app.bot.set_my_commands([BotCommand("start", "Start bot"), BotCommand("filetolink", "Create a File-to-Link"), BotCommand("language", "Choose language"), BotCommand("stats", "View download balance")])
+            await app.bot.set_my_commands([
+                BotCommand("start", "Start bot"), 
+                BotCommand("filetolink", "Create a File-to-Link"), 
+                BotCommand("language", "Choose language"), 
+                BotCommand("stats", "View download balance"),
+                BotCommand("status", "Bot Status panel"),
+                BotCommand("testad", "Test ad flow"),
+                BotCommand("adinfo", "Show ad info"),
+                BotCommand("tokencheck", "Verify tokens"),
+                BotCommand("toggleads", "Change ad modes"),
+                BotCommand("broadcast", "Broadcast to users"),
+                BotCommand("ban", "Ban user"),
+                BotCommand("unban", "Unban user"),
+                BotCommand("backup", "Manual backup")
+            ])
         except Exception as e:
             logger.warning(f"Could not set bot menu commands: {e}")
         app.add_handler(CommandHandler("start", start))
