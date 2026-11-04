@@ -15,6 +15,7 @@ from bs4 import BeautifulSoup
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
+from pyrogram import Client, filters as p_filters  # Added for MTProto high-speed transfers
 
 ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 try:
@@ -2136,6 +2137,46 @@ async def ad_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text(build_ad_info_text(update.effective_user.id))
 
+
+# =====================================================================
+# PYROGRAM MTPROTO WORKER (Bypasses 20MB/50MB bot limits up to 2GB)
+# =====================================================================
+API_ID = int(os.getenv("API_ID", "0"))
+API_HASH = os.getenv("API_HASH", "")
+
+mtproto_app = Client(
+    "mtproto_web_worker",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN
+)
+
+@mtproto_app.on_message(p_filters.command("download_large"))
+async def handle_large_file(client, message):
+    status_msg = await message.reply_text("📥 Initializing MTProto high-speed stream...")
+    if not message.reply_to_message:
+        await status_msg.edit_text("⚠️ Please reply to a large video or document with `/download_large`.")
+        return
+    try:
+        download_dir = "downloads"
+        os.makedirs(download_dir, exist_ok=True)
+        file_path = await client.download_media(
+            message.reply_to_message,
+            file_name=f"{download_dir}/"
+        )
+        await status_msg.edit_text(f"✅ Successfully downloaded large file via MTProto:\n`{file_path}`")
+    except Exception as e:
+        await status_msg.edit_text(f"❌ MTProto Download Error: `{str(e)}`")
+
+def run_mtproto_worker():
+    """Runs the Pyrogram MTProto client in its own event loop thread."""
+    if not API_ID or not API_HASH:
+        print("⚠️ Skipping MTProto thread: API_ID or API_HASH missing in environment variables.")
+        return
+    print("🚀 Starting MTProto Worker Thread...")
+    mtproto_app.run()
+
+
 def run_telegram_bot():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -2176,8 +2217,10 @@ def run_telegram_bot():
 
 if not getattr(web_app, '_bot_started', False):
     web_app._bot_started = True
-    print("Starting bot thread...")
+    print("Starting bot thread and MTProto thread...")
     threading.Thread(target=run_telegram_bot, daemon=True).start()
+    if API_ID and API_HASH:
+        threading.Thread(target=run_mtproto_worker, daemon=True).start()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
