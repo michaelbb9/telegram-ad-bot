@@ -2,13 +2,6 @@ import time
 import json
 import os
 import asyncio
-
-# --- FIX: Ensure event loop exists on main thread BEFORE importing Pyrogram ---
-try:
-    asyncio.get_event_loop()
-except RuntimeError:
-    asyncio.set_event_loop(asyncio.new_event_loop())
-
 import threading
 import requests
 import logging
@@ -16,13 +9,13 @@ import re
 import shutil
 import hashlib
 import uuid
+import types
 import imageio_ffmpeg
 import yt_dlp
 from bs4 import BeautifulSoup
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
-from pyrogram import Client, filters as p_filters  # Safe to import now
 
 ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 try:
@@ -31,11 +24,11 @@ except:
     pass
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
-logging.getLogger("httpx").setLevel(logging.WARNING)   
+logging.getLogger("httpx").setLevel(logging.WARNING)   # stops the bot token being printed in logs
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()   
+BOT_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()   # set TELEGRAM_TOKEN in Render env - never hardcode it
 ADMIN_ID = 6248570946
 DETECTED_CHANNEL_ID = -1004347828512
 PRIVATE_CHANNEL_ID = -1004347828512
@@ -47,7 +40,7 @@ PUBLIC_CHANNEL_URL = "https://t.me/booksaufio"
 PUBLIC_CHANNEL_USERNAME = "@booksaufio"
 HELP_CHANNEL_URL = "https://t.me/faqandaupport"
 
-API_SECRET = os.getenv("API_SECRET", "change-me")        
+API_SECRET = os.getenv("API_SECRET", "change-me")        # must be the same value on PythonAnywhere
 API_HEADERS = {"X-Api-Secret": API_SECRET}
 PROXY_URL = None 
 
@@ -91,12 +84,13 @@ LANGUAGES = {
         "ask_format": "👇 **AWESOME! What format you want? Pick below! 🎯 Video=watch, Audio=music!**",
         "fetching": "📥 **Fetching your {}... Hang tight! ⏳✨ Working magic! 🚀**",
         "error_generic": "❌ Oops! Failed! 😢 Link private/blocked. Try public link! 🔓💡",
-        "error_50mb": "❌ Too Big! 😅 File exceeds server capacity. Try a shorter video! ✂️", "error_no_img": "❌ No images found! 😢 Try another link! 🖼️",
+        "error_50mb": "❌ Too Big! 😅 This video is over 300MB even at low quality. Try a shorter one! ✂️", "error_no_img": "❌ No images found! 😢 Try another link! 🖼️",
         "images_received": "⏳ **{} Images received.**",
         "select_lang": "🌍 Select your language! 🌍✨ Choose below! 👇", "lang_set": "✅ Language set! Enjoy magic! 🎉✨",
         "batch_detected": "📦 **Batch Detected ({} links)**\nWhat format?",
         "batch_dest": "📦 **Where to send?**",
         "btn_chat": "📥 In Chat", "btn_chan": "📢 To Channel",
+        # CLAUSE 12 FIX: Changed 30s to 20s and +4 to +1 optimum realistic reward
         "limit_reached": "⚠️ **Limit Reached! 🚧😅 You used 4 FREE! 🎬 Watch 20s ad → Get +1 download! Realistic reward ♻️✨**",
         "refill_btn": "🔓 Open Link & Refill +1",
         "join_btn": "📢 Join Channel", "check_btn": "💜 Check Balance",
@@ -105,7 +99,7 @@ LANGUAGES = {
         "batch_done": "🏁 **Done!** ✅ {} ❌ {}\n📥 {} files here.",
         "batch_done_chan": "🏁 **Done!** ✅ {} ❌ {}\n📢 {} files forwarded!",
         "dl_video": "📥 Downloading video...", "dl_audio": "📥 Extracting audio...", "dl_image": "📥 Scraping images...", "dl_sub": "📥 Fetching subtitles...",
-        "failed_50": "❌ Too Large", "failed_blocked": "❌ Blocked/private", "failed_generic": "❌ Failed",
+        "failed_50": "❌ >300MB", "failed_blocked": "❌ Blocked/private", "failed_generic": "❌ Failed",
         "menu_lang": "🌍 Language", "menu_stats": "📊 My Stats", "menu_help": "💬 Support / FAQ", "menu_join": "📢 Join Channel",
         "menu_uploads": "🍿 Fan Uploads", "menu_upload": "📤 Upload File",
         "admin_upload_prompt": "📂 **Fan Uploads Inbox**",
@@ -295,6 +289,7 @@ def save_tokens(tokens):
 
 # ===================== ADSGRAM MINI APP HELPERS =====================
 def adsgram_start(user_id, kind="wall", msg_start=0, msg_end=0):
+    """Ask the Flask server for a one-time nonce for this user's ad. Returns nonce or None."""
     try:
         r = requests.post(f"{WEB_BASE_URL}/monetag-start",
                           json={"user_id": int(user_id), "kind": kind, "msg_start": int(msg_start),
@@ -316,6 +311,7 @@ def adsgram_status(user_id):
     return {"status": "error"}
 
 def adsgram_keyboard(user_id, kind="wall", msg_start=0, msg_end=0, extra_rows=None):
+    """Keyboard whose first button opens the Adsgram ad INSIDE a Telegram Mini App."""
     nonce = adsgram_start(user_id, kind, msg_start, msg_end)
     if not nonce:
         return None
@@ -331,6 +327,7 @@ def adsgram_keyboard(user_id, kind="wall", msg_start=0, msg_end=0, extra_rows=No
     return InlineKeyboardMarkup(rows)
 
 async def report_vault_delivery(user_id, msg_start, msg_end, delivered_message_ids):
+    """Report one completed catalogue delivery; Flask deduplicates retries."""
     if not delivered_message_ids:
         return
     try:
@@ -349,6 +346,7 @@ async def report_vault_delivery(user_id, msg_start, msg_end, delivered_message_i
         if response.status_code != 200:
             logger.warning("Vault analytics rejected delivery: %s %s", response.status_code, response.text[:200])
     except Exception as e:
+        # Delivery must never fail just because analytics is temporarily offline.
         logger.warning("Vault analytics report failed: %s", e)
 
 async def deliver_bundle(bot, user_id, msg_start, msg_end):
@@ -415,7 +413,10 @@ def scrape_html_images(url, cookiefile=None):
         logger.error(f"Scrape: {e}")
     return None
 
-def download_media_engine(url: str, download_type: str):
+def download_media_engine(url: str, download_type: str, max_mb=None):
+    """Downloads one item. Files up to max_mb are accepted (anything over 49MB is uploaded through MTProto later)."""
+    cap_mb = int(max_mb or MTPROTO_MAX_MB)
+    cap_bytes = cap_mb * 1024 * 1024
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     http_headers = {'User-Agent': 'Mozilla/5.0'}
@@ -424,37 +425,21 @@ def download_media_engine(url: str, download_type: str):
         cookiefile = "tiktok_cookies.txt"
     elif os.path.exists("cookies.txt"):
         cookiefile = "cookies.txt"
-        
-    ydl_opts = {
-        'quiet': True, 
-        'no_warnings': True, 
-        'http_headers': http_headers, 
-        'proxy': PROXY_URL,
-        'noplaylist': True,
-        'max_filesize': 100 * 1024 * 1024,  # ABORT immediately if file exceeds 100MB
-    }
+    ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL}
     if cookiefile:
         ydl_opts['cookiefile'] = cookiefile
-
     if download_type == 'audio':
-        ydl_opts.update({
-            'format': 'bestaudio/best', 
-            'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio', 
-                'preferredcodec': 'mp3', 
-                'preferredquality': '192'
-            }], 
-            'ffmpeg_location': ffmpeg_path
-        })
+        ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             base = os.path.splitext(ydl.prepare_filename(info))[0]
             path = f"{base}.mp3"
             if os.path.exists(path):
+                if os.path.getsize(path) > cap_bytes:
+                    os.remove(path)
+                    raise ValueError("FILE_TOO_LARGE")
                 return [path], "MP3", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("FILE_NOT_FOUND")
-
     elif download_type == 'images':
         img_url = scrape_html_images(url, cookiefile)
         if img_url:
@@ -465,39 +450,40 @@ def download_media_engine(url: str, download_type: str):
             if os.path.getsize(path) > 1000:
                 return [path], "Image", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("NO_IMAGES")
-
     else:
-        # Strict low-resolution formats for instant downloading and light files
-        video_formats = [
-            "bestvideo[height<=480]+bestaudio/best[height<=480]/best",
-            "worst[ext=mp4]/worst"
-        ]
-        
-        for fmt in video_formats:
+        # Best quality first, then step down until the file fits under the limit.
+        tiers = ["best",
+                 "bv*[height<=720]+ba/b[height<=720]",
+                 "bv*[height<=480]+ba/b[height<=480]",
+                 "bv*[height<=360]+ba/b[height<=360]",
+                 "worst"]
+        too_big = False
+        last_err = None
+        for fmt in tiers:
             try:
-                current_opts = ydl_opts.copy()
-                current_opts.update({
-                    'format': fmt, 
-                    'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 
-                    'merge_output_format': 'mp4', 
-                    'ffmpeg_location': ffmpeg_path
-                })
-                with yt_dlp.YoutubeDL(current_opts) as ydl:
+                opts = dict(ydl_opts)
+                opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'merge_output_format': 'mp4',
+                             'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
+                with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=True)
                     path = ydl.prepare_filename(info)
-                    if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0] + ".mp4"):
-                        path = os.path.splitext(path)[0] + ".mp4"
+                    if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0]+".mp4"):
+                        path = os.path.splitext(path)[0]+".mp4"
                     if os.path.exists(path):
-                        file_size_mb = os.path.getsize(path) / (1024 * 1024)
-                        return [path], f"{info.get('height', 'SD')}p", f"{file_size_mb:.1f}MB"
+                        if os.path.getsize(path) > cap_bytes:
+                            os.remove(path)
+                            too_big = True
+                            continue
+                        return [path], f"{info.get('height', 'HD')}p", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
+                    too_big = True              # nothing was written: the size limit skipped this quality
             except Exception as e:
-                err_str = str(e)
-                if "File is larger than max-filesize" in err_str:
-                    raise ValueError("FILE_TOO_LARGE")
-                if "Unsupported URL" in err_str or "403" in err_str:
+                if "Unsupported URL" in str(e) or "403" in str(e):
                     raise e
+                last_err = e
                 continue
-        raise ValueError("FILE_TOO_LARGE")
+        if too_big or last_err is None:
+            raise ValueError("FILE_TOO_LARGE")
+        raise last_err                           # every quality failed for a real reason (private, blocked, ...)
 
 def get_main_keyboard(lang_code, is_admin):
     t = LANGUAGES.get(lang_code, LANGUAGES["en"])
@@ -569,6 +555,7 @@ def get_free_disk_mb():
         return 512
 
 def deduct_download_counter(user_id, is_batch=False):
+    # FIX: Only call server once - no local double save - prevents -2 bug
     try:
         requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": is_batch}, headers=API_HEADERS, timeout=3)
     except:
@@ -633,6 +620,7 @@ def file_link_keyboard(state):
     return InlineKeyboardMarkup(kb)
 
 async def file_link_add_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Capture an incoming file for a user's active File-to-Link session."""
     if not update.effective_message or not update.effective_user:
         return False
     uid = str(update.effective_user.id)
@@ -654,6 +642,7 @@ async def file_link_add_media(update: Update, context: ContextTypes.DEFAULT_TYPE
     return True
 
 async def file_to_link_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Start File-to-Link collection through the Telegram command/menu."""
     user_id = update.effective_user.id
     if is_banned(user_id):
         await update.effective_message.reply_text("🚫 You are banned.")
@@ -669,6 +658,7 @@ async def file_to_link_command(update: Update, context: ContextTypes.DEFAULT_TYP
         reply_markup=file_link_keyboard(state), parse_mode="Markdown")
 
 async def file_link_deep_link(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str) -> None:
+    """Deliver stored files to the recipient; no creator credit or ad wall is applied."""
     links = load_json_file(FILE_LINKS_FILE)
     record = links.get(token)
     if not record or (record.get("expires_at") and time.time() > record["expires_at"]):
@@ -686,6 +676,7 @@ async def file_link_deep_link(update: Update, context: ContextTypes.DEFAULT_TYPE
     await send_file_link_payload(update, context, token, record)
 
 async def send_file_link_payload(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str, record: dict) -> None:
+    """Check required channel, then copy stored media to the recipient."""
     user_id = update.effective_user.id
     try:
         member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_USERNAME, user_id=user_id)
@@ -766,6 +757,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch", url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
     if user_id == ADMIN_ID:
         keyboard.append([InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")])
+    # Forward tutorial video 108 for Adsterra bypass - ROBUST VERSION - CLAUSE 13 + 12 FIX
     tutorial_sent = False
     try:
         tut = await context.bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
@@ -847,34 +839,22 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     continue
                 except:
                     pass
-            file_paths, res, size = download_media_engine(url, download_type)
+            file_paths, res, size = await asyncio.to_thread(download_media_engine, url, download_type, mtproto_limit_mb())
             if file_paths and os.path.exists(file_paths[0]):
-                file_size_bytes = os.path.getsize(file_paths[0])
-                if file_size_bytes > 45 * 1024 * 1024 and API_ID and API_HASH:
-                    sent_msg = await mtproto_app.send_video(
-                        chat_id=target_destination_id,
-                        video=file_paths[0],
-                        caption=f"Item {index}/{len(urls)} Size {size} (MTProto Stream)",
-                        supports_streaming=True
-                    )
-                else:
-                    with open(file_paths[0], 'rb') as f:
-                        sent_msg = await bot.send_video(chat_id=target_destination_id, video=f, caption=f"Item {index}/{len(urls)} Size {size}")
-                
-                if target_destination_id == chat_id and hasattr(sent_msg, 'message_id'):
+                sent = await send_video_file(bot, chat_id, target_destination_id, file_paths[0], f"Item {index}/{len(urls)} Size {size}", None, status_msg)
+                if target_destination_id == chat_id:
                     warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
-                    asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent_msg.message_id, warn.message_id], 540))
-                
+                    asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
                 try:
-                    video_id = sent_msg.video.file_id if hasattr(sent_msg, 'video') and sent_msg.video else None
-                    if video_id:
-                        vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=video_id, caption=ckey)
-                        cache = load_json_file(CACHE_FILE)
-                        cache[ckey] = {"file_id": video_id, "vault_msg_id": vmsg.message_id, "type": "video", "timestamp": time.time(), "hits": 1}
-                        save_json_file(CACHE_FILE, cache)
+                    vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent.video.file_id, caption=ckey)
+                    cache = load_json_file(CACHE_FILE)
+                    cache[ckey] = {"file_id": sent.video.file_id, "vault_msg_id": vmsg.message_id, "type": "video", "timestamp": time.time(), "hits": 1}
+                    save_json_file(CACHE_FILE, cache)
                 except Exception as e:
                     logger.error(f"Vault save: {e}")
-                
+                    cache = load_json_file(CACHE_FILE)
+                    cache[ckey] = {"file_id": sent.video.file_id, "type": "video", "timestamp": time.time(), "hits": 1}
+                    save_json_file(CACHE_FILE, cache)
                 os.remove(file_paths[0])
                 await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
                 success_count += 1
@@ -1070,6 +1050,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     if text.strip() in ("🧪 Test Ad", "📢 Ad Info"):
         if user_id != ADMIN_ID:
+            # old keyboards on users' phones still show these buttons: refresh the menu, show nothing else
             await update.message.reply_text("✅ Menu updated.", reply_markup=get_main_keyboard(lang, False))
             return
         if text.strip() == "🧪 Test Ad":
@@ -1431,7 +1412,7 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
                     save_json_file(CACHE_FILE, cache)
     status_msg = await bot.send_message(chat_id=chat_id, text=t["fetching"].format(dl_type) + f"\n`{ckey}`", parse_mode="Markdown")
     try:
-        file_paths, res, size = download_media_engine(url, dl_type)
+        file_paths, res, size = await asyncio.to_thread(download_media_engine, url, dl_type, mtproto_limit_mb())
         if not file_paths:
             raise ValueError("FILE_NOT_FOUND")
         cache = load_json_file(CACHE_FILE)
@@ -1448,8 +1429,7 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
             for p in file_paths:
                 os.remove(p)
         elif dl_type == 'audio':
-            with open(file_paths[0], 'rb') as f:
-                sent_media = await bot.send_audio(chat_id=chat_id, audio=f, caption=f"🎵 Size {size} `{ckey}`", parse_mode="Markdown")
+            sent_media = await send_audio_file(bot, chat_id, file_paths[0], f"🎵 Size {size} `{ckey}`", "Markdown", status_msg)
             warn = await bot.send_message(chat_id=chat_id, text="⏳ Auto-deletes in 9 mins")
             asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
             try:
@@ -1459,40 +1439,30 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
                 cache[ckey] = {"file_id": sent_media.audio.file_id, "type": "audio", "timestamp": time.time(), "hits": 1, "size": size}
             os.remove(file_paths[0])
         else:
-            file_size_bytes = os.path.getsize(file_paths[0])
-            if file_size_bytes > 45 * 1024 * 1024 and API_ID and API_HASH:
-                await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text="📤 Streaming heavy video past 50MB limit via MTProto socket...")
-                sent_media = await mtproto_app.send_video(
-                    chat_id=chat_id,
-                    video=file_paths[0],
-                    caption=f"✨ {res} Size {size} `{ckey}` (MTProto Bypassed)",
-                    supports_streaming=True
-                )
-            else:
-                with open(file_paths[0], 'rb') as f:
-                    sent_media = await bot.send_video(chat_id=chat_id, video=f, caption=f"✨ {res} Size {size} `{ckey}`", parse_mode="Markdown")
-            
+            sent_media = await send_video_file(bot, chat_id, chat_id, file_paths[0], f"✨ {res} Size {size} `{ckey}`", "Markdown", status_msg)
             warn = await bot.send_message(chat_id=chat_id, text="⏳ Auto-deletes in 9 mins")
-            msg_id = sent_media.id if hasattr(sent_media, 'id') else sent_media.message_id
-            asyncio.create_task(schedule_deletion(bot, chat_id, [msg_id, warn.message_id], 540))
-            
+            asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
             try:
-                video_file_id = sent_media.video.file_id if hasattr(sent_media, 'video') and sent_media.video else None
-                if video_file_id:
-                    vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=video_file_id, caption=ckey)
-                    cache[ckey] = {"file_id": video_file_id, "vault_msg_id": vmsg.message_id, "type": "video", "timestamp": time.time(), "hits": 1, "size": size}
+                vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent_media.video.file_id, caption=ckey)
+                cache[ckey] = {"file_id": sent_media.video.file_id, "vault_msg_id": vmsg.message_id, "type": "video", "timestamp": time.time(), "hits": 1, "size": size}
             except Exception as e:
                 logger.error(f"Vault save fail: {e}")
-            
+                cache[ckey] = {"file_id": sent_media.video.file_id, "type": "video", "timestamp": time.time(), "hits": 1, "size": size}
             os.remove(file_paths[0])
-        
         save_json_file(CACHE_FILE, cache)
         await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
         deduct_download_counter(chat_id, is_batch=False)
         return True
     except Exception as e:
         logger.error(f"DL {ckey}: {e}")
-        err = t["error_50mb"] if "FILE_TOO_LARGE" in str(e) else t["error_generic"]
+        if "FILE_TOO_LARGE" in str(e):
+            err = t["error_50mb"]
+        elif "MTPROTO_OFF" in str(e):
+            err = "⚠️ Big files (over 50MB) need fast mode, which is offline right now. Please try again later."
+        elif "MTPROTO_PEER" in str(e):
+            err = "⚠️ Send /start to this bot once, then send the link again."
+        else:
+            err = t["error_generic"]
         try:
             await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=err)
         except:
@@ -1565,6 +1535,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             items = state.get("items", [])
             if not items:
                 await query.answer("Send at least one file first", show_alert=True); return
+            # Creator pays exactly one free daily download, using the same profile store as the bot.
             if user_id != ADMIN_ID:
                 tokens = load_tokens(); profile = tokens.get(str(user_id))
                 if not isinstance(profile, dict):
@@ -1576,6 +1547,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 except: pass
                 remaining = int(profile.get("downloads_left", get_free_amount()) or 0)
                 if remaining <= 0:
+                    # Use the same existing ad-reward route as ordinary downloads.
                     await query.answer("Daily free limit reached. Watch an ad to earn more downloads.", show_alert=True)
                     assigned_network = get_global_ab_network(user_id)
                     if assigned_network == "monetag":
@@ -1854,6 +1826,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await context.bot.send_message(chat_id=chat_id, text=f"⏳ **Server Busy**\nActive: {active_downloads}/{MAX_CONCURRENT_SHORT}\nFree: {free_mb}MB\nQueue: #{pos}\nWill start auto!", parse_mode="Markdown")
         return
     if data == "admin_sim_ad" and user_id == ADMIN_ID:
+        # Admin-only: pretend the ad finished so you can test Check & Get +1 when the ad network has no ad to show
         try:
             r = requests.get(f"{WEB_BASE_URL}/monetag-reward", params={"userid": user_id, "secret": API_SECRET}, timeout=8)
             ok = r.status_code == 200
@@ -1927,6 +1900,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await context.bot.send_message(chat_id=chat_id, text=f"✅ Refilled +{reward}! Send your link again.")
         return
     if data.startswith("adsgram_complete_") or data in ("adsgram_resume_batch",):
+        # Old buttons from before the Mini App fix. They no longer give a reward.
         await query.answer("This button is outdated. Send your link again to get the new Watch Ad button.", show_alert=True)
         return
     if data == "stop_batch":
@@ -1993,6 +1967,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             if user_id != ADMIN_ID:
                 await query.answer("⏰ Open the link and watch the 20s timer first!", show_alert=True)
                 return
+            # Create new token with +1 for test ad demo (admin only)
             reward = get_reward_amount()
             tokens[user_str] = {
                 "user_id": int(user_id),
@@ -2012,7 +1987,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 "This is what user sees after watching 20s ad:\n"
                 "• Ad placement found & verified! ✅\n"
                 "• Reward: +1 download refilled (realistic optimum - Clause 12 fix)!\n"
-                "• Real flow: Watch 20s ad → Check → Get +1 file\n\n"
+                "• Real flow: Watch 20s ad → Click Check → Get +1 file\n\n"
                 "📍 **For Reviewer:** This proves ad placement exists and is verifiable via /testad button!\n"
                 "🎁 Reward is realistic +1, not excessively high! Stats now shows 1!",
                 parse_mode="Markdown"
@@ -2023,6 +1998,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.answer("⏰ Finish 20s timer first! Watch ad via Open Link button!", show_alert=True)
             return
         msg_start, msg_end = token_data.get("msg_start",0), token_data.get("msg_end",0)
+        # FIX: Don't delete token! Keep it and set to +1 optimum (was deleting and recreating as 4!)
         reward = get_reward_amount()
         tokens[user_str]["downloads_left"] = reward
         tokens[user_str]["batch_downloads_left"] = reward * 5
@@ -2118,8 +2094,9 @@ async def send_adsterra_test(message, user_id):
     await message.reply_text(ADSTERRA_TEST_TEXT, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def send_test_ad(message, user_id):
+    """Test Ad follows the Ad Toggle Panel: Monetag, Adsterra, or the Auto split for this user."""
     if get_global_ab_network(user_id) == "monetag":
-        await send_adsgram_test(message, user_id)
+        await send_adsgram_test(message, user_id)      # Monetag Mini App test
     else:
         await send_adsterra_test(message, user_id)
 
@@ -2153,6 +2130,7 @@ async def test_ad_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_test_ad(update.message, update.effective_user.id)
 
 async def tokencheck_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin only: compares the bot token on Render with the one on PythonAnywhere WITHOUT showing either token."""
     if update.effective_user.id != ADMIN_ID:
         return
     mine = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()[:8] if BOT_TOKEN else "none"
@@ -2178,45 +2156,6 @@ async def ad_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
     await update.message.reply_text(build_ad_info_text(update.effective_user.id))
-
-
-# =====================================================================
-# PYROGRAM MTPROTO WORKER (Bypasses 20MB/50MB bot limits up to 2GB)
-# =====================================================================
-API_ID = int(os.getenv("API_ID", "0"))
-API_HASH = os.getenv("API_HASH", "")
-
-mtproto_app = Client(
-    "mtproto_web_worker",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN
-)
-
-@mtproto_app.on_message(p_filters.command("download_large"))
-async def handle_large_file(client, message):
-    status_msg = await message.reply_text("📥 Initializing MTProto high-speed stream...")
-    if not message.reply_to_message:
-        await status_msg.edit_text("⚠️ Please reply to a large video or document with `/download_large`.")
-        return
-    try:
-        download_dir = "downloads"
-        os.makedirs(download_dir, exist_ok=True)
-        file_path = await client.download_media(
-            message.reply_to_message,
-            file_name=f"{download_dir}/"
-        )
-        await status_msg.edit_text(f"✅ Successfully downloaded large file via MTProto:\n`{file_path}`")
-    except Exception as e:
-        await status_msg.edit_text(f"❌ MTProto Download Error: `{str(e)}`")
-
-def run_mtproto_worker():
-    if not API_ID or not API_HASH:
-        print("⚠️ Skipping MTProto thread: API_ID or API_HASH missing in environment variables.")
-        return
-    print("🚀 Starting MTProto Worker Thread...")
-    mtproto_app.run()
-
 
 def run_telegram_bot():
     loop = asyncio.new_event_loop()
@@ -2256,12 +2195,153 @@ def run_telegram_bot():
         await asyncio.Event().wait()
     loop.run_until_complete(start_bot())
 
+# =====================================================================
+#  MTProto worker (Pyrogram) - lets the bot SEND files bigger than 50MB (up to 2GB)
+#  It runs quietly in its own thread. The normal bot hands big files to it; users never see a command.
+#  Needs: pip packages "pyrogram" and "tgcrypto", and env vars API_ID + API_HASH (from my.telegram.org).
+#  If any of that is missing the rest of the bot keeps working, and files over 50MB are politely refused.
+# =====================================================================
+try:
+    API_ID = int(os.getenv("API_ID", "0") or "0")
+except ValueError:
+    API_ID = 0
+API_HASH = os.getenv("API_HASH", "").strip()
+MTPROTO_MAX_MB = 300                # biggest file accepted (the host disk is small, merging needs spare room)
+BOT_API_LIMIT_BYTES = 49 * 1024 * 1024
+MTPROTO = {"client": None, "loop": None, "ready": threading.Event(), "no_parse": None}
+
+def mtproto_limit_mb():
+    """Biggest download allowed right now: shared fairly between the downloads that are already running."""
+    spare = get_free_disk_mb() - MIN_FREE_DISK_MB
+    if not MTPROTO["ready"].is_set():
+        return 49                   # fast mode offline: keep the old 50MB behaviour
+    return int(max(50, min(MTPROTO_MAX_MB, spare // max(1, active_downloads))))
+
+def probe_video(path):
+    """Duration, size and a small preview picture, so big uploads show up properly in Telegram."""
+    import subprocess
+    info = {"duration": 0, "width": 0, "height": 0, "thumb": None}
+    try:
+        text = subprocess.run([ffmpeg_path, "-hide_banner", "-i", path], capture_output=True, text=True, timeout=60).stderr or ""
+        m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", text)
+        if m:
+            info["duration"] = int(int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)))
+        m = re.search(r"Video:.*?,\s*(\d{2,5})x(\d{2,5})[\s,\[]", text)
+        if m:
+            info["width"], info["height"] = int(m.group(1)), int(m.group(2))
+        thumb = path + ".jpg"
+        subprocess.run([ffmpeg_path, "-y", "-ss", "1", "-i", path, "-vframes", "1", "-vf", "scale=320:-2", thumb], capture_output=True, timeout=60)
+        if os.path.exists(thumb) and os.path.getsize(thumb) > 0:
+            info["thumb"] = thumb
+    except Exception as e:
+        logger.error(f"probe_video: {e}")
+    return info
+
+async def mtproto_upload(kind, chat_id, path, caption, **extra):
+    if not MTPROTO["ready"].is_set():
+        raise RuntimeError("MTPROTO_OFF")
+    client, loop = MTPROTO["client"], MTPROTO["loop"]
+    kwargs = dict(chat_id=chat_id, caption=caption, **extra)
+    if MTPROTO["no_parse"] is not None:
+        kwargs["parse_mode"] = MTPROTO["no_parse"]
+    async def _send():
+        if kind == "audio":
+            return await client.send_audio(audio=path, **kwargs)
+        return await client.send_video(video=path, supports_streaming=True, **kwargs)
+    fut = asyncio.run_coroutine_threadsafe(_send(), loop)
+    try:
+        return await asyncio.wait_for(asyncio.wrap_future(fut), timeout=1800)
+    except Exception as e:
+        if "PEER_ID_INVALID" in str(e).upper() or "PEER ID INVALID" in str(e).upper():
+            raise RuntimeError("MTPROTO_PEER")
+        raise
+
+async def _tell_uploading(status_msg, path):
+    if status_msg is None:
+        return
+    try:
+        await status_msg.edit_text(f"\U0001F4E4 Uploading {os.path.getsize(path)/(1024*1024):.0f}MB in fast mode... this can take a minute.")
+    except Exception:
+        pass
+
+async def send_video_file(bot, chat_id, target_id, path, caption, parse_mode, status_msg=None):
+    """Sends a video. Up to 49MB the normal way; bigger files through MTProto. Returns an object with
+    .message_id and .video.file_id so the code that calls it does not change."""
+    if os.path.getsize(path) <= BOT_API_LIMIT_BYTES:
+        with open(path, 'rb') as f:
+            return await bot.send_video(chat_id=target_id, video=f, caption=caption, parse_mode=parse_mode)
+    await _tell_uploading(status_msg, path)
+    info = await asyncio.to_thread(probe_video, path)
+    try:
+        extra = {k: v for k, v in (("duration", info["duration"]), ("width", info["width"]), ("height", info["height"]), ("thumb", info["thumb"])) if v}
+        msg = await mtproto_upload("video", chat_id, path, caption.replace("`", ""), **extra)
+    finally:
+        if info.get("thumb") and os.path.exists(info["thumb"]):
+            os.remove(info["thumb"])
+    media = msg.video or msg.document
+    file_id, message_id = media.file_id, msg.id
+    if target_id != chat_id:                    # e.g. a linked channel: copy it there, then remove the temporary copy
+        copied = await bot.copy_message(chat_id=target_id, from_chat_id=chat_id, message_id=message_id)
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=message_id)
+        except Exception:
+            pass
+        message_id = copied.message_id
+    return types.SimpleNamespace(message_id=message_id, video=types.SimpleNamespace(file_id=file_id))
+
+async def send_audio_file(bot, chat_id, path, caption, parse_mode, status_msg=None):
+    if os.path.getsize(path) <= BOT_API_LIMIT_BYTES:
+        with open(path, 'rb') as f:
+            return await bot.send_audio(chat_id=chat_id, audio=f, caption=caption, parse_mode=parse_mode)
+    await _tell_uploading(status_msg, path)
+    msg = await mtproto_upload("audio", chat_id, path, caption.replace("`", ""))
+    media = msg.audio or msg.document
+    return types.SimpleNamespace(message_id=msg.id, audio=types.SimpleNamespace(file_id=media.file_id))
+
+def run_mtproto_worker():
+    """Runs the Pyrogram MTProto client in its own thread with its own event loop."""
+    if not API_ID or not API_HASH:
+        print("MTProto worker skipped: API_ID or API_HASH missing in environment variables.")
+        return
+    try:
+        # Imported here and renamed so they can never replace the python-telegram-bot names used by the rest of the file.
+        from pyrogram import Client as PyroClient
+    except ImportError:
+        print("MTProto worker skipped: add pyrogram and tgcrypto to requirements.txt")
+        return
+    try:
+        from pyrogram import enums as pyro_enums
+        MTPROTO["no_parse"] = pyro_enums.ParseMode.DISABLED
+    except Exception:
+        MTPROTO["no_parse"] = None
+    import inspect
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        client = PyroClient("mtproto_web_worker", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN, in_memory=True)
+        print("Starting MTProto Worker Thread...")
+        started = client.start()
+        if inspect.isawaitable(started):
+            loop.run_until_complete(started)
+        MTPROTO["client"], MTPROTO["loop"] = client, loop
+        MTPROTO["ready"].set()
+        print("MTProto worker is running (files up to 2GB can be sent).")
+        loop.run_forever()
+    except Exception as e:
+        MTPROTO["ready"].clear()
+        logger.error(f"MTProto worker stopped: {e}")
+
 if not getattr(web_app, '_bot_started', False):
     web_app._bot_started = True
-    print("Starting bot thread and MTProto thread...")
+    print("Starting bot thread...")
     threading.Thread(target=run_telegram_bot, daemon=True).start()
+
+if not getattr(web_app, '_mtproto_started', False):
+    web_app._mtproto_started = True
     if API_ID and API_HASH:
         threading.Thread(target=run_mtproto_worker, daemon=True).start()
+    else:
+        print("MTProto worker not started (API_ID / API_HASH not set).")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
