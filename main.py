@@ -2235,17 +2235,13 @@ async def test_ad_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def tokencheck_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin only: compares the bot token on Render with the one on PythonAnywhere WITHOUT showing either token."""
-    user_id = update.effective_user.id if hasattr(update, "effective_user") and update.effective_user else (update.from_user.id if hasattr(update, "from_user") and update.from_user else 0)
-    if user_id != ADMIN_ID:
-        return
-    msg = update.message if hasattr(update, "message") and update.message else (update.effective_message if hasattr(update, "effective_message") else None)
-    if not msg:
+    if update.effective_user.id != ADMIN_ID:
         return
     mine = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()[:8] if BOT_TOKEN else "none"
     try:
         s = requests.get(f"{WEB_BASE_URL}/monetag-selfcheck", timeout=15).json()
     except Exception as e:
-        await msg.reply_text(f"❌ Could not reach the PythonAnywhere server: {type(e).__name__}")
+        await update.message.reply_text(f"❌ Could not reach the PythonAnywhere server: {type(e).__name__}")
         return
     same = (s.get("fingerprint") == mine)
     lines = [
@@ -2258,16 +2254,12 @@ async def tokencheck_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         lines.append(f"Telegram error: {s['telegram_error']}")
     lines.append("")
     lines.append("✅ MATCH - both use the same token" if same else "❌ DIFFERENT - fix TELEGRAM_TOKEN in the PythonAnywhere WSGI file (copy it again from the Render value), then Reload")
-    await msg.reply_text("\n".join(lines))
+    await update.message.reply_text("\n".join(lines))
 
 async def ad_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id if hasattr(update, "effective_user") and update.effective_user else (update.from_user.id if hasattr(update, "from_user") and update.from_user else 0)
-    if user_id != ADMIN_ID:
+    if update.effective_user.id != ADMIN_ID:
         return
-    msg = update.message if hasattr(update, "message") and update.message else (update.effective_message if hasattr(update, "effective_message") else None)
-    if not msg:
-        return
-    await msg.reply_text(build_ad_info_text(user_id))
+    await update.message.reply_text(build_ad_info_text(update.effective_user.id))
 
 def run_telegram_bot():
     loop = asyncio.new_event_loop()
