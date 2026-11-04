@@ -68,8 +68,8 @@ paused_batches = {}
 pending_single_links = {}
 
 MAX_CONCURRENT_SHORT = 3
-MIN_FREE_DISK_MB = 150  # Default fallback
-MTPROTO_MAX_MB = 300    # Default fallback
+MIN_FREE_DISK_MB = 150
+MTPROTO_MAX_MB = 300
 active_downloads = 0
 download_lock = asyncio.Lock()
 download_queue = asyncio.Queue()
@@ -593,7 +593,7 @@ def set_free_amount(val):
 def get_free_disk_mb():
     try:
         used = get_downloads_usage_mb()
-        return max(0, 512 - used) # Note: 512 is Render free tier. Upgrade will auto-detect via shutil
+        return max(0, 512 - used)
     except:
         return 512
 
@@ -878,7 +878,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     continue
                 except:
                     pass
-            file_paths, res, size = await asyncio.to_thread(download_media_engine, url, download_type, get_mtproto_max_mb())
+            file_paths, res, size = await asyncio.to_thread(download_media_engine, url, download_type, mtproto_limit_mb())
             if file_paths and os.path.exists(file_paths[0]):
                 sent = await send_video_file(bot, chat_id, target_destination_id, file_paths[0], f"Item {index}/{len(urls)} Size {size}", None, status_msg)
                 if target_destination_id == chat_id:
@@ -1515,7 +1515,7 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
                     save_json_file(CACHE_FILE, cache)
     status_msg = await bot.send_message(chat_id=chat_id, text=t["fetching"].format(dl_type) + f"\n`{ckey}`", parse_mode="Markdown")
     try:
-        file_paths, res, size = await asyncio.to_thread(download_media_engine, url, dl_type, get_mtproto_max_mb())
+        file_paths, res, size = await asyncio.to_thread(download_media_engine, url, dl_type, mtproto_limit_mb())
         if not file_paths:
             raise ValueError("FILE_NOT_FOUND")
         cache = load_json_file(CACHE_FILE)
