@@ -2268,3 +2268,4 @@ if not getattr(web_app, '_mtproto_started', False):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     web_app.run(host="0.0.0.0", port=port)
+.
