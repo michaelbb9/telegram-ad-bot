@@ -2222,6 +2222,13 @@ def run_telegram_bot():
 if not getattr(web_app, '_bot_started', False):
     web_app._bot_started = True
     print("Starting bot thread and MTProto thread...")
+    
+    # Ensure event loop exists on main thread
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
+
     threading.Thread(target=run_telegram_bot, daemon=True).start()
     if API_ID and API_HASH:
         threading.Thread(target=run_mtproto_worker, daemon=True).start()
