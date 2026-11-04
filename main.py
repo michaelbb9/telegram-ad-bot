@@ -2,6 +2,13 @@ import time
 import json
 import os
 import asyncio
+
+# --- FIX: Ensure event loop exists on main thread BEFORE importing Pyrogram ---
+try:
+    asyncio.get_event_loop()
+except RuntimeError:
+    asyncio.set_event_loop(asyncio.new_event_loop())
+
 import threading
 import requests
 import logging
@@ -15,7 +22,7 @@ from bs4 import BeautifulSoup
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
-from pyrogram import Client, filters as p_filters  # Added for MTProto high-speed transfers
+from pyrogram import Client, filters as p_filters  # Safe to import now
 
 ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 try:
@@ -24,11 +31,11 @@ except:
     pass
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
-logging.getLogger("httpx").setLevel(logging.WARNING)   # stops the bot token being printed in logs
+logging.getLogger("httpx").setLevel(logging.WARNING)   
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()   # set TELEGRAM_TOKEN in Render env - never hardcode it
+BOT_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()   
 ADMIN_ID = 6248570946
 DETECTED_CHANNEL_ID = -1004347828512
 PRIVATE_CHANNEL_ID = -1004347828512
@@ -40,7 +47,7 @@ PUBLIC_CHANNEL_URL = "https://t.me/booksaufio"
 PUBLIC_CHANNEL_USERNAME = "@booksaufio"
 HELP_CHANNEL_URL = "https://t.me/faqandaupport"
 
-API_SECRET = os.getenv("API_SECRET", "change-me")        # must be the same value on PythonAnywhere
+API_SECRET = os.getenv("API_SECRET", "change-me")        
 API_HEADERS = {"X-Api-Secret": API_SECRET}
 PROXY_URL = None 
 
@@ -450,7 +457,6 @@ def download_media_engine(url: str, download_type: str):
                         path = os.path.splitext(path)[0]+".mp4"
                     if os.path.exists(path):
                         file_size_mb = os.path.getsize(path) / (1024 * 1024)
-                        # Keep download under 450MB to safely fit within Render's 512MB disk limit
                         if file_size_mb > 450:
                             os.remove(path)
                             continue
@@ -1422,7 +1428,6 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
             os.remove(file_paths[0])
         else:
             file_size_bytes = os.path.getsize(file_paths[0])
-            # Check if file is larger than 45MB to bypass 50MB HTTP limit using MTProto client
             if file_size_bytes > 45 * 1024 * 1024 and API_ID and API_HASH:
                 await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text="📤 Streaming heavy video past 50MB limit via MTProto socket...")
                 sent_media = await mtproto_app.send_video(
@@ -2222,13 +2227,6 @@ def run_telegram_bot():
 if not getattr(web_app, '_bot_started', False):
     web_app._bot_started = True
     print("Starting bot thread and MTProto thread...")
-    
-    # Ensure event loop exists on main thread
-    try:
-        asyncio.get_event_loop()
-    except RuntimeError:
-        asyncio.set_event_loop(asyncio.new_event_loop())
-
     threading.Thread(target=run_telegram_bot, daemon=True).start()
     if API_ID and API_HASH:
         threading.Thread(target=run_mtproto_worker, daemon=True).start()
