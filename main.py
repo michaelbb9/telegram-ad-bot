@@ -399,7 +399,7 @@ def get_mtproto_max_mb():
     config = load_json_file(CONFIG_FILE)
     return config.get("mtproto_max_mb", MTPROTO_MAX_MB)
 
-# === FIXED DOWNLOAD ENGINE ===
+# === FIXED DOWNLOAD ENGINE (No more false >300MB errors) ===
 def download_media_engine(url: str, download_type: str, max_mb=None):
     cap_mb = int(max_mb or get_mtproto_max_mb())
     cap_bytes = cap_mb * 1024 * 1024
@@ -438,8 +438,8 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
     else:
         # LIMITED TIERS to save memory and prevent rate limits
         tiers = ["b[height<=720]/bv*[height<=720]+ba", "worst"]
-        too_big = False
         last_err = None
+        
         for fmt in tiers:
             try:
                 opts = dict(ydl_opts)
@@ -451,29 +451,41 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                         path = os.path.splitext(path)[0]+".mp4"
                     
                     if os.path.exists(path):
-                        # FIX: Catch fake HTML pages (bot blocks)
-                        if os.path.getsize(path) < 50000:
+                        file_size = os.path.getsize(path)
+                        
+                        # Check for bot-block HTML pages (under 50KB)
+                        if file_size < 50000:
                             os.remove(path)
                             raise ValueError("TIKTOK_BLOCKED")
-                            
-                        if os.path.getsize(path) > cap_bytes:
+                        
+                        # Check if file exceeds our limit
+                        if file_size > cap_bytes:
                             os.remove(path)
-                            too_big = True
-                            continue
-                        return [path], f"{info.get('height', 'HD')}p", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
-                    too_big = True
+                            logger.warning(f"File {path} is {file_size/(1024*1024):.1f}MB, exceeds {cap_mb}MB limit")
+                            raise ValueError("FILE_TOO_LARGE")
+                        
+                        # File is valid and within limits
+                        return [path], f"{info.get('height', 'HD')}p", f"{file_size/(1024*1024):.1f}MB"
+                    else:
+                        logger.warning(f"File not found at {path} after download")
+                        continue
+                        
             except Exception as e:
-                if "Unsupported URL" in str(e) or "403" in str(e): raise e
+                error_str = str(e)
+                # Re-raise specific errors immediately
+                if "TIKTOK_BLOCKED" in error_str or "FILE_TOO_LARGE" in error_str or "Unsupported URL" in error_str or "403" in error_str:
+                    raise e
                 last_err = e
+                logger.error(f"Download failed with format {fmt}: {error_str[:100]}")
                 continue
-                
-        if too_big: 
-            raise ValueError("FILE_TOO_LARGE")
+        
+        # If we get here, all formats failed
         if last_err:
             if "TIKTOK_BLOCKED" in str(last_err): 
                 raise ValueError("TIKTOK_BLOCKED")
             raise last_err
-        raise ValueError("FILE_TOO_LARGE")
+        
+        raise ValueError("DOWNLOAD_FAILED")
 
 def get_main_keyboard(lang_code, is_admin):
     t = LANGUAGES.get(lang_code, LANGUAGES["en"])
@@ -716,7 +728,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         except Exception as e2: logger.error(f"Copy failed: {e2}")
     await update.message.reply_text("👇 **CONTENT LOCKED 🔒**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
-# === FIXED BATCH PROCESSOR WITH DELAYS & ERROR HANDLING ===
+# === FIXED BATCH PROCESSOR WITH YOUR 3-SECOND DELAYS ===
 async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0):
     if not urls: return
     lang = get_lang(user_id)
@@ -2205,7 +2217,7 @@ async def send_video_file(bot, chat_id, target_id, path, caption, parse_mode, st
     try:
         extra = {k: v for k, v in (("duration", info["duration"]), ("width", info["width"]), ("height", info["height"]), ("thumb", info["thumb"])) if v}
         
-        # Send directly to target_id (the channel) via Pyrogram - NO COPY_MESSAGE!
+        # Send directly to target_id (the channel) via Pyrogram
         msg = await mtproto_upload("video", target_id, path, caption.replace("`", ""), **extra)
         
     finally:
