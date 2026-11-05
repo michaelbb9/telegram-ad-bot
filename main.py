@@ -530,7 +530,8 @@ def get_main_keyboard(lang_code, is_admin):
         [KeyboardButton(t["menu_stats"]), KeyboardButton(t["menu_lang"])],
         [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])],
         [KeyboardButton(t["menu_upload"]), KeyboardButton("🔗 File-to-Link")],
-        [KeyboardButton("🟢 Bot Status")]
+        [KeyboardButton("🟢 Bot Status")],
+        [KeyboardButton("🔄 Change Batch Channel")]
     ]
     if is_admin:
         keyboard.append([KeyboardButton("/stats"), KeyboardButton("/toggleads")])
@@ -976,7 +977,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             await update.message.reply_text("⛔ This link has reached its usage limit."); return
         await send_file_link_payload(update, context, token, record)
         return
-    menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🔗 File-to-Link", "🟢 Bot Status", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel"]
+    menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🔗 File-to-Link", "🟢 Bot Status", "🔄 Change Batch Channel", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel"]
     if text in menu_texts:
         support_states = load_json_file(SUPPORT_STATES_FILE)
         if str(user_id) in support_states:
@@ -984,6 +985,18 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             save_json_file(SUPPORT_STATES_FILE, support_states)
     if text.strip() == "🔗 File-to-Link":
         await file_to_link_command(update, context)
+        return
+    if text.strip() == "🔄 Change Batch Channel":
+        linking_states = load_linking_states()
+        linking_states[str(user_id)] = "waiting_for_channel"
+        save_linking_states(linking_states)
+        await update.message.reply_text(
+            "🔄 **Change Batch Download Channel**\n\n"
+            "1. Make sure I am an administrator in the new channel.\n"
+            "2. Forward any message directly from that channel here.\n"
+            "Your new channel will replace the previously linked channel.",
+            parse_mode="Markdown"
+        )
         return
     fl_states = load_json_file(FILE_LINK_STATE_FILE)
     fl_state = fl_states.get(str(user_id))
@@ -1774,7 +1787,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.answer("Expired", show_alert=True)
             return
         await query.message.delete()
-        keyboard = [[InlineKeyboardButton(t["btn_chat"], callback_data=f"dest_chat_{dl_type}_{payload_key}")],[InlineKeyboardButton(t["btn_chan"], callback_data=f"dest_chan_{dl_type}_{payload_key}")]]
+        keyboard = [[InlineKeyboardButton(t["btn_chat"], callback_data=f"dest_chat_{dl_type}_{payload_key}")], [InlineKeyboardButton(t["btn_chan"], callback_data=f"dest_chan_{dl_type}_{payload_key}")], [InlineKeyboardButton("🔄 Change Channel", callback_data="change_channel")]]
         await context.bot.send_message(chat_id=chat_id, text=t["batch_dest"].format(len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     if data.startswith("fmt_"):
@@ -1919,7 +1932,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         linking_states[str(user_id)]="waiting_for_channel"
         save_linking_states(linking_states)
         await query.answer("Mode activated!")
-        await query.message.reply_text("🔄 Forward message from new channel", parse_mode="Markdown")
+        await query.message.reply_text("🔄 **Change Batch Destination Channel**\nMake the bot an administrator in the new channel, then forward any message from that channel here.", parse_mode="Markdown")
         return
     if data == "verify_user":
         try:
