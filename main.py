@@ -492,9 +492,10 @@ def get_mtproto_max_mb():
     config = load_json_file(CONFIG_FILE)
     return config.get("mtproto_max_mb", MTPROTO_MAX_MB)
 
-# --- FIXED DOWNLOAD ENGINE (Removed strict yt-dlp filesize limit) ---
+# --- FIXED DOWNLOAD ENGINE ---
 def download_media_engine(url: str, download_type: str, max_mb=None):
-    cap_mb = int(max_mb or get_mtproto_max_mb())
+    # Use a generous default limit (2GB) to prevent premature FILE_TOO_LARGE errors
+    cap_mb = int(max_mb or 2000)
     cap_bytes = cap_mb * 1024 * 1024
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
@@ -513,7 +514,6 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
         ydl_opts['cookiefile'] = cookiefile
         
     if download_type == 'audio':
-        # Removed max_filesize from ydl_opts to prevent premature abort
         ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path})
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
@@ -542,7 +542,6 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
         for fmt in tiers:
             try:
                 opts = dict(ydl_opts)
-                # Removed max_filesize from opts to let yt-dlp try downloading
                 opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path})
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=True)
@@ -550,7 +549,6 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                     if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0]+".mp4"):
                         path = os.path.splitext(path)[0]+".mp4"
                     if os.path.exists(path):
-                        # Manual check after download
                         if os.path.getsize(path) > cap_bytes:
                             os.remove(path)
                             too_big = True
@@ -566,13 +564,14 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
             raise ValueError("FILE_TOO_LARGE")
         raise last_err
 
+# --- FIXED KEYBOARD WITH CHANGE CHANNEL BUTTON ---
 def get_main_keyboard(lang_code, is_admin):
     t = LANGUAGES.get(lang_code, LANGUAGES["en"])
     keyboard = [
         [KeyboardButton(t["menu_stats"]), KeyboardButton(t["menu_lang"])],
         [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])],
         [KeyboardButton(t["menu_upload"]), KeyboardButton("🔗 File-to-Link")],
-        [KeyboardButton("🟢 Bot Status"), KeyboardButton("🔄 Change Channel")] # Added Change Channel button
+        [KeyboardButton("🟢 Bot Status"), KeyboardButton("🔄 Change Channel")]
     ]
     if is_admin:
         keyboard.append([KeyboardButton("/stats"), KeyboardButton("/toggleads")])
