@@ -399,9 +399,7 @@ def get_mtproto_max_mb():
     config = load_json_file(CONFIG_FILE)
     return config.get("mtproto_max_mb", MTPROTO_MAX_MB)
 
-# --- FIXED DOWNLOAD ENGINE ---
 def download_media_engine(url: str, download_type: str, max_mb=None):
-    # Use configured max (300MB) instead of dynamic disk space check to prevent premature FILE_TOO_LARGE
     cap_mb = int(max_mb or get_mtproto_max_mb())
     cap_bytes = cap_mb * 1024 * 1024
     output_dir = "downloads"
@@ -750,7 +748,6 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     success_count += 1
                     continue
                 except: pass
-            # FIX: Pass get_mtproto_max_mb() instead of mtproto_limit_mb() to prevent premature FILE_TOO_LARGE
             file_paths, res, size = await asyncio.to_thread(download_media_engine, url, download_type, get_mtproto_max_mb())
             if file_paths and os.path.exists(file_paths[0]):
                 sent = await send_video_file(bot, chat_id, target_destination_id, file_paths[0], f"Item {index}/{len(urls)} Size {size}", None, status_msg)
@@ -1065,7 +1062,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if len(extracted_urls) > 1:
         payload_key = f"batch_{user_id}_{int(time.time())}"
         pending_batch_payloads[payload_key] = extracted_urls
-        keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"batchtype_video_{payload_key}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"batchtype_audio_{payload_key}")]]
+        keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"batchtype|{t['btn_video']}|{payload_key}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"batchtype|{t['btn_audio']}|{payload_key}")]]
         await update.message.reply_text(t["batch_detected"].format(len(extracted_urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     url = extracted_urls[0]
@@ -1075,7 +1072,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     except: pass
     payload_key = f"single_{user_id}_{int(time.time())}"
     pending_single_links[payload_key] = url
-    keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"fmt_vid_{payload_key}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"fmt_aud_{payload_key}")],[InlineKeyboardButton(t["btn_image"], callback_data=f"fmt_img_{payload_key}")]]
+    keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"fmt|vid|{payload_key}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"fmt|aud|{payload_key}")],[InlineKeyboardButton(t["btn_image"], callback_data=f"fmt|img|{payload_key}")]]
     await update.message.reply_text(f"🎬 {title}\n⏱️ {dur}\n\n{t['ask_format']}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1121,7 +1118,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
         payload_key = f"batch_{user_id}_{int(time.time())}"
         pending_batch_payloads[payload_key] = urls
-        keyboard = [[InlineKeyboardButton("🎬 Video", callback_data=f"batchtype_video_{payload_key}")]]
+        keyboard = [[InlineKeyboardButton("🎬 Video", callback_data=f"batchtype|video|{payload_key}")]]
         await update.message.reply_text(f"📦 Batch {len(urls)}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     except Exception as e: logger.error(f"File: {e}")
 
@@ -1307,7 +1304,6 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
                     save_json_file(CACHE_FILE, cache)
     status_msg = await bot.send_message(chat_id=chat_id, text=t["fetching"].format(dl_type) + f"\n`{ckey}`", parse_mode="Markdown")
     try:
-        # FIX: Pass get_mtproto_max_mb() to prevent premature FILE_TOO_LARGE
         file_paths, res, size = await asyncio.to_thread(download_media_engine, url, dl_type, get_mtproto_max_mb())
         if not file_paths: raise ValueError("FILE_NOT_FOUND")
         cache = load_json_file(CACHE_FILE)
@@ -1626,23 +1622,25 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.message.delete()
         except: pass
         return
-    if data.startswith("batchtype_"):
-        parts = data.split("_",2)
-        dl_type = parts[1]
+        
+    # --- FIXED BATCH HANDLING WITH | SEPARATOR ---
+    if data.startswith("batchtype|"):
+        parts = data.split("|", 2)
+        dl_type_label = parts[1]
         payload_key = parts[2]
         urls = pending_batch_payloads.get(payload_key)
         if not urls:
             await query.answer("Expired", show_alert=True)
             return
         await query.message.delete()
-        keyboard = [[InlineKeyboardButton(t["btn_chat"], callback_data=f"dest_chat_{dl_type}_{payload_key}")],[InlineKeyboardButton(t["btn_chan"], callback_data=f"dest_chan_{dl_type}_{payload_key}")]]
+        # Use | separator for destination buttons too
+        keyboard = [[InlineKeyboardButton(t["btn_chat"], callback_data=f"dest_chat|{dl_type_label}|{payload_key}")],[InlineKeyboardButton(t["btn_chan"], callback_data=f"dest_chan|{dl_type_label}|{payload_key}")]]
         await context.bot.send_message(chat_id=chat_id, text=t["batch_dest"].format(len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
         
-    # --- NEW BATCH CHANNEL MENU LOGIC ---
-    if data.startswith("dest_chan_"):
-        parts = data.split("_",3)
-        dl_type = parts[1]
+    if data.startswith("dest_chan|"):
+        parts = data.split("|", 2)
+        dl_type_label = parts[1]
         payload_key = parts[2]
         urls = pending_batch_payloads.get(payload_key)
         if not urls:
@@ -1654,7 +1652,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         
         if target:
             kb = [
-                [InlineKeyboardButton("✅ Yes, Start Batch", callback_data=f"start_batch_{dl_type}_{payload_key}")],
+                [InlineKeyboardButton("✅ Yes, Start Batch", callback_data=f"start_batch|{dl_type_label}|{payload_key}")],
                 [InlineKeyboardButton("🔄 Change Channel", callback_data="change_channel")],
                 [InlineKeyboardButton("❌ Cancel Batch", callback_data="cancel_batch")]
             ]
@@ -1678,9 +1676,9 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.answer()
         return
 
-    if data.startswith("start_batch_"):
-        parts = data.split("_",3)
-        dl_type = parts[1]
+    if data.startswith("start_batch|"):
+        parts = data.split("|", 2)
+        dl_type_label = parts[1]
         payload_key = parts[2]
         urls = pending_batch_payloads.pop(payload_key, None)
         if not urls:
@@ -1693,6 +1691,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
         await query.answer("Starting batch...")
         await query.message.delete()
+        # Map label back to dl_type
+        dl_type = 'video' if 'Video' in dl_type_label else 'audio'
         asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, target, urls, dl_type))
         return
 
@@ -1707,9 +1707,9 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.effective_message.reply_text("✅ Batch cancelled.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
         return
 
-    if data.startswith("dest_chat_"):
-        parts = data.split("_",3)
-        dl_type = parts[1]
+    if data.startswith("dest_chat|"):
+        parts = data.split("|", 2)
+        dl_type_label = parts[1]
         payload_key = parts[2]
         urls = pending_batch_payloads.pop(payload_key, None)
         if not urls:
@@ -1717,6 +1717,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
         await query.answer("Loading...")
         await query.message.delete()
+        dl_type = 'video' if 'Video' in dl_type_label else 'audio'
         asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, chat_id, urls, dl_type))
         return
 
@@ -1737,9 +1738,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.message.reply_text(instructions, parse_mode="Markdown")
         return
 
-    if data.startswith("fmt_"):
-        parts = data.split("_",2)
-        fmt_type, payload_key = parts[1], parts[2]
+    if data.startswith("fmt|"):
+        parts = data.split("|", 2)
+        fmt_type = parts[1]
+        payload_key = parts[2]
         url = pending_single_links.pop(payload_key, None)
         if not url:
             await query.answer("Expired", show_alert=True)
@@ -2022,10 +2024,7 @@ API_HASH = os.getenv("API_HASH", "").strip()
 BOT_API_LIMIT_BYTES = 49 * 1024 * 1024
 MTPROTO = {"client": None, "loop": None, "ready": threading.Event(), "no_parse": None}
 
-# --- FIXED MTProto Limit ---
 def mtproto_limit_mb():
-    # Always return the configured max (300MB) to allow downloads. 
-    # The upload function will handle the actual size limits.
     return get_mtproto_max_mb()
 
 def probe_video(path):
