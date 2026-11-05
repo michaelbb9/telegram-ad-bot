@@ -449,7 +449,6 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                 return [path], "Image", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("NO_IMAGES")
     else:
-        # FIXED TIERS: Reliable fallbacks for TikTok, Facebook Reels, and YouTube
         tiers = [
             "best[height<=720]/best", 
             "bv*[height<=720]+ba/b[height<=720]", 
@@ -469,7 +468,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                         path = os.path.splitext(path)[0]+".mp4"
                     if os.path.exists(path):
                         file_size = os.path.getsize(path)
-                        if file_size < 50000: # Catch empty/error files
+                        if file_size < 50000:
                             os.remove(path)
                             continue
                         if file_size > cap_bytes:
@@ -828,7 +827,6 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
     except: pass
     if user_id not in paused_batches:
         dest = t["batch_done_chan"].format(success_count, fail_count, success_count) if target_destination_id != chat_id else t["batch_done"].format(success_count, fail_count, success_count)
-        # Added change channel button back when sending batch completion markup
         done_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Change Channel", callback_data="change_channel")]]) if target_destination_id != chat_id else None
         await bot.send_message(chat_id=chat_id, text=dest, reply_markup=done_markup, parse_mode="Markdown")
 
@@ -1849,7 +1847,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 linking_states[str(user_id)]="waiting_for_channel"
                 save_linking_states(linking_states)
                 
-                # Added Change Channel / Link Setup markup with inline buttons
                 setup_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Change / Link Channel", callback_data="change_channel")]])
                 await query.message.edit_text("📦 Setup: Make bot admin in your channel and forward a message from it here.", reply_markup=setup_markup, parse_mode="Markdown")
                 return
@@ -2141,8 +2138,10 @@ if not getattr(web_app, '_bot_started', False):
 
 if not getattr(web_app, '_mtproto_started', False):
     web_app._mtproto_started = True
- & if API_ID and API_HASH: threading.Thread(target=run_mtproto_worker, daemon=True).start()
-    else: print("MTProto worker not started.")
+    if API_ID and API_HASH: 
+        threading.Thread(target=run_mtproto_worker, daemon=True).start()
+    else: 
+        print("MTProto worker not started.")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
