@@ -822,51 +822,11 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text(t["upload_success_user"], reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
         except: await update.message.reply_text("❌ Failed")
 
-# === COMPLETELY REWRITTEN WITH LIVE DEBUG IN CHAT ===
+# === FIXED CHANNEL LINKING LOGIC ===
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text if update.message.text else ""
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
-    
-    # === LIVE DEBUG: Show what the bot sees ===
-    debug_lines = []
-    debug_lines.append(f"🔎 <b>Debug Report:</b>")
-    debug_lines.append(f"• Text: <code>{text[:50] if text else 'None'}</code>")
-    
-    has_forward_origin = hasattr(update.message, 'forward_origin')
-    has_forward_from_chat = hasattr(update.message, 'forward_from_chat')
-    debug_lines.append(f"• Has forward_origin: {has_forward_origin}")
-    debug_lines.append(f"• Has forward_from_chat: {has_forward_from_chat}")
-    
-    origin_type_str = "None"
-    chat_info_str = "None"
-    
-    if has_forward_origin and update.message.forward_origin:
-        origin = update.message.forward_origin
-        origin_type_str = getattr(origin, 'type', 'UNKNOWN')
-        debug_lines.append(f"• Origin type: <b>{origin_type_str}</b>")
-        
-        if origin_type_str == 'channel' and hasattr(origin, 'chat'):
-            chat_info_str = f"{origin.chat.title} (ID: {origin.chat.id})"
-            debug_lines.append(f"• Channel: {chat_info_str}")
-        elif origin_type_str == 'hidden_user':
-            debug_lines.append(f"• ⚠️ Hidden forward (channel has 'Restrict Saving Content' ON)")
-        elif origin_type_str == 'user':
-            debug_lines.append(f"• Forwarded from a user, not a channel")
-        elif origin_type_str == 'chat':
-            debug_lines.append(f"• Forwarded from a group, not a channel")
-    
-    if has_forward_from_chat and update.message.forward_from_chat:
-        fchat = update.message.forward_from_chat
-        chat_info_str = f"{fchat.title} (ID: {fchat.id})"
-        debug_lines.append(f"• Legacy chat: {chat_info_str}")
-    
-    debug_lines.append(f"• Linking state: <b>{load_linking_states().get(str(user_id), 'none')}</b>")
-    
-    # Send debug to chat
-    debug_msg = "\n".join(debug_lines)
-    await update.message.reply_text(debug_msg, parse_mode="HTML")
-    # === END LIVE DEBUG ===
     
     # === CHANNEL LINKING LOGIC ===
     linking_states = load_linking_states()
@@ -874,8 +834,8 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         f_chat = None
         origin_type = None
         
-        # Method 1: New API
-        if has_forward_origin and update.message.forward_origin:
+        # Check newer API
+        if getattr(update.message, 'forward_origin', None):
             origin = update.message.forward_origin
             origin_type = getattr(origin, 'type', None)
             
@@ -898,8 +858,8 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 await update.message.reply_text("❌ This was forwarded from a group, not a channel. Please forward a message from your channel.")
                 return
         
-        # Method 2: Legacy API
-        if not f_chat and has_forward_from_chat and update.message.forward_from_chat:
+        # Check older API
+        if not f_chat and getattr(update.message, 'forward_from_chat', None):
             f_chat = update.message.forward_from_chat
             origin_type = getattr(f_chat, 'type', None)
         
@@ -1728,6 +1688,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await context.bot.send_message(chat_id=chat_id, text=t["batch_dest"].format(len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
 
+    # ✅ THE KEY FIX: When no channel is linked, set waiting_for_channel state
     if data.startswith("dest_chan|"):
         parts = data.split("|")
         dl_type = parts[1]
@@ -1754,6 +1715,11 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown"
             )
         else:
+            # ✅ CRITICAL FIX: Set the linking state so the bot knows to expect a forward
+            linking_states = load_linking_states()
+            linking_states[str(user_id)] = "waiting_for_channel"
+            save_linking_states(linking_states)
+            
             kb = [[InlineKeyboardButton("❌ Cancel Batch", callback_data="cancel_batch")]]
             bot_username = context.bot.username
             await query.message.edit_text(
@@ -1789,6 +1755,11 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         for k in keys_to_delete: del pending_batch_payloads[k]
         active_batch_sessions.pop(user_id, None)
         paused_batches.pop(user_id, None)
+        # Clear linking state too
+        linking_states = load_linking_states()
+        if str(user_id) in linking_states:
+            del linking_states[str(user_id)]
+            save_linking_states(linking_states)
         await query.answer("Batch cancelled")
         try: 
             await query.message.delete()
@@ -2093,7 +2064,6 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("restore", restore_command))
         app.add_handler(CommandHandler("setdisk", set_disk_command))
         app.add_handler(CommandHandler("setmtproto", set_mtproto_command))
-        # ✅ FIX: Accept ALL non-command messages (including media forwards)
         app.add_handler(MessageHandler(~filters.COMMAND, handle_media_link))
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
         app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.ATTACHMENT, handle_user_upload))
