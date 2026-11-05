@@ -716,6 +716,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         except Exception as e2: logger.error(f"Copy failed: {e2}")
     await update.message.reply_text("👇 **CONTENT LOCKED 🔒**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
+# === FIXED BATCH PROCESSOR WITH DELAYS & ERROR HANDLING ===
 async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0):
     if not urls: return
     lang = get_lang(user_id)
@@ -724,14 +725,20 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
     active_batch_sessions[user_id] = True
     stop_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop Batch", callback_data="stop_batch")]])
     batch_notice = await bot.send_message(chat_id=chat_id, text=t["batch_start"].format(download_type.upper(), len(urls)), reply_markup=stop_markup, parse_mode="Markdown")
+    
     for index, url in enumerate(urls[start_index:], start=start_index+1):
-        if not active_batch_sessions.get(user_id, False): break
+        # ✅ CHECK IF USER CANCELLED
+        if not active_batch_sessions.get(user_id, False): 
+            break
+            
         try:
             response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": True}, headers=API_HEADERS, timeout=5)
             res_data = response.json() if response.status_code == 200 else {}
         except: res_data = {"status": "allowed"}
+        
         tokens = load_tokens()
         d_left = tokens.get(str(user_id), {}).get("downloads_left", 4)
+        
         if res_data.get("status") != "allowed" and d_left <= 0 and user_id != ADMIN_ID:
             assigned_network = get_global_ab_network(user_id)
             if assigned_network == "monetag":
@@ -746,10 +753,13 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)]]
             await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             break
+            
         status_msg = await bot.send_message(chat_id=chat_id, text=f"📥 [{index}/{len(urls)}] {t['dl_video']}")
+        
         try:
             ckey = await get_canonical_key(url, chat_id, bot)
             cache = load_json_file(CACHE_FILE)
+            
             if ckey in cache:
                 try:
                     cached = cache[ckey]
@@ -761,14 +771,36 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     save_json_file(CACHE_FILE, cache)
                     await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
                     success_count += 1
+                    # ✅ DELAY TO PREVENT RATE LIMITS
+                    await asyncio.sleep(3)
                     continue
-                except: pass
+                except Exception as cache_err:
+                    logger.error(f"Cache send fail {ckey}: {cache_err}")
+                    try:
+                        vmid = cache[ckey].get("vault_msg_id")
+                        if vmid:
+                            fwd = await bot.forward_message(chat_id=chat_id, from_chat_id=VIDEO_VAULT_ID, message_id=vmid)
+                            warn = await bot.send_message(chat_id=chat_id, text="⏳ Auto-deletes in 9 mins (from vault)")
+                            asyncio.create_task(schedule_deletion(bot, chat_id, [fwd.message_id, warn.message_id], 540))
+                            cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
+                            save_json_file(CACHE_FILE, cache)
+                            await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+                            success_count += 1
+                            await asyncio.sleep(3)
+                            continue
+                    except: pass
+                    
+            # Download the file
             file_paths, res, size = await asyncio.to_thread(download_media_engine, url, download_type, get_mtproto_max_mb())
+            
             if file_paths and os.path.exists(file_paths[0]):
+                # ✅ USE MTProto FOR DIRECT CHANNEL UPLOAD (FIXES >50MB ISSUE)
                 sent = await send_video_file(bot, chat_id, target_destination_id, file_paths[0], f"Item {index}/{len(urls)} Size {size}", None, status_msg)
+                
                 if target_destination_id == chat_id:
                     warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
                     asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
+                
                 try:
                     if sent.video.file_id:
                         vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent.video.file_id, caption=ckey)
@@ -776,20 +808,45 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                         cache[ckey] = {"file_id": sent.video.file_id, "vault_msg_id": vmsg.message_id, "type": "video", "timestamp": time.time(), "hits": 1}
                         save_json_file(CACHE_FILE, cache)
                 except Exception as e: logger.error(f"Vault save: {e}")
+                
                 os.remove(file_paths[0])
                 await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
                 success_count += 1
             else:
                 await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}] Failed")
                 fail_count += 1
+                
         except Exception as e:
-            try: await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}] {str(e)[:50]}")
+            error_msg = str(e)
+            logger.error(f"Batch error [{index}]: {error_msg}")
+            
+            # ✅ BETTER ERROR MESSAGES
+            if "TIKTOK_BLOCKED" in error_msg:
+                error_text = f"❌ [{index}] TikTok blocked request. Try again later."
+            elif "FILE_TOO_LARGE" in error_msg:
+                error_text = f"❌ [{index}] Video too large (>300MB)"
+            elif "MTPROTO_OFF" in error_msg:
+                error_text = f"❌ [{index}] MTProto not ready. Restart bot."
+            elif "403" in error_msg or "Unauthorized" in error_msg:
+                error_text = f"❌ [{index}] Link private/blocked"
+            else:
+                error_text = f"❌ [{index}] {error_msg[:50]}"
+                
+            try: 
+                await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=error_text)
             except: pass
             fail_count += 1
+            
+        # ✅ CRITICAL: DELAY BETWEEN DOWNLOADS TO PREVENT RATE LIMITS
         await asyncio.sleep(3)
-    if user_id in active_batch_sessions: del active_batch_sessions[user_id]
-    try: await bot.delete_message(chat_id=chat_id, message_id=batch_notice.message_id)
+        
+    # Cleanup
+    if user_id in active_batch_sessions: 
+        del active_batch_sessions[user_id]
+    try: 
+        await bot.delete_message(chat_id=chat_id, message_id=batch_notice.message_id)
     except: pass
+    
     if user_id not in paused_batches:
         dest = t["batch_done_chan"].format(success_count, fail_count, success_count) if target_destination_id != chat_id else t["batch_done"].format(success_count, fail_count, success_count)
         await bot.send_message(chat_id=chat_id, text=dest, reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID), parse_mode="Markdown")
@@ -837,6 +894,7 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text(t["upload_success_user"], reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
         except: await update.message.reply_text("❌ Failed")
 
+# === ROBUST CHANNEL LINKING LOGIC ===
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text if update.message.text else ""
     user_id = update.message.from_user.id
@@ -848,6 +906,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         f_chat = None
         origin_type = None
         
+        # Check newer API
         if getattr(update.message, 'forward_origin', None):
             origin = update.message.forward_origin
             origin_type = getattr(origin, 'type', None)
@@ -871,6 +930,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 await update.message.reply_text("❌ This was forwarded from a group, not a channel. Please forward a message from your channel.")
                 return
         
+        # Check older API
         if not f_chat and getattr(update.message, 'forward_from_chat', None):
             f_chat = update.message.forward_from_chat
             origin_type = getattr(f_chat, 'type', None)
@@ -883,6 +943,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             del linking_states[str(user_id)]
             save_linking_states(linking_states)
             
+            # Resume pending batch
             pending_key = None
             dl_type = "video"
             for k in list(pending_batch_payloads.keys()):
@@ -911,6 +972,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 parse_mode="HTML"
             )
             return
+    # === END CHANNEL LINKING ===
 
     if is_banned(user_id):
         await update.message.reply_text("🚫 Banned")
@@ -1411,6 +1473,7 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
         except: pass
         return False
 
+# === FIXED BUTTON HANDLER WITH | SEPARATORS ===
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     user_id = query.from_user.id
@@ -1724,6 +1787,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown"
             )
         else:
+            # ✅ CRITICAL FIX: Set the linking state so the bot knows to expect a forward
             linking_states = load_linking_states()
             linking_states[str(user_id)] = "waiting_for_channel"
             save_linking_states(linking_states)
@@ -2130,9 +2194,9 @@ async def _tell_uploading(status_msg, path):
     try: await status_msg.edit_text(f"📤 Uploading {os.path.getsize(path)/(1024*1024):.0f}MB in fast mode...")
     except Exception: pass
 
-# === FIXED SEND VIDEO FILE ===
+# === FIXED SEND VIDEO FILE (NO COPY_MESSAGE) ===
 async def send_video_file(bot, chat_id, target_id, path, caption, parse_mode, status_msg=None):
-    if os.path.getsize(path) <= 49 * 1024 * 1024: # 49MB safe limit for Bot API
+    if os.path.getsize(path) <= 49 * 1024 * 1024: # 49MB safe limit
         with open(path, 'rb') as f: 
             return await bot.send_video(chat_id=target_id, video=f, caption=caption, parse_mode=parse_mode)
             
@@ -2141,7 +2205,7 @@ async def send_video_file(bot, chat_id, target_id, path, caption, parse_mode, st
     try:
         extra = {k: v for k, v in (("duration", info["duration"]), ("width", info["width"]), ("height", info["height"]), ("thumb", info["thumb"])) if v}
         
-        # FIX: Send directly to target_id (the channel) via Pyrogram
+        # Send directly to target_id (the channel) via Pyrogram - NO COPY_MESSAGE!
         msg = await mtproto_upload("video", target_id, path, caption.replace("`", ""), **extra)
         
     finally:
@@ -2149,11 +2213,7 @@ async def send_video_file(bot, chat_id, target_id, path, caption, parse_mode, st
             os.remove(info["thumb"])
             
     media = msg.video or msg.document
-    file_id = media.file_id
-    message_id = msg.id
-    
-    # REMOVED the bot.copy_message() block which was failing on files > 50MB
-    return types.SimpleNamespace(message_id=message_id, video=types.SimpleNamespace(file_id=file_id))
+    return types.SimpleNamespace(message_id=msg.id, video=types.SimpleNamespace(file_id=media.file_id))
 
 async def send_audio_file(bot, chat_id, target_id, path, caption, parse_mode, status_msg=None):
     if os.path.getsize(path) <= 49 * 1024 * 1024:
