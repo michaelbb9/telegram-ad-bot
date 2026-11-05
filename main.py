@@ -822,62 +822,125 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text(t["upload_success_user"], reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
         except: await update.message.reply_text("❌ Failed")
 
-# --- ROBUST CHANNEL LINKING LOGIC ---
+# === COMPLETELY REWRITTEN WITH LIVE DEBUG IN CHAT ===
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text if update.message.text else ""
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
     
-    try:
-        linking_states = load_linking_states()
-        if linking_states.get(str(user_id)) == "waiting_for_channel":
-            f_chat = None
+    # === LIVE DEBUG: Show what the bot sees ===
+    debug_lines = []
+    debug_lines.append(f"🔎 <b>Debug Report:</b>")
+    debug_lines.append(f"• Text: <code>{text[:50] if text else 'None'}</code>")
+    
+    has_forward_origin = hasattr(update.message, 'forward_origin')
+    has_forward_from_chat = hasattr(update.message, 'forward_from_chat')
+    debug_lines.append(f"• Has forward_origin: {has_forward_origin}")
+    debug_lines.append(f"• Has forward_from_chat: {has_forward_from_chat}")
+    
+    origin_type_str = "None"
+    chat_info_str = "None"
+    
+    if has_forward_origin and update.message.forward_origin:
+        origin = update.message.forward_origin
+        origin_type_str = getattr(origin, 'type', 'UNKNOWN')
+        debug_lines.append(f"• Origin type: <b>{origin_type_str}</b>")
+        
+        if origin_type_str == 'channel' and hasattr(origin, 'chat'):
+            chat_info_str = f"{origin.chat.title} (ID: {origin.chat.id})"
+            debug_lines.append(f"• Channel: {chat_info_str}")
+        elif origin_type_str == 'hidden_user':
+            debug_lines.append(f"• ⚠️ Hidden forward (channel has 'Restrict Saving Content' ON)")
+        elif origin_type_str == 'user':
+            debug_lines.append(f"• Forwarded from a user, not a channel")
+        elif origin_type_str == 'chat':
+            debug_lines.append(f"• Forwarded from a group, not a channel")
+    
+    if has_forward_from_chat and update.message.forward_from_chat:
+        fchat = update.message.forward_from_chat
+        chat_info_str = f"{fchat.title} (ID: {fchat.id})"
+        debug_lines.append(f"• Legacy chat: {chat_info_str}")
+    
+    debug_lines.append(f"• Linking state: <b>{load_linking_states().get(str(user_id), 'none')}</b>")
+    
+    # Send debug to chat
+    debug_msg = "\n".join(debug_lines)
+    await update.message.reply_text(debug_msg, parse_mode="HTML")
+    # === END LIVE DEBUG ===
+    
+    # === CHANNEL LINKING LOGIC ===
+    linking_states = load_linking_states()
+    if linking_states.get(str(user_id)) == "waiting_for_channel":
+        f_chat = None
+        origin_type = None
+        
+        # Method 1: New API
+        if has_forward_origin and update.message.forward_origin:
+            origin = update.message.forward_origin
+            origin_type = getattr(origin, 'type', None)
             
-            # Check for forward_from_chat (older API/legacy forwards)
-            if getattr(update.message, 'forward_from_chat', None):
-                f_chat = update.message.forward_from_chat
-            
-            # Check for forward_origin (newer API)
-            elif getattr(update.message, 'forward_origin', None):
-                origin = update.message.forward_origin
-                if getattr(origin, 'type', None) == 'channel':
-                    f_chat = origin.chat
-                # Handle "hidden" forwards (where channel privacy is enabled)
-                elif getattr(origin, 'type', None) == 'hidden_user':
-                    await update.message.reply_text("❌ The channel has hidden forwards enabled in its settings. Please go to your channel settings -> Administrators -> and turn ON 'Remain Anonymous' (or disable forward privacy), then try again.", parse_mode="Markdown")
-                    return
-                    
-            if f_chat and getattr(f_chat, 'type', '') in ('channel', 'supergroup'):
-                user_channels = load_user_channels()
-                user_channels[str(user_id)] = f_chat.id
-                save_user_channels(user_channels)
-                
-                del linking_states[str(user_id)]
-                save_linking_states(linking_states)
-                
-                await update.message.reply_text(f"✅ Successfully linked to **{f_chat.title}**!\n🚀 Starting your batch now...", parse_mode="Markdown")
-                
-                # Resume the pending batch
-                pending_key = None
-                dl_type = "video" # Defaults to video if not stored
-                for k in list(pending_batch_payloads.keys()):
-                    if str(user_id) in k:
-                        pending_key = k
-                        break
-                        
-                if pending_key:
-                    urls = pending_batch_payloads.pop(pending_key, None)
-                    if urls:
-                        asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, f_chat.id, urls, dl_type))
+            if origin_type == 'channel' and hasattr(origin, 'chat'):
+                f_chat = origin.chat
+            elif origin_type == 'hidden_user':
+                await update.message.reply_text(
+                    "❌ <b>Hidden Forward Detected</b>\n\n"
+                    "Your channel has <b>'Restrict Saving Content'</b> enabled.\n\n"
+                    "To fix this, either:\n"
+                    "1. Disable 'Restrict Saving Content' in your channel settings, OR\n"
+                    "2. Add the bot as an <b>Administrator</b> in your channel (this bypasses the restriction), then forward again.",
+                    parse_mode="HTML"
+                )
                 return
+            elif origin_type == 'user':
+                await update.message.reply_text("❌ This was forwarded from a user, not a channel. Please forward a message from your channel.")
+                return
+            elif origin_type == 'chat':
+                await update.message.reply_text("❌ This was forwarded from a group, not a channel. Please forward a message from your channel.")
+                return
+        
+        # Method 2: Legacy API
+        if not f_chat and has_forward_from_chat and update.message.forward_from_chat:
+            f_chat = update.message.forward_from_chat
+            origin_type = getattr(f_chat, 'type', None)
+        
+        if f_chat and origin_type in ('channel', 'supergroup'):
+            user_channels = load_user_channels()
+            user_channels[str(user_id)] = f_chat.id
+            save_user_channels(user_channels)
+            
+            del linking_states[str(user_id)]
+            save_linking_states(linking_states)
+            
+            # Resume pending batch
+            pending_key = None
+            dl_type = "video"
+            for k in list(pending_batch_payloads.keys()):
+                if str(user_id) in k:
+                    pending_key = k
+                    break
+            
+            if pending_key:
+                urls = pending_batch_payloads.pop(pending_key, None)
+                if urls:
+                    await update.message.reply_text(
+                        f"✅ Linked to <b>{f_chat.title}</b>!\n"
+                        f"🚀 Starting batch of {len(urls)} files...",
+                        parse_mode="HTML"
+                    )
+                    asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, f_chat.id, urls, dl_type))
             else:
-                # If we couldn't find the channel, tell the user instead of failing silently
-                await update.message.reply_text("❌ I couldn't find a channel in that message. Please forward a message that was originally posted in your channel.")
-                return
-    except Exception as e:
-        logger.error(f"Channel linking error: {e}")
-        await update.message.reply_text(f"⚠️ Error while linking channel: {e}")
-        return
+                await update.message.reply_text(f"✅ Linked to <b>{f_chat.title}</b>!\n(No pending batch found - send links again)", parse_mode="HTML")
+            return
+        else:
+            await update.message.reply_text(
+                f"❌ Could not detect a channel.\n\n"
+                f"Debug: origin_type=<b>{origin_type or 'None'}</b>\n"
+                f"chat_found=<b>{'Yes' if f_chat else 'No'}</b>\n\n"
+                f"Make sure you're forwarding a message that was originally posted in your channel.",
+                parse_mode="HTML"
+            )
+            return
+    # === END CHANNEL LINKING ===
 
     if is_banned(user_id):
         await update.message.reply_text("🚫 Banned")
@@ -2030,7 +2093,7 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("restore", restore_command))
         app.add_handler(CommandHandler("setdisk", set_disk_command))
         app.add_handler(CommandHandler("setmtproto", set_mtproto_command))
-        # ✅ FIX: Changed to ~filters.COMMAND to allow media forwards for channel linking
+        # ✅ FIX: Accept ALL non-command messages (including media forwards)
         app.add_handler(MessageHandler(~filters.COMMAND, handle_media_link))
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
         app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.ATTACHMENT, handle_user_upload))
