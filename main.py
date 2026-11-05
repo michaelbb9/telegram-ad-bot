@@ -84,20 +84,10 @@ FLOOD_LIMIT = 3
 FLOOD_WINDOW = 60
 FLOOD_COOLDOWN = 30
 
-# --- YOUTUBE FIX: Global Options ---
 YDL_OPTS_BASE = {
-    'quiet': True,
-    'no_warnings': True,
-    'skip_download': True,
-    'noplaylist': True,
-    'socket_timeout': 15,
-    'retries': 2,
-    'fragment_retries': 2,
-    'extractor_args': {
-        'youtube': {
-            'player_client': ['ios', 'web']
-        }
-    }
+    'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True,
+    'socket_timeout': 15, 'retries': 2, 'fragment_retries': 2,
+    'extractor_args': {'youtube': {'player_client': ['ios', 'web']}}
 }
 
 LANGUAGES = {
@@ -141,32 +131,23 @@ def health_check():
 def load_json_file(filename):
     if os.path.exists(filename):
         try:
-            with open(filename, "r") as f:
-                return json.load(f)
-        except:
-            pass
+            with open(filename, "r") as f: return json.load(f)
+        except: pass
     return {}
 
 def save_json_file(filename, data):
     try:
-        with open(filename, "w") as f:
-            json.dump(data, f)
-    except Exception as e:
-        logger.error(f"Save {filename}: {e}")
+        with open(filename, "w") as f: json.dump(data, f)
+    except Exception as e: logger.error(f"Save {filename}: {e}")
 
-# --- UNIVERSAL RESOLVER ---
 async def get_canonical_key(url: str, chat_id=None, bot=None):
     original_url = url
-    
     async def send_debug(text):
         if chat_id and bot:
-            try:
-                await bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
-            except:
-                pass
+            try: await bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
+            except: pass
 
     await send_debug(f"🔍 <b>Processing Link:</b>\n<code>{url}</code>")
-
     short_link_domains = ["vt.tiktok.com", "vm.tiktok.com", "youtu.be/", "t.co/", "instagr.am/", "fb.watch/"]
     is_short_link = any(domain in url.lower() for domain in short_link_domains)
 
@@ -176,12 +157,9 @@ async def get_canonical_key(url: str, chat_id=None, bot=None):
             headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15'}
             response = requests.get(url, headers=headers, allow_redirects=True, timeout=15)
             resolved_url = response.url
-            
             if resolved_url != original_url:
                 url = resolved_url
                 await send_debug(f"✅ Resolved to:\n<code>{url}</code>")
-            else:
-                await send_debug("⚠️ Link didn't redirect.")
         except Exception as e:
             await send_debug(f"❌ Redirect failed: {str(e)[:100]}")
 
@@ -201,23 +179,17 @@ async def get_canonical_key(url: str, chat_id=None, bot=None):
     try:
         loop = asyncio.get_running_loop()
         def extract():
-            with yt_dlp.YoutubeDL(YDL_OPTS_BASE) as ydl:
-                return ydl.extract_info(url, download=False)
-        
+            with yt_dlp.YoutubeDL(YDL_OPTS_BASE) as ydl: return ydl.extract_info(url, download=False)
         info = await asyncio.wait_for(loop.run_in_executor(None, extract), timeout=20)
-        
         if info:
-            if 'entries' in info and info['entries']:
-                info = info['entries'][0]
+            if 'entries' in info and info['entries']: info = info['entries'][0]
             extractor = info.get('extractor', 'generic').replace(':', '').replace(' ', '')
             vid_id = info.get('id', '')
             if vid_id:
                 await send_debug(f"✅ yt-dlp found ID: <code>{vid_id}</code>")
                 return f"{extractor}_{vid_id}"
-    except asyncio.TimeoutError:
-        await send_debug("⚠️ yt-dlp timed out. Using URL hash.")
-    except Exception as e:
-        await send_debug(f"⚠️ yt-dlp failed: {str(e)[:50]}")
+    except asyncio.TimeoutError: await send_debug("⚠️ yt-dlp timed out. Using URL hash.")
+    except Exception as e: await send_debug(f"⚠️ yt-dlp failed: {str(e)[:50]}")
 
     await send_debug("🎲 Using URL hash fallback.")
     clean = url.split('?')[0].split('&')[0].lower().strip('/').replace('https://','').replace('http://','')
@@ -236,11 +208,9 @@ async def backup_to_channel(bot):
                     with open(fname, 'rb') as f:
                         await bot.send_document(chat_id=PRIVATE_CHANNEL_ID, document=f, filename=fname, caption=cap if first else None)
                         first = False
-                except Exception as e:
-                    logger.error(f"Backup {fname}: {e}")
+                except Exception as e: logger.error(f"Backup {fname}: {e}")
         logger.info("Backup done")
-    except Exception as e:
-        logger.error(f"Backup error: {e}")
+    except Exception as e: logger.error(f"Backup error: {e}")
 
 async def auto_backup_loop(bot):
     while True:
@@ -251,8 +221,7 @@ async def disk_cleaner_loop():
     while True:
         await asyncio.sleep(5 * 60)
         try:
-            if not os.path.exists("downloads"):
-                continue
+            if not os.path.exists("downloads"): continue
             now = time.time()
             deleted = 0
             for fname in os.listdir("downloads"):
@@ -263,40 +232,24 @@ async def disk_cleaner_loop():
                         if age > 3 * 60:
                             os.remove(fpath)
                             deleted += 1
-                except:
-                    pass
-            if deleted:
-                logger.info(f"Cleaner deleted {deleted}")
-        except Exception as e:
-            logger.error(f"Cleaner: {e}")
-
-def restore_cache_info():
-    try:
-        cache = load_json_file(CACHE_FILE)
-        if len(cache)==0:
-            logger.info("Cache empty after clear/restart")
-    except:
-        pass
+                except: pass
+            if deleted: logger.info(f"Cleaner deleted {deleted}")
+        except Exception as e: logger.error(f"Cleaner: {e}")
 
 def clean_downloads_startup():
     try:
         if os.path.exists("downloads"):
             for fname in os.listdir("downloads"):
-                try:
-                    os.remove(os.path.join("downloads", fname))
-                except:
-                    pass
-    except:
-        pass
+                try: os.remove(os.path.join("downloads", fname))
+                except: pass
+    except: pass
 
 def is_flood(user_id):
-    if user_id == ADMIN_ID:
-        return False, 0
+    if user_id == ADMIN_ID: return False, 0
     flood_data = load_json_file(FLOOD_FILE)
     now = time.time()
     uid = str(user_id)
-    if uid not in flood_data:
-        flood_data[uid] = []
+    if uid not in flood_data: flood_data[uid] = []
     flood_data[uid] = [t for t in flood_data[uid] if now - t < FLOOD_WINDOW]
     if len(flood_data[uid]) >= FLOOD_LIMIT:
         oldest = min(flood_data[uid]) if flood_data[uid] else now
@@ -315,8 +268,7 @@ def track_user_activity(user_id):
     activity = load_json_file(ACTIVITY_FILE)
     user_str = str(user_id)
     now = time.time()
-    if user_str not in activity:
-        activity[user_str] = {"total_interactions": 0, "last_active": now}
+    if user_str not in activity: activity[user_str] = {"total_interactions": 0, "last_active": now}
     activity[user_str]["total_interactions"] += 1
     activity[user_str]["last_active"] = now
     save_json_file(ACTIVITY_FILE, activity)
@@ -328,53 +280,40 @@ def get_lang(user_id):
 def get_global_ab_network(user_id):
     config = load_json_file(CONFIG_FILE)
     mode = config.get("ad_mode", "auto")
-    if mode in ("monetag", "adsgram"):
-        return "monetag"
-    elif mode == "adsterra":
-        return "adsterra"
+    if mode in ("monetag", "adsgram"): return "monetag"
+    elif mode == "adsterra": return "adsterra"
     day_epoch = int(time.time() // 86400)
     return "monetag" if (int(user_id) + day_epoch) % 2 == 0 else "adsterra"
 
 def load_tokens():
     try:
         response = requests.get(f"{WEB_BASE_URL}/get_tokens", headers=API_HEADERS, timeout=5)
-        if response.status_code == 200:
-            return response.json()
-    except Exception as e:
-        logger.error(f"Tokens: {e}")
+        if response.status_code == 200: return response.json()
+    except Exception as e: logger.error(f"Tokens: {e}")
     return {}
 
 def save_tokens(tokens):
-    try:
-        requests.post(f"{WEB_BASE_URL}/save_tokens", json=tokens, headers=API_HEADERS, timeout=5)
-    except Exception as e:
-        logger.error(f"Save tokens: {e}")
+    try: requests.post(f"{WEB_BASE_URL}/save_tokens", json=tokens, headers=API_HEADERS, timeout=5)
+    except Exception as e: logger.error(f"Save tokens: {e}")
 
 def adsgram_start(user_id, kind="wall", msg_start=0, msg_end=0):
     try:
-        r = requests.post(f"{WEB_BASE_URL}/monetag-start",
-                          json={"user_id": int(user_id), "kind": kind, "msg_start": int(msg_start),
-                                "msg_end": int(msg_end), "secret": API_SECRET}, timeout=8)
-        if r.status_code == 200:
-            return r.json().get("nonce")
+        r = requests.post(f"{WEB_BASE_URL}/monetag-start", json={"user_id": int(user_id), "kind": kind, "msg_start": int(msg_start), "msg_end": int(msg_end), "secret": API_SECRET}, timeout=8)
+        if r.status_code == 200: return r.json().get("nonce")
         logger.error(f"adsgram_start HTTP {r.status_code}: {r.text[:200]}")
-    except Exception as e:
-        logger.error(f"adsgram_start: {e}")
+    except Exception as e: logger.error(f"adsgram_start: {e}")
     return None
 
 def adsgram_status(user_id):
     try:
         r = requests.post(f"{WEB_BASE_URL}/monetag-status", json={"user_id": int(user_id), "secret": API_SECRET}, timeout=8)
-        if r.status_code == 200:
-            return r.json()
-    except Exception as e:
-        logger.error(f"adsgram_status: {e}")
+        if r.status_code == 200: return r.json()
+    except Exception as e: logger.error(f"adsgram_status: {e}")
     return {"status": "error"}
 
 def adsgram_keyboard(user_id, kind="wall", msg_start=0, msg_end=0, extra_rows=None):
     nonce = adsgram_start(user_id, kind, msg_start, msg_end)
-    if not nonce:
-        return None
+    if not nonce: return None
     url = f"{WEB_BASE_URL}/monetag?n={nonce}&k={kind}"
     rows = [
         [InlineKeyboardButton("📺 Watch Monetag Ad +1", web_app=WebAppInfo(url=url))],
@@ -382,30 +321,15 @@ def adsgram_keyboard(user_id, kind="wall", msg_start=0, msg_end=0, extra_rows=No
         [InlineKeyboardButton("✅ Check & Get +1", callback_data="monetag_check")],
         [InlineKeyboardButton("↪️ Use Adsterra fallback (after 2 failures)", callback_data="monetag_fallback")],
     ]
-    if extra_rows:
-        rows.extend(extra_rows)
+    if extra_rows: rows.extend(extra_rows)
     return InlineKeyboardMarkup(rows)
 
 async def report_vault_delivery(user_id, msg_start, msg_end, delivered_message_ids):
-    if not delivered_message_ids:
-        return
+    if not delivered_message_ids: return
     try:
-        response = requests.post(
-            f"{WEB_BASE_URL}/api/item-delivered",
-            json={
-                "user_id": int(user_id),
-                "msg_start": int(msg_start),
-                "msg_end": int(msg_end),
-                "delivered_message_ids": [int(x) for x in delivered_message_ids],
-                "event_id": uuid.uuid4().hex,
-            },
-            headers=API_HEADERS,
-            timeout=8,
-        )
-        if response.status_code != 200:
-            logger.warning("Vault analytics rejected delivery: %s %s", response.status_code, response.text[:200])
-    except Exception as e:
-        logger.warning("Vault analytics report failed: %s", e)
+        response = requests.post(f"{WEB_BASE_URL}/api/item-delivered", json={"user_id": int(user_id), "msg_start": int(msg_start), "msg_end": int(msg_end), "delivered_message_ids": [int(x) for x in delivered_message_ids], "event_id": uuid.uuid4().hex}, headers=API_HEADERS, timeout=8)
+        if response.status_code != 200: logger.warning("Vault analytics rejected delivery: %s %s", response.status_code, response.text[:200])
+    except Exception as e: logger.warning("Vault analytics report failed: %s", e)
 
 async def deliver_bundle(bot, user_id, msg_start, msg_end):
     fwd_ids = []
@@ -414,63 +338,48 @@ async def deliver_bundle(bot, user_id, msg_start, msg_end):
             fwd = await bot.forward_message(chat_id=user_id, from_chat_id=DETECTED_CHANNEL_ID, message_id=tid)
             fwd_ids.append(fwd.message_id)
             await asyncio.sleep(0.2)
-        except Exception as e:
-            logger.error(f"Forward {tid} fail: {e}")
+        except Exception as e: logger.error(f"Forward {tid} fail: {e}")
     await report_vault_delivery(user_id, msg_start, msg_end, fwd_ids)
     if TUTORIAL_MESSAGE_ID not in range(msg_start, msg_end + 1):
         try:
             tut = await bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
             fwd_ids.append(tut.message_id)
-        except Exception:
-            pass
+        except Exception: pass
     warn = await bot.send_message(chat_id=user_id, text="⏳ Auto-deletes in 9 mins", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
     fwd_ids.append(warn.message_id)
     asyncio.create_task(schedule_deletion(bot, user_id, fwd_ids, 540))
 
-def load_user_channels():
-    return load_json_file(CHANNELS_FILE)
-def save_user_channels(c):
-    save_json_file(CHANNELS_FILE, c)
-def load_linking_states():
-    return load_json_file(LINKING_STATE_FILE)
-def save_linking_states(s):
-    save_json_file(LINKING_STATE_FILE, s)
+def load_user_channels(): return load_json_file(CHANNELS_FILE)
+def save_user_channels(c): save_json_file(CHANNELS_FILE, c)
+def load_linking_states(): return load_json_file(LINKING_STATE_FILE)
+def save_linking_states(s): save_json_file(LINKING_STATE_FILE, s)
 
 async def schedule_deletion(bot, chat_id, message_ids, delay):
     await asyncio.sleep(delay)
     for msg_id in message_ids:
-        try:
-            await bot.delete_message(chat_id=chat_id, message_id=msg_id)
-        except:
-            pass
+        try: await bot.delete_message(chat_id=chat_id, message_id=msg_id)
+        except: pass
 
 def fetch_url_metadata_sync(url):
     ydl_opts = dict(YDL_OPTS_BASE)
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            if 'entries' in info and info['entries']:
-                info = info['entries'][0]
+            if 'entries' in info and info['entries']: info = info['entries'][0]
             title = info.get('title', 'Unknown')[:60]
             duration = info.get('duration', 0)
             mins, secs = divmod(duration, 60)
             dur = f"{mins}m {secs}s" if mins else f"{secs}s"
             return title, dur
-    except Exception:
-        return "Media Link", "N/A"
+    except Exception: return "Media Link", "N/A"
 
 async def fetch_url_metadata(url):
     loop = asyncio.get_running_loop()
     try:
-        title, dur = await asyncio.wait_for(
-            loop.run_in_executor(None, lambda: fetch_url_metadata_sync(url)), 
-            timeout=20
-        )
+        title, dur = await asyncio.wait_for(loop.run_in_executor(None, lambda: fetch_url_metadata_sync(url)), timeout=20)
         return title, dur
-    except asyncio.TimeoutError:
-        return "Media Link (Timeout)", "N/A"
-    except Exception:
-        return "Media Link", "N/A"
+    except asyncio.TimeoutError: return "Media Link (Timeout)", "N/A"
+    except Exception: return "Media Link", "N/A"
 
 def scrape_html_images(url, cookiefile=None):
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -478,10 +387,8 @@ def scrape_html_images(url, cookiefile=None):
         res = requests.get(url, headers=headers, timeout=15)
         soup = BeautifulSoup(res.text, 'html.parser')
         og = soup.find('meta', property='og:image')
-        if og and og.get('content'):
-            return og['content']
-    except Exception as e:
-        logger.error(f"Scrape: {e}")
+        if og and og.get('content'): return og['content']
+    except Exception as e: logger.error(f"Scrape: {e}")
     return None
 
 def get_min_free_disk_mb():
@@ -494,24 +401,20 @@ def get_mtproto_max_mb():
 
 # --- FIXED DOWNLOAD ENGINE ---
 def download_media_engine(url: str, download_type: str, max_mb=None):
-    # Use a generous default limit (2GB) to prevent premature FILE_TOO_LARGE errors
-    cap_mb = int(max_mb or 2000)
+    # Use configured max (300MB) instead of dynamic disk space check to prevent premature FILE_TOO_LARGE
+    cap_mb = int(max_mb or get_mtproto_max_mb())
     cap_bytes = cap_mb * 1024 * 1024
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
     http_headers = {'User-Agent': 'Mozilla/5.0'}
     cookiefile = None
-    if "tiktok.com" in url.lower() and os.path.exists("tiktok_cookies.txt"):
-        cookiefile = "tiktok_cookies.txt"
-    elif os.path.exists("cookies.txt"):
-        cookiefile = "cookies.txt"
+    if "tiktok.com" in url.lower() and os.path.exists("tiktok_cookies.txt"): cookiefile = "tiktok_cookies.txt"
+    elif os.path.exists("cookies.txt"): cookiefile = "cookies.txt"
     
     ydl_opts = dict(YDL_OPTS_BASE)
     ydl_opts['http_headers'] = http_headers
     ydl_opts['proxy'] = PROXY_URL
-    
-    if cookiefile:
-        ydl_opts['cookiefile'] = cookiefile
+    if cookiefile: ydl_opts['cookiefile'] = cookiefile
         
     if download_type == 'audio':
         ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path})
@@ -530,10 +433,8 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
         if img_url:
             data = requests.get(img_url, headers=http_headers, timeout=15).content
             path = os.path.join(output_dir, f"img_{int(time.time())}.jpg")
-            with open(path, 'wb') as f:
-                f.write(data)
-            if os.path.getsize(path) > 1000:
-                return [path], "Image", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
+            with open(path, 'wb') as f: f.write(data)
+            if os.path.getsize(path) > 1000: return [path], "Image", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("NO_IMAGES")
     else:
         tiers = ["best", "bv*[height<=720]+ba/b[height<=720]", "bv*[height<=480]+ba/b[height<=480]", "bv*[height<=360]+ba/b[height<=360]", "worst"]
@@ -546,8 +447,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=True)
                     path = ydl.prepare_filename(info)
-                    if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0]+".mp4"):
-                        path = os.path.splitext(path)[0]+".mp4"
+                    if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0]+".mp4"): path = os.path.splitext(path)[0]+".mp4"
                     if os.path.exists(path):
                         if os.path.getsize(path) > cap_bytes:
                             os.remove(path)
@@ -556,22 +456,19 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                         return [path], f"{info.get('height', 'HD')}p", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
                     too_big = True
             except Exception as e:
-                if "Unsupported URL" in str(e) or "403" in str(e):
-                    raise e
+                if "Unsupported URL" in str(e) or "403" in str(e): raise e
                 last_err = e
                 continue
-        if too_big or last_err is None:
-            raise ValueError("FILE_TOO_LARGE")
+        if too_big or last_err is None: raise ValueError("FILE_TOO_LARGE")
         raise last_err
 
-# --- FIXED KEYBOARD WITH CHANGE CHANNEL BUTTON ---
 def get_main_keyboard(lang_code, is_admin):
     t = LANGUAGES.get(lang_code, LANGUAGES["en"])
     keyboard = [
         [KeyboardButton(t["menu_stats"]), KeyboardButton(t["menu_lang"])],
         [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])],
         [KeyboardButton(t["menu_upload"]), KeyboardButton("🔗 File-to-Link")],
-        [KeyboardButton("🟢 Bot Status"), KeyboardButton("🔄 Change Channel")]
+        [KeyboardButton("🟢 Bot Status")]
     ]
     if is_admin:
         keyboard.append([KeyboardButton("/stats"), KeyboardButton("/toggleads")])
@@ -586,23 +483,17 @@ def get_main_keyboard(lang_code, is_admin):
 
 def get_downloads_usage_mb():
     try:
-        if not os.path.exists("downloads"):
-            return 0
+        if not os.path.exists("downloads"): return 0
         total = 0
         for fname in os.listdir("downloads"):
             fpath = os.path.join("downloads", fname)
-            if os.path.isfile(fpath):
-                total += os.path.getsize(fpath)
+            if os.path.isfile(fpath): total += os.path.getsize(fpath)
         return total // (1024*1024)
-    except:
-        return 0
+    except: return 0
 
 def get_reward_amount():
-    try:
-        cfg = load_json_file(CONFIG_FILE)
-        return int(cfg.get("reward_amount", 1))
-    except:
-        return 1
+    try: return int(load_json_file(CONFIG_FILE).get("reward_amount", 1))
+    except: return 1
 
 def set_reward_amount(val):
     cfg = load_json_file(CONFIG_FILE)
@@ -610,11 +501,8 @@ def set_reward_amount(val):
     save_json_file(CONFIG_FILE, cfg)
 
 def get_free_amount():
-    try:
-        cfg = load_json_file(CONFIG_FILE)
-        return int(cfg.get("free_amount", 4))
-    except:
-        return 4
+    try: return int(load_json_file(CONFIG_FILE).get("free_amount", 4))
+    except: return 4
 
 def set_free_amount(val):
     cfg = load_json_file(CONFIG_FILE)
@@ -622,17 +510,12 @@ def set_free_amount(val):
     save_json_file(CONFIG_FILE, cfg)
 
 def get_free_disk_mb():
-    try:
-        used = get_downloads_usage_mb()
-        return max(0, 512 - used)
-    except:
-        return 512
+    try: return max(0, 512 - get_downloads_usage_mb())
+    except: return 512
 
 def deduct_download_counter(user_id, is_batch=False):
-    try:
-        requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": is_batch}, headers=API_HEADERS, timeout=3)
-    except:
-        pass
+    try: requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": is_batch}, headers=API_HEADERS, timeout=3)
+    except: pass
 
 async def acquire_slot():
     global active_downloads
@@ -659,15 +542,11 @@ async def queue_processor(bot):
                 min_free = get_min_free_disk_mb()
                 async with download_lock:
                     can_run = active_downloads < MAX_CONCURRENT_SHORT and free_mb > min_free
-                if can_run:
-                    break
+                if can_run: break
                 await asyncio.sleep(2)
-            async with download_lock:
-                active_downloads += 1
-            try:
-                await job['func'](*job['args'], **job['kwargs'])
-            except Exception as e:
-                logger.error(f"Queue job: {e}")
+            async with download_lock: active_downloads += 1
+            try: await job['func'](*job['args'], **job['kwargs'])
+            except Exception as e: logger.error(f"Queue job: {e}")
             finally:
                 await release_slot()
                 download_queue.task_done()
@@ -695,13 +574,11 @@ def file_link_keyboard(state):
     return InlineKeyboardMarkup(kb)
 
 async def file_link_add_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    if not update.effective_message or not update.effective_user:
-        return False
+    if not update.effective_message or not update.effective_user: return False
     uid = str(update.effective_user.id)
     states = load_json_file(FILE_LINK_STATE_FILE)
     state = states.get(uid)
-    if not state or state.get("mode") != "collecting":
-        return False
+    if not state or state.get("mode") != "collecting": return False
     try:
         copied = await context.bot.copy_message(chat_id=FILE_LINK_STORAGE_ID, from_chat_id=update.effective_message.chat_id, message_id=update.effective_message.message_id)
         state.setdefault("items", []).append({"message_id": copied.message_id})
@@ -744,8 +621,7 @@ async def send_file_link_payload(update: Update, context: ContextTypes.DEFAULT_T
     user_id = update.effective_user.id
     try:
         member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_USERNAME, user_id=user_id)
-        if member.status not in ("member", "administrator", "creator"):
-            raise ValueError("not joined")
+        if member.status not in ("member", "administrator", "creator"): raise ValueError("not joined")
     except Exception:
         await update.effective_message.reply_text("📢 Join our required channel first: " + PUBLIC_CHANNEL_URL)
         return
@@ -796,31 +672,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             try:
                 parts = clean_code.split("to")
                 msg_start, msg_end = int(parts[0]), int(parts[1])
-            except:
-                return
+            except: return
         else:
-            try:
-                msg_start = msg_end = int(clean_code)
-            except:
-                return
-    else:
-        return
+            try: msg_start = msg_end = int(clean_code)
+            except: return
+    else: return
     assigned_network = get_global_ab_network(user_id)
     tokens = load_tokens()
     if assigned_network == "monetag":
         extra = [[InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")]] if user_id == ADMIN_ID else None
         kb = adsgram_keyboard(user_id, "wall", msg_start, msg_end, extra)
-        if kb:
-            await update.message.reply_text("📺 **Sponsor**\nTap **Watch Ad**, finish the ad in the Mini App, then tap **Check & Get +1**.", reply_markup=kb, parse_mode="Markdown")
-        else:
-            await update.message.reply_text("⚠️ Ad server busy, try again in a moment.")
+        if kb: await update.message.reply_text("📺 **Sponsor**\nTap **Watch Ad**, finish the ad in the Mini App, then tap **Check & Get +1**.", reply_markup=kb, parse_mode="Markdown")
+        else: await update.message.reply_text("⚠️ Ad server busy, try again in a moment.")
         return
     bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
     tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": int(msg_start), "msg_end": int(msg_end), "clicked_ad": False, "verified": False, "expires": time.time() + 600}
     save_tokens(tokens)
     keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch", url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
-    if user_id == ADMIN_ID:
-        keyboard.append([InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")])
+    if user_id == ADMIN_ID: keyboard.append([InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")])
     tutorial_sent = False
     try:
         tut = await context.bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
@@ -831,8 +700,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         try:
             tut = await context.bot.copy_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
             tutorial_sent = True
-        except Exception as e2:
-            logger.error(f"Copy failed: {e2}")
+        except Exception as e2: logger.error(f"Copy failed: {e2}")
     await update.message.reply_text("👇 **CONTENT LOCKED 🔒**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0):
@@ -882,7 +750,8 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     success_count += 1
                     continue
                 except: pass
-            file_paths, res, size = await asyncio.to_thread(download_media_engine, url, download_type, mtproto_limit_mb())
+            # FIX: Pass get_mtproto_max_mb() instead of mtproto_limit_mb() to prevent premature FILE_TOO_LARGE
+            file_paths, res, size = await asyncio.to_thread(download_media_engine, url, download_type, get_mtproto_max_mb())
             if file_paths and os.path.exists(file_paths[0]):
                 sent = await send_video_file(bot, chat_id, target_destination_id, file_paths[0], f"Item {index}/{len(urls)} Size {size}", None, status_msg)
                 if target_destination_id == chat_id:
@@ -955,60 +824,34 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text(t["upload_success_user"], reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
         except: await update.message.reply_text("❌ Failed")
 
-# --- BULLETPROOF CHANNEL LINKING LOGIC ---
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text if update.message.text else ""
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
     
-    # ✅ FIX: Check for channel linking FIRST
     try:
         linking_states = load_linking_states()
         if linking_states.get(str(user_id)) == "waiting_for_channel":
             forward_origin = getattr(update.message, 'forward_origin', None)
-            
             if forward_origin:
                 origin_type = getattr(forward_origin, 'type', None)
-                
                 if origin_type == 'channel':
                     f_chat = forward_origin.chat
                     user_channels = load_user_channels()
                     user_channels[str(user_id)] = f_chat.id
                     save_user_channels(user_channels)
-                    
                     del linking_states[str(user_id)]
                     save_linking_states(linking_states)
-                    
-                    await update.message.reply_text(f"✅ Successfully linked to **{f_chat.title}**!\n\nYou can now use '📢 To Channel' for batch downloads.", parse_mode="Markdown")
+                    await update.message.reply_text(f"✅ Successfully linked to **{f_chat.title}**!", parse_mode="Markdown")
                     return
                 else:
-                    await update.message.reply_text(f"❌ This was forwarded from a {origin_type}, not a channel. Please forward a message from your target channel.", parse_mode="Markdown")
+                    await update.message.reply_text(f"❌ This was forwarded from a {origin_type}, not a channel.", parse_mode="Markdown")
                     return
             else:
-                await update.message.reply_text("❌ Please **FORWARD** a message from your channel (don't just send text).", parse_mode="Markdown")
+                await update.message.reply_text("❌ Please **FORWARD** a message from your channel.", parse_mode="Markdown")
                 return
     except Exception as e:
         logger.error(f"Channel linking error: {e}")
-        await update.message.reply_text(f"❌ Error detecting channel: {str(e)[:100]}", parse_mode="Markdown")
-        return
-
-    # Handle "Change Channel" button click
-    if text == "🔄 Change Channel":
-        linking_states = load_linking_states()
-        linking_states[str(user_id)] = "waiting_for_channel"
-        save_linking_states(linking_states)
-        
-        bot_username = context.bot.username
-        instructions = (
-            f"📢 **Channel Setup Required**\n\n"
-            f"To send files to your channel, please follow these steps:\n\n"
-            f"1️⃣ Add **@{bot_username}** to your channel as an **Administrator**.\n"
-            f"2️⃣ Go to your channel and find any message.\n"
-            f"3️⃣ **Forward** that message to this chat.\n\n"
-            f"Once forwarded, I will save your channel and you can download directly to it! 🚀"
-        )
-        await update.message.reply_text(instructions, parse_mode="Markdown")
-        return
 
     if is_banned(user_id):
         await update.message.reply_text("🚫 Banned")
@@ -1036,7 +879,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             await update.message.reply_text("⛔ This link has reached its usage limit."); return
         await send_file_link_payload(update, context, token, record)
         return
-    menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🔗 File-to-Link", "🟢 Bot Status", "🔄 Change Channel", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel"]
+    menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🔗 File-to-Link", "🟢 Bot Status", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel"]
     if text in menu_texts:
         support_states = load_json_file(SUPPORT_STATES_FILE)
         if str(user_id) in support_states:
@@ -1121,16 +964,9 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if user_id != ADMIN_ID:
             await update.message.reply_text("✅ Menu updated.", reply_markup=get_main_keyboard(lang, False))
             return
-        if text.strip() == "🧪 Test Ad":
-            await send_test_ad(update.message, user_id)
-            return
-
-    if text.strip() == "📢 Ad Info" and user_id == ADMIN_ID:
-        await update.message.reply_text(build_ad_info_text(user_id))
-        return
-    if text == "📢 Broadcast" and user_id == ADMIN_ID:
-        await update.message.reply_text("📢 /broadcast [message] or reply with /broadcast", parse_mode="Markdown")
-        return
+        if text.strip() == "🧪 Test Ad": await send_test_ad(update.message, user_id)
+    if text.strip() == "📢 Ad Info" and user_id == ADMIN_ID: await update.message.reply_text(build_ad_info_text(user_id))
+    if text == "📢 Broadcast" and user_id == ADMIN_ID: await update.message.reply_text("📢 /broadcast [message] or reply with /broadcast", parse_mode="Markdown")
     if text == "❌ Cancel / Exit" and user_id == ADMIN_ID:
         states = load_json_file(DRIP_STATE_FILE)
         if str(user_id) in states:
@@ -1157,8 +993,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text(f"📥 Item #{len(user_state['items'])} added")
         return
     if text == t["menu_stats"]:
-        if user_id == ADMIN_ID:
-            await stats(update, context)
+        if user_id == ADMIN_ID: await stats(update, context)
         else:
             tokens = load_tokens()
             profile = tokens.get(str(user_id), {})
@@ -1166,20 +1001,14 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             b_left = profile.get("batch_downloads_left", get_free_amount()*5)
             await update.message.reply_text(t["stats_msg"].format(d_left, b_left), parse_mode="Markdown")
         return
-    if text == t["menu_join"]:
-        await update.message.reply_text(f"[Join]({PUBLIC_CHANNEL_URL})", parse_mode="Markdown")
-        return
+    if text == t["menu_join"]: await update.message.reply_text(f"[Join]({PUBLIC_CHANNEL_URL})", parse_mode="Markdown")
     if text == t["menu_help"]:
         keyboard = [[InlineKeyboardButton("💬 Open Support", callback_data="open_support")]]
         await update.message.reply_text(f"Support: [Help]({HELP_CHANNEL_URL})", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-        return
-    if text == t["menu_lang"]:
-        await language_command(update, context)
-        return
+    if text == t["menu_lang"]: await language_command(update, context)
     if text == t["menu_upload"]:
         prompt = t["admin_upload_prompt"] if user_id == ADMIN_ID else t["user_upload_prompt"]
         await update.message.reply_text(prompt, parse_mode="Markdown")
-        return
     if text == t["menu_uploads"] and user_id == ADMIN_ID:
         uploads = load_json_file(UPLOADS_FILE)
         if not uploads:
@@ -1189,7 +1018,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         for k, data in list(uploads.items())[-20:]:
             try: await context.bot.forward_message(chat_id=ADMIN_ID, from_chat_id=data["user_id"], message_id=data["msg_id"])
             except: pass
-        return
     extracted_urls = re.findall(r'https?://[^\s]+', text)
     filtered = []
     for u in extracted_urls:
@@ -1197,8 +1025,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         filtered.append(u)
     extracted_urls = filtered
     if not extracted_urls:
-        if "t.me/" in text and "start=" in text:
-            await update.message.reply_text("👆 Please use the buttons above.", parse_mode="Markdown")
+        if "t.me/" in text and "start=" in text: await update.message.reply_text("👆 Please use the buttons above.", parse_mode="Markdown")
         return
     if user_id != ADMIN_ID:
         tokens = load_tokens()
@@ -1215,10 +1042,8 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             assigned_network = get_global_ab_network(user_id)
             if assigned_network == "monetag":
                 kb = adsgram_keyboard(user_id, "wall", msg_start, msg_end)
-                if kb:
-                    await update.message.reply_text(t["limit_reached"], reply_markup=kb, parse_mode="Markdown")
-                else:
-                    await update.message.reply_text("⚠️ Ad server busy, try again in a moment.")
+                if kb: await update.message.reply_text(t["limit_reached"], reply_markup=kb, parse_mode="Markdown")
+                else: await update.message.reply_text("⚠️ Ad server busy, try again in a moment.")
                 return
             else:
                 try:
@@ -1230,7 +1055,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 await update.message.reply_text(t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 return
     if active_batch_sessions.get(user_id, False): return
-    
     if update.message.forward_origin and getattr(update.message.forward_origin, 'type', None) == 'channel':
         f_chat = update.message.forward_origin.chat
         user_channels = load_user_channels()
@@ -1246,9 +1070,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
     url = extracted_urls[0]
     status_preview = await update.message.reply_text("🔍 Checking link...")
-    
     title, dur = await fetch_url_metadata(url)
-    
     try: await status_preview.delete()
     except: pass
     payload_key = f"single_{user_id}_{int(time.time())}"
@@ -1267,28 +1089,16 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await handle_user_upload(update, context)
         return
     if await file_link_add_media(update, context): return
-        
     document = update.message.document
-    
     if user_id == ADMIN_ID and document.file_name in BACKUP_FILES:
         await update.message.reply_text(f"🔄 Restoring <b>{document.file_name}</b>...", parse_mode="HTML")
         try:
             file = await context.bot.get_file(document.file_id)
             temp_path = f"temp_{document.file_name}"
             await file.download_to_drive(temp_path)
-            
-            with open(temp_path, 'r') as f:
-                data = json.load(f)
-            
+            with open(temp_path, 'r') as f: data = json.load(f)
             os.replace(temp_path, document.file_name)
-            
-            await update.message.reply_text(
-                f"✅ <b>Restore Successful!</b>\n\n"
-                f"📄 File: <b>{document.file_name}</b>\n"
-                f"📊 Restored <b>{len(data) if isinstance(data, dict) else len(data)}</b> entries.\n"
-                f"Bot settings restored! ⚡",
-                parse_mode="HTML"
-            )
+            await update.message.reply_text(f"✅ <b>Restore Successful!</b>\n\n📄 File: <b>{document.file_name}</b>\n📊 Restored <b>{len(data) if isinstance(data, dict) else len(data)}</b> entries.\nBot settings restored! ⚡", parse_mode="HTML")
             return
         except json.JSONDecodeError:
             await update.message.reply_text(f"❌ Restore failed: <b>{document.file_name}</b> is not a valid JSON file.", parse_mode="HTML")
@@ -1298,7 +1108,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await update.message.reply_text(f"❌ Restore failed: {str(e)}")
             if os.path.exists(f"temp_{document.file_name}"): os.remove(f"temp_{document.file_name}")
             return
-
     if not document.file_name or not document.file_name.endswith('.txt'):
         await handle_user_upload(update, context)
         return
@@ -1314,8 +1123,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         pending_batch_payloads[payload_key] = urls
         keyboard = [[InlineKeyboardButton("🎬 Video", callback_data=f"batchtype_video_{payload_key}")]]
         await update.message.reply_text(f"📦 Batch {len(urls)}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-    except Exception as e:
-        logger.error(f"File: {e}")
+    except Exception as e: logger.error(f"File: {e}")
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID: return
@@ -1336,8 +1144,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         except: adsterra_count+=1
     sorted_users = sorted(activity.items(), key=lambda x: x[1].get("total_interactions",0), reverse=True)[:10]
     top_text = ""
-    for idx,(uid,info) in enumerate(sorted_users,1):
-        top_text+=f"{idx}. `{uid}` — {info.get('total_interactions',0)}\n"
+    for idx,(uid,info) in enumerate(sorted_users,1): top_text+=f"{idx}. `{uid}` — {info.get('total_interactions',0)}\n"
     if not top_text: top_text="No activity yet"
     free_mb = shutil.disk_usage(".").free // (1024*1024)
     used_mb = get_downloads_usage_mb()
@@ -1360,15 +1167,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def restore_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_user.id != ADMIN_ID: return
     file_list = "\n".join([f"   • <b>{f}</b>" for f in BACKUP_FILES])
-    await update.message.reply_text(
-        f"🔄 <b>Restore Backup Files</b>\n\n"
-        f"1. Go to your private backup channel.\n"
-        f"2. <b>Long-press</b> a backup file, then tap all the others to select them.\n"
-        f"3. Hit <b>Forward</b> and send them all to this bot at once!\n\n"
-        f"<b>Files to restore:</b>\n{file_list}\n\n"
-        f"I will automatically detect and restore each file! ⚡",
-        parse_mode="HTML"
-    )
+    await update.message.reply_text(f"🔄 <b>Restore Backup Files</b>\n\n1. Go to your private backup channel.\n2. <b>Long-press</b> a backup file, then tap all the others to select them.\n3. Hit <b>Forward</b> and send them all to this bot at once!\n\n<b>Files to restore:</b>\n{file_list}\n\nI will automatically detect and restore each file! ⚡", parse_mode="HTML")
 
 async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID: return
@@ -1480,10 +1279,8 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
                     qual = cached.get("quality", "HD")
                     sz = cached.get("size", "")
                     sent = await bot.send_video(chat_id=chat_id, video=file_id, caption=f"Cached Instant {qual} {sz} {ckey}")
-                elif c_type == "audio":
-                    sent = await bot.send_audio(chat_id=chat_id, audio=file_id, caption=f"⚡ **Cached Instant** `{ckey}`")
-                elif c_type == "image":
-                    sent = await bot.send_photo(chat_id=chat_id, photo=file_id, caption=f"⚡ **Cached Instant** `{ckey}`")
+                elif c_type == "audio": sent = await bot.send_audio(chat_id=chat_id, audio=file_id, caption=f"⚡ **Cached Instant** `{ckey}`")
+                elif c_type == "image": sent = await bot.send_photo(chat_id=chat_id, photo=file_id, caption=f"⚡ **Cached Instant** `{ckey}`")
                 else: raise ValueError("bad cache")
                 warn = await bot.send_message(chat_id=chat_id, text="⏳ Auto-deletes in 9 mins")
                 asyncio.create_task(schedule_deletion(bot, chat_id, [sent.message_id, warn.message_id], 540))
@@ -1510,7 +1307,8 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
                     save_json_file(CACHE_FILE, cache)
     status_msg = await bot.send_message(chat_id=chat_id, text=t["fetching"].format(dl_type) + f"\n`{ckey}`", parse_mode="Markdown")
     try:
-        file_paths, res, size = await asyncio.to_thread(download_media_engine, url, dl_type, mtproto_limit_mb())
+        # FIX: Pass get_mtproto_max_mb() to prevent premature FILE_TOO_LARGE
+        file_paths, res, size = await asyncio.to_thread(download_media_engine, url, dl_type, get_mtproto_max_mb())
         if not file_paths: raise ValueError("FILE_NOT_FOUND")
         cache = load_json_file(CACHE_FILE)
         if dl_type == 'images':
@@ -1548,7 +1346,7 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
     except Exception as e:
         logger.error(f"DL {ckey}: {e}")
         if "FILE_TOO_LARGE" in str(e): err = t["error_50mb"]
-        elif "MTPROTO_OFF" in str(e): err = "⚠️ Big files need fast mode, which is offline right now."
+        elif "MTPROTO_OFF" in str(e): err = "⚠️ Big files (over 50MB) need fast mode, which is offline right now."
         elif "MTPROTO_PEER" in str(e): err = "⚠️ Send /start to this bot once, then send the link again."
         else: err = t["error_generic"]
         try: await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=err)
@@ -1566,6 +1364,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     chat_id = query.message.chat_id
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
+    
     if data.startswith("fl_"):
         states = load_json_file(FILE_LINK_STATE_FILE)
         state = states.get(str(user_id))
@@ -1839,6 +1638,105 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         keyboard = [[InlineKeyboardButton(t["btn_chat"], callback_data=f"dest_chat_{dl_type}_{payload_key}")],[InlineKeyboardButton(t["btn_chan"], callback_data=f"dest_chan_{dl_type}_{payload_key}")]]
         await context.bot.send_message(chat_id=chat_id, text=t["batch_dest"].format(len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
+        
+    # --- NEW BATCH CHANNEL MENU LOGIC ---
+    if data.startswith("dest_chan_"):
+        parts = data.split("_",3)
+        dl_type = parts[1]
+        payload_key = parts[2]
+        urls = pending_batch_payloads.get(payload_key)
+        if not urls:
+            await query.answer("Expired", show_alert=True)
+            return
+            
+        user_channels = load_user_channels()
+        target = user_channels.get(str(user_id))
+        
+        if target:
+            kb = [
+                [InlineKeyboardButton("✅ Yes, Start Batch", callback_data=f"start_batch_{dl_type}_{payload_key}")],
+                [InlineKeyboardButton("🔄 Change Channel", callback_data="change_channel")],
+                [InlineKeyboardButton("❌ Cancel Batch", callback_data="cancel_batch")]
+            ]
+            await query.message.edit_text(
+                f"📢 **Send to Channel?**\n\n"
+                f"Linked Channel ID: `{target}`\n"
+                f"Files: {len(urls)}\n\n"
+                f"Tap 'Start Batch' to begin, or 'Change Channel' to link a new one.",
+                reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown"
+            )
+        else:
+            kb = [[InlineKeyboardButton("❌ Cancel Batch", callback_data="cancel_batch")]]
+            bot_username = context.bot.username
+            await query.message.edit_text(
+                f"📢 **No Channel Linked!**\n\n"
+                f"1️⃣ Add **@{bot_username}** to your channel as Admin.\n"
+                f"2️⃣ Forward a message from that channel here.\n\n"
+                f"Or tap Cancel to send in chat.",
+                reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown"
+            )
+        await query.answer()
+        return
+
+    if data.startswith("start_batch_"):
+        parts = data.split("_",3)
+        dl_type = parts[1]
+        payload_key = parts[2]
+        urls = pending_batch_payloads.pop(payload_key, None)
+        if not urls:
+            await query.answer("Expired", show_alert=True)
+            return
+        user_channels = load_user_channels()
+        target = user_channels.get(str(user_id))
+        if not target:
+            await query.answer("No channel linked!", show_alert=True)
+            return
+        await query.answer("Starting batch...")
+        await query.message.delete()
+        asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, target, urls, dl_type))
+        return
+
+    if data == "cancel_batch":
+        keys_to_delete = [k for k in pending_batch_payloads.keys() if str(user_id) in k]
+        for k in keys_to_delete: del pending_batch_payloads[k]
+        active_batch_sessions.pop(user_id, None)
+        paused_batches.pop(user_id, None)
+        await query.answer("Batch cancelled")
+        try: await query.message.delete()
+        except: await query.message.edit_text("❌ Batch cancelled.")
+        await update.effective_message.reply_text("✅ Batch cancelled.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
+        return
+
+    if data.startswith("dest_chat_"):
+        parts = data.split("_",3)
+        dl_type = parts[1]
+        payload_key = parts[2]
+        urls = pending_batch_payloads.pop(payload_key, None)
+        if not urls:
+            await query.answer("Expired", show_alert=True)
+            return
+        await query.answer("Loading...")
+        await query.message.delete()
+        asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, chat_id, urls, dl_type))
+        return
+
+    if data == "change_channel":
+        linking_states = load_linking_states()
+        linking_states[str(user_id)]="waiting_for_channel"
+        save_linking_states(linking_states)
+        await query.answer("Mode activated!")
+        
+        bot_username = context.bot.username
+        instructions = (
+            f"🔄 **Change Channel Setup**\n\n"
+            f"1️⃣ Add **@{bot_username}** to your NEW channel as an **Administrator**.\n"
+            f"2️⃣ Go to that channel and find any message.\n"
+            f"3️⃣ **Forward** that message to this chat.\n\n"
+            f"I will update your linked channel automatically! ✅"
+        )
+        await query.message.reply_text(instructions, parse_mode="Markdown")
+        return
+
     if data.startswith("fmt_"):
         parts = data.split("_",2)
         fmt_type, payload_key = parts[1], parts[2]
@@ -1949,58 +1847,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.answer("Resuming...")
         await query.message.delete()
         asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"]))
-        return
-    if data.startswith("dest_chat_") or data.startswith("dest_chan_"):
-        parts = data.split("_",3)
-        action_type, dl_type, payload_key = parts[1], parts[2], parts[3]
-        urls = pending_batch_payloads.pop(payload_key, None)
-        if not urls:
-            await query.answer("Expired", show_alert=True)
-            return
-        if action_type=="chat":
-            await query.answer("Loading...")
-            await query.message.delete()
-            asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, chat_id, urls, dl_type))
-        else:
-            user_channels = load_user_channels()
-            target = user_channels.get(str(user_id))
-            if not target:
-                await query.answer("No channel linked!", show_alert=True)
-                linking_states = load_linking_states()
-                linking_states[str(user_id)]="waiting_for_channel"
-                save_linking_states(linking_states)
-                
-                # Send detailed instructions
-                bot_username = context.bot.username
-                instructions = (
-                    f"📢 **Channel Setup Required**\n\n"
-                    f"To send files to your channel, please follow these steps:\n\n"
-                    f"1️⃣ Add **@{bot_username}** to your channel as an **Administrator**.\n"
-                    f"2️⃣ Go to your channel and find any message.\n"
-                    f"3️⃣ **Forward** that message to this chat.\n\n"
-                    f"Once forwarded, I will save your channel and start the batch download! 🚀"
-                )
-                await query.message.reply_text(instructions, parse_mode="Markdown")
-                return
-            await query.answer("Loading...")
-            await query.message.delete()
-            asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, target, urls, dl_type))
-        return
-    if data == "change_channel":
-        linking_states = load_linking_states()
-        linking_states[str(user_id)]="waiting_for_channel"
-        save_linking_states(linking_states)
-        await query.answer("Mode activated!")
-        
-        bot_username = context.bot.username
-        instructions = (
-            f"🔄 **Change Channel Setup**\n\n"
-            f"1️⃣ Add **@{bot_username}** to your NEW channel as an **Administrator**.\n"
-            f"2️⃣ Go to that channel and find any message.\n"
-            f"3️⃣ **Forward** that message to this chat.\n\n"
-            f"I will update your linked channel automatically! ✅"
-        )
-        await query.message.reply_text(instructions, parse_mode="Markdown")
         return
     if data == "verify_user":
         try:
@@ -2176,12 +2022,11 @@ API_HASH = os.getenv("API_HASH", "").strip()
 BOT_API_LIMIT_BYTES = 49 * 1024 * 1024
 MTPROTO = {"client": None, "loop": None, "ready": threading.Event(), "no_parse": None}
 
+# --- FIXED MTProto Limit ---
 def mtproto_limit_mb():
-    max_mb = get_mtproto_max_mb()
-    min_free = get_min_free_disk_mb()
-    spare = (shutil.disk_usage(".").free // (1024*1024)) - min_free
-    if not MTPROTO["ready"].is_set(): return 49
-    return int(max(50, min(max_mb, spare // max(1, active_downloads))))
+    # Always return the configured max (300MB) to allow downloads. 
+    # The upload function will handle the actual size limits.
+    return get_mtproto_max_mb()
 
 def probe_video(path):
     import subprocess
