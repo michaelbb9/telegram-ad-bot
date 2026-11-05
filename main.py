@@ -1,4 +1,3 @@
-
 import time
 import json
 import os
@@ -931,6 +930,37 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     track_user_activity(user_id)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
+    # Handle channel-linking forwards before URL parsing. Forwarded channel
+    # posts may contain plain text or media, not URLs, so they must be handled
+    # before the URL extraction path can return early.
+    linking_states = load_linking_states()
+    if linking_states.get(str(user_id)) == "waiting_for_channel":
+        forward_origin = getattr(update.message, "forward_origin", None)
+        f_chat = None
+        if forward_origin and getattr(forward_origin, "type", None) == "channel":
+            f_chat = getattr(forward_origin, "chat", None)
+        # Compatibility with older Telegram / python-telegram-bot fields.
+        if f_chat is None:
+            f_chat = getattr(update.message, "forward_from_chat", None)
+        if f_chat is None:
+            await update.message.reply_text("❌ Please forward a message directly from your channel, not a copied message.")
+            return
+        try:
+            bot_member = await context.bot.get_chat_member(chat_id=f_chat.id, user_id=context.bot.id)
+            if getattr(bot_member, "status", None) not in ("administrator", "creator"):
+                await update.message.reply_text("⚠️ I detected the channel, but I'm not an admin there yet. Add me as an administrator, then forward a channel message again.")
+                return
+        except Exception as exc:
+            logger.warning(f"Could not verify bot admin status in channel {getattr(f_chat, 'id', 'unknown')}: {exc}")
+            await update.message.reply_text("⚠️ I couldn't verify my admin access. Please check my admin status and forward another channel message.")
+            return
+        user_channels = load_user_channels()
+        user_channels[str(user_id)] = f_chat.id
+        save_user_channels(user_channels)
+        linking_states.pop(str(user_id), None)
+        save_linking_states(linking_states)
+        await update.message.reply_text(f"✅ Linked {getattr(f_chat, 'title', 'your channel')} successfully. You can now use batch downloads to that channel.")
+        return
     fl_states = load_json_file(FILE_LINK_STATE_FILE)
     fl_state = fl_states.get(str(user_id))
     if fl_state and fl_state.get("mode") == "file_link_password":
@@ -1140,20 +1170,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 await update.message.reply_text(t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 return
     if active_batch_sessions.get(user_id, False): return
-    linking_states = load_linking_states()
-    if linking_states.get(str(user_id)) == "waiting_for_channel":
-        if update.message.forward_origin and getattr(update.message.forward_origin, 'type', None) == 'channel':
-            f_chat = update.message.forward_origin.chat
-            user_channels = load_user_channels()
-            user_channels[str(user_id)] = f_chat.id
-            save_user_channels(user_channels)
-            del linking_states[str(user_id)]
-            save_linking_states(linking_states)
-            await update.message.reply_text(f"✅ Linked {f_chat.title}", parse_mode="Markdown")
-            return
-        else:
-            await update.message.reply_text("❌ Forward from channel")
-            return
     if update.message.forward_origin and getattr(update.message.forward_origin, 'type', None) == 'channel':
         f_chat = update.message.forward_origin.chat
         user_channels = load_user_channels()
