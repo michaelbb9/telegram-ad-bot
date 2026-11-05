@@ -399,12 +399,13 @@ def get_mtproto_max_mb():
     config = load_json_file(CONFIG_FILE)
     return config.get("mtproto_max_mb", MTPROTO_MAX_MB)
 
+# === FIXED DOWNLOAD ENGINE ===
 def download_media_engine(url: str, download_type: str, max_mb=None):
     cap_mb = int(max_mb or get_mtproto_max_mb())
     cap_bytes = cap_mb * 1024 * 1024
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
-    http_headers = {'User-Agent': 'Mozilla/5.0'}
+    http_headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
     cookiefile = None
     if "tiktok.com" in url.lower() and os.path.exists("tiktok_cookies.txt"): cookiefile = "tiktok_cookies.txt"
     elif os.path.exists("cookies.txt"): cookiefile = "cookies.txt"
@@ -435,7 +436,8 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
             if os.path.getsize(path) > 1000: return [path], "Image", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("NO_IMAGES")
     else:
-        tiers = ["best", "bv*[height<=720]+ba/b[height<=720]", "bv*[height<=480]+ba/b[height<=480]", "bv*[height<=360]+ba/b[height<=360]", "worst"]
+        # LIMITED TIERS to save memory and prevent rate limits
+        tiers = ["b[height<=720]/bv*[height<=720]+ba", "worst"]
         too_big = False
         last_err = None
         for fmt in tiers:
@@ -445,8 +447,15 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=True)
                     path = ydl.prepare_filename(info)
-                    if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0]+".mp4"): path = os.path.splitext(path)[0]+".mp4"
+                    if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0]+".mp4"): 
+                        path = os.path.splitext(path)[0]+".mp4"
+                    
                     if os.path.exists(path):
+                        # FIX: Catch fake HTML pages (bot blocks)
+                        if os.path.getsize(path) < 50000:
+                            os.remove(path)
+                            raise ValueError("TIKTOK_BLOCKED")
+                            
                         if os.path.getsize(path) > cap_bytes:
                             os.remove(path)
                             too_big = True
@@ -457,8 +466,14 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                 if "Unsupported URL" in str(e) or "403" in str(e): raise e
                 last_err = e
                 continue
-        if too_big or last_err is None: raise ValueError("FILE_TOO_LARGE")
-        raise last_err
+                
+        if too_big: 
+            raise ValueError("FILE_TOO_LARGE")
+        if last_err:
+            if "TIKTOK_BLOCKED" in str(last_err): 
+                raise ValueError("TIKTOK_BLOCKED")
+            raise last_err
+        raise ValueError("FILE_TOO_LARGE")
 
 def get_main_keyboard(lang_code, is_admin):
     t = LANGUAGES.get(lang_code, LANGUAGES["en"])
@@ -822,7 +837,6 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text(t["upload_success_user"], reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
         except: await update.message.reply_text("❌ Failed")
 
-# === FIXED CHANNEL LINKING LOGIC ===
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text if update.message.text else ""
     user_id = update.message.from_user.id
@@ -834,7 +848,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         f_chat = None
         origin_type = None
         
-        # Check newer API
         if getattr(update.message, 'forward_origin', None):
             origin = update.message.forward_origin
             origin_type = getattr(origin, 'type', None)
@@ -858,7 +871,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 await update.message.reply_text("❌ This was forwarded from a group, not a channel. Please forward a message from your channel.")
                 return
         
-        # Check older API
         if not f_chat and getattr(update.message, 'forward_from_chat', None):
             f_chat = update.message.forward_from_chat
             origin_type = getattr(f_chat, 'type', None)
@@ -871,7 +883,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             del linking_states[str(user_id)]
             save_linking_states(linking_states)
             
-            # Resume pending batch
             pending_key = None
             dl_type = "video"
             for k in list(pending_batch_payloads.keys()):
@@ -900,7 +911,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 parse_mode="HTML"
             )
             return
-    # === END CHANNEL LINKING ===
 
     if is_banned(user_id):
         await update.message.reply_text("🚫 Banned")
@@ -1688,7 +1698,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await context.bot.send_message(chat_id=chat_id, text=t["batch_dest"].format(len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
 
-    # ✅ THE KEY FIX: When no channel is linked, set waiting_for_channel state
     if data.startswith("dest_chan|"):
         parts = data.split("|")
         dl_type = parts[1]
@@ -1715,7 +1724,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown"
             )
         else:
-            # ✅ CRITICAL FIX: Set the linking state so the bot knows to expect a forward
             linking_states = load_linking_states()
             linking_states[str(user_id)] = "waiting_for_channel"
             save_linking_states(linking_states)
@@ -1755,7 +1763,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         for k in keys_to_delete: del pending_batch_payloads[k]
         active_batch_sessions.pop(user_id, None)
         paused_batches.pop(user_id, None)
-        # Clear linking state too
         linking_states = load_linking_states()
         if str(user_id) in linking_states:
             del linking_states[str(user_id)]
@@ -2123,35 +2130,33 @@ async def _tell_uploading(status_msg, path):
     try: await status_msg.edit_text(f"📤 Uploading {os.path.getsize(path)/(1024*1024):.0f}MB in fast mode...")
     except Exception: pass
 
+# === FIXED SEND VIDEO FILE ===
 async def send_video_file(bot, chat_id, target_id, path, caption, parse_mode, status_msg=None):
-    if os.path.getsize(path) <= BOT_API_LIMIT_BYTES:
-        with open(path, 'rb') as f:
+    if os.path.getsize(path) <= 49 * 1024 * 1024: # 49MB safe limit for Bot API
+        with open(path, 'rb') as f: 
             return await bot.send_video(chat_id=target_id, video=f, caption=caption, parse_mode=parse_mode)
-    
+            
     await _tell_uploading(status_msg, path)
     info = await asyncio.to_thread(probe_video, path)
-    
-    extra = {k: v for k, v in (
-        ("duration", info["duration"]),
-        ("width", info["width"]),
-        ("height", info["height"]),
-        ("thumb", info["thumb"]),
-    ) if v}
-    
     try:
+        extra = {k: v for k, v in (("duration", info["duration"]), ("width", info["width"]), ("height", info["height"]), ("thumb", info["thumb"])) if v}
+        
+        # FIX: Send directly to target_id (the channel) via Pyrogram
         msg = await mtproto_upload("video", target_id, path, caption.replace("`", ""), **extra)
+        
     finally:
-        if info.get("thumb") and os.path.exists(info["thumb"]):
+        if info.get("thumb") and os.path.exists(info["thumb"]): 
             os.remove(info["thumb"])
-    
+            
     media = msg.video or msg.document
-    return types.SimpleNamespace(
-        message_id=msg.id,
-        video=types.SimpleNamespace(file_id=media.file_id),
-    )
+    file_id = media.file_id
+    message_id = msg.id
+    
+    # REMOVED the bot.copy_message() block which was failing on files > 50MB
+    return types.SimpleNamespace(message_id=message_id, video=types.SimpleNamespace(file_id=file_id))
 
 async def send_audio_file(bot, chat_id, target_id, path, caption, parse_mode, status_msg=None):
-    if os.path.getsize(path) <= BOT_API_LIMIT_BYTES:
+    if os.path.getsize(path) <= 49 * 1024 * 1024:
         with open(path, 'rb') as f:
             return await bot.send_audio(chat_id=target_id, audio=f, caption=caption, parse_mode=parse_mode)
     
