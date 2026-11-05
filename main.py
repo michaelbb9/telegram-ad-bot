@@ -138,11 +138,8 @@ def save_json_file(filename, data):
     except Exception as e:
         logger.error(f"Save {filename}: {e}")
 
-# --- NEW UNIVERSAL RESOLVER WITH TELEGRAM DEBUGGING ---
 async def get_canonical_key(url: str, chat_id=None, bot=None):
     original_url = url
-    
-    # Helper to send debug messages to Telegram
     async def send_debug(text):
         if chat_id and bot:
             try:
@@ -152,14 +149,12 @@ async def get_canonical_key(url: str, chat_id=None, bot=None):
 
     await send_debug(f"🔍 <b>Processing Link:</b>\n<code>{url}</code>")
 
-    # 1. Resolve short links
     short_link_domains = ["vt.tiktok.com", "vm.tiktok.com", "youtu.be/", "t.co/", "instagr.am/", "fb.watch/"]
     is_short_link = any(domain in url.lower() for domain in short_link_domains)
 
     if is_short_link:
         await send_debug("🔄 Resolving short link...")
         try:
-            # Mobile User-Agent often gets better redirects from TikTok
             headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15'}
             response = requests.get(url, headers=headers, allow_redirects=True, timeout=15)
             resolved_url = response.url
@@ -172,16 +167,12 @@ async def get_canonical_key(url: str, chat_id=None, bot=None):
         except Exception as e:
             await send_debug(f"❌ Redirect failed: {str(e)[:100]}")
 
-    # 2. REGEX EXTRACTION (The "Different Approach")
-    # This bypasses yt-dlp entirely for TikTok by looking for the ID in the URL path
-    # TikTok IDs are usually 19 digits long in the path /video/1234567890123456789
     tiktok_match = re.search(r'/video/(\d{15,20})', url)
     if tiktok_match:
         vid_id = tiktok_match.group(1)
         await send_debug(f"🎯 <b>TikTok Regex Match!</b>\nVideo ID: <code>{vid_id}</code>")
         return f"tiktok_{vid_id}"
 
-    # 3. Try yt-dlp for other platforms (YouTube, etc.)
     await send_debug("🤖 Trying yt-dlp extraction...")
     try:
         ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True}
@@ -198,7 +189,6 @@ async def get_canonical_key(url: str, chat_id=None, bot=None):
     except Exception as e:
         await send_debug(f"⚠️ yt-dlp failed: {str(e)[:50]}")
 
-    # 4. Fallback: Hash the resolved URL
     await send_debug("🎲 Using URL hash fallback.")
     clean = url.split('?')[0].split('&')[0].lower().strip('/').replace('https://','').replace('http://','')
     h = hashlib.md5(clean.encode()).hexdigest()[:12]
@@ -826,7 +816,6 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             break
         status_msg = await bot.send_message(chat_id=chat_id, text=f"📥 [{index}/{len(urls)}] {t['dl_video']}")
         try:
-            # UPDATED CALLER
             ckey = await get_canonical_key(url, chat_id, bot)
             cache = load_json_file(CACHE_FILE)
             if ckey in cache:
@@ -915,10 +904,40 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text(t["upload_success_user"], reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
         except: await update.message.reply_text("❌ Failed")
 
+# === FIXED: CHANNEL FORWARDING CHECK MOVED TO THE VERY TOP ===
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text if update.message.text else ""
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
+    
+    # 1. CHECK FOR CHANNEL FORWARDING (Highest priority, works even if batch is active)
+    if hasattr(update.message, 'forward_origin') and update.message.forward_origin:
+        origin = update.message.forward_origin
+        if getattr(origin, 'type', None) == 'channel':
+            f_chat = getattr(origin, 'chat', None)
+            if f_chat:
+                user_channels = load_user_channels()
+                user_channels[str(user_id)] = f_chat.id
+                save_user_channels(user_channels)
+                
+                # Clear linking state if it was waiting
+                linking_states = load_linking_states()
+                if linking_states.get(str(user_id)) == "waiting_for_channel":
+                    del linking_states[str(user_id)]
+                    save_linking_states(linking_states)
+                
+                await update.message.reply_text(f"✅ Successfully linked to channel: <b>{f_chat.title}</b>", parse_mode="HTML")
+                return
+        elif getattr(origin, 'type', None) == 'hidden_user':
+            await update.message.reply_text(
+                "❌ <b>Hidden Forward Detected</b>\n\n"
+                "The channel has 'Restrict Saving Content' enabled.\n"
+                "Please disable it in channel settings, or add the bot as an Administrator in the channel.",
+                parse_mode="HTML"
+            )
+            return
+
+    # 2. Handle normal text/link processing
     if is_banned(user_id):
         await update.message.reply_text("🚫 Banned")
         return
@@ -1138,21 +1157,8 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")]]
                 await update.message.reply_text(t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 return
-    if active_batch_sessions.get(user_id, False): return
-    linking_states = load_linking_states()
-    if linking_states.get(str(user_id)) == "waiting_for_channel":
-        if update.message.forward_origin and getattr(update.message.forward_origin, 'type', None) == 'channel':
-            f_chat = update.message.forward_origin.chat
-            user_channels = load_user_channels()
-            user_channels[str(user_id)] = f_chat.id
-            save_user_channels(user_channels)
-            del linking_states[str(user_id)]
-            save_linking_states(linking_states)
-            await update.message.reply_text(f"✅ Linked {f_chat.title}", parse_mode="Markdown")
-            return
-        else:
-            await update.message.reply_text("❌ Forward from channel")
-            return
+                
+    # Fallback channel link check (for non-forwarded messages that might be channel posts)
     if update.message.forward_origin and getattr(update.message.forward_origin, 'type', None) == 'channel':
         f_chat = update.message.forward_origin.chat
         user_channels = load_user_channels()
@@ -1160,6 +1166,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         save_user_channels(user_channels)
         await update.message.reply_text(f"✅ Linked {f_chat.title}", parse_mode="Markdown")
         return
+        
     if len(extracted_urls) > 1:
         payload_key = f"batch_{user_id}_{int(time.time())}"
         pending_batch_payloads[payload_key] = extracted_urls
@@ -1389,7 +1396,6 @@ async def set_mtproto_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def cached_download_and_send(bot, chat_id, url, dl_type, t):
     cache = load_json_file(CACHE_FILE)
-    # UPDATED CALLER
     ckey = await get_canonical_key(url, chat_id, bot)
     if ckey in cache:
         try:
@@ -1774,7 +1780,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         elif fmt_type == 'img': dl_type='images'
         elif fmt_type == 'sub': dl_type='subtitles'
         
-        # UPDATED CALLER
         ckey = await get_canonical_key(url, chat_id, context.bot)
         cache = load_json_file(CACHE_FILE)
         if ckey in cache:
@@ -1879,24 +1884,77 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if not urls:
             await query.answer("Expired", show_alert=True)
             return
-        if action_type=="chat":
-            await query.answer("Loading...")
-            await query.message.delete()
-            asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, chat_id, urls, dl_type))
+            
+        # FIXED: Ensure "Change Channel" button is always present
+        user_channels = load_user_channels()
+        target = user_channels.get(str(user_id))
+        
+        if target:
+            kb = [
+                [InlineKeyboardButton("✅ Yes, Start Batch", callback_data=f"start_batch_{dl_type}_{payload_key}")],
+                [InlineKeyboardButton("🔄 Change Channel", callback_data="change_channel")],
+                [InlineKeyboardButton("❌ Cancel Batch", callback_data="cancel_batch")]
+            ]
+            await query.message.edit_text(
+                f"📢 **Send to Channel?**\n\n"
+                f"Linked Channel ID: `{target}`\n"
+                f"Files: {len(urls)}\n\n"
+                f"Tap 'Start Batch' to begin, or 'Change Channel' to link a new one.",
+                reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown"
+            )
         else:
-            user_channels = load_user_channels()
-            target = user_channels.get(str(user_id))
-            if not target:
-                await query.answer("No channel linked!", show_alert=True)
-                linking_states = load_linking_states()
-                linking_states[str(user_id)]="waiting_for_channel"
-                save_linking_states(linking_states)
-                await query.message.edit_text("📦 Setup: Make bot admin in channel and forward a message here", parse_mode="Markdown")
-                return
-            await query.answer("Loading...")
-            await query.message.delete()
-            asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, target, urls, dl_type))
+            linking_states = load_linking_states()
+            linking_states[str(user_id)] = "waiting_for_channel"
+            save_linking_states(linking_states)
+            
+            kb = [[InlineKeyboardButton("❌ Cancel Batch", callback_data="cancel_batch")]]
+            bot_username = context.bot.username
+            await query.message.edit_text(
+                f"📢 **No Channel Linked!**\n\n"
+                f"1️⃣ Add **@{bot_username}** to your channel as Admin.\n"
+                f"2️⃣ Forward a message from that channel here.\n\n"
+                f"Or tap Cancel to send in chat.",
+                reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown"
+            )
+        await query.answer()
         return
+
+    if data.startswith("start_batch_"):
+        parts = data.split("_",3)
+        dl_type = parts[1]
+        payload_key = parts[2]
+        urls = pending_batch_payloads.pop(payload_key, None)
+        if not urls:
+            await query.answer("Expired", show_alert=True)
+            return
+        user_channels = load_user_channels()
+        target = user_channels.get(str(user_id))
+        if not target:
+            await query.answer("No channel linked!", show_alert=True)
+            return
+        await query.answer("Starting batch...")
+        await query.message.delete()
+        asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, target, urls, dl_type))
+        return
+
+    if data == "cancel_batch":
+        keys_to_delete = [k for k in pending_batch_payloads.keys() if str(user_id) in k]
+        for k in keys_to_delete: del pending_batch_payloads[k]
+        active_batch_sessions.pop(user_id, None)
+        paused_batches.pop(user_id, None)
+        linking_states = load_linking_states()
+        if str(user_id) in linking_states:
+            del linking_states[str(user_id)]
+            save_linking_states(linking_states)
+        await query.answer("Batch cancelled")
+        try: 
+            await query.message.delete()
+        except: 
+            try: await query.message.edit_text("❌ Batch cancelled.")
+            except: pass
+        await context.bot.send_message(chat_id=chat_id, text="✅ Batch cancelled.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
+        return
+
     if data == "change_channel":
         linking_states = load_linking_states()
         linking_states[str(user_id)]="waiting_for_channel"
