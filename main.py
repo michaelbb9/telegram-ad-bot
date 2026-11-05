@@ -84,18 +84,18 @@ FLOOD_LIMIT = 3
 FLOOD_WINDOW = 60
 FLOOD_COOLDOWN = 30
 
-# --- YOUTUBE FIX: Global Options to prevent hanging and bypass throttling ---
+# --- YOUTUBE FIX: Global Options ---
 YDL_OPTS_BASE = {
     'quiet': True,
     'no_warnings': True,
     'skip_download': True,
     'noplaylist': True,
-    'socket_timeout': 15,  # CRITICAL: Stops YouTube hanging forever
+    'socket_timeout': 15,
     'retries': 2,
     'fragment_retries': 2,
     'extractor_args': {
         'youtube': {
-            'player_client': ['ios', 'web'] # CRITICAL: Tricks YouTube to bypass throttling
+            'player_client': ['ios', 'web']
         }
     }
 }
@@ -154,7 +154,7 @@ def save_json_file(filename, data):
     except Exception as e:
         logger.error(f"Save {filename}: {e}")
 
-# --- UNIVERSAL RESOLVER WITH TELEGRAM DEBUGGING ---
+# --- UNIVERSAL RESOLVER ---
 async def get_canonical_key(url: str, chat_id=None, bot=None):
     original_url = url
     
@@ -185,21 +185,18 @@ async def get_canonical_key(url: str, chat_id=None, bot=None):
         except Exception as e:
             await send_debug(f"❌ Redirect failed: {str(e)[:100]}")
 
-    # REGEX FOR TIKTOK
     tiktok_match = re.search(r'/video/(\d{15,20})', url)
     if tiktok_match:
         vid_id = tiktok_match.group(1)
         await send_debug(f"🎯 <b>TikTok Regex Match!</b>\nVideo ID: <code>{vid_id}</code>")
         return f"tiktok_{vid_id}"
 
-    # YOUTUBE REGEX (Fallback if yt-dlp hangs)
     yt_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})(?:[&?]|$)', url)
     if yt_match:
         vid_id = yt_match.group(1)
         await send_debug(f"🎯 <b>YouTube Regex Match!</b>\nVideo ID: <code>{vid_id}</code>")
         return f"youtube_{vid_id}"
 
-    # Try yt-dlp for other platforms
     await send_debug("🤖 Trying yt-dlp extraction...")
     try:
         loop = asyncio.get_running_loop()
@@ -218,11 +215,10 @@ async def get_canonical_key(url: str, chat_id=None, bot=None):
                 await send_debug(f"✅ yt-dlp found ID: <code>{vid_id}</code>")
                 return f"{extractor}_{vid_id}"
     except asyncio.TimeoutError:
-        await send_debug("⚠️ yt-dlp timed out (YouTube throttling?). Using URL hash.")
+        await send_debug("⚠️ yt-dlp timed out. Using URL hash.")
     except Exception as e:
         await send_debug(f"⚠️ yt-dlp failed: {str(e)[:50]}")
 
-    # Fallback: Hash the resolved URL
     await send_debug("🎲 Using URL hash fallback.")
     clean = url.split('?')[0].split('&')[0].lower().strip('/').replace('https://','').replace('http://','')
     h = hashlib.md5(clean.encode()).hexdigest()[:12]
@@ -448,7 +444,6 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
         except:
             pass
 
-# --- FIXED METADATA FETCHER (Prevents Bot Freezing) ---
 def fetch_url_metadata_sync(url):
     ydl_opts = dict(YDL_OPTS_BASE)
     try:
@@ -497,6 +492,7 @@ def get_mtproto_max_mb():
     config = load_json_file(CONFIG_FILE)
     return config.get("mtproto_max_mb", MTPROTO_MAX_MB)
 
+# --- FIXED DOWNLOAD ENGINE (Removed strict yt-dlp filesize limit) ---
 def download_media_engine(url: str, download_type: str, max_mb=None):
     cap_mb = int(max_mb or get_mtproto_max_mb())
     cap_bytes = cap_mb * 1024 * 1024
@@ -517,7 +513,8 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
         ydl_opts['cookiefile'] = cookiefile
         
     if download_type == 'audio':
-        ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
+        # Removed max_filesize from ydl_opts to prevent premature abort
+        ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path})
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             base = os.path.splitext(ydl.prepare_filename(info))[0]
@@ -545,13 +542,15 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
         for fmt in tiers:
             try:
                 opts = dict(ydl_opts)
-                opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
+                # Removed max_filesize from opts to let yt-dlp try downloading
+                opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path})
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=True)
                     path = ydl.prepare_filename(info)
                     if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0]+".mp4"):
                         path = os.path.splitext(path)[0]+".mp4"
                     if os.path.exists(path):
+                        # Manual check after download
                         if os.path.getsize(path) > cap_bytes:
                             os.remove(path)
                             too_big = True
@@ -573,7 +572,7 @@ def get_main_keyboard(lang_code, is_admin):
         [KeyboardButton(t["menu_stats"]), KeyboardButton(t["menu_lang"])],
         [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])],
         [KeyboardButton(t["menu_upload"]), KeyboardButton("🔗 File-to-Link")],
-        [KeyboardButton("🟢 Bot Status")]
+        [KeyboardButton("🟢 Bot Status"), KeyboardButton("🔄 Change Channel")] # Added Change Channel button
     ]
     if is_admin:
         keyboard.append([KeyboardButton("/stats"), KeyboardButton("/toggleads")])
@@ -963,7 +962,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
     
-    # ✅ FIX: Check for channel linking FIRST with robust error handling
+    # ✅ FIX: Check for channel linking FIRST
     try:
         linking_states = load_linking_states()
         if linking_states.get(str(user_id)) == "waiting_for_channel":
@@ -981,17 +980,35 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                     del linking_states[str(user_id)]
                     save_linking_states(linking_states)
                     
-                    await update.message.reply_text(f"✅ Linked {f_chat.title}", parse_mode="Markdown")
+                    await update.message.reply_text(f"✅ Successfully linked to **{f_chat.title}**!\n\nYou can now use '📢 To Channel' for batch downloads.", parse_mode="Markdown")
                     return
                 else:
-                    await update.message.reply_text(f"❌ This was forwarded from a {origin_type}, not a channel. Please forward from a channel.", parse_mode="Markdown")
+                    await update.message.reply_text(f"❌ This was forwarded from a {origin_type}, not a channel. Please forward a message from your target channel.", parse_mode="Markdown")
                     return
             else:
-                await update.message.reply_text("❌ Please FORWARD a message from your channel (don't just send text).", parse_mode="Markdown")
+                await update.message.reply_text("❌ Please **FORWARD** a message from your channel (don't just send text).", parse_mode="Markdown")
                 return
     except Exception as e:
         logger.error(f"Channel linking error: {e}")
         await update.message.reply_text(f"❌ Error detecting channel: {str(e)[:100]}", parse_mode="Markdown")
+        return
+
+    # Handle "Change Channel" button click
+    if text == "🔄 Change Channel":
+        linking_states = load_linking_states()
+        linking_states[str(user_id)] = "waiting_for_channel"
+        save_linking_states(linking_states)
+        
+        bot_username = context.bot.username
+        instructions = (
+            f"📢 **Channel Setup Required**\n\n"
+            f"To send files to your channel, please follow these steps:\n\n"
+            f"1️⃣ Add **@{bot_username}** to your channel as an **Administrator**.\n"
+            f"2️⃣ Go to your channel and find any message.\n"
+            f"3️⃣ **Forward** that message to this chat.\n\n"
+            f"Once forwarded, I will save your channel and you can download directly to it! 🚀"
+        )
+        await update.message.reply_text(instructions, parse_mode="Markdown")
         return
 
     if is_banned(user_id):
@@ -1020,7 +1037,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             await update.message.reply_text("⛔ This link has reached its usage limit."); return
         await send_file_link_payload(update, context, token, record)
         return
-    menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🔗 File-to-Link", "🟢 Bot Status", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel"]
+    menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🔗 File-to-Link", "🟢 Bot Status", "🔄 Change Channel", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel"]
     if text in menu_texts:
         support_states = load_json_file(SUPPORT_STATES_FILE)
         if str(user_id) in support_states:
@@ -1953,7 +1970,18 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 linking_states = load_linking_states()
                 linking_states[str(user_id)]="waiting_for_channel"
                 save_linking_states(linking_states)
-                await query.message.edit_text("📦 Setup: Make bot admin in channel and forward a message here", parse_mode="Markdown")
+                
+                # Send detailed instructions
+                bot_username = context.bot.username
+                instructions = (
+                    f"📢 **Channel Setup Required**\n\n"
+                    f"To send files to your channel, please follow these steps:\n\n"
+                    f"1️⃣ Add **@{bot_username}** to your channel as an **Administrator**.\n"
+                    f"2️⃣ Go to your channel and find any message.\n"
+                    f"3️⃣ **Forward** that message to this chat.\n\n"
+                    f"Once forwarded, I will save your channel and start the batch download! 🚀"
+                )
+                await query.message.reply_text(instructions, parse_mode="Markdown")
                 return
             await query.answer("Loading...")
             await query.message.delete()
@@ -1964,7 +1992,16 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         linking_states[str(user_id)]="waiting_for_channel"
         save_linking_states(linking_states)
         await query.answer("Mode activated!")
-        await query.message.reply_text("🔄 Forward message from new channel", parse_mode="Markdown")
+        
+        bot_username = context.bot.username
+        instructions = (
+            f"🔄 **Change Channel Setup**\n\n"
+            f"1️⃣ Add **@{bot_username}** to your NEW channel as an **Administrator**.\n"
+            f"2️⃣ Go to that channel and find any message.\n"
+            f"3️⃣ **Forward** that message to this chat.\n\n"
+            f"I will update your linked channel automatically! ✅"
+        )
+        await query.message.reply_text(instructions, parse_mode="Markdown")
         return
     if data == "verify_user":
         try:
