@@ -147,33 +147,24 @@ async def get_canonical_key(url: str, chat_id=None, bot=None):
             except:
                 pass
 
-    await send_debug(f"🔍 <b>Processing Link:</b>\n<code>{url}</code>")
-
     short_link_domains = ["vt.tiktok.com", "vm.tiktok.com", "youtu.be/", "t.co/", "instagr.am/", "fb.watch/"]
     is_short_link = any(domain in url.lower() for domain in short_link_domains)
 
     if is_short_link:
-        await send_debug("🔄 Resolving short link...")
         try:
             headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15'}
             response = requests.get(url, headers=headers, allow_redirects=True, timeout=15)
             resolved_url = response.url
-            
             if resolved_url != original_url:
                 url = resolved_url
-                await send_debug(f"✅ Resolved to:\n<code>{url}</code>")
-            else:
-                await send_debug("⚠️ Link didn't redirect.")
-        except Exception as e:
-            await send_debug(f"❌ Redirect failed: {str(e)[:100]}")
+        except Exception:
+            pass
 
     tiktok_match = re.search(r'/video/(\d{15,20})', url)
     if tiktok_match:
         vid_id = tiktok_match.group(1)
-        await send_debug(f"🎯 <b>TikTok Regex Match!</b>\nVideo ID: <code>{vid_id}</code>")
         return f"tiktok_{vid_id}"
 
-    await send_debug("🤖 Trying yt-dlp extraction...")
     try:
         ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -184,12 +175,10 @@ async def get_canonical_key(url: str, chat_id=None, bot=None):
                 extractor = info.get('extractor', 'generic').replace(':', '').replace(' ', '')
                 vid_id = info.get('id', '')
                 if vid_id:
-                    await send_debug(f"✅ yt-dlp found ID: <code>{vid_id}</code>")
                     return f"{extractor}_{vid_id}"
-    except Exception as e:
-        await send_debug(f"⚠️ yt-dlp failed: {str(e)[:50]}")
+    except Exception:
+        pass
 
-    await send_debug("🎲 Using URL hash fallback.")
     clean = url.split('?')[0].split('&')[0].lower().strip('/').replace('https://','').replace('http://','')
     h = hashlib.md5(clean.encode()).hexdigest()[:12]
     return f"url_{h}"
@@ -239,14 +228,6 @@ async def disk_cleaner_loop():
                 logger.info(f"Cleaner deleted {deleted}")
         except Exception as e:
             logger.error(f"Cleaner: {e}")
-
-def restore_cache_info():
-    try:
-        cache = load_json_file(CACHE_FILE)
-        if len(cache)==0:
-            logger.info("Cache empty after clear/restart")
-    except:
-        pass
 
 def clean_downloads_startup():
     try:
@@ -327,7 +308,6 @@ def adsgram_start(user_id, kind="wall", msg_start=0, msg_end=0):
                                 "msg_end": int(msg_end), "secret": API_SECRET}, timeout=8)
         if r.status_code == 200:
             return r.json().get("nonce")
-        logger.error(f"adsgram_start HTTP {r.status_code}: {r.text[:200]}")
     except Exception as e:
         logger.error(f"adsgram_start: {e}")
     return None
@@ -360,7 +340,7 @@ async def report_vault_delivery(user_id, msg_start, msg_end, delivered_message_i
     if not delivered_message_ids:
         return
     try:
-        response = requests.post(
+        requests.post(
             f"{WEB_BASE_URL}/api/item-delivered",
             json={
                 "user_id": int(user_id),
@@ -372,30 +352,8 @@ async def report_vault_delivery(user_id, msg_start, msg_end, delivered_message_i
             headers=API_HEADERS,
             timeout=8,
         )
-        if response.status_code != 200:
-            logger.warning("Vault analytics rejected delivery: %s %s", response.status_code, response.text[:200])
     except Exception as e:
         logger.warning("Vault analytics report failed: %s", e)
-
-async def deliver_bundle(bot, user_id, msg_start, msg_end):
-    fwd_ids = []
-    for tid in range(msg_start, msg_end + 1):
-        try:
-            fwd = await bot.forward_message(chat_id=user_id, from_chat_id=DETECTED_CHANNEL_ID, message_id=tid)
-            fwd_ids.append(fwd.message_id)
-            await asyncio.sleep(0.2)
-        except Exception as e:
-            logger.error(f"Forward {tid} fail: {e}")
-    await report_vault_delivery(user_id, msg_start, msg_end, fwd_ids)
-    if TUTORIAL_MESSAGE_ID not in range(msg_start, msg_end + 1):
-        try:
-            tut = await bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-            fwd_ids.append(tut.message_id)
-        except Exception:
-            pass
-    warn = await bot.send_message(chat_id=user_id, text="⏳ Auto-deletes in 9 mins", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
-    fwd_ids.append(warn.message_id)
-    asyncio.create_task(schedule_deletion(bot, user_id, fwd_ids, 540))
 
 def load_user_channels():
     return load_json_file(CHANNELS_FILE)
@@ -454,15 +412,20 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
     cap_bytes = cap_mb * 1024 * 1024
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
-    http_headers = {'User-Agent': 'Mozilla/5.0'}
+    http_headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+    }
     cookiefile = None
     if "tiktok.com" in url.lower() and os.path.exists("tiktok_cookies.txt"):
         cookiefile = "tiktok_cookies.txt"
     elif os.path.exists("cookies.txt"):
         cookiefile = "cookies.txt"
+
     ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL}
     if cookiefile:
         ydl_opts['cookiefile'] = cookiefile
+
     if download_type == 'audio':
         ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -486,33 +449,42 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                 return [path], "Image", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("NO_IMAGES")
     else:
-        tiers = ["best", "bv*[height<=720]+ba/b[height<=720]", "bv*[height<=480]+ba/b[height<=480]", "bv*[height<=360]+ba/b[height<=360]", "worst"]
+        # FIXED TIERS: Reliable fallbacks for TikTok, Facebook Reels, and YouTube
+        tiers = [
+            "best[height<=720]/best", 
+            "bv*[height<=720]+ba/b[height<=720]", 
+            "bv*[height<=480]+ba/b[height<=480]", 
+            "bestvideo+bestaudio/best"
+        ]
         too_big = False
         last_err = None
         for fmt in tiers:
             try:
                 opts = dict(ydl_opts)
-                opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
+                opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path})
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=True)
                     path = ydl.prepare_filename(info)
                     if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0]+".mp4"):
                         path = os.path.splitext(path)[0]+".mp4"
                     if os.path.exists(path):
-                        if os.path.getsize(path) > cap_bytes:
+                        file_size = os.path.getsize(path)
+                        if file_size < 50000: # Catch empty/error files
+                            os.remove(path)
+                            continue
+                        if file_size > cap_bytes:
                             os.remove(path)
                             too_big = True
                             continue
-                        return [path], f"{info.get('height', 'HD')}p", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
-                    too_big = True
+                        return [path], f"{info.get('height', 'HD')}p", f"{file_size/(1024*1024):.1f}MB"
             except Exception as e:
-                if "Unsupported URL" in str(e) or "403" in str(e):
-                    raise e
                 last_err = e
                 continue
-        if too_big or last_err is None:
+        if too_big:
             raise ValueError("FILE_TOO_LARGE")
-        raise last_err
+        if last_err:
+            raise last_err
+        raise ValueError("FILE_NOT_FOUND")
 
 def get_main_keyboard(lang_code, is_admin):
     t = LANGUAGES.get(lang_code, LANGUAGES["en"])
@@ -657,7 +629,7 @@ async def file_link_add_media(update: Update, context: ContextTypes.DEFAULT_TYPE
         states[uid] = state
         save_json_file(FILE_LINK_STATE_FILE, states)
         await update.effective_message.reply_text(f"📥 Added file #{len(state['items'])}. Send more, or tap Create Link.", reply_markup=file_link_keyboard(state))
-    except Exception as exc:
+    except Exception:
         logger.exception("File-to-Link storage copy failed")
     return True
 
@@ -770,16 +742,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch", url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
     if user_id == ADMIN_ID:
         keyboard.append([InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")])
-    tutorial_sent = False
     try:
-        tut = await context.bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-        tutorial_sent = True
+        await context.bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
         await asyncio.sleep(0.2)
     except Exception as e1:
         logger.error(f"Forward failed: {e1}")
         try:
-            tut = await context.bot.copy_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-            tutorial_sent = True
+            await context.bot.copy_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
         except Exception as e2:
             logger.error(f"Copy failed: {e2}")
     await update.message.reply_text("👇 **CONTENT LOCKED 🔒**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
@@ -859,7 +828,9 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
     except: pass
     if user_id not in paused_batches:
         dest = t["batch_done_chan"].format(success_count, fail_count, success_count) if target_destination_id != chat_id else t["batch_done"].format(success_count, fail_count, success_count)
-        await bot.send_message(chat_id=chat_id, text=dest, reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID), parse_mode="Markdown")
+        # Added change channel button back when sending batch completion markup
+        done_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Change Channel", callback_data="change_channel")]]) if target_destination_id != chat_id else None
+        await bot.send_message(chat_id=chat_id, text=dest, reply_markup=done_markup, parse_mode="Markdown")
 
 async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
@@ -904,40 +875,10 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text(t["upload_success_user"], reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
         except: await update.message.reply_text("❌ Failed")
 
-# === FIXED: CHANNEL FORWARDING CHECK MOVED TO THE VERY TOP ===
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text if update.message.text else ""
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
-    
-    # 1. CHECK FOR CHANNEL FORWARDING (Highest priority, works even if batch is active)
-    if hasattr(update.message, 'forward_origin') and update.message.forward_origin:
-        origin = update.message.forward_origin
-        if getattr(origin, 'type', None) == 'channel':
-            f_chat = getattr(origin, 'chat', None)
-            if f_chat:
-                user_channels = load_user_channels()
-                user_channels[str(user_id)] = f_chat.id
-                save_user_channels(user_channels)
-                
-                # Clear linking state if it was waiting
-                linking_states = load_linking_states()
-                if linking_states.get(str(user_id)) == "waiting_for_channel":
-                    del linking_states[str(user_id)]
-                    save_linking_states(linking_states)
-                
-                await update.message.reply_text(f"✅ Successfully linked to channel: <b>{f_chat.title}</b>", parse_mode="HTML")
-                return
-        elif getattr(origin, 'type', None) == 'hidden_user':
-            await update.message.reply_text(
-                "❌ <b>Hidden Forward Detected</b>\n\n"
-                "The channel has 'Restrict Saving Content' enabled.\n"
-                "Please disable it in channel settings, or add the bot as an Administrator in the channel.",
-                parse_mode="HTML"
-            )
-            return
-
-    # 2. Handle normal text/link processing
     if is_banned(user_id):
         await update.message.reply_text("🚫 Banned")
         return
@@ -1150,15 +1091,28 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 return
             else:
                 try:
-                    tut = await context.bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+                    await context.bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
                     await asyncio.sleep(0.2)
                 except: pass
                 bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
                 keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")]]
                 await update.message.reply_text(t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 return
-                
-    # Fallback channel link check (for non-forwarded messages that might be channel posts)
+    if active_batch_sessions.get(user_id, False): return
+    linking_states = load_linking_states()
+    if linking_states.get(str(user_id)) == "waiting_for_channel":
+        if update.message.forward_origin and getattr(update.message.forward_origin, 'type', None) == 'channel':
+            f_chat = update.message.forward_origin.chat
+            user_channels = load_user_channels()
+            user_channels[str(user_id)] = f_chat.id
+            save_user_channels(user_channels)
+            del linking_states[str(user_id)]
+            save_linking_states(linking_states)
+            await update.message.reply_text(f"✅ Linked {f_chat.title}", parse_mode="Markdown")
+            return
+        else:
+            await update.message.reply_text("❌ Forward from channel")
+            return
     if update.message.forward_origin and getattr(update.message.forward_origin, 'type', None) == 'channel':
         f_chat = update.message.forward_origin.chat
         user_channels = load_user_channels()
@@ -1166,7 +1120,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         save_user_channels(user_channels)
         await update.message.reply_text(f"✅ Linked {f_chat.title}", parse_mode="Markdown")
         return
-        
     if len(extracted_urls) > 1:
         payload_key = f"batch_{user_id}_{int(time.time())}"
         pending_batch_payloads[payload_key] = extracted_urls
@@ -1799,8 +1752,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         try:
             r = requests.get(f"{WEB_BASE_URL}/monetag-reward", params={"userid": user_id, "secret": API_SECRET}, timeout=8)
             ok = r.status_code == 200
-        except Exception as e:
-            logger.error(f"simulate ad: {e}")
+        except Exception:
             ok = False
         await query.answer("🛠 Simulated! Now tap Check & Get +1" if ok else "❌ Server not reachable", show_alert=True)
         return
@@ -1884,83 +1836,33 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if not urls:
             await query.answer("Expired", show_alert=True)
             return
-            
-        # FIXED: Ensure "Change Channel" button is always present
-        user_channels = load_user_channels()
-        target = user_channels.get(str(user_id))
-        
-        if target:
-            kb = [
-                [InlineKeyboardButton("✅ Yes, Start Batch", callback_data=f"start_batch_{dl_type}_{payload_key}")],
-                [InlineKeyboardButton("🔄 Change Channel", callback_data="change_channel")],
-                [InlineKeyboardButton("❌ Cancel Batch", callback_data="cancel_batch")]
-            ]
-            await query.message.edit_text(
-                f"📢 **Send to Channel?**\n\n"
-                f"Linked Channel ID: `{target}`\n"
-                f"Files: {len(urls)}\n\n"
-                f"Tap 'Start Batch' to begin, or 'Change Channel' to link a new one.",
-                reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown"
-            )
-        else:
-            linking_states = load_linking_states()
-            linking_states[str(user_id)] = "waiting_for_channel"
-            save_linking_states(linking_states)
-            
-            kb = [[InlineKeyboardButton("❌ Cancel Batch", callback_data="cancel_batch")]]
-            bot_username = context.bot.username
-            await query.message.edit_text(
-                f"📢 **No Channel Linked!**\n\n"
-                f"1️⃣ Add **@{bot_username}** to your channel as Admin.\n"
-                f"2️⃣ Forward a message from that channel here.\n\n"
-                f"Or tap Cancel to send in chat.",
-                reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown"
-            )
-        await query.answer()
-        return
-
-    if data.startswith("start_batch_"):
-        parts = data.split("_",3)
-        dl_type = parts[1]
-        payload_key = parts[2]
-        urls = pending_batch_payloads.pop(payload_key, None)
-        if not urls:
-            await query.answer("Expired", show_alert=True)
-            return
-        user_channels = load_user_channels()
-        target = user_channels.get(str(user_id))
-        if not target:
-            await query.answer("No channel linked!", show_alert=True)
-            return
-        await query.answer("Starting batch...")
-        await query.message.delete()
-        asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, target, urls, dl_type))
-        return
-
-    if data == "cancel_batch":
-        keys_to_delete = [k for k in pending_batch_payloads.keys() if str(user_id) in k]
-        for k in keys_to_delete: del pending_batch_payloads[k]
-        active_batch_sessions.pop(user_id, None)
-        paused_batches.pop(user_id, None)
-        linking_states = load_linking_states()
-        if str(user_id) in linking_states:
-            del linking_states[str(user_id)]
-            save_linking_states(linking_states)
-        await query.answer("Batch cancelled")
-        try: 
+        if action_type=="chat":
+            await query.answer("Loading...")
             await query.message.delete()
-        except: 
-            try: await query.message.edit_text("❌ Batch cancelled.")
-            except: pass
-        await context.bot.send_message(chat_id=chat_id, text="✅ Batch cancelled.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
+            asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, chat_id, urls, dl_type))
+        else:
+            user_channels = load_user_channels()
+            target = user_channels.get(str(user_id))
+            if not target:
+                await query.answer("No channel linked!", show_alert=True)
+                linking_states = load_linking_states()
+                linking_states[str(user_id)]="waiting_for_channel"
+                save_linking_states(linking_states)
+                
+                # Added Change Channel / Link Setup markup with inline buttons
+                setup_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Change / Link Channel", callback_data="change_channel")]])
+                await query.message.edit_text("📦 Setup: Make bot admin in your channel and forward a message from it here.", reply_markup=setup_markup, parse_mode="Markdown")
+                return
+            await query.answer("Loading...")
+            await query.message.delete()
+            asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, target, urls, dl_type))
         return
-
     if data == "change_channel":
         linking_states = load_linking_states()
         linking_states[str(user_id)]="waiting_for_channel"
         save_linking_states(linking_states)
         await query.answer("Mode activated!")
-        await query.message.reply_text("🔄 Forward message from new channel", parse_mode="Markdown")
+        await query.message.reply_text("🔄 Forward any message from your target channel now.", parse_mode="Markdown")
         return
     if data == "verify_user":
         try:
@@ -2239,7 +2141,7 @@ if not getattr(web_app, '_bot_started', False):
 
 if not getattr(web_app, '_mtproto_started', False):
     web_app._mtproto_started = True
-    if API_ID and API_HASH: threading.Thread(target=run_mtproto_worker, daemon=True).start()
+ & if API_ID and API_HASH: threading.Thread(target=run_mtproto_worker, daemon=True).start()
     else: print("MTProto worker not started.")
 
 if __name__ == "__main__":
