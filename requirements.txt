@@ -2,7 +2,7 @@ python-telegram-bot
 Flask
 requests
 imageio-ffmpeg
-git+https://github.com/yt-dlp/yt-dlp.git
+yt-dlp[default]
 beautifulsoup4
 ytmusicapi
 pyrogram
