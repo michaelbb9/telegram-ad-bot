@@ -138,7 +138,44 @@ def save_json_file(filename, data):
     except Exception as e:
         logger.error(f"Save {filename}: {e}")
 
-# --- NEW UNIVERSAL RESOLVER WITH TELEGRAM DEBUGGING ---
+# --- UNIFIED COOKIE HELPER & yt-dlp CONFIGURATION ---
+def get_cookie_file_path(filename):
+    """Checks local directory first, then Render's secure secret files path as a fallback."""
+    if os.path.exists(filename):
+        return filename
+    secret_path = os.path.join("/etc/secrets", filename)
+    if os.path.exists(secret_path):
+        return secret_path
+    return None
+
+def get_yt_dlp_options(url, extra_opts=None):
+    """Unified yt-dlp configuration ensuring consistent cookie and header handling across all extractors."""
+    url_lower = url.lower()
+    cookiefile = None
+
+    if "youtube.com" in url_lower or "youtu.be" in url_lower:
+        cookiefile = get_cookie_file_path("youtube_cookies.txt") or get_cookie_file_path("cookies.txt")
+    elif "tiktok.com" in url_lower:
+        cookiefile = get_cookie_file_path("tiktok_cookies.txt") or get_cookie_file_path("cookies.txt")
+    else:
+        cookiefile = get_cookie_file_path("cookies.txt")
+
+    http_headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15'}
+
+    opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'http_headers': http_headers,
+        'proxy': PROXY_URL,
+    }
+    if cookiefile:
+        opts['cookiefile'] = cookiefile
+
+    if extra_opts:
+        opts.update(extra_opts)
+    return opts
+
+# --- UNIVERSAL RESOLVER WITH TELEGRAM DEBUGGING ---
 async def get_canonical_key(url: str, chat_id=None, bot=None):
     original_url = url
     
@@ -159,7 +196,6 @@ async def get_canonical_key(url: str, chat_id=None, bot=None):
     if is_short_link:
         await send_debug("🔄 Resolving short link...")
         try:
-            # Mobile User-Agent often gets better redirects from TikTok
             headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15'}
             response = requests.get(url, headers=headers, allow_redirects=True, timeout=15)
             resolved_url = response.url
@@ -173,18 +209,16 @@ async def get_canonical_key(url: str, chat_id=None, bot=None):
             await send_debug(f"❌ Redirect failed: {str(e)[:100]}")
 
     # 2. REGEX EXTRACTION (The "Different Approach")
-    # This bypasses yt-dlp entirely for TikTok by looking for the ID in the URL path
-    # TikTok IDs are usually 19 digits long in the path /video/1234567890123456789
     tiktok_match = re.search(r'/video/(\d{15,20})', url)
     if tiktok_match:
         vid_id = tiktok_match.group(1)
         await send_debug(f"🎯 <b>TikTok Regex Match!</b>\nVideo ID: <code>{vid_id}</code>")
         return f"tiktok_{vid_id}"
 
-    # 3. Try yt-dlp for other platforms (YouTube, etc.)
+    # 3. Try yt-dlp for other platforms (YouTube, etc.) using unified configuration
     await send_debug("🤖 Trying yt-dlp extraction...")
     try:
-        ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True}
+        ydl_opts = get_yt_dlp_options(url, {'skip_download': True, 'noplaylist': True})
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             if info:
@@ -425,7 +459,7 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
             pass
 
 def fetch_url_metadata(url):
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True}
+    ydl_opts = get_yt_dlp_options(url, {'skip_download': True})
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -464,15 +498,10 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
     cap_bytes = cap_mb * 1024 * 1024
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
-    http_headers = {'User-Agent': 'Mozilla/5.0'}
-    cookiefile = None
-    if "tiktok.com" in url.lower() and os.path.exists("tiktok_cookies.txt"):
-        cookiefile = "tiktok_cookies.txt"
-    elif os.path.exists("cookies.txt"):
-        cookiefile = "cookies.txt"
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL}
-    if cookiefile:
-        ydl_opts['cookiefile'] = cookiefile
+    
+    # Use unified helper options containing automatic cookie and proxy configuration
+    ydl_opts = get_yt_dlp_options(url)
+    
     if download_type == 'audio':
         ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -486,9 +515,9 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                 return [path], "MP3", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("FILE_NOT_FOUND")
     elif download_type == 'images':
-        img_url = scrape_html_images(url, cookiefile)
+        img_url = scrape_html_images(url, ydl_opts.get('cookiefile'))
         if img_url:
-            data = requests.get(img_url, headers=http_headers, timeout=15).content
+            data = requests.get(img_url, headers=ydl_opts.get('http_headers'), timeout=15).content
             path = os.path.join(output_dir, f"img_{int(time.time())}.jpg")
             with open(path, 'wb') as f:
                 f.write(data)
@@ -827,7 +856,6 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             break
         status_msg = await bot.send_message(chat_id=chat_id, text=f"📥 [{index}/{len(urls)}] {t['dl_video']}")
         try:
-            # UPDATED CALLER
             ckey = await get_canonical_key(url, chat_id, bot)
             cache = load_json_file(CACHE_FILE)
             if ckey in cache:
@@ -931,16 +959,12 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     track_user_activity(user_id)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
-    # Handle channel-linking forwards before URL parsing. Forwarded channel
-    # posts may contain plain text or media, not URLs, so they must be handled
-    # before the URL extraction path can return early.
     linking_states = load_linking_states()
     if linking_states.get(str(user_id)) == "waiting_for_channel":
         forward_origin = getattr(update.message, "forward_origin", None)
         f_chat = None
         if forward_origin and getattr(forward_origin, "type", None) == "channel":
             f_chat = getattr(forward_origin, "chat", None)
-        # Compatibility with older Telegram / python-telegram-bot fields.
         if f_chat is None:
             f_chat = getattr(update.message, "forward_from_chat", None)
         if f_chat is None:
@@ -1419,7 +1443,6 @@ async def set_mtproto_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def cached_download_and_send(bot, chat_id, url, dl_type, t):
     cache = load_json_file(CACHE_FILE)
-    # UPDATED CALLER
     ckey = await get_canonical_key(url, chat_id, bot)
     if ckey in cache:
         try:
@@ -1804,7 +1827,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         elif fmt_type == 'img': dl_type='images'
         elif fmt_type == 'sub': dl_type='subtitles'
         
-        # UPDATED CALLER
         ckey = await get_canonical_key(url, chat_id, context.bot)
         cache = load_json_file(CACHE_FILE)
         if ckey in cache:
