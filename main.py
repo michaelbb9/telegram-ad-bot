@@ -142,7 +142,6 @@ def save_json_file(filename, data):
 async def get_canonical_key(url: str, chat_id=None, bot=None):
     original_url = url
     
-    # Helper to send debug messages to Telegram
     async def send_debug(text):
         if chat_id and bot:
             try:
@@ -152,14 +151,12 @@ async def get_canonical_key(url: str, chat_id=None, bot=None):
 
     await send_debug(f"🔍 <b>Processing Link:</b>\n<code>{url}</code>")
 
-    # 1. Resolve short links
     short_link_domains = ["vt.tiktok.com", "vm.tiktok.com", "youtu.be/", "t.co/", "instagr.am/", "fb.watch/"]
     is_short_link = any(domain in url.lower() for domain in short_link_domains)
 
     if is_short_link:
         await send_debug("🔄 Resolving short link...")
         try:
-            # Mobile User-Agent often gets better redirects from TikTok
             headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15'}
             response = requests.get(url, headers=headers, allow_redirects=True, timeout=15)
             resolved_url = response.url
@@ -172,16 +169,12 @@ async def get_canonical_key(url: str, chat_id=None, bot=None):
         except Exception as e:
             await send_debug(f"❌ Redirect failed: {str(e)[:100]}")
 
-    # 2. REGEX EXTRACTION (The "Different Approach")
-    # This bypasses yt-dlp entirely for TikTok by looking for the ID in the URL path
-    # TikTok IDs are usually 19 digits long in the path /video/1234567890123456789
     tiktok_match = re.search(r'/video/(\d{15,20})', url)
     if tiktok_match:
         vid_id = tiktok_match.group(1)
         await send_debug(f"🎯 <b>TikTok Regex Match!</b>\nVideo ID: <code>{vid_id}</code>")
         return f"tiktok_{vid_id}"
 
-    # 3. Try yt-dlp for other platforms (YouTube, etc.)
     await send_debug("🤖 Trying yt-dlp extraction...")
     try:
         ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True}
@@ -198,7 +191,6 @@ async def get_canonical_key(url: str, chat_id=None, bot=None):
     except Exception as e:
         await send_debug(f"⚠️ yt-dlp failed: {str(e)[:50]}")
 
-    # 4. Fallback: Hash the resolved URL
     await send_debug("🎲 Using URL hash fallback.")
     clean = url.split('?')[0].split('&')[0].lower().strip('/').replace('https://','').replace('http://','')
     h = hashlib.md5(clean.encode()).hexdigest()[:12]
@@ -827,22 +819,33 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             break
         status_msg = await bot.send_message(chat_id=chat_id, text=f"📥 [{index}/{len(urls)}] {t['dl_video']}")
         try:
-            # UPDATED CALLER
             ckey = await get_canonical_key(url, chat_id, bot)
             cache = load_json_file(CACHE_FILE)
-            if ckey in cache:
-                try:
-                    cached = cache[ckey]
-                    sent = await bot.send_video(chat_id=target_destination_id, video=cached["file_id"], caption=f"Item {index}/{len(urls)} ⚡ Cached")
-                    if target_destination_id == chat_id:
-                        warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
-                        asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
-                    cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
-                    save_json_file(CACHE_FILE, cache)
-                    await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
-                    success_count += 1
-                    continue
-                except: pass
+            
+            # Check for best quality in cache first during batch
+            served_from_cache = False
+            if ckey in cache and isinstance(cache[ckey], dict):
+                for qual in ["1080p", "720p", "HD", "480p", "360p", "270p", "worst"]:
+                    if qual in cache[ckey]:
+                        cached = cache[ckey][qual]
+                        file_id = cached.get("file_id")
+                        if file_id:
+                            try:
+                                sent = await bot.send_video(chat_id=target_destination_id, video=file_id, caption=f"Item {index}/{len(urls)} ⚡ Cached ({qual})")
+                                if target_destination_id == chat_id:
+                                    warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
+                                    asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
+                                cached["hits"] = cached.get("hits", 0) + 1
+                                save_json_file(CACHE_FILE, cache)
+                                await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+                                success_count += 1
+                                served_from_cache = True
+                                break
+                            except:
+                                pass
+            if served_from_cache:
+                continue
+
             file_paths, res, size = await asyncio.to_thread(download_media_engine, url, download_type, mtproto_limit_mb())
             if file_paths and os.path.exists(file_paths[0]):
                 sent = await send_video_file(bot, chat_id, target_destination_id, file_paths[0], f"Item {index}/{len(urls)} Size {size}", None, status_msg)
@@ -852,7 +855,9 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                 try:
                     vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent.video.file_id, caption=ckey)
                     cache = load_json_file(CACHE_FILE)
-                    cache[ckey] = {"file_id": sent.video.file_id, "vault_msg_id": vmsg.message_id, "type": "video", "timestamp": time.time(), "hits": 1}
+                    if ckey not in cache or not isinstance(cache[ckey], dict):
+                        cache[ckey] = {}
+                    cache[ckey][str(res)] = {"file_id": sent.video.file_id, "vault_msg_id": vmsg.message_id, "type": "video", "timestamp": time.time(), "hits": 1, "size": size}
                     save_json_file(CACHE_FILE, cache)
                 except Exception as e: logger.error(f"Vault save: {e}")
                 os.remove(file_paths[0])
@@ -931,16 +936,12 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     track_user_activity(user_id)
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
-    # Handle channel-linking forwards before URL parsing. Forwarded channel
-    # posts may contain plain text or media, not URLs, so they must be handled
-    # before the URL extraction path can return early.
     linking_states = load_linking_states()
     if linking_states.get(str(user_id)) == "waiting_for_channel":
         forward_origin = getattr(update.message, "forward_origin", None)
         f_chat = None
         if forward_origin and getattr(forward_origin, "type", None) == "channel":
             f_chat = getattr(forward_origin, "chat", None)
-        # Compatibility with older Telegram / python-telegram-bot fields.
         if f_chat is None:
             f_chat = getattr(update.message, "forward_from_chat", None)
         if f_chat is None:
@@ -1294,9 +1295,9 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     cache = load_json_file(CACHE_FILE)
     flood_data = load_json_file(FLOOD_FILE)
     banned = load_json_file(BANNED_FILE)
-    total_hits = sum(v.get("hits",0) for v in cache.values() if isinstance(v, dict))
+    total_hits = sum(v.get("hits",0) for entry in cache.values() if isinstance(entry, dict) for v in entry.values() if isinstance(v, dict))
     host_free = shutil.disk_usage(".").free // (1024*1024) if os.path.exists(".") else 0
-    txt = (f"📊 **ADVANCED ADMIN**\n\n• Total: **{total_users}**\n• 24h Active: **{active_24hr}**\n• Ad Mode: **{mode}**\n\n📢 **Ad Split:**\n• Monetag: **{adsgram_count}**\n• Adsterra: **{adsterra_count}**\n\n🖥️ **Render:**\n• Used: **{used_mb}MB**\n• Free: **{free_mb}MB**\n• Host: **{host_free}MB**\n• Active: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\n• Queue: **{download_queue.qsize()}**\n• Cache: **{len(cache)}** files\n• Hits: **{total_hits}** saved\n• Flood: **{len(flood_data)}**\n• Banned: **{len(banned)}**\n\n🎞️ **Video Vault:** `{VIDEO_VAULT_ID}`\n🏆 **Top 10:**\n{top_text}")
+    txt = (f"📊 **ADVANCED ADMIN**\n\n• Total: **{total_users}**\n• 24h Active: **{active_24hr}**\n• Ad Mode: **{mode}**\n\n📢 **Ad Split:**\n• Monetag: **{adsgram_count}**\n• Adsterra: **{adsterra_count}**\n\n🖥️ **Render:**\n• Used: **{used_mb}MB**\n• Free: **{free_mb}MB**\n• Host: **{host_free}MB**\n• Active: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\n• Queue: **{download_queue.qsize()}**\n• Cache Keys: **{len(cache)}**\n• Hits: **{total_hits}** saved\n• Flood: **{len(flood_data)}**\n• Banned: **{len(banned)}**\n\n🎞️ **Video Vault:** `{VIDEO_VAULT_ID}`\n🏆 **Top 10:**\n{top_text}")
     await update.message.reply_text(txt, parse_mode="Markdown")
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1305,7 +1306,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
     free_mb = shutil.disk_usage(".").free // (1024*1024)
     cache = load_json_file(CACHE_FILE)
-    await update.message.reply_text(f"🟢 **Status V38 Monetag**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
+    await update.message.reply_text(f"🟢 **Status V38 Monetag**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache Keys: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown")
 
 async def restore_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_user.id != ADMIN_ID: return
@@ -1419,51 +1420,54 @@ async def set_mtproto_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def cached_download_and_send(bot, chat_id, url, dl_type, t):
     cache = load_json_file(CACHE_FILE)
-    # UPDATED CALLER
     ckey = await get_canonical_key(url, chat_id, bot)
-    if ckey in cache:
-        try:
-            cached = cache[ckey]
-            file_id = cached.get("file_id")
-            c_type = cached.get("type", "video")
-            if file_id:
-                if c_type == "video":
-                    qual = cached.get("quality", "HD")
-                    sz = cached.get("size", "")
-                    sent = await bot.send_video(chat_id=chat_id, video=file_id, caption=f"Cached Instant {qual} {sz} {ckey}")
-                elif c_type == "audio":
-                    sent = await bot.send_audio(chat_id=chat_id, audio=file_id, caption=f"⚡ **Cached Instant** `{ckey}`")
-                elif c_type == "image":
-                    sent = await bot.send_photo(chat_id=chat_id, photo=file_id, caption=f"⚡ **Cached Instant** `{ckey}`")
-                else: raise ValueError("bad cache")
-                warn = await bot.send_message(chat_id=chat_id, text="⏳ Auto-deletes in 9 mins")
-                asyncio.create_task(schedule_deletion(bot, chat_id, [sent.message_id, warn.message_id], 540))
-                cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
-                save_json_file(CACHE_FILE, cache)
-                deduct_download_counter(chat_id, is_batch=False)
-                return True
-        except Exception as e:
-            logger.error(f"Cache send fail {ckey}: {e}")
-            try:
-                vmid = cache[ckey].get("vault_msg_id")
-                if vmid:
-                    fwd = await bot.forward_message(chat_id=chat_id, from_chat_id=VIDEO_VAULT_ID, message_id=vmid)
-                    warn = await bot.send_message(chat_id=chat_id, text="⏳ Auto-deletes in 9 mins (from vault)")
-                    asyncio.create_task(schedule_deletion(bot, chat_id, [fwd.message_id, warn.message_id], 540))
-                    cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
-                    save_json_file(CACHE_FILE, cache)
-                    deduct_download_counter(chat_id, is_batch=False)
-                    return True
-            except Exception as e2:
-                logger.error(f"Vault fallback fail: {e2}")
-                if ckey in cache:
-                    del cache[ckey]
-                    save_json_file(CACHE_FILE, cache)
+    
+    # 1. Look for the best quality available in cache first
+    if ckey in cache and isinstance(cache[ckey], dict):
+        for qual in ["1080p", "720p", "HD", "480p", "360p", "270p", "worst"]:
+            if qual in cache[ckey]:
+                cached = cache[ckey][qual]
+                file_id = cached.get("file_id")
+                c_type = cached.get("type", "video")
+                if file_id:
+                    try:
+                        if c_type == "video":
+                            sent = await bot.send_video(chat_id=chat_id, video=file_id, caption=f"⚡ Cached ({qual}) `{ckey}`", parse_mode="Markdown")
+                        elif c_type == "audio":
+                            sent = await bot.send_audio(chat_id=chat_id, audio=file_id, caption=f"⚡ **Cached Instant** `{ckey}`", parse_mode="Markdown")
+                        elif c_type == "image":
+                            sent = await bot.send_photo(chat_id=chat_id, photo=file_id, caption=f"⚡ **Cached Instant** `{ckey}`", parse_mode="Markdown")
+                        else:
+                            raise ValueError("bad cache")
+                        
+                        warn = await bot.send_message(chat_id=chat_id, text="⏳ Auto-deletes in 9 mins")
+                        asyncio.create_task(schedule_deletion(bot, chat_id, [sent.message_id, warn.message_id], 540))
+                        cached["hits"] = cached.get("hits", 0) + 1
+                        save_json_file(CACHE_FILE, cache)
+                        deduct_download_counter(chat_id, is_batch=False)
+                        return True
+                    except Exception as e:
+                        logger.error(f"Cache send fail {ckey} [{qual}]: {e}")
+                        # Fallback to vault if message sending failed
+                        vmid = cached.get("vault_msg_id")
+                        if vmid:
+                            try:
+                                fwd = await bot.forward_message(chat_id=chat_id, from_chat_id=VIDEO_VAULT_ID, message_id=vmid)
+                                warn = await bot.send_message(chat_id=chat_id, text="⏳ Auto-deletes in 9 mins (from vault)")
+                                asyncio.create_task(schedule_deletion(bot, chat_id, [fwd.message_id, warn.message_id], 540))
+                                deduct_download_counter(chat_id, is_batch=False)
+                                return True
+                            except:
+                                pass
+
     status_msg = await bot.send_message(chat_id=chat_id, text=t["fetching"].format(dl_type) + f"\n`{ckey}`", parse_mode="Markdown")
     try:
         file_paths, res, size = await asyncio.to_thread(download_media_engine, url, dl_type, mtproto_limit_mb())
         if not file_paths: raise ValueError("FILE_NOT_FOUND")
         cache = load_json_file(CACHE_FILE)
+        if ckey not in cache or not isinstance(cache[ckey], dict):
+            cache[ckey] = {}
+
         if dl_type == 'images':
             media_group = [InputMediaPhoto(media=open(p, 'rb')) for p in file_paths]
             sent_media = await bot.send_media_group(chat_id=chat_id, media=media_group)
@@ -1471,8 +1475,9 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
             asyncio.create_task(schedule_deletion(bot, chat_id, [m.message_id for m in sent_media] + [warn.message_id], 540))
             try:
                 vmsg = await bot.send_photo(chat_id=VIDEO_VAULT_ID, photo=sent_media[0].photo[-1].file_id, caption=ckey)
-                cache[ckey] = {"file_id": sent_media[0].photo[-1].file_id, "vault_msg_id": vmsg.message_id, "type": "image", "timestamp": time.time(), "hits": 1, "size": size}
-            except: cache[ckey] = {"file_id": sent_media[0].photo[-1].file_id, "type": "image", "timestamp": time.time(), "hits": 1, "size": size}
+                cache[ckey][str(res)] = {"file_id": sent_media[0].photo[-1].file_id, "vault_msg_id": vmsg.message_id, "type": "image", "timestamp": time.time(), "hits": 1, "size": size}
+            except: 
+                cache[ckey][str(res)] = {"file_id": sent_media[0].photo[-1].file_id, "type": "image", "timestamp": time.time(), "hits": 1, "size": size}
             for p in file_paths: os.remove(p)
         elif dl_type == 'audio':
             sent_media = await send_audio_file(bot, chat_id, file_paths[0], f"🎵 Size {size} `{ckey}`", "Markdown", status_msg)
@@ -1480,8 +1485,9 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
             asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
             try:
                 vmsg = await bot.send_audio(chat_id=VIDEO_VAULT_ID, audio=sent_media.audio.file_id, caption=ckey)
-                cache[ckey] = {"file_id": sent_media.audio.file_id, "vault_msg_id": vmsg.message_id, "type": "audio", "timestamp": time.time(), "hits": 1, "size": size}
-            except: cache[ckey] = {"file_id": sent_media.audio.file_id, "type": "audio", "timestamp": time.time(), "hits": 1, "size": size}
+                cache[ckey][str(res)] = {"file_id": sent_media.audio.file_id, "vault_msg_id": vmsg.message_id, "type": "audio", "timestamp": time.time(), "hits": 1, "size": size}
+            except: 
+                cache[ckey][str(res)] = {"file_id": sent_media.audio.file_id, "type": "audio", "timestamp": time.time(), "hits": 1, "size": size}
             os.remove(file_paths[0])
         else:
             sent_media = await send_video_file(bot, chat_id, chat_id, file_paths[0], f"✨ {res} Size {size} `{ckey}`", "Markdown", status_msg)
@@ -1489,9 +1495,10 @@ async def cached_download_and_send(bot, chat_id, url, dl_type, t):
             asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
             try:
                 vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent_media.video.file_id, caption=ckey)
-                cache[ckey] = {"file_id": sent_media.video.file_id, "vault_msg_id": vmsg.message_id, "type": "video", "timestamp": time.time(), "hits": 1, "size": size}
+                cache[ckey][str(res)] = {"file_id": sent_media.video.file_id, "vault_msg_id": vmsg.message_id, "type": "video", "timestamp": time.time(), "hits": 1, "size": size}
             except Exception as e: logger.error(f"Vault save fail: {e}")
             os.remove(file_paths[0])
+            
         save_json_file(CACHE_FILE, cache)
         await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
         deduct_download_counter(chat_id, is_batch=False)
@@ -1804,12 +1811,21 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         elif fmt_type == 'img': dl_type='images'
         elif fmt_type == 'sub': dl_type='subtitles'
         
-        # UPDATED CALLER
         ckey = await get_canonical_key(url, chat_id, context.bot)
         cache = load_json_file(CACHE_FILE)
-        if ckey in cache:
+        
+        # Check if any quality exists in cache before queuing/acquiring slot
+        has_cached_quality = False
+        if ckey in cache and isinstance(cache[ckey], dict):
+            for q in ["1080p", "720p", "HD", "480p", "360p", "270p", "worst"]:
+                if q in cache[ckey]:
+                    has_cached_quality = True
+                    break
+
+        if has_cached_quality:
             await cached_download_and_send(context.bot, chat_id, url, dl_type, t)
             return
+
         can_dl = await acquire_slot()
         if can_dl:
             try: await cached_download_and_send(context.bot, chat_id, url, dl_type, t)
@@ -2217,4 +2233,3 @@ if not getattr(web_app, '_mtproto_started', False):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     web_app.run(host="0.0.0.0", port=port)
-    
