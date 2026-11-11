@@ -1717,15 +1717,15 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
     if "tiktok.com" in url.lower() and os.path.exists("tiktok_cookies.txt"): cookiefile = "tiktok_cookies.txt"
     elif os.path.exists("cookies.txt"): cookiefile = "cookies.txt"
     
-    # MODIFIED: Removed noplaylist restriction for carousel sites (Instagram, Twitter/X, TikTok photo modes)
-    # Detect if it's a known gallery URL
+    # Check if URL is a known gallery/carousel link
     is_gallery = any(domain in url.lower() for domain in ["instagram.com", "twitter.com", "x.com", "tiktok.com"])
+    
     ydl_opts = {
         'quiet': True, 
         'no_warnings': True, 
         'http_headers': http_headers, 
         'proxy': PROXY_URL,
-        'noplaylist': not is_gallery
+        'noplaylist': not is_gallery  # Allow playlists/galleries for these sites
     }
     if cookiefile: ydl_opts['cookiefile'] = cookiefile
     
@@ -1744,24 +1744,29 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
         raise ValueError("FILE_NOT_FOUND")
         
     elif download_type == 'images':
-        # SCRAPE MULTIPLE IMAGES from carousel
+        # Try native yt-dlp gallery extraction first
         if is_gallery:
             try:
                 opts = dict(ydl_opts)
                 opts.update({'format': 'best', 'outtmpl': os.path.join(output_dir, f'img_%(id)s_%(autonumber)s.%(ext)s')})
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=True)
-                    if 'entries' in info:
-                        paths = [ydl.prepare_filename(e) for e in info['entries'] if 'ext' in e and e['ext'] in ('jpg', 'jpeg', 'png', 'webp')]
-                    else:
-                        path = ydl.prepare_filename(info)
-                        paths = [path] if info.get('ext') in ('jpg', 'jpeg', 'png', 'webp') else []
+                    paths = []
                     
-                    valid_paths = []
-                    for p in paths:
-                        if os.path.exists(p) and os.path.getsize(p) > 1000:
-                            valid_paths.append(p)
-                            
+                    if 'entries' in info:
+                        for e in info['entries']:
+                            p = ydl.prepare_filename(e)
+                            # If it's a video entry, we still want to download it to the gallery
+                            if os.path.exists(p):
+                                paths.append(p)
+                            elif os.path.exists(os.path.splitext(p)[0]+".mp4"):
+                                paths.append(os.path.splitext(p)[0]+".mp4")
+                    else:
+                        p = ydl.prepare_filename(info)
+                        if os.path.exists(p): paths.append(p)
+                        elif os.path.exists(os.path.splitext(p)[0]+".mp4"): paths.append(os.path.splitext(p)[0]+".mp4")
+                        
+                    valid_paths = [p for p in paths if os.path.getsize(p) > 1000]
                     if valid_paths:
                         total_size = sum(os.path.getsize(p) for p in valid_paths)
                         return valid_paths, "gallery", f"{total_size/(1024*1024):.1f}MB"
@@ -1778,7 +1783,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
         raise ValueError("NO_IMAGES")
         
     else:
-        # VIDEO / GALLERY DOWNLOAD
+        # VIDEO OR GALLERY DOWNLOAD
         tiers = [
             ("1080p", "bv*[height<=1080]+ba/b[height<=1080]"),
             ("720p", "bv*[height<=720]+ba/b[height<=720]"),
@@ -1793,6 +1798,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
         for qual_name, fmt in tiers:
             try:
                 opts = dict(ydl_opts)
+                # We ensure `merge_output_format` is mp4, but for galleries, images might just download as jpg.
                 opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, f'%(id)s_{qual_name}_%(autonumber)s.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=True)
@@ -1802,8 +1808,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                         for e in info['entries']:
                             p = ydl.prepare_filename(e)
                             if not os.path.exists(p) and os.path.exists(os.path.splitext(p)[0]+".mp4"): p = os.path.splitext(p)[0]+".mp4"
-                            if os.path.exists(p):
-                                valid_paths.append(p)
+                            if os.path.exists(p): valid_paths.append(p)
                     else:
                         p = ydl.prepare_filename(info)
                         if not os.path.exists(p) and os.path.exists(os.path.splitext(p)[0]+".mp4"): p = os.path.splitext(p)[0]+".mp4"
@@ -1823,7 +1828,6 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                         elif actual_height >= 360: best_quality = "360p"
                         else: best_quality = "worst"
                         
-                        # Return multiple paths if gallery
                         res_type = "gallery" if len(valid_paths) > 1 else best_quality
                         return valid_paths, res_type, f"{total_size/(1024*1024):.1f}MB"
                     too_big = True
@@ -2134,9 +2138,9 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     for i, p in enumerate(file_paths[:10]): # Telegram limit 10
                         ext = os.path.splitext(p)[1].lower()
                         if ext in ('.mp4', '.mkv', '.webm', '.mov'):
-                            media_group.append(InputMediaVideo(media=open(p, 'rb'), caption=f"Item {index}/{len(urls)} ({i+1}/{len(file_paths)}) {qual_tag}"))
+                            media_group.append(InputMediaVideo(media=open(p, 'rb'), caption=f"Item {index}/{len(urls)} ({i+1}/{len(file_paths)}) {qual_tag}") if i == 0 else InputMediaVideo(media=open(p, 'rb')))
                         else:
-                            media_group.append(InputMediaPhoto(media=open(p, 'rb'), caption=f"Item {index}/{len(urls)} ({i+1}/{len(file_paths)}) {qual_tag}"))
+                            media_group.append(InputMediaPhoto(media=open(p, 'rb'), caption=f"Item {index}/{len(urls)} ({i+1}/{len(file_paths)}) {qual_tag}") if i == 0 else InputMediaPhoto(media=open(p, 'rb')))
                     
                     sent_media = await bot.send_media_group(chat_id=target_destination_id, media=media_group)
                     if target_destination_id == chat_id:
@@ -2644,7 +2648,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
     
     if ckey in cache and cache[ckey].get("type") in ("video", "images", "audio"):
         cached_qualities = cache[ckey].get("qualities", {})
-        if dl_type == 'video': qualities_order = ["1080p", "720p", "480p", "360p", "worst"]
+        if dl_type == 'video': qualities_order = ["1080p", "720p", "480p", "360p", "worst", "gallery"]
         elif dl_type == 'audio': qualities_order = ["audio"]
         else: qualities_order = ["original", "gallery"]
             
@@ -2667,7 +2671,6 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
                         # CACHED MULTI-FILE (ALBUM)
                         media_group = []
                         for i, fid in enumerate(file_ids[:10]):
-                            # Try to determine type based on quality tag
                             if best_cached_quality in ("gallery", "video"):
                                 media_group.append(InputMediaVideo(media=fid, caption=f"⚡ Cached Album ({i+1}/{len(file_ids)})") if i == 0 else InputMediaVideo(media=fid))
                             else:
