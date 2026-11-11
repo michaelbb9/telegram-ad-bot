@@ -11,12 +11,11 @@ import shutil
 import hashlib
 import uuid
 import types
-import subprocess
 import imageio_ffmpeg
 import yt_dlp
 from bs4 import BeautifulSoup
 from flask import Flask, request, jsonify
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, InputMediaVideo, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
@@ -64,6 +63,7 @@ FILE_LINKS_FILE = "file_links.json"
 FILE_LINK_STATE_FILE = "file_link_states.json"
 FILE_LINK_STORAGE_ID = -1003906423952
 
+# ADDED arcade_backup.json HERE
 BACKUP_FILES = [
     CHANNELS_FILE, LANG_FILE, CONFIG_FILE, ACTIVITY_FILE, CACHE_FILE, 
     UPLOADS_FILE, UPLOAD_LIMITS_FILE, DRIP_FILE, FLOOD_FILE, BANNED_FILE,
@@ -1491,7 +1491,7 @@ async def backup_to_channel(bot):
         ts = time.strftime("%Y-%m-%d %H:%M")
         free_mb = shutil.disk_usage(".").free // (1024*1024)
         
-        # FETCH THE ARCADE BACKUP FIRST (Before building the file list)
+        # FETCH THE ARCADE BACKUP FROM PYTHONANYWHERE
         try:
             logger.info("Fetching arcade backup from PythonAnywhere...")
             r = requests.get(f"{WEB_BASE_URL}/api/arcade/get-backup", headers=API_HEADERS, timeout=10)
@@ -1506,17 +1506,9 @@ async def backup_to_channel(bot):
         except Exception as e:
             logger.error(f"Error fetching arcade backup: {e}")
 
-        # UPLOAD FILES
         cap = f"📦 AUTO-BACKUP {ts}\nFree: {free_mb}MB | Active: {active_downloads} | Queue: {download_queue.qsize()} | Vault: {VIDEO_VAULT_ID}"
         first = True
-        
-        # Ensure arcade_backup.json is prioritized in the list if it exists
-        files_to_upload = BACKUP_FILES.copy()
-        if "arcade_backup.json" in files_to_upload:
-            files_to_upload.remove("arcade_backup.json")
-            files_to_upload.insert(0, "arcade_backup.json")
-
-        for fname in files_to_upload:
+        for fname in BACKUP_FILES:
             if os.path.exists(fname):
                 try:
                     with open(fname, 'rb') as f:
@@ -1709,29 +1701,21 @@ def get_mtproto_max_mb():
     return config.get("mtproto_max_mb", MTPROTO_MAX_MB)
 
 def download_media_engine(url: str, download_type: str, max_mb=None):
-    # FIX #1: Strip query params to avoid Instagram's ?img_index bug
-    url = url.split('?')[0]
-    
     cap_mb = int(max_mb or get_mtproto_max_mb())
     cap_bytes = cap_mb * 1024 * 1024
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
-    http_headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+    http_headers = {'User-Agent': 'Mozilla/5.0'}
     cookiefile = None
     if "tiktok.com" in url.lower() and os.path.exists("tiktok_cookies.txt"): cookiefile = "tiktok_cookies.txt"
     elif os.path.exists("cookies.txt"): cookiefile = "cookies.txt"
+    ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL}
+    if cookiefile: ydl_opts['cookiefile'] = cookiefile
     
     if download_type == 'audio':
-        ydl_opts = {
-            'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL,
-            'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
-            'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
-            'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'noplaylist': True
-        }
-        if cookiefile: ydl_opts['cookiefile'] = cookiefile
+        ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
-            if 'entries' in info and info['entries']: info = info['entries'][0]
             base = os.path.splitext(ydl.prepare_filename(info))[0]
             path = f"{base}.mp3"
             if os.path.exists(path):
@@ -1740,109 +1724,15 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                     raise ValueError("FILE_TOO_LARGE")
                 return [path], "audio", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("FILE_NOT_FOUND")
-
     elif download_type == 'images':
-        urls_to_download = []
-        
-        # 1. Instagram (Fast Embed Scraper)
-        if "instagram.com" in url:
-            try:
-                embed_url = f"{url.rstrip('/')}/embed/captioned/"
-                r = requests.get(embed_url, headers=http_headers, timeout=10)
-                soup = BeautifulSoup(r.text, 'html.parser')
-                for img in soup.find_all("img", class_="EmbeddedMediaImage"):
-                    src = img.get("src")
-                    if src: urls_to_download.append(src)
-                if not urls_to_download:
-                    og = soup.find('meta', property='og:image')
-                    if og and og.get('content'): urls_to_download.append(og['content'])
-            except Exception as e:
-                logger.error(f"Instagram embed failed: {e}")
-
-        # 2. X / Twitter
-        elif "twitter.com" in url or "x.com" in url:
-            try:
-                clean_url = url.replace("twitter.com", "fxtwitter.com").replace("x.com", "fxtwitter.com")
-                r = requests.get(f"https://api.fxtwitter.com/{clean_url.split('://')[1]}", headers=http_headers, timeout=10)
-                data = r.json()
-                if "tweet" in data and "media" in data["tweet"] and "all" in data["tweet"]["media"]:
-                    for media in data["tweet"]["media"]["all"]:
-                        if media.get("type") == "photo":
-                            urls_to_download.append(media["url"])
-            except Exception as e:
-                logger.error(f"fxtwitter failed: {e}")
-
-        # 3. Reddit
-        elif "reddit.com" in url:
-            try:
-                r = requests.get(url + ".json" if not url.endswith(".json") else url, headers=http_headers, timeout=10)
-                data = r.json()
-                if isinstance(data, list) and len(data) > 0:
-                    post = data[0]["data"]["children"][0]["data"]
-                    if "media_metadata" in post:
-                        for img_id, img_data in post["media_metadata"].items():
-                            if "s" in img_data and "u" in img_data["s"]:
-                                urls_to_download.append(img_data["s"]["u"])
-                    elif "url" in post and post["url"].endswith((".jpg", ".png", ".jpeg", ".webp")):
-                        urls_to_download.append(post["url"])
-            except Exception as e:
-                logger.error(f"Reddit json failed: {e}")
-
-        # 4. Generic Fallback (yt-dlp with noplaylist)
-        if not urls_to_download:
-            try:
-                ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True, 'http_headers': http_headers, 'proxy': PROXY_URL}
-                if cookiefile: ydl_opts['cookiefile'] = cookiefile
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=False)
-                    if info:
-                        if 'entries' in info:
-                            for entry in info['entries']:
-                                thumb = entry.get('thumbnail') or entry.get('url')
-                                if thumb: urls_to_download.append(thumb)
-                        else:
-                            thumb = info.get('thumbnail')
-                            if thumb: urls_to_download.append(thumb)
-            except Exception as e:
-                logger.error(f"yt-dlp image extraction failed: {e}")
-
-        # 5. HTML Scrape Fallback
-        if not urls_to_download:
-            try:
-                res = requests.get(url, headers=http_headers, timeout=10)
-                soup = BeautifulSoup(res.text, 'html.parser')
-                og = soup.find('meta', property='og:image')
-                if og and og.get('content'): 
-                    urls_to_download.append(og['content'])
-            except: pass
-
-        if not urls_to_download:
-            raise ValueError("NO_IMAGES")
-
-        # Download images
-        paths = []
-        for i, img_url in enumerate(urls_to_download):
-            try:
-                data = requests.get(img_url, headers=http_headers, timeout=10).content
-                if len(data) > 5000: # Must be larger than 5KB (ignore tracking pixels)
-                    path = os.path.join(output_dir, f"img_{int(time.time())}_{i}.jpg")
-                    with open(path, 'wb') as f: f.write(data)
-                    paths.append(path)
-            except: pass
-            
-        if paths:
-            total_size = sum(os.path.getsize(p) for p in paths)
-            return paths, "gallery", f"{total_size/(1024*1024):.1f}MB"
+        img_url = scrape_html_images(url, cookiefile)
+        if img_url:
+            data = requests.get(img_url, headers=http_headers, timeout=15).content
+            path = os.path.join(output_dir, f"img_{int(time.time())}.jpg")
+            with open(path, 'wb') as f: f.write(data)
+            if os.path.getsize(path) > 1000: return [path], "original", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("NO_IMAGES")
-
     else:
-        # Video mode
-        ydl_opts = {
-            'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL,
-            'noplaylist': False
-        }
-        if cookiefile: ydl_opts['cookiefile'] = cookiefile
-
         tiers = [
             ("1080p", "bv*[height<=1080]+ba/b[height<=1080]"),
             ("720p", "bv*[height<=720]+ba/b[height<=720]"),
@@ -1857,37 +1747,23 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
         for qual_name, fmt in tiers:
             try:
                 opts = dict(ydl_opts)
-                opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, f'%(id)s_{qual_name}_%(autonumber)s.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
+                opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, f'%(id)s_{qual_name}.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=True)
-                    
-                    valid_paths = []
-                    if 'entries' in info:
-                        for e in info['entries']:
-                            p = ydl.prepare_filename(e)
-                            if not os.path.exists(p) and os.path.exists(os.path.splitext(p)[0]+".mp4"): p = os.path.splitext(p)[0]+".mp4"
-                            if os.path.exists(p): valid_paths.append(p)
-                    else:
-                        p = ydl.prepare_filename(info)
-                        if not os.path.exists(p) and os.path.exists(os.path.splitext(p)[0]+".mp4"): p = os.path.splitext(p)[0]+".mp4"
-                        if os.path.exists(p): valid_paths.append(p)
-                    
-                    if valid_paths:
-                        total_size = sum(os.path.getsize(p) for p in valid_paths)
-                        if total_size > cap_bytes:
-                            for p in valid_paths: os.remove(p)
+                    path = ydl.prepare_filename(info)
+                    if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0]+".mp4"): path = os.path.splitext(path)[0]+".mp4"
+                    if os.path.exists(path):
+                        if os.path.getsize(path) > cap_bytes:
+                            os.remove(path)
                             too_big = True
                             continue
-                            
-                        actual_height = info.get('height', 0) if 'entries' not in info else (info['entries'][0].get('height', 0) if info['entries'] else 0)
+                        actual_height = info.get('height', 0)
                         if actual_height >= 1080: best_quality = "1080p"
                         elif actual_height >= 720: best_quality = "720p"
                         elif actual_height >= 480: best_quality = "480p"
                         elif actual_height >= 360: best_quality = "360p"
                         else: best_quality = "worst"
-                        
-                        res_type = "gallery" if len(valid_paths) > 1 else best_quality
-                        return valid_paths, res_type, f"{total_size/(1024*1024):.1f}MB"
+                        return [path], best_quality, f"{os.path.getsize(path)/(1024*1024):.1f}MB"
                     too_big = True
             except Exception as e:
                 if "Unsupported URL" in str(e) or "403" in str(e): raise e
@@ -2189,32 +2065,18 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             file_paths, res, size = await asyncio.to_thread(download_media_engine, url, download_type, effective_max_mb)
             if file_paths and os.path.exists(file_paths[0]):
                 qual_tag = f"[{res}]"
-                
-                if len(file_paths) > 1:
-                    # BATCH GALLERY SEND
-                    media_group = []
-                    for i, p in enumerate(file_paths[:10]): # Telegram limit 10
-                        ext = os.path.splitext(p)[1].lower()
-                        if ext in ('.mp4', '.mkv', '.webm', '.mov'):
-                            media_group.append(InputMediaVideo(media=open(p, 'rb'), caption=f"Item {index}/{len(urls)} ({i+1}/{len(file_paths)}) {qual_tag}") if i == 0 else InputMediaVideo(media=open(p, 'rb')))
-                        else:
-                            media_group.append(InputMediaPhoto(media=open(p, 'rb'), caption=f"Item {index}/{len(urls)} ({i+1}/{len(file_paths)}) {qual_tag}") if i == 0 else InputMediaPhoto(media=open(p, 'rb')))
-                    
-                    sent_media = await bot.send_media_group(chat_id=target_destination_id, media=media_group)
-                    if target_destination_id == chat_id:
-                        warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
-                        msg_ids = [m.message_id for m in sent_media] + [warn.message_id]
-                        asyncio.create_task(schedule_deletion(bot, target_destination_id, msg_ids, 540))
-                else:
-                    # BATCH SINGLE SEND
-                    sent = await send_video_file(bot, chat_id, target_destination_id, file_paths[0], f"Item {index}/{len(urls)} {qual_tag} Size {size}", None, status_msg)
-                    if target_destination_id == chat_id:
-                        warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
-                        asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
-                
-                for p in file_paths: 
-                    if os.path.exists(p): os.remove(p)
-                    
+                sent = await send_video_file(bot, chat_id, target_destination_id, file_paths[0], f"Item {index}/{len(urls)} {qual_tag} Size {size}", None, status_msg)
+                if target_destination_id == chat_id:
+                    warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
+                    asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
+                try:
+                    vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent.video.file_id, caption=f"{ckey} [{res}]")
+                    cache = load_json_file(CACHE_FILE)
+                    if ckey not in cache: cache[ckey] = {"type": "video", "timestamp": time.time(), "qualities": {}, "hits": 0}
+                    cache[ckey]["qualities"][res] = {"file_id": sent.video.file_id, "vault_msg_id": vmsg.message_id, "size": size}
+                    save_json_file(CACHE_FILE, cache)
+                except Exception as e: logger.error(f"Vault save: {e}")
+                os.remove(file_paths[0])
                 await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
                 success_count += 1
             else:
@@ -2706,9 +2568,9 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
     
     if ckey in cache and cache[ckey].get("type") in ("video", "images", "audio"):
         cached_qualities = cache[ckey].get("qualities", {})
-        if dl_type == 'video': qualities_order = ["1080p", "720p", "480p", "360p", "worst", "gallery"]
+        if dl_type == 'video': qualities_order = ["1080p", "720p", "480p", "360p", "worst"]
         elif dl_type == 'audio': qualities_order = ["audio"]
-        else: qualities_order = ["original", "gallery"]
+        else: qualities_order = ["original"]
             
         best_cached_quality = None
         for q in qualities_order:
@@ -2719,35 +2581,20 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
         if best_cached_quality:
             try:
                 cached = cached_qualities[best_cached_quality]
-                file_ids = cached.get("file_ids") or [cached.get("file_id")]
-                if file_ids and file_ids[0]:
+                file_id = cached.get("file_id")
+                if file_id:
                     sz = cached.get("size", "")
                     qual_tag = f"[{best_cached_quality}]"
                     kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
+                    if dl_type == 'video': 
+                        sent = await bot.send_video(chat_id=chat_id, video=file_id, caption=t["cached_instant_video"].format(qual_tag, sz, ckey), reply_markup=kb)
+                    elif dl_type == 'audio': 
+                        sent = await bot.send_audio(chat_id=chat_id, audio=file_id, caption=t["cached_instant_audio"].format(ckey), reply_markup=kb)
+                    else: 
+                        sent = await bot.send_photo(chat_id=chat_id, photo=file_id, caption=t["cached_instant_image"].format(ckey), reply_markup=kb)
                     
-                    if len(file_ids) > 1:
-                        # CACHED MULTI-FILE (ALBUM)
-                        media_group = []
-                        for i, fid in enumerate(file_ids[:10]):
-                            if best_cached_quality in ("gallery", "video"):
-                                media_group.append(InputMediaVideo(media=fid, caption=f"⚡ Cached Album ({i+1}/{len(file_ids)})") if i == 0 else InputMediaVideo(media=fid))
-                            else:
-                                media_group.append(InputMediaPhoto(media=fid, caption=f"⚡ Cached Album ({i+1}/{len(file_ids)})") if i == 0 else InputMediaPhoto(media=fid))
-                        sent = await bot.send_media_group(chat_id=chat_id, media=media_group)
-                        warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
-                        asyncio.create_task(schedule_deletion(bot, chat_id, [m.message_id for m in sent] + [warn.message_id], 540))
-                    else:
-                        # CACHED SINGLE FILE
-                        file_id = file_ids[0]
-                        if dl_type == 'video': 
-                            sent = await bot.send_video(chat_id=chat_id, video=file_id, caption=t["cached_instant_video"].format(qual_tag, sz, ckey), reply_markup=kb)
-                        elif dl_type == 'audio': 
-                            sent = await bot.send_audio(chat_id=chat_id, audio=file_id, caption=t["cached_instant_audio"].format(ckey), reply_markup=kb)
-                        else: 
-                            sent = await bot.send_photo(chat_id=chat_id, photo=file_id, caption=t["cached_instant_image"].format(ckey), reply_markup=kb)
-                        warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
-                        asyncio.create_task(schedule_deletion(bot, chat_id, [sent.message_id, warn.message_id], 540))
-                        
+                    warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
+                    asyncio.create_task(schedule_deletion(bot, chat_id, [sent.message_id, warn.message_id], 540))
                     cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
                     save_json_file(CACHE_FILE, cache)
                     deduct_download_counter(user_id, is_batch=False)
@@ -2786,71 +2633,36 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
             
         qual_tag = f"[{res}]"
         kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
-        
-        if len(file_paths) > 1:
-            # MULTI-FILE (ALBUM) DOWNLOAD SUCCESS
-            media_group = []
-            sent_media = []
-            
-            # Send in chunks of 10 (Telegram limit)
-            for i in range(0, len(file_paths), 10):
-                chunk = file_paths[i:i+10]
-                media_group = []
-                for j, p in enumerate(chunk):
-                    ext = os.path.splitext(p)[1].lower()
-                    cap_text = f"✨ {qual_tag} Size {size}" if (i == 0 and j == 0) else None
-                    if ext in ('.mp4', '.mkv', '.webm', '.mov'):
-                        media_group.append(InputMediaVideo(media=open(p, 'rb'), caption=cap_text))
-                    else:
-                        media_group.append(InputMediaPhoto(media=open(p, 'rb'), caption=cap_text))
-                
-                chunk_sent = await bot.send_media_group(chat_id=chat_id, media=media_group)
-                sent_media.extend(chunk_sent)
-            
-            warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
+        if dl_type == 'images':
+            media_group = [InputMediaPhoto(media=open(p, 'rb')) for p in file_paths]
+            sent_media = await bot.send_media_group(chat_id=chat_id, media=media_group)
+            warn = await bot.send_message(chat_id=chat_id, text=t["images_received"].format(len(file_paths)), reply_markup=kb)
             asyncio.create_task(schedule_deletion(bot, chat_id, [m.message_id for m in sent_media] + [warn.message_id], 540))
-            
             try:
-                # Save just the first file ID for the album preview in cache
-                first_fid = sent_media[0].video.file_id if sent_media[0].video else sent_media[0].photo[-1].file_id
-                cache[ckey]["qualities"][res] = {"file_ids": [m.video.file_id if m.video else m.photo[-1].file_id for m in sent_media], "size": size}
-            except Exception as e:
-                logger.error(f"Vault save fail (album): {e}")
-            
+                vmsg = await bot.send_photo(chat_id=VIDEO_VAULT_ID, photo=sent_media[0].photo[-1].file_id, caption=ckey)
+                cache[ckey]["qualities"]["original"] = {"file_id": sent_media[0].photo[-1].file_id, "vault_msg_id": vmsg.message_id, "size": size}
+            except: cache[ckey]["qualities"]["original"] = {"file_id": sent_media[0].photo[-1].file_id, "size": size}
             for p in file_paths: os.remove(p)
-            
+        elif dl_type == 'audio':
+            sent_media = await send_audio_file(bot, chat_id, file_paths[0], f"🎵 Size {size} `{ckey}`", "Markdown", status_msg)
+            warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
+            asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
+            try:
+                vmsg = await bot.send_audio(chat_id=VIDEO_VAULT_ID, audio=sent_media.audio.file_id, caption=ckey)
+                cache[ckey]["qualities"]["audio"] = {"file_id": sent_media.audio.file_id, "vault_msg_id": vmsg.message_id, "size": size}
+            except: cache[ckey]["qualities"]["audio"] = {"file_id": sent_media.audio.file_id, "size": size}
+            os.remove(file_paths[0])
         else:
-            # SINGLE FILE DOWNLOAD SUCCESS
-            if dl_type == 'images':
-                media_group = [InputMediaPhoto(media=open(file_paths[0], 'rb'))]
-                sent_media = await bot.send_media_group(chat_id=chat_id, media=media_group)
-                warn = await bot.send_message(chat_id=chat_id, text=t["images_received"].format(len(file_paths)), reply_markup=kb)
-                asyncio.create_task(schedule_deletion(bot, chat_id, [m.message_id for m in sent_media] + [warn.message_id], 540))
-                try:
-                    vmsg = await bot.send_photo(chat_id=VIDEO_VAULT_ID, photo=sent_media[0].photo[-1].file_id, caption=ckey)
-                    cache[ckey]["qualities"]["original"] = {"file_id": sent_media[0].photo[-1].file_id, "vault_msg_id": vmsg.message_id, "size": size}
-                except: cache[ckey]["qualities"]["original"] = {"file_id": sent_media[0].photo[-1].file_id, "size": size}
-                os.remove(file_paths[0])
-            elif dl_type == 'audio':
-                sent_media = await send_audio_file(bot, chat_id, file_paths[0], f"🎵 Size {size} `{ckey}`", "Markdown", status_msg)
-                warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
-                asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
-                try:
-                    vmsg = await bot.send_audio(chat_id=VIDEO_VAULT_ID, audio=sent_media.audio.file_id, caption=ckey)
-                    cache[ckey]["qualities"]["audio"] = {"file_id": sent_media.audio.file_id, "vault_msg_id": vmsg.message_id, "size": size}
-                except: cache[ckey]["qualities"]["audio"] = {"file_id": sent_media.audio.file_id, "size": size}
-                os.remove(file_paths[0])
-            else:
-                sent_media = await send_video_file(bot, chat_id, chat_id, file_paths[0], f"✨ {qual_tag} Size {size} `{ckey}`", "Markdown", status_msg)
-                warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
-                asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
-                try:
-                    vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent_media.video.file_id, caption=f"{ckey} [{res}]")
-                    cache[ckey]["qualities"][res] = {"file_id": sent_media.video.file_id, "vault_msg_id": vmsg.message_id, "size": size}
-                except Exception as e: 
-                    logger.error(f"Vault save fail: {e}")
-                    cache[ckey]["qualities"][res] = {"file_id": sent_media.video.file_id, "size": size}
-                os.remove(file_paths[0])
+            sent_media = await send_video_file(bot, chat_id, chat_id, file_paths[0], f"✨ {qual_tag} Size {size} `{ckey}`", "Markdown", status_msg)
+            warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
+            asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
+            try:
+                vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent_media.video.file_id, caption=f"{ckey} [{res}]")
+                cache[ckey]["qualities"][res] = {"file_id": sent_media.video.file_id, "vault_msg_id": vmsg.message_id, "size": size}
+            except Exception as e: 
+                logger.error(f"Vault save fail: {e}")
+                cache[ckey]["qualities"][res] = {"file_id": sent_media.video.file_id, "size": size}
+            os.remove(file_paths[0])
             
         cache[ckey]["hits"] = cache[ckey].get("hits", 0) + 1
         save_json_file(CACHE_FILE, cache)
