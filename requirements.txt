@@ -7,3 +7,4 @@ beautifulsoup4
 ytmusicapi
 pyrogram
 tgcrypto
+gallery-dl
