@@ -11,12 +11,20 @@ import shutil
 import hashlib
 import uuid
 import types
+import subprocess
 import imageio_ffmpeg
 import yt_dlp
 from bs4 import BeautifulSoup
 from flask import Flask, request, jsonify
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, InputMediaVideo, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
+
+# Auto-install gallery-dl if missing
+try:
+    import gallery_dl
+except ImportError:
+    os.system("pip install gallery-dl")
+    import gallery_dl
 
 ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 try:
@@ -1708,31 +1716,26 @@ def get_mtproto_max_mb():
     return config.get("mtproto_max_mb", MTPROTO_MAX_MB)
 
 def download_media_engine(url: str, download_type: str, max_mb=None):
-    # FIX #1: URL SANITIZATION - Strip ALL query params to avoid Instagram's ?img_index bug
+    # FIX #1: Strip query params (fixes Instagram ?img_index bug)
     url = url.split('?')[0]
     
     cap_mb = int(max_mb or get_mtproto_max_mb())
     cap_bytes = cap_mb * 1024 * 1024
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
-    http_headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15'}
+    http_headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
     cookiefile = None
     if "tiktok.com" in url.lower() and os.path.exists("tiktok_cookies.txt"): cookiefile = "tiktok_cookies.txt"
     elif os.path.exists("cookies.txt"): cookiefile = "cookies.txt"
     
-    is_gallery = any(domain in url.lower() for domain in ["instagram.com", "twitter.com", "x.com", "tiktok.com", "facebook.com"])
-    
-    ydl_opts = {
-        'quiet': True, 
-        'no_warnings': True, 
-        'http_headers': http_headers, 
-        'proxy': PROXY_URL,
-        'noplaylist': not is_gallery
-    }
-    if cookiefile: ydl_opts['cookiefile'] = cookiefile
-    
     if download_type == 'audio':
-        ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
+        ydl_opts = {
+            'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL,
+            'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
+            'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
+            'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'noplaylist': True
+        }
+        if cookiefile: ydl_opts['cookiefile'] = cookiefile
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             if 'entries' in info and info['entries']: info = info['entries'][0]
@@ -1744,87 +1747,85 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                     raise ValueError("FILE_TOO_LARGE")
                 return [path], "audio", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("FILE_NOT_FOUND")
-        
+
     elif download_type == 'images':
-        # FIX #2: NATIVE GALLERY EXTRACTION (Only use yt-dlp for Tiktok/Twitter galleries, NOT Instagram)
-        if is_gallery and "instagram.com" not in url:
-            try:
-                opts = dict(ydl_opts)
-                opts.update({'format': 'best', 'outtmpl': os.path.join(output_dir, f'img_%(id)s_%(autonumber)s.%(ext)s')})
-                with yt_dlp.YoutubeDL(opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    paths = []
-                    if 'entries' in info:
-                        for e in info['entries']:
-                            p = ydl.prepare_filename(e)
-                            if os.path.exists(p): paths.append(p)
-                            elif os.path.exists(os.path.splitext(p)[0]+".mp4"): paths.append(os.path.splitext(p)[0]+".mp4")
-                    else:
-                        p = ydl.prepare_filename(info)
-                        if os.path.exists(p): paths.append(p)
-                        elif os.path.exists(os.path.splitext(p)[0]+".mp4"): paths.append(os.path.splitext(p)[0]+".mp4")
-                    valid_paths = [p for p in paths if os.path.getsize(p) > 1000]
-                    if valid_paths:
-                        total_size = sum(os.path.getsize(p) for p in valid_paths)
-                        return valid_paths, "gallery", f"{total_size/(1024*1024):.1f}MB"
-            except Exception as e:
-                logger.error(f"Gallery image extraction failed: {e}")
-                
-        # FIX #3: THE MASTER HTML FALLBACK (Instagram Embed + Deep JSON Scrape)
+        # Your suggested tools: gallery-dl, fxtwitter, reddit.json
+        urls_to_download = []
+        
+        # 1. Try gallery-dl (Instagram, Facebook, X, etc.)
         try:
-            img_urls = []
-            
-            # Instagram Embed Endpoint (Much more reliable for carousels)
-            if "instagram.com" in url:
-                embed_url = f"{url.rstrip('/')}/embed/captioned/"
-                res = requests.get(embed_url, headers=http_headers, timeout=15)
-                soup = BeautifulSoup(res.text, 'html.parser')
-                
-                # Instagram embeds store images inside <img class="EmbeddedMediaImage">
-                for img in soup.find_all("img", class_="EmbeddedMediaImage"):
-                    src = img.get("src")
-                    if src: img_urls.append(src)
-                    
-            else:
-                # Twitter, Facebook, Reddit Standard Scraper
+            logger.info(f"Trying gallery-dl for {url}")
+            res = subprocess.run(["gallery-dl", "--get-urls", url], capture_output=True, text=True, timeout=60)
+            if res.returncode == 0 and res.stdout.strip():
+                urls_to_download = [u for u in res.stdout.splitlines() if u.startswith('http')]
+        except Exception as e:
+            logger.error(f"gallery-dl failed: {e}")
+
+        # 2. Reddit .json fallback
+        if not urls_to_download and "reddit.com" in url:
+            try:
+                logger.info("Trying Reddit .json for gallery")
+                r = requests.get(url + ".json" if not url.endswith(".json") else url, headers=http_headers, timeout=15)
+                data = r.json()
+                if isinstance(data, list) and len(data) > 0:
+                    post = data[0]["data"]["children"][0]["data"]
+                    if "media_metadata" in post:
+                        for img_id, img_data in post["media_metadata"].items():
+                            if "s" in img_data and "u" in img_data["s"]:
+                                urls_to_download.append(img_data["s"]["u"])
+                    elif "url" in post and post["url"].endswith((".jpg", ".png", ".jpeg")):
+                        urls_to_download.append(post["url"])
+            except Exception as e:
+                logger.error(f"Reddit json failed: {e}")
+
+        # 3. X/Twitter fxtwitter fallback
+        if not urls_to_download and ("twitter.com" in url or "x.com" in url):
+            try:
+                logger.info("Trying fxtwitter API")
+                clean_url = url.replace("twitter.com", "fxtwitter.com").replace("x.com", "fxtwitter.com")
+                r = requests.get(f"https://api.fxtwitter.com/{clean_url.split('://')[1]}", headers=http_headers, timeout=15)
+                data = r.json()
+                if "tweet" in data and "media" in data["tweet"] and "all" in data["tweet"]["media"]:
+                    for media in data["tweet"]["media"]["all"]:
+                        if media.get("type") == "photo":
+                            urls_to_download.append(media["url"])
+            except Exception as e:
+                logger.error(f"fxtwitter failed: {e}")
+
+        # 4. Generic fallback (scrape HTML)
+        if not urls_to_download:
+            try:
                 res = requests.get(url, headers=http_headers, timeout=15)
                 soup = BeautifulSoup(res.text, 'html.parser')
-                
-                # Deep JSON hunt for modern platforms
-                scripts = soup.find_all("script")
-                for script in scripts:
-                    if script.string and ("window.__INITIAL_STATE__" in script.string or "__NEXT_DATA__" in script.string or "application/ld+json" in str(script)):
-                        # Broad regex to find any high-res jpg/webp URL in the JSON
-                        found = re.findall(r'https://[^"\s]+\.(?:jpg|jpeg|png|webp)', script.string)
-                        img_urls.extend(found)
+                og = soup.find('meta', property='og:image')
+                if og and og.get('content'): urls_to_download.append(og['content'])
+            except: pass
 
-                # Standard OG scrape fallback
-                if not img_urls:
-                    og = soup.find('meta', property='og:image')
-                    if og and og.get('content'): img_urls.append(og['content'])
+        if not urls_to_download:
+            raise ValueError("NO_IMAGES")
+
+        paths = []
+        for i, img_url in enumerate(urls_to_download):
+            try:
+                data = requests.get(img_url, headers=http_headers, timeout=15).content
+                path = os.path.join(output_dir, f"img_{int(time.time())}_{i}.jpg")
+                with open(path, 'wb') as f: f.write(data)
+                if os.path.getsize(path) > 1000: paths.append(path)
+            except: pass
             
-            # Clean up URLs and deduplicate
-            img_urls = list(dict.fromkeys([u for u in img_urls if u and u.startswith('http')]))
-            
-            paths = []
-            for i, img_url in enumerate(img_urls):
-                try:
-                    data = requests.get(img_url, headers=http_headers, timeout=15).content
-                    path = os.path.join(output_dir, f"img_{int(time.time())}_{i}.jpg")
-                    with open(path, 'wb') as f: f.write(data)
-                    if os.path.getsize(path) > 1000: paths.append(path)
-                except: pass
-                
-            if paths:
-                total_size = sum(os.path.getsize(p) for p in paths)
-                return paths, "gallery", f"{total_size/(1024*1024):.1f}MB"
-        except Exception as e:
-            logger.error(f"Master HTML scrape failed: {e}")
-            
+        if paths:
+            total_size = sum(os.path.getsize(p) for p in paths)
+            return paths, "gallery", f"{total_size/(1024*1024):.1f}MB"
         raise ValueError("NO_IMAGES")
         
     else:
-        # VIDEO OR GALLERY DOWNLOAD
+        # Video mode (With gallery-dl fallback for carousels)
+        ydl_opts = {
+            'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL,
+            'noplaylist': False  # Enable playlists for carousels
+        }
+        if cookiefile: ydl_opts['cookiefile'] = cookiefile
+
         tiers = [
             ("1080p", "bv*[height<=1080]+ba/b[height<=1080]"),
             ("720p", "bv*[height<=720]+ba/b[height<=720]"),
