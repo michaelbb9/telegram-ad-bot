@@ -1490,6 +1490,22 @@ async def backup_to_channel(bot):
     try:
         ts = time.strftime("%Y-%m-%d %H:%M")
         free_mb = shutil.disk_usage(".").free // (1024*1024)
+        
+        # FETCH THE ARCADE BACKUP FROM PYTHONANYWHERE
+        try:
+            logger.info("Fetching arcade backup from PythonAnywhere...")
+            r = requests.get(f"{WEB_BASE_URL}/api/arcade/get-backup", headers=API_HEADERS, timeout=10)
+            if r.status_code == 200:
+                data = r.json()
+                if data.get("ok"):
+                    with open("arcade_backup.json", "w") as f:
+                        json.dump(data["progress"], f)
+                    logger.info("Successfully fetched arcade_backup.json from PythonAnywhere")
+            else:
+                logger.error(f"Failed to fetch arcade backup: HTTP {r.status_code}")
+        except Exception as e:
+            logger.error(f"Error fetching arcade backup: {e}")
+
         cap = f"📦 AUTO-BACKUP {ts}\nFree: {free_mb}MB | Active: {active_downloads} | Queue: {download_queue.qsize()} | Vault: {VIDEO_VAULT_ID}"
         first = True
         for fname in BACKUP_FILES:
