@@ -1,3263 +1,2646 @@
+# -*- coding: utf-8 -*-
 import time
+import random
 import json
 import os
-import asyncio
-import threading
-import requests
-import logging
-import re
-import shutil
+import hmac
 import hashlib
-import uuid
-import types
-import imageio_ffmpeg
-import yt_dlp
-from bs4 import BeautifulSoup
-from flask import Flask, jsonify, request
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
+import secrets
+import sqlite3
+import threading
+import re as _re
+import requests
+from urllib.parse import parse_qsl, urlparse, parse_qs, quote
+from urllib.request import Request, urlopen
+import feedparser
+from flask import Flask, render_template_string, request, jsonify, redirect, url_for
 
-ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
-try:
-    os.chmod(ffmpeg_path, 0o755)
-except:
-    pass
-
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("httpcore").setLevel(logging.WARNING)
-logger = logging.getLogger(__name__)
-
-BOT_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
+app = Flask(__name__)
+TOKEN_FILE = "/home/Michaelbbc/mysite/tokens.json"
+REWARD_FILE = "/home/Michaelbbc/mysite/reward_config.json"
+CATEGORIES_FILE = "/home/Michaelbbc/mysite/app_categories.json"
+ITEMS_FILE = "/home/Michaelbbc/mysite/app_items.json"
+POSTS_FILE = "/home/Michaelbbc/mysite/posts.json"
 ADMIN_ID = 6248570946
-DETECTED_CHANNEL_ID = -1004347828512
-PRIVATE_CHANNEL_ID = -1004347828512
-VIDEO_VAULT_ID = -1004324594855
-TUTORIAL_MESSAGE_ID = 108
-WEB_BASE_URL = "https://michaelbbc.pythonanywhere.com"
-BRIDGE_URL = f"{WEB_BASE_URL}/bridge"
-PUBLIC_CHANNEL_URL = "https://t.me/booksaufio"
-PUBLIC_CHANNEL_USERNAME = "@booksaufio"
-HELP_CHANNEL_URL = "https://t.me/faqandaupport"
 
+# ===== ARCADE BACKUP CONFIG =====
+ARCADE_BACKUP_FILE = "/home/Michaelbbc/mysite/arcade_backup.json"
+BOT_CHANNEL_ID = "-1004347828512"
+
+# ===== CONFIG =====
+BOT_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
 API_SECRET = os.getenv("API_SECRET", "change-me")
-API_HEADERS = {"X-Api-Secret": API_SECRET}
-PROXY_URL = None 
 
-CHANNELS_FILE = "user_channels.json"
-LINKING_STATE_FILE = "linking_states.json"
-LANG_FILE = "user_languages.json"
-UPLOADS_FILE = "fan_uploads.json" 
-UPLOAD_LIMITS_FILE = "upload_limits.json"
-DRIP_FILE = "active_drip.json"
-DRIP_STATE_FILE = "drip_states.json"
-SUPPORT_STATES_FILE = "support_states.json"
-CONFIG_FILE = "bot_config.json"
-ACTIVITY_FILE = "user_activity.json"
-CACHE_FILE = "download_cache.json"
-FLOOD_FILE = "flood_control.json"
-BANNED_FILE = "banned_users.json"
-REWARD_FILE = "reward_config.json"
-FILE_LINKS_FILE = "file_links.json"
-FILE_LINK_STATE_FILE = "file_link_states.json"
-FILE_LINK_STORAGE_ID = -1003906423952
-
-# --- UPDATED: Added "arcade_backup.json" to the backup list ---
-BACKUP_FILES = [
-    CHANNELS_FILE, LANG_FILE, CONFIG_FILE, ACTIVITY_FILE, CACHE_FILE, 
-    UPLOADS_FILE, UPLOAD_LIMITS_FILE, DRIP_FILE, FLOOD_FILE, BANNED_FILE,
-    FILE_LINKS_FILE, FILE_LINK_STATE_FILE, "arcade_backup.json"
-]
-
-active_batch_sessions = {}
-pending_batch_payloads = {}
-paused_batches = {}
-pending_single_links = {}
-
-MAX_CONCURRENT_SHORT = 3
-MIN_FREE_DISK_MB = 150
-MTPROTO_MAX_MB = 300
-active_downloads = 0
-download_lock = asyncio.Lock()
-download_queue = asyncio.Queue()
-
-FLOOD_LIMIT = 3
-FLOOD_WINDOW = 60
-FLOOD_COOLDOWN = 30
-
-# --- 100% COMPLETE 10-LANGUAGE DICTIONARY ---
-LANGUAGES = {
-"en": {
-"welcome": "🚀 **WELCOME TO MICHAELBBC VAULT - ALL MEDIA DOWNLOADER!**\n🔥 WHAT I CAN DO:\n🎬 VIDEOS HD No Watermark!\n🎵 AUDIO MP3 192kbps!\n🖼️ IMAGES Scrape ALL!\n📝 SUBTITLES Auto!\n📦 BATCH 100+ Links!\n⚡ CACHE 1 Sec!\n💎 VAULT Forever!\n📤 UPLOAD FILES!\n🔗 FILE-TO-LINK: Create shareable links!\n👉 PASTE LINK TO START! 👇",
-"btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Images", "btn_sub": "📝 Subtitles (SRT)",
-"ask_format": "👇 **AWESOME! What format you want? Pick below!**",
-"fetching": "📥 **Fetching your {}... Hang tight! ⏳✨**",
-"error_generic": "❌ Oops! Failed! 😢 Link private/blocked. Try public link!",
-"error_50mb": "❌ Too Big! 😅 This video is over 300MB. Try a shorter one!",
-"error_no_img": "❌ No images found! 😢 Try another link!",
-"images_received": "⏳ **{} Images received.**",
-"select_lang": "🌍 Select your language! Choose below! 👇",
-"lang_set": "✅ Language set! Enjoy! 🎉✨",
-"batch_detected": "📦 **Batch Detected ({} links)**\nWhat format?",
-"batch_dest": "📦 **Where to send?**",
-"btn_chat": "📥 In Chat", "btn_chan": "📢 To Channel",
-"limit_reached": "⚠️ **Limit Reached!** You used 4 FREE! Watch 20s ad → Get +1 download!",
-"refill_btn": "🔓 Open Link & Refill +1",
-"join_btn": "📢 Join Channel", "check_btn": "💜 Check Balance",
-"limit_batch": "⚠️ **Batch Limit Reached at {} of {}**\nWatch 20s ad → +1 download to continue.",
-"batch_start": "📦 **Batch Started:** {} **{} files**\n⏳ Processing...",
-"batch_done": "🏁 **Done!** ✅ {} ❌ {}\n📥 {} files here.",
-"batch_done_chan": "🏁 **Done!** ✅ {} ❌ {}\n📢 {} files forwarded!",
-"dl_video": "📥 Downloading video...", "dl_audio": "📥 Extracting audio...", "dl_image": "📥 Scraping images...", "dl_sub": "📥 Fetching subtitles...",
-"failed_50": "❌ >300MB", "failed_blocked": "❌ Blocked/private", "failed_generic": "❌ Failed",
-"menu_lang": "🌍 Language", "menu_stats": "📊 My Stats", "menu_help": "💬 Support / FAQ", "menu_join": "📢 Join Channel",
-"menu_uploads": "🍿 Fan Uploads", "menu_upload": "📤 Upload File",
-"admin_upload_prompt": "📂 **Fan Uploads Inbox**",
-"user_upload_prompt": "📤 **Upload File**\nSend video/image/file to Admin. Limit 5/24h.",
-"upload_success_user": "✅ Sent to Admin!",
-"upload_limit_reached": "⚠️ Upload limit 5/24h reached.",
-"no_uploads": "📭 No uploads yet.",
-"stats_msg": "📊 **Your Stats:**\n• Downloads Left: {}\n• Batch Left: {}",
-"change_channel_prompt": "🔄 **Change Batch Channel**\n1. Make sure I am an admin in the new channel.\n2. Forward any message from that channel here.",
-"disk_config_prompt": "💾 **Disk Config**\nCurrent min free disk: **{}MB**\nTo change: `/setdisk <value>`",
-"mtproto_config_prompt": "⚡ **MTProto Config**\nCurrent max upload: **{}MB**\nTo change: `/setmtproto <value>`",
-"free_panel_prompt": "📦 FREE DOWNLOADS\nCurrent free per day: {}",
-"reward_panel_prompt": "🎁 REWARD PANEL\nCurrent: +{} download per 20s ad",
-"ad_panel_prompt": "⚙️ Ad Panel\nCurrent: {}",
-"password_saved": "🔐 Password saved.",
-"password_too_long": "Password must be 64 chars or fewer.",
-"file_to_link_prompt": "🔗 **File-to-Link**\nSend the file(s) you want to share.",
-"link_invalid_expired": "❌ This link is invalid or expired.",
-"link_limit_reached": "⛔ This link reached its usage limit.",
-"link_password_protected": "🔐 This link is password protected. Send the password.",
-"files_sent": "✅ Your files have been sent.",
-"file_added": "📥 Added file #{}. Send more, or tap Create Link.",
-"fl_cancelled": "File-to-Link cancelled",
-"fl_start_again": "Start File-to-Link again with /filetolink",
-"fl_choose_expiry": "Choose link expiry:",
-"fl_expiry_updated": "Expiry updated",
-"fl_choose_max_uses": "Choose max successful deliveries:",
-"fl_uses_updated": "Usage limit updated",
-"fl_set_password": "Send a password, or /clearpassword to remove.",
-"fl_link_created": "Link created",
-"fl_link_ready": "🔗 Your link is ready:\n{}\nFiles: {}\nCost: 1 free daily download",
-"fl_daily_limit": "Daily free limit reached. Watch an ad to earn more.",
-"fl_ad_busy": "⚠️ Ad server busy.",
-"admin_skipped": "✅ Skipped!",
-"admin_bypassed": "✅ Bypassed",
-"free_set": "✅ Free set to {}!",
-"free_updated": "✅ Free Downloads updated to {}!",
-"reward_set": "✅ Reward set to +{}!",
-"reward_updated": "✅ Reward updated to +{}!",
-"mode_updated": "✅ Mode: {}",
-"support_opened": "✍️ Send message/photo/video/file below.",
-"admin_reply_mode": "✍️ Reply to {}:",
-"user_reply_mode": "✍️ Type follow-up below",
-"support_closed": "🔒 Closed",
-"drop_cancelled": "❌ Cancelled",
-"drop_no_items": "⚠️ No items!",
-"drop_timer_set": "{} set!",
-"drop_broadcasting": "🚀 Broadcasting {} items to {}...",
-"drop_flash_text": "🚨 FLASH DROP!\nAuto-deletes in {}\nTap to claim:",
-"drop_done": "✅ Broadcast done to {}",
-"age_expired": "⏳ Expired!",
-"age_claimed": "❌ Already claimed!",
-"age_verified": "Verified!",
-"age_denied": "❌ Denied. Must be 18+",
-"lang_updated": "Updated!",
-"batch_expired": "Expired",
-"batch_loading": "Loading...",
-"batch_no_channel": "No channel linked!",
-"batch_setup_prompt": "📦 Setup: Make bot admin in channel and forward a message here",
-"batch_mode_activated": "Mode activated!",
-"batch_change_dest": "🔄 **Change Destination Channel**\nMake bot admin in new channel, then forward a message here.",
-"join_channel_first_alert": "Join channel first! 📢 Must join!",
-"join_channel_first": "Join channel first! 📢",
-"watch_timer_first": "⏰ Open the link and watch the 20s timer first!",
-"test_ad_verified": "✅ Test Ad Verified! +1",
-"test_ad_verified_msg": "✅ **TEST AD VERIFIED!**\nReward: +1 download refilled!",
-"finish_timer_first": "⏰ Finish 20s timer first!",
-"verified_added": "Verified! +1 added",
-"resume_prompt": "✅ Verified! Refilled +1. Resume?",
-"refilled_download": "✅ Refilled +1! Download again.",
-"fetching_bundle": "✅ Verified! Fetching bundle...",
-"outdated_button": "This button is outdated. Send your link again.",
-"stopping": "Stopping...",
-"stopped": "🛑 Stopped",
-"resuming": "Resuming...",
-"checking_vault": "Checking vault & server load...",
-"server_busy": "⏳ **Server Busy**\nActive: {}/{}\nFree: {}MB\nQueue: #{}\nWill start auto!",
-"simulated": "🛠 Simulated! Now tap Check & Get +1",
-"server_unreachable": "❌ Server unreachable",
-"monetag_failed_twice": "Complete two failed Monetag attempts first.",
-"monetag_fallback_prompt": "🌐 Monetag failed twice. Continue with Adsterra:",
-"adsterra_ready": "Adsterra fallback ready",
-"finish_monetag": "📺 Finish the Monetag ad in Mini App, then check again.",
-"monetag_failed_use_adsterra": "Monetag failed twice. Use Adsterra fallback below.",
-"ad_link_expired": "Ad link expired. Send your link again.",
-"ad_verified_added": "✅ Ad verified! +{} added",
-"test_ad_completed": "✅ TEST AD VERIFIED\nReward credited: +{} download.",
-"sponsor_viewed": "✅ Sponsor viewed! +{} added",
-"refilled_send_again": "✅ Refilled +{}! Send your link again.",
-"queued": "⏳ Queued #{}",
-"banned": "🚫 You are banned.",
-"no_links": "❌ No links found.",
-"batch_count": "📦 Batch {} links",
-"restore_invalid_json": "❌ Restore failed: **{}** is not valid JSON.",
-"restore_failed": "❌ Restore failed: {}",
-"restore_success": "✅ **Restore Successful!**\nFile: **{}**\nRestored **{}** entries.",
-"admin_edit_welcome_prompt": "✏️ Send the new Welcome Message. Use `{bot_name}` for bot username.",
-"admin_welcome_updated": "✅ Welcome message updated!",
-"menu_edit_welcome": "✏️ Edit Welcome Msg",
-"cached_instant_video": "⚡ Cached Instant [{}] {} {}",
-"cached_instant_audio": "⚡ **Cached Instant** `{}`",
-"cached_instant_image": "⚡ **Cached Instant** `{}`",
-"auto_delete_9m": "⏳ Auto-deletes in 9 mins",
-"download_success": "✅ Download successful!"
-},
-"hi": {
-"welcome": "🚀 **MICHAELBBC VAULT में स्वागत है - ऑल मीडिया डाउनलोडर!**\n🔥 मैं क्या कर सकता हूँ:\n🎬 वीडियो HD नो वॉटरमार्क!\n🎵 ऑडियो MP3 192kbps!\n🖼️ इमेजेस स्क्रेप ALL!\n📝 सबटाइटल्स ऑटो!\n📦 बैच 100+ लिंक्स!\n⚡ कैश 1 सेकंड!\n💎 वॉल्ट फॉरेवर!\n📤 फाइलें अपलोड करें!\n🔗 फाइल-टू-लिंक: शेयर लिंक बनाएं!\n👉 शुरू करने के लिए लिंक पेस्ट करें! 👇",
-"btn_video": "🎬 वीडियो (MP4)", "btn_audio": "🎵 ऑडियो (MP3)", "btn_image": "🖼️ इमेजेस", "btn_sub": "📝 सबटाइटल्स (SRT)",
-"ask_format": "👇 **शानदार! कौन सा फॉर्मेट चाहते हैं? नीचे चुनें!**",
-"fetching": "📥 **आपका {} लाया जा रहा है... रुके रहें! ⏳✨**",
-"error_generic": "❌ ओह! विफल! 😢 लिंक प्राइवेट/ब्लॉक है। पब्लिक लिंक आज़माएं!",
-"error_50mb": "❌ बहुत बड़ा! 😅 यह वीडियो 300MB से अधिक है। छोटा वाला आज़माएं!",
-"error_no_img": "❌ कोई इमेज नहीं मिली! 😢 दूसरा लिंक आज़माएं!",
-"images_received": "⏳ **{} इमेजेस प्राप्त हुईं।**",
-"select_lang": "🌍 अपनी भाषा चुनें! नीचे चुनें! 👇",
-"lang_set": "✅ भाषा सेट हो गई! आनंद लें! 🎉✨",
-"batch_detected": "📦 **बैच डिटेक्ट हुआ ({} लिंक्स)**\nकौन सा फॉर्मेट?",
-"batch_dest": "📦 **कहाँ भेजें?**",
-"btn_chat": "📥 चैट में", "btn_chan": "📢 चैनल में",
-"limit_reached": "⚠️ **लिमिट पूरी हो गई!** आपने 4 फ्री इस्तेमाल कर लिए! 20 सेकंड का विज्ञापन देखें → +1 डाउनलोड पाएं!",
-"refill_btn": "🔓 लिंक खोलें और +1 रिफिल करें",
-"join_btn": "📢 चैनल जॉइन करें", "check_btn": "💜 बैलेंस चेक करें",
-"limit_batch": "⚠️ **बैच लिमिट {} में से {} पर पहुँच गई**\nजारी रखने के लिए 20 सेकंड का विज्ञापन देखें → +1 डाउनलोड।",
-"batch_start": "📦 **बैच शुरू:** {} **{} फाइलें**\n⏳ प्रोसेसिंग...",
-"batch_done": "🏁 **हो गया!** ✅ {} ❌ {}\n📥 {} फाइलें यहाँ हैं।",
-"batch_done_chan": "🏁 **हो गया!** ✅ {} ❌ {}\n📢 {} फाइलें फॉरवर्ड की गईं!",
-"dl_video": "📥 वीडियो डाउनलोड हो रहा है...", "dl_audio": "📥 ऑडियो निकाला जा रहा है...", "dl_image": "📥 इमेजेस स्क्रेप हो रही हैं...", "dl_sub": "📥 सबटाइटल्स लाए जा रहे हैं...",
-"failed_50": "❌ >300MB", "failed_blocked": "❌ ब्लॉक/प्राइवेट", "failed_generic": "❌ विफल",
-"menu_lang": "🌍 भाषा", "menu_stats": "📊 मेरे आंकड़े", "menu_help": "💬 सपोर्ट / FAQ", "menu_join": "📢 चैनल जॉइन करें",
-"menu_uploads": "🍿 फैन अपलोड्स", "menu_upload": "📤 फाइल अपलोड करें",
-"admin_upload_prompt": "📂 **फैन अपलोड्स इनबॉक्स**",
-"user_upload_prompt": "📤 **फाइल अपलोड करें**\nएडमिन को वीडियो/इमेज/फाइल भेजें। लिमिट 5/24घंटे।",
-"upload_success_user": "✅ एडमिन को भेज दिया गया!",
-"upload_limit_reached": "⚠️ अपलोड लिमिट 5/24घंटे पूरी हो गई।",
-"no_uploads": "📭 अभी तक कोई अपलोड नहीं।",
-"stats_msg": "📊 **आपके आंकड़े:**\n• डाउनलोड बचे: {}\n• बैच बचे: {}",
-"change_channel_prompt": "🔄 **बैच चैनल बदलें**\n1. सुनिश्चित करें कि मैं नए चैनल में एडमिन हूँ।\n2. उस चैनल से कोई भी मैसेज यहाँ फॉरवर्ड करें।",
-"disk_config_prompt": "💾 **डिस्क कॉन्फ़िगरेशन**\nवर्तमान न्यूनतम फ्री डिस्क: **{}MB**\nबदलने के लिए: `/setdisk <value>`",
-"mtproto_config_prompt": "⚡ **MTProto कॉन्फ़िगरेशन**\nवर्तमान अधिकतम अपलोड: **{}MB**\nबदलने के लिए: `/setmtproto <value>`",
-"free_panel_prompt": "📦 फ्री डाउनलोड्स\nवर्तमान फ्री प्रति दिन: {}",
-"reward_panel_prompt": "🎁 रिवॉर्ड पैनल\nवर्तमान: +{} डाउनलोड प्रति 20 सेकंड विज्ञापन",
-"ad_panel_prompt": "⚙️ विज्ञापन पैनल\nवर्तमान: {}",
-"password_saved": "🔐 पासवर्ड सेव हो गया।",
-"password_too_long": "पासवर्ड 64 अक्षरों से कम होना चाहिए।",
-"file_to_link_prompt": "🔗 **फाइल-टू-लिंक**\nवह फाइल(ें) भेजें जिन्हें आप शेयर करना चाहते हैं।",
-"link_invalid_expired": "❌ यह लिंक अमान्य है या समाप्त हो गया है।",
-"link_limit_reached": "⛔ इस लिंक ने अपनी उपयोग सीमा पार कर ली है।",
-"link_password_protected": "🔐 यह लिंक पासवर्ड से सुरक्षित है। पासवर्ड भेजें।",
-"files_sent": "✅ आपकी फाइलें भेज दी गई हैं।",
-"file_added": "📥 फाइल #{} जोड़ी गई। और भेजें, या 'Create Link' टैप करें।",
-"fl_cancelled": "फाइल-टू-लिंक रद्द किया गया",
-"fl_start_again": "/filetolink के साथ फिर से शुरू करें",
-"fl_choose_expiry": "लिंक समाप्ति चुनें:",
-"fl_expiry_updated": "समाप्ति अपडेट हो गई",
-"fl_choose_max_uses": "अधिकतम सफल डिलीवरी चुनें:",
-"fl_uses_updated": "उपयोग सीमा अपडेट हो गई",
-"fl_set_password": "पासवर्ड भेजें, या हटाने के लिए /clearpassword भेजें।",
-"fl_link_created": "लिंक बनाया गया",
-"fl_link_ready": "🔗 आपका लिंक तैयार है:\n{}\nफाइलें: {}\nलागत: 1 फ्री दैनिक डाउनलोड",
-"fl_daily_limit": "दैनिक फ्री लिमिट पूरी हो गई। अधिक कमाने के लिए विज्ञापन देखें।",
-"fl_ad_busy": "⚠️ विज्ञापन सर्वर व्यस्त है।",
-"admin_skipped": "✅ छोड़ दिया गया!",
-"admin_bypassed": "✅ बायपास किया गया",
-"free_set": "✅ फ्री {} पर सेट किया गया!",
-"free_updated": "✅ फ्री डाउनलोड्स {} पर अपडेट किए गए!",
-"reward_set": "✅ रिवॉर्ड +{} पर सेट किया गया!",
-"reward_updated": "✅ रिवॉर्ड +{} पर अपडेट किया गया!",
-"mode_updated": "✅ मोड: {}",
-"support_opened": "✍️ नीचे मैसेज/फोटो/वीडियो/फाइल भेजें।",
-"admin_reply_mode": "✍️ {} को रिप्लाई करें:",
-"user_reply_mode": "✍️ नीचे फॉलो-अप टाइप करें",
-"support_closed": "🔒 बंद किया गया",
-"drop_cancelled": "❌ रद्द किया गया",
-"drop_no_items": "⚠️ कोई आइटम नहीं!",
-"drop_timer_set": "{} सेट किया गया!",
-"drop_broadcasting": "🚀 {} आइटम {} को ब्रॉडकास्ट किया जा रहा है...",
-"drop_flash_text": "🚨 फ्लैश ड्रॉप!\n{} में ऑटो-डिलीट होगा\nक्लेम करने के लिए टैप करें:",
-"drop_done": "✅ {} को ब्रॉडकास्ट हो गया",
-"age_expired": "⏳ समाप्त हो गया!",
-"age_claimed": "❌ पहले ही क्लेम किया जा चुका है!",
-"age_verified": "सत्यापित!",
-"age_denied": "❌ अस्वीकृत। 18+ होना चाहिए",
-"lang_updated": "अपडेट किया गया!",
-"batch_expired": "समाप्त हो गया",
-"batch_loading": "लोड हो रहा है...",
-"batch_no_channel": "कोई चैनल लिंक नहीं किया गया!",
-"batch_setup_prompt": "📦 सेटअप: चैनल में बॉट को एडमिन बनाएं और यहाँ एक मैसेज फॉरवर्ड करें",
-"batch_mode_activated": "मोड सक्रिय किया गया!",
-"batch_change_dest": "🔄 **डेस्टिनेशन चैनल बदलें**\nनए चैनल में बॉट को एडमिन बनाएं, फिर यहाँ मैसेज फॉरवर्ड करें।",
-"join_channel_first_alert": "पहले चैनल जॉइन करें! 📢 जॉइन करना आवश्यक है!",
-"join_channel_first": "पहले चैनल जॉइन करें! 📢",
-"watch_timer_first": "⏰ पहले लिंक खोलें और 20 सेकंड का टाइमर देखें!",
-"test_ad_verified": "✅ टेस्ट विज्ञापन सत्यापित! +1",
-"test_ad_verified_msg": "✅ **टेस्ट विज्ञापन सत्यापित!**\nरिवॉर्ड: +1 डाउनलोड रिफिल किया गया!",
-"finish_timer_first": "⏰ पहले 20 सेकंड का टाइमर पूरा करें!",
-"verified_added": "सत्यापित! +1 जोड़ा गया",
-"resume_prompt": "✅ सत्यापित! +1 रिफिल किया गया। फिर से शुरू करें?",
-"refilled_download": "✅ +1 रिफिल किया गया! फिर से डाउनलोड करें।",
-"fetching_bundle": "✅ सत्यापित! बंडल लाया जा रहा है...",
-"outdated_button": "यह बटन पुराना है। अपना लिंक फिर से भेजें।",
-"stopping": "रोका जा रहा है...",
-"stopped": "🛑 रुक गया",
-"resuming": "फिर से शुरू हो रहा है...",
-"checking_vault": "वॉल्ट और सर्वर लोड चेक किया जा रहा है...",
-"server_busy": "⏳ **सर्वर व्यस्त है**\nसक्रिय: {}/{}\nफ्री: {}MB\nकतार: #{}\nऑटो शुरू होगा!",
-"simulated": "🛠 सिम्युलेट किया गया! अब चेक करें और +1 प्राप्त करें",
-"server_unreachable": "❌ सर्वर पहुँच से बाहर है",
-"monetag_failed_twice": "पहले दो विफल Monetag प्रयास पूरे करें।",
-"monetag_fallback_prompt": "🌐 Monetag दो बार विफल रहा। Adsterra के साथ जारी रखें:",
-"adsterra_ready": "Adsterra फॉलबैक तैयार है",
-"finish_monetag": "📺 Mini App में Monetag विज्ञापन पूरा करें, फिर चेक करें।",
-"monetag_failed_use_adsterra": "Monetag दो बार विफल रहा। नीचे दिए गए Adsterra फॉलबैक का उपयोग करें।",
-"ad_link_expired": "विज्ञापन लिंक समाप्त हो गया है। अपना लिंक फिर से भेजें।",
-"ad_verified_added": "✅ विज्ञापन सत्यापित! +{} जोड़ा गया",
-"test_ad_completed": "✅ टेस्ट विज्ञापन सत्यापित\nरिवॉर्ड जमा किया गया: +{} डाउनलोड।",
-"sponsor_viewed": "✅ स्पॉन्सर देखा गया! +{} जोड़ा गया",
-"refilled_send_again": "✅ +{} रिफिल किया गया! अपना लिंक फिर से भेजें।",
-"queued": "⏳ कतार #{}",
-"banned": "🚫 आप बैन कर दिए गए हैं।",
-"no_links": "❌ कोई लिंक नहीं मिला।",
-"batch_count": "📦 बैच {} लिंक्स",
-"restore_invalid_json": "❌ रिस्टोर विफल: **{}** मान्य JSON नहीं है।",
-"restore_failed": "❌ रिस्टोर विफल: {}",
-"restore_success": "✅ **रिस्टोर सफल!**\nफाइल: **{}**\n**{}** एंट्रीज रिस्टोर की गईं।",
-"admin_edit_welcome_prompt": "✏️ नया वेलकम मैसेज भेजें। बॉट यूजरनेम के लिए `{bot_name}` का उपयोग करें।",
-"admin_welcome_updated": "✅ वेलकम मैसेज अपडेट हो गया!",
-"menu_edit_welcome": "✏️ वेलकम मैसेज एडिट करें",
-"cached_instant_video": "⚡ कैश किया गया तात्कालिक [{}] {} {}",
-"cached_instant_audio": "⚡ **कैश किया गया तात्कालिक** `{}`",
-"cached_instant_image": "⚡ **कैश किया गया तात्कालिक** `{}`",
-"auto_delete_9m": "⏳ 9 मिनट में ऑटो-डिलीट",
-"download_success": "✅ डाउनलोड सफल!"
-},
-"es": {
-"welcome": "🚀 **BIENVENIDO A MICHAELBBC VAULT - DESCARGADOR DE MEDIOS!**\n🔥 QUÉ PUEDO HACER:\n🎬 VIDEOS HD Sin Marca de Agua!\n🎵 AUDIO MP3 192kbps!\n🖼️ IMÁGENES Scraping TOTAL!\n📝 SUBTÍTULOS Auto!\n📦 LOTES 100+ Enlaces!\n⚡ CACHE 1 Seg!\n💎 VAULT Para Siempre!\n📤 SUBIR ARCHIVOS!\n🔗 ARCHIVO-A-ENLACE: Crea enlaces compartibles!\n👉 PEGA UN ENLACE PARA EMPEZAR! 👇",
-"btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Imágenes", "btn_sub": "📝 Subtítulos (SRT)",
-"ask_format": "👇 **GENIAL! ¿Qué formato quieres? Elige abajo!**",
-"fetching": "📥 **Obteniendo tu {}... Espera un momento! ⏳✨**",
-"error_generic": "❌ Ups! Falló! 😢 Enlace privado/bloqueado. Prueba un enlace público!",
-"error_50mb": "❌ Demasiado grande! 😅 Este video supera los 300MB. Prueba uno más corto!",
-"error_no_img": "❌ No se encontraron imágenes! 😢 Prueba otro enlace!",
-"images_received": "⏳ **{} Imágenes recibidas.**",
-"select_lang": "🌍 Selecciona tu idioma! Elige abajo! 👇",
-"lang_set": "✅ Idioma configurado! Disfruta! 🎉✨",
-"batch_detected": "📦 **Lote Detectado ({} enlaces)**\n¿Qué formato?",
-"batch_dest": "📦 **Dónde enviar?**",
-"btn_chat": "📥 En Chat", "btn_chan": "📢 Al Canal",
-"limit_reached": "⚠️ **Límite Alcanzado!** Usaste 4 GRATIS! Mira un anuncio de 20s → Obtén +1 descarga!",
-"refill_btn": "🔓 Abrir Enlace y Recargar +1",
-"join_btn": "📢 Unirse al Canal", "check_btn": "💜 Verificar Saldo",
-"limit_batch": "⚠️ **Límite de Lote Alcanzado en {} de {}**\nMira un anuncio de 20s → +1 descarga para continuar.",
-"batch_start": "📦 **Lote Iniciado:** {} **{} archivos**\n⏳ Procesando...",
-"batch_done": "🏁 **Listo!** ✅ {} ❌ {}\n📥 {} archivos aquí.",
-"batch_done_chan": "🏁 **Listo!** ✅ {} ❌ {}\n📢 {} archivos reenviados!",
-"dl_video": "📥 Descargando video...", "dl_audio": "📥 Extrayendo audio...", "dl_image": "📥 Obteniendo imágenes...", "dl_sub": "📥 Obteniendo subtítulos...",
-"failed_50": "❌ >300MB", "failed_blocked": "❌ Bloqueado/privado", "failed_generic": "❌ Falló",
-"menu_lang": "🌍 Idioma", "menu_stats": "📊 Mis Estadísticas", "menu_help": "💬 Soporte / FAQ", "menu_join": "📢 Unirse al Canal",
-"menu_uploads": "🍿 Subidas de Fans", "menu_upload": "📤 Subir Archivo",
-"admin_upload_prompt": "📂 **Bandeja de Subidas de Fans**",
-"user_upload_prompt": "📤 **Subir Archivo**\nEnvía video/imagen/archivo al Admin. Límite 5/24h.",
-"upload_success_user": "✅ Enviado al Admin!",
-"upload_limit_reached": "⚠️ Límite de subidas 5/24h alcanzado.",
-"no_uploads": "📭 Aún no hay subidas.",
-"stats_msg": "📊 **Tus Estadísticas:**\n• Descargas Restantes: {}\n• Lotes Restantes: {}",
-"change_channel_prompt": "🔄 **Cambiar Canal de Lotes**\n1. Asegúrate de que soy admin en el nuevo canal.\n2. Reenvía cualquier mensaje de ese canal aquí.",
-"disk_config_prompt": "💾 **Config de Disco**\nMin disco libre actual: **{}MB**\nPara cambiar: `/setdisk <valor>`",
-"mtproto_config_prompt": "⚡ **Config MTProto**\nMax subida actual: **{}MB**\nPara cambiar: `/setmtproto <valor>`",
-"free_panel_prompt": "📦 DESCARGAS GRATIS\nGratis actuales por día: {}",
-"reward_panel_prompt": "🎁 PANEL DE RECOMPENSAS\nActual: +{} descarga por anuncio de 20s",
-"ad_panel_prompt": "⚙️ Panel de Anuncios\nActual: {}",
-"password_saved": "🔐 Contraseña guardada.",
-"password_too_long": "La contraseña debe tener 64 caracteres o menos.",
-"file_to_link_prompt": "🔗 **Archivo-a-Enlace**\nEnvía el/los archivo(s) que quieres compartir.",
-"link_invalid_expired": "❌ Este enlace es inválido o expiró.",
-"link_limit_reached": "⛔ Este enlace alcanzó su límite de uso.",
-"link_password_protected": "🔐 Este enlace está protegido con contraseña. Envía la contraseña.",
-"files_sent": "✅ Tus archivos han sido enviados.",
-"file_added": "📥 Archivo #{} añadido. Envía más o toca Crear Enlace.",
-"fl_cancelled": "Archivo-a-Enlace cancelado",
-"fl_start_again": "Inicia Archivo-a-Enlace de nuevo con /filetolink",
-"fl_choose_expiry": "Elige la expiración del enlace:",
-"fl_expiry_updated": "Expiración actualizada",
-"fl_choose_max_uses": "Elige el máximo de entregas exitosas:",
-"fl_uses_updated": "Límite de uso actualizado",
-"fl_set_password": "Envía una contraseña, o /clearpassword para eliminar.",
-"fl_link_created": "Enlace creado",
-"fl_link_ready": "🔗 Tu enlace está listo:\n{}\nArchivos: {}\nCosto: 1 descarga diaria gratis",
-"fl_daily_limit": "Límite diario gratis alcanzado. Mira un anuncio para ganar más.",
-"fl_ad_busy": "⚠️ Servidor de anuncios ocupado.",
-"admin_skipped": "✅ Omitido!",
-"admin_bypassed": "✅ Omitido",
-"free_set": "✅ Gratis configurado a {}!",
-"free_updated": "✅ Descargas Gratis actualizadas a {}!",
-"reward_set": "✅ Recompensa configurada a +{}!",
-"reward_updated": "✅ Recompensa actualizada a +{}!",
-"mode_updated": "✅ Modo: {}",
-"support_opened": "✍️ Envía mensaje/foto/video/archivo abajo.",
-"admin_reply_mode": "✍️ Responder a {}:",
-"user_reply_mode": "✍️ Escribe el seguimiento abajo",
-"support_closed": "🔒 Cerrado",
-"drop_cancelled": "❌ Cancelado",
-"drop_no_items": "⚠️ Sin elementos!",
-"drop_timer_set": "{} configurado!",
-"drop_broadcasting": "🚀 Transmitiendo {} elementos a {}...",
-"drop_flash_text": "🚨 FLASH DROP!\nAuto-elimina en {}\nToca para reclamar:",
-"drop_done": "✅ Transmisión hecha a {}",
-"age_expired": "⏳ Expirado!",
-"age_claimed": "❌ Ya reclamado!",
-"age_verified": "Verificado!",
-"age_denied": "❌ Denegado. Debe ser 18+",
-"lang_updated": "Actualizado!",
-"batch_expired": "Expirado",
-"batch_loading": "Cargando...",
-"batch_no_channel": "Ningún canal vinculado!",
-"batch_setup_prompt": "📦 Configuración: Haz bot admin en el canal y reenvía un mensaje aquí",
-"batch_mode_activated": "Modo activado!",
-"batch_change_dest": "🔄 **Cambiar Canal de Destino**\nHaz bot admin en el nuevo canal, luego reenvía un mensaje aquí.",
-"join_channel_first_alert": "Únete al canal primero! 📢 Debes unirte!",
-"join_channel_first": "Únete al canal primero! 📢",
-"watch_timer_first": "⏰ Abre el enlace y mira el temporizador de 20s primero!",
-"test_ad_verified": "✅ Anuncio de Prueba Verificado! +1",
-"test_ad_verified_msg": "✅ **ANUNCIO DE PRUEBA VERIFICADO!**\nRecompensa: +1 descarga recargada!",
-"finish_timer_first": "⏰ Termina el temporizador de 20s primero!",
-"verified_added": "Verificado! +1 añadido",
-"resume_prompt": "✅ Verificado! Recargado +1. ¿Reanudar?",
-"refilled_download": "✅ Recargado +1! Descarga de nuevo.",
-"fetching_bundle": "✅ Verificado! Obteniendo paquete...",
-"outdated_button": "Este botón está desactualizado. Envía tu enlace de nuevo.",
-"stopping": "Deteniendo...",
-"stopped": "🛑 Detenido",
-"resuming": "Reanudando...",
-"checking_vault": "Verificando vault y carga del servidor...",
-"server_busy": "⏳ **Servidor Ocupado**\nActivos: {}/{}\nLibre: {}MB\nCola: #{}\nIniciará auto!",
-"simulated": "🛠 Simulado! Ahora toca Verificar y Obtener +1",
-"server_unreachable": "❌ Servidor inalcanzable",
-"monetag_failed_twice": "Completa dos intentos fallidos de Monetag primero.",
-"monetag_fallback_prompt": "🌐 Monetag falló dos veces. Continúa con Adsterra:",
-"adsterra_ready": "Fallback de Adsterra listo",
-"finish_monetag": "📺 Termina el anuncio de Monetag en Mini App, luego verifica.",
-"monetag_failed_use_adsterra": "Monetag falló dos veces. Usa el fallback de Adsterra abajo.",
-"ad_link_expired": "Enlace de anuncio expirado. Envía tu enlace de nuevo.",
-"ad_verified_added": "✅ Anuncio verificado! +{} añadido",
-"test_ad_completed": "✅ ANUNCIO DE PRUEBA VERIFICADO\nRecompensa acreditada: +{} descarga.",
-"sponsor_viewed": "✅ Patrocinador visto! +{} añadido",
-"refilled_send_again": "✅ Recargado +{}! Envía tu enlace de nuevo.",
-"queued": "⏳ En cola #{}",
-"banned": "🚫 Estás prohibido.",
-"no_links": "❌ No se encontraron enlaces.",
-"batch_count": "📦 Lote {} enlaces",
-"restore_invalid_json": "❌ Restauración fallida: **{}** no es JSON válido.",
-"restore_failed": "❌ Restauración fallida: {}",
-"restore_success": "✅ **Restauración Exitosa!**\nArchivo: **{}**\nRestauradas **{}** entradas.",
-"admin_edit_welcome_prompt": "✏️ Envía el nuevo Mensaje de Bienvenida. Usa `{bot_name}` para el nombre de usuario.",
-"admin_welcome_updated": "✅ Mensaje de bienvenida actualizado!",
-"menu_edit_welcome": "✏️ Editar Mensaje de Bienvenida",
-"cached_instant_video": "⚡ Caché Instantánea [{}] {} {}",
-"cached_instant_audio": "⚡ **Caché Instantánea** `{}`",
-"cached_instant_image": "⚡ **Caché Instantánea** `{}`",
-"auto_delete_9m": "⏳ Auto-elimina en 9 mins",
-"download_success": "✅ ¡Descarga exitosa!"
-},
-"ar": {
-"welcome": "🚀 **مرحباً بك في MICHAELBBC VAULT - محمل الوسائط الشامل!**\n🔥 ماذا يمكنني أن أفعل:\n🎬 فيديوهات HD بدون علامة مائية!\n🎵 صوت MP3 192kbps!\n🖼️ سحب جميع الصور!\n📝 ترجمات تلقائية!\n📦 دفعات 100+ رابط!\n⚡ ذاكرة تخزين مؤقت 1 ثانية!\n💎 خزنة للأبد!\n📤 رفع الملفات!\n🔗 ملف-إلى-رابط: إنشاء روابط قابلة للمشاركة!\n👉 الصق رابطاً للبدء! 👇",
-"btn_video": "🎬 فيديو (MP4)", "btn_audio": "🎵 صوت (MP3)", "btn_image": "🖼️ صور", "btn_sub": "📝 ترجمات (SRT)",
-"ask_format": "👇 **رائع! ما التنسيق الذي تريده؟ اختر أدناه!**",
-"fetching": "📥 **جاري جلب {}... انتظر قليلاً! ⏳✨**",
-"error_generic": "❌ عذراً! فشل! 😢 الرابط خاص/محظور. جرب رابطاً عاماً!",
-"error_50mb": "❌ كبير جداً! 😅 هذا الفيديو يتجاوز 300 ميجابايت. جرب فيديو أقصر!",
-"error_no_img": "❌ لم يتم العثور على صور! 😢 جرب رابطاً آخر!",
-"images_received": "⏳ **تم استلام {} صورة.**",
-"select_lang": "🌍 اختر لغتك! اختر أدناه! 👇",
-"lang_set": "✅ تم تعيين اللغة! استمتع! 🎉✨",
-"batch_detected": "📦 **تم اكتشاف دفعة ({} روابط)**\nما التنسيق؟",
-"batch_dest": "📦 **أين نرسل؟**",
-"btn_chat": "📥 في الدردشة", "btn_chan": "📢 إلى القناة",
-"limit_reached": "⚠️ **تم الوصول للحد الأقصى!** استخدمت 4 مجاناً! شاهد إعلان 20 ثانية → احصل على +1 تحميل!",
-"refill_btn": "🔓 افتح الرابط وأعد التعبئة +1",
-"join_btn": "📢 انضم للقناة", "check_btn": "💜 تحقق من الرصيد",
-"limit_batch": "⚠️ **تم الوصول لحد الدفعة عند {} من {}**\nشاهد إعلان 20 ثانية → +1 تحميل للمتابعة.",
-"batch_start": "📦 **بدأت الدفعة:** {} **{} ملفات**\n⏳ جاري المعالجة...",
-"batch_done": "🏁 **تم!** ✅ {} ❌ {}\n📥 {} ملفات هنا.",
-"batch_done_chan": "🏁 **تم!** ✅ {} ❌ {}\n📢 تم إعادة توجيه {} ملفات!",
-"dl_video": "📥 جاري تحميل الفيديو...", "dl_audio": "📥 جاري استخراج الصوت...", "dl_image": "📥 جاري سحب الصور...", "dl_sub": "📥 جاري جلب الترجمات...",
-"failed_50": "❌ >300MB", "failed_blocked": "❌ محظور/خاص", "failed_generic": "❌ فشل",
-"menu_lang": "🌍 اللغة", "menu_stats": "📊 إحصائياتي", "menu_help": "💬 الدعم / الأسئلة الشائعة", "menu_join": "📢 انضم للقناة",
-"menu_uploads": "🍿 رفع المعجبين", "menu_upload": "📤 رفع ملف",
-"admin_upload_prompt": "📂 **صندوق وارد رفع المعجبين**",
-"user_upload_prompt": "📤 **رفع ملف**\nأرسل فيديو/صورة/ملف للمسؤول. الحد 5/24 ساعة.",
-"upload_success_user": "✅ تم الإرسال للمسؤول!",
-"upload_limit_reached": "⚠️ تم الوصول لحد الرفع 5/24 ساعة.",
-"no_uploads": "📭 لا توجد عمليات رفع بعد.",
-"stats_msg": "📊 **إحصائياتك:**\n• التحميلات المتبقية: {}\n• الدفعات المتبقية: {}",
-"change_channel_prompt": "🔄 **تغيير قناة الدفعات**\n1. تأكد من أنني مسؤول في القناة الجديدة.\n2. أعد توجيه أي رسالة من تلك القناة إلى هنا.",
-"disk_config_prompt": "💾 **إعدادات القرص**\nالحد الأدنى الحالي للمساحة الحرة: **{} ميجابايت**\nللتغيير: `/setdisk <value>`",
-"mtproto_config_prompt": "⚡ **إعدادات MTProto**\nالحد الأقصى الحالي للرفع: **{} ميجابايت**\nللتغيير: `/setmtproto <value>`",
-"free_panel_prompt": "📦 التحميلات المجانية\nالمجاني الحالي يومياً: {}",
-"reward_panel_prompt": "🎁 لوحة المكافآت\nالحالي: +{} تحميل لكل إعلان 20 ثانية",
-"ad_panel_prompt": "⚙️ لوحة الإعلانات\nالحالي: {}",
-"password_saved": "🔐 تم حفظ كلمة المرور.",
-"password_too_long": "يجب أن تكون كلمة المرور 64 حرفاً أو أقل.",
-"file_to_link_prompt": "🔗 **ملف-إلى-رابط**\nأرسل الملف(ات) التي تريد مشاركتها.",
-"link_invalid_expired": "❌ هذا الرابط غير صالح أو منتهي الصلاحية.",
-"link_limit_reached": "⛔ وصل هذا الرابط إلى حد الاستخدام.",
-"link_password_protected": "🔐 هذا الرابط محمي بكلمة مرور. أرسل كلمة المرور.",
-"files_sent": "✅ تم إرسال ملفاتك.",
-"file_added": "📥 تمت إضافة الملف #{}. أرسل المزيد، أو اضغط على إنشاء رابط.",
-"fl_cancelled": "تم إلغاء ملف-إلى-رابط",
-"fl_start_again": "ابدأ ملف-إلى-رابط مرة أخرى باستخدام /filetolink",
-"fl_choose_expiry": "اختر انتهاء صلاحية الرابط:",
-"fl_expiry_updated": "تم تحديث الانتهاء",
-"fl_choose_max_uses": "اختر الحد الأقصى للتسليمات الناجحة:",
-"fl_uses_updated": "تم تحديث حد الاستخدام",
-"fl_set_password": "أرسل كلمة مرور، أو /clearpassword للإزالة.",
-"fl_link_created": "تم إنشاء الرابط",
-"fl_link_ready": "🔗 رابطك جاهز:\n{}\nالملفات: {}\nالتكلفة: 1 تحميل يومي مجاني",
-"fl_daily_limit": "تم الوصول للحد اليومي المجاني. شاهد إعلاناً لكسب المزيد.",
-"fl_ad_busy": "⚠️ خادم الإعلانات مشغول.",
-"admin_skipped": "✅ تم التخطي!",
-"admin_bypassed": "✅ تم التجاوز",
-"free_set": "✅ تم تعيين المجاني إلى {}!",
-"free_updated": "✅ تم تحديث التحميلات المجانية إلى {}!",
-"reward_set": "✅ تم تعيين المكافأة إلى +{}!",
-"reward_updated": "✅ تم تحديث المكافأة إلى +{}!",
-"mode_updated": "✅ الوضع: {}",
-"support_opened": "✍️ أرسل رسالة/صورة/فيديو/ملف أدناه.",
-"admin_reply_mode": "✍️ الرد على {}:",
-"user_reply_mode": "✍️ اكتب المتابعة أدناه",
-"support_closed": "🔒 مغلق",
-"drop_cancelled": "❌ ملغي",
-"drop_no_items": "⚠️ لا توجد عناصر!",
-"drop_timer_set": "تم تعيين {}!",
-"drop_broadcasting": "🚀 جاري البث {} عناصر إلى {}...",
-"drop_flash_text": "🚨 FLASH DROP!\nحذف تلقائي في {}\nاضغط للمطالبة:",
-"drop_done": "✅ تم البث إلى {}",
-"age_expired": "⏳ منتهي الصلاحية!",
-"age_claimed": "❌ تمت المطالبة به بالفعل!",
-"age_verified": "تم التحقق!",
-"age_denied": "❌ مرفوض. يجب أن يكون 18+",
-"lang_updated": "تم التحديث!",
-"batch_expired": "منتهي الصلاحية",
-"batch_loading": "جاري التحميل...",
-"batch_no_channel": "لا توجد قناة مرتبطة!",
-"batch_setup_prompt": "📦 الإعداد: اجعل البوت مسؤولاً في القناة وأعد توجيه رسالة إلى هنا",
-"batch_mode_activated": "تم تفعيل الوضع!",
-"batch_change_dest": "🔄 **تغيير قناة الوجهة**\nاجعل البوت مسؤولاً في القناة الجديدة، ثم أعد توجيه رسالة إلى هنا.",
-"join_channel_first_alert": "انضم للقناة أولاً! 📢 يجب الانضمام!",
-"join_channel_first": "انضم للقناة أولاً! 📢",
-"watch_timer_first": "⏰ افتح الرابط وشاهد المؤقت لمدة 20 ثانية أولاً!",
-"test_ad_verified": "✅ تم التحقق من إعلان الاختبار! +1",
-"test_ad_verified_msg": "✅ **تم التحقق من إعلان الاختبار!**\nالمكافأة: تم إعادة تعبئة +1 تحميل!",
-"finish_timer_first": "⏰ أنهٍ مؤقت 20 ثانية أولاً!",
-"verified_added": "تم التحقق! تمت إضافة +1",
-"resume_prompt": "✅ تم التحقق! تمت إعادة التعبئة +1. استئناف؟",
-"refilled_download": "✅ تمت إعادة التعبئة +1! حمل مرة أخرى.",
-"fetching_bundle": "✅ تم التحقق! جاري جلب الحزمة...",
-"outdated_button": "هذا الزر قديم. أرسل رابطك مرة أخرى.",
-"stopping": "جاري الإيقاف...",
-"stopped": "🛑 تم الإيقاف",
-"resuming": "جاري الاستئناف...",
-"checking_vault": "جاري فحص الخزنة وحمل الخادم...",
-"server_busy": "⏳ **الخادم مشغول**\nنشط: {}/{}\nحر: {} ميجابايت\nقائمة الانتظار: #{}\nسيبدأ تلقائياً!",
-"simulated": "🛠 تمت المحاكاة! اضغط الآن على تحقق واحصل على +1",
-"server_unreachable": "❌ الخادم غير متاح",
-"monetag_failed_twice": "أكمل محاولتين فاشلتين لـ Monetag أولاً.",
-"monetag_fallback_prompt": "🌐 فشل Monetag مرتين. تابع مع Adsterra:",
-"adsterra_ready": "بديل Adsterra جاهز",
-"finish_monetag": "📺 أنهٍ إعلان Monetag في التطبيق المصغر، ثم تحقق مرة أخرى.",
-"monetag_failed_use_adsterra": "فشل Monetag مرتين. استخدم بديل Adsterra أدناه.",
-"ad_link_expired": "انتهت صلاحية رابط الإعلان. أرسل رابطك مرة أخرى.",
-"ad_verified_added": "✅ تم التحقق من الإعلان! تمت إضافة +{}",
-"test_ad_completed": "✅ تم التحقق من إعلان الاختبار\nتم اعتماد المكافأة: +{} تحميل.",
-"sponsor_viewed": "✅ تمت مشاهدة الراعي! تمت إضافة +{}",
-"refilled_send_again": "✅ تمت إعادة التعبئة +{}! أرسل رابطك مرة أخرى.",
-"queued": "⏳ في قائمة الانتظار #{}",
-"banned": "🚫 أنت محظور.",
-"no_links": "❌ لم يتم العثور على روابط.",
-"batch_count": "📦 دفعة {} روابط",
-"restore_invalid_json": "❌ فشل الاستعادة: **{}** ليس JSON صالحاً.",
-"restore_failed": "❌ فشل الاستعادة: {}",
-"restore_success": "✅ **نجاح الاستعادة!**\nالملف: **{}**\nتمت استعادة **{}** إدخالات.",
-"admin_edit_welcome_prompt": "✏️ أرسل رسالة الترحيب الجديدة. استخدم `{bot_name}` لاسم مستخدم البوت.",
-"admin_welcome_updated": "✅ تم تحديث رسالة الترحيب!",
-"menu_edit_welcome": "✏️ تحرير رسالة الترحيب",
-"cached_instant_video": "⚡ ذاكرة تخزين مؤقت فورية [{}] {} {}",
-"cached_instant_audio": "⚡ **ذاكرة تخزين مؤقت فورية** `{}`",
-"cached_instant_image": "⚡ **ذاكرة تخزين مؤقت فورية** `{}`",
-"auto_delete_9m": "⏳ حذف تلقائي في 9 دقائق",
-"download_success": "✅ تم التحميل بنجاح!"
-},
-"ru": {
-"welcome": "🚀 **ДОБРО ПОЖАЛОВАТЬ В MICHAELBBC VAULT - УНИВЕРСАЛЬНЫЙ ЗАГРУЗЧИК!**\n🔥 ЧТО Я УМЕЮ:\n🎬 ВИДЕО HD Без Водяных Знаков!\n🎵 АУДИО MP3 192kbps!\n🖼️ ИЗОБРАЖЕНИЯ Скачивание ВСЕХ!\n📝 СУБТИТРЫ Авто!\n📦 ПАКЕТЫ 100+ Ссылок!\n⚡ КЭШ 1 Сек!\n💎 ХРАНИЛИЩЕ Навсегда!\n📤 ЗАГРУЗКА ФАЙЛОВ!\n🔗 ФАЙЛ-В-ССЫЛКУ: Создавайте ссылки для обмена!\n👉 ВСТАВЬТЕ ССЫЛКУ, ЧТОБЫ НАЧАТЬ! 👇",
-"btn_video": "🎬 Видео (MP4)", "btn_audio": "🎵 Аудио (MP3)", "btn_image": "🖼️ Изображения", "btn_sub": "📝 Субтитры (SRT)",
-"ask_format": "👇 **ОТЛИЧНО! Какой формат вы хотите? Выберите ниже!**",
-"fetching": "📥 **Получение вашего {}... Подождите! ⏳✨**",
-"error_generic": "❌ Ой! Ошибка! 😢 Ссылка приватная/заблокирована. Попробуйте публичную!",
-"error_50mb": "❌ Слишком большой! 😅 Это видео больше 300 МБ. Попробуйте короче!",
-"error_no_img": "❌ Изображения не найдены! 😢 Попробуйте другую ссылку!",
-"images_received": "⏳ **Получено {} изображений.**",
-"select_lang": "🌍 Выберите ваш язык! Выберите ниже! 👇",
-"lang_set": "✅ Язык установлен! Наслаждайтесь! 🎉✨",
-"batch_detected": "📦 **Обнаружен пакет ({} ссылок)**\nКакой формат?",
-"batch_dest": "📦 **Куда отправить?**",
-"btn_chat": "📥 В чат", "btn_chan": "📢 В канал",
-"limit_reached": "⚠️ **Лимит достигнут!** Вы использовали 4 БЕСПЛАТНЫХ! Посмотрите 20-сек рекламу → Получите +1 загрузку!",
-"refill_btn": "🔓 Открыть ссылку и пополнить +1",
-"join_btn": "📢 Присоединиться к каналу", "check_btn": "💜 Проверить баланс",
-"limit_batch": "⚠️ **Лимит пакета достигнут на {} из {}**\nПосмотрите 20-сек рекламу → +1 загрузка для продолжения.",
-"batch_start": "📦 **Пакет запущен:** {} **{} файлов**\n⏳ Обработка...",
-"batch_done": "🏁 **Готово!** ✅ {} ❌ {}\n📥 {} файлов здесь.",
-"batch_done_chan": "🏁 **Готово!** ✅ {} ❌ {}\n📢 {} файлов переслано!",
-"dl_video": "📥 Загрузка видео...", "dl_audio": "📥 Извлечение аудио...", "dl_image": "📥 Скачивание изображений...", "dl_sub": "📥 Получение субтитров...",
-"failed_50": "❌ >300MB", "failed_blocked": "❌ Заблокировано/приватно", "failed_generic": "❌ Ошибка",
-"menu_lang": "🌍 Язык", "menu_stats": "📊 Моя статистика", "menu_help": "💬 Поддержка / FAQ", "menu_join": "📢 Присоединиться к каналу",
-"menu_uploads": "🍿 Загрузки фанатов", "menu_upload": "📤 Загрузить файл",
-"admin_upload_prompt": "📂 **Входящие загрузки фанатов**",
-"user_upload_prompt": "📤 **Загрузить файл**\nОтправьте видео/изображение/файл Админу. Лимит 5/24ч.",
-"upload_success_user": "✅ Отправлено Админу!",
-"upload_limit_reached": "⚠️ Достигнут лимит загрузок 5/24ч.",
-"no_uploads": "📭 Загрузок пока нет.",
-"stats_msg": "📊 **Ваша статистика:**\n• Осталось загрузок: {}\n• Осталось пакетов: {}",
-"change_channel_prompt": "🔄 **Изменить канал для пакетов**\n1. Убедитесь, что я админ в новом канале.\n2. Перешлите любое сообщение из этого канала сюда.",
-"disk_config_prompt": "💾 **Настройка диска**\nТекущий мин. свободный диск: **{} МБ**\nЧтобы изменить: `/setdisk <значение>`",
-"mtproto_config_prompt": "⚡ **Настройка MTProto**\nТекущий макс. размер загрузки: **{} МБ**\nЧтобы изменить: `/setmtproto <значение>`",
-"free_panel_prompt": "📦 БЕСПЛАТНЫЕ ЗАГРУЗКИ\nТекущие бесплатные в день: {}",
-"reward_panel_prompt": "🎁 ПАНЕЛЬ НАГРАД\nТекущая: +{} загрузка за 20-сек рекламу",
-"ad_panel_prompt": "⚙️ Панель рекламы\nТекущая: {}",
-"password_saved": "🔐 Пароль сохранен.",
-"password_too_long": "Пароль должен быть не более 64 символов.",
-"file_to_link_prompt": "🔗 **Файл-в-ссылку**\nОтправьте файл(ы), которыми хотите поделиться.",
-"link_invalid_expired": "❌ Эта ссылка недействительна или истекла.",
-"link_limit_reached": "⛔ Эта ссылка достигла лимита использования.",
-"link_password_protected": "🔐 Эта ссылка защищена паролем. Отправьте пароль.",
-"files_sent": "✅ Ваши файлы отправлены.",
-"file_added": "📥 Добавлен файл #{}. Отправьте еще или нажмите Создать ссылку.",
-"fl_cancelled": "Файл-в-ссылку отменен",
-"fl_start_again": "Начните Файл-в-ссылку заново с /filetolink",
-"fl_choose_expiry": "Выберите срок действия ссылки:",
-"fl_expiry_updated": "Срок действия обновлен",
-"fl_choose_max_uses": "Выберите макс. количество успешных доставок:",
-"fl_uses_updated": "Лимит использования обновлен",
-"fl_set_password": "Отправьте пароль или /clearpassword для удаления.",
-"fl_link_created": "Ссылка создана",
-"fl_link_ready": "🔗 Ваша ссылка готова:\n{}\nФайлов: {}\nСтоимость: 1 бесплатная загрузка в день",
-"fl_daily_limit": "Дневной бесплатный лимит достигнут. Посмотрите рекламу, чтобы заработать больше.",
-"fl_ad_busy": "⚠️ Рекламный сервер занят.",
-"admin_skipped": "✅ Пропущено!",
-"admin_bypassed": "✅ Обойдено",
-"free_set": "✅ Бесплатно установлено на {}!",
-"free_updated": "✅ Бесплатные загрузки обновлены до {}!",
-"reward_set": "✅ Награда установлена на +{}!",
-"reward_updated": "✅ Награда обновлена до +{}!",
-"mode_updated": "✅ Режим: {}",
-"support_opened": "✍️ Отправьте сообщение/фото/видео/файл ниже.",
-"admin_reply_mode": "✍️ Ответить {}:",
-"user_reply_mode": "✍️ Введите продолжение ниже",
-"support_closed": "🔒 Закрыто",
-"drop_cancelled": "❌ Отменено",
-"drop_no_items": "⚠️ Нет элементов!",
-"drop_timer_set": "{} установлено!",
-"drop_broadcasting": "🚀 Трансляция {} элементов для {}...",
-"drop_flash_text": "🚨 FLASH DROP!\nАвтоудаление через {}\nНажмите, чтобы забрать:",
-"drop_done": "✅ Трансляция выполнена для {}",
-"age_expired": "⏳ Истекло!",
-"age_claimed": "❌ Уже забрано!",
-"age_verified": "Проверено!",
-"age_denied": "❌ Отказано. Должно быть 18+",
-"lang_updated": "Обновлено!",
-"batch_expired": "Истекло",
-"batch_loading": "Загрузка...",
-"batch_no_channel": "Канал не привязан!",
-"batch_setup_prompt": "📦 Настройка: Сделайте бота админом в канале и перешлите сообщение сюда",
-"batch_mode_activated": "Режим активирован!",
-"batch_change_dest": "🔄 **Изменить канал назначения**\nСделайте бота админом в новом канале, затем перешлите сообщение сюда.",
-"join_channel_first_alert": "Сначала присоединитесь к каналу! 📢 Обязательно!",
-"join_channel_first": "Сначала присоединитесь к каналу! 📢",
-"watch_timer_first": "⏰ Сначала откройте ссылку и посмотрите 20-сек таймер!",
-"test_ad_verified": "✅ Тестовая реклама проверена! +1",
-"test_ad_verified_msg": "✅ **ТЕСТОВАЯ РЕКЛАМА ПРОВЕРЕНА!**\nНаграда: +1 загрузка пополнена!",
-"finish_timer_first": "⏰ Сначала завершите 20-сек таймер!",
-"verified_added": "Проверено! +1 добавлено",
-"resume_prompt": "✅ Проверено! Пополнено +1. Возобновить?",
-"refilled_download": "✅ Пополнено +1! Загрузите снова.",
-"fetching_bundle": "✅ Проверено! Получение пакета...",
-"outdated_button": "Эта кнопка устарела. Отправьте ссылку снова.",
-"stopping": "Остановка...",
-"stopped": "🛑 Остановлено",
-"resuming": "Возобновление...",
-"checking_vault": "Проверка хранилища и нагрузки сервера...",
-"server_busy": "⏳ **Сервер занят**\nАктивных: {}/{}\nСвободно: {} МБ\nОчередь: #{}\nЗапустится автоматически!",
-"simulated": "🛠 Симулировано! Теперь нажмите Проверить и получить +1",
-"server_unreachable": "❌ Сервер недоступен",
-"monetag_failed_twice": "Сначала завершите две неудачные попытки Monetag.",
-"monetag_fallback_prompt": "🌐 Monetag не сработал дважды. Продолжить с Adsterra:",
-"adsterra_ready": "Резервный вариант Adsterra готов",
-"finish_monetag": "📺 Завершите рекламу Monetag в Mini App, затем проверьте снова.",
-"monetag_failed_use_adsterra": "Monetag не сработал дважды. Используйте резервный вариант Adsterra ниже.",
-"ad_link_expired": "Срок действия рекламной ссылки истек. Отправьте ссылку снова.",
-"ad_verified_added": "✅ Реклама проверена! +{} добавлено",
-"test_ad_completed": "✅ ТЕСТОВАЯ РЕКЛАМА ПРОВЕРЕНА\nНаграда начислена: +{} загрузка.",
-"sponsor_viewed": "✅ Спонсор просмотрен! +{} добавлено",
-"refilled_send_again": "✅ Пополнено +{}! Отправьте ссылку снова.",
-"queued": "⏳ В очереди #{}",
-"banned": "🚫 Вы заблокированы.",
-"no_links": "❌ Ссылки не найдены.",
-"batch_count": "📦 Пакет {} ссылок",
-"restore_invalid_json": "❌ Ошибка восстановления: **{}** не является допустимым JSON.",
-"restore_failed": "❌ Ошибка восстановления: {}",
-"restore_success": "✅ **Восстановление успешно!**\nФайл: **{}**\nВосстановлено **{}** записей.",
-"admin_edit_welcome_prompt": "✏️ Отправьте новое приветственное сообщение. Используйте `{bot_name}` для имени пользователя бота.",
-"admin_welcome_updated": "✅ Приветственное сообщение обновлено!",
-"menu_edit_welcome": "✏️ Изменить приветственное сообщение",
-"cached_instant_video": "⚡ Мгновенный кэш [{}] {} {}",
-"cached_instant_audio": "⚡ **Мгновенный кэш** `{}`",
-"cached_instant_image": "⚡ **Мгновенный кэш** `{}`",
-"auto_delete_9m": "⏳ Автоудаление через 9 мин",
-"download_success": "✅ Загрузка успешна!"
-},
-"pt": {
-"welcome": "🚀 **BEM-VINDO AO MICHAELBBC VAULT - BAIXADOR DE MÍDIA COMPLETO!**\n🔥 O QUE POSSO FAZER:\n🎬 VÍDEOS HD Sem Marca D'água!\n🎵 ÁUDIO MP3 192kbps!\n🖼️ IMAGENS Extração TOTAL!\n📝 LEGENDAS Auto!\n📦 LOTES 100+ Links!\n⚡ CACHE 1 Seg!\n💎 COFRE Para Sempre!\n📤 ENVIAR ARQUIVOS!\n🔗 ARQUIVO-PARA-LINK: Crie links compartilháveis!\n👉 COLE UM LINK PARA COMEÇAR! 👇",
-"btn_video": "🎬 Vídeo (MP4)", "btn_audio": "🎵 Áudio (MP3)", "btn_image": "🖼️ Imagens", "btn_sub": "📝 Legendas (SRT)",
-"ask_format": "👇 **INCRÍVEL! Qual formato você quer? Escolha abaixo!**",
-"fetching": "📥 **Buscando seu {}... Aguarde! ⏳✨**",
-"error_generic": "❌ Ops! Falhou! 😢 Link privado/bloqueado. Tente um link público!",
-"error_50mb": "❌ Muito grande! 😅 Este vídeo tem mais de 300MB. Tente um mais curto!",
-"error_no_img": "❌ Nenhuma imagem encontrada! 😢 Tente outro link!",
-"images_received": "⏳ **{} Imagens recebidas.**",
-"select_lang": "🌍 Selecione seu idioma! Escolha abaixo! 👇",
-"lang_set": "✅ Idioma definido! Aproveite! 🎉✨",
-"batch_detected": "📦 **Lote Detectado ({} links)**\nQual formato?",
-"batch_dest": "📦 **Para onde enviar?**",
-"btn_chat": "📥 No Chat", "btn_chan": "📢 Para o Canal",
-"limit_reached": "⚠️ **Limite Atingido!** Você usou 4 GRÁTIS! Assista a um anúncio de 20s → Ganhe +1 download!",
-"refill_btn": "🔓 Abrir Link e Recarregar +1",
-"join_btn": "📢 Entrar no Canal", "check_btn": "💜 Verificar Saldo",
-"limit_batch": "⚠️ **Limite do Lote Atingido em {} de {}**\nAssista a um anúncio de 20s → +1 download para continuar.",
-"batch_start": "📦 **Lote Iniciado:** {} **{} arquivos**\n⏳ Processando...",
-"batch_done": "🏁 **Concluído!** ✅ {} ❌ {}\n📥 {} arquivos aqui.",
-"batch_done_chan": "🏁 **Concluído!** ✅ {} ❌ {}\n📢 {} arquivos encaminhados!",
-"dl_video": "📥 Baixando vídeo...", "dl_audio": "📥 Extraindo áudio...", "dl_image": "📥 Extraindo imagens...", "dl_sub": "📥 Buscando legendas...",
-"failed_50": "❌ >300MB", "failed_blocked": "❌ Bloqueado/privado", "failed_generic": "❌ Falhou",
-"menu_lang": "🌍 Idioma", "menu_stats": "📊 Minhas Estatísticas", "menu_help": "💬 Suporte / FAQ", "menu_join": "📢 Entrar no Canal",
-"menu_uploads": "🍿 Envios de Fãs", "menu_upload": "📤 Enviar Arquivo",
-"admin_upload_prompt": "📂 **Caixa de Entrada de Envios de Fãs**",
-"user_upload_prompt": "📤 **Enviar Arquivo**\nEnvie vídeo/imagem/arquivo para o Admin. Limite 5/24h.",
-"upload_success_user": "✅ Enviado para o Admin!",
-"upload_limit_reached": "⚠️ Limite de envios 5/24h atingido.",
-"no_uploads": "📭 Nenhum envio ainda.",
-"stats_msg": "📊 **Suas Estatísticas:**\n• Downloads Restantes: {}\n• Lotes Restantes: {}",
-"change_channel_prompt": "🔄 **Alterar Canal de Lotes**\n1. Certifique-se de que sou admin no novo canal.\n2. Encaminhe qualquer mensagem desse canal para cá.",
-"disk_config_prompt": "💾 **Config de Disco**\nMínimo de disco livre atual: **{}MB**\nPara alterar: `/setdisk <valor>`",
-"mtproto_config_prompt": "⚡ **Config MTProto**\nMax de upload atual: **{}MB**\nPara alterar: `/setmtproto <valor>`",
-"free_panel_prompt": "📦 DOWNLOADS GRÁTIS\nGrátis atuais por dia: {}",
-"reward_panel_prompt": "🎁 PAINEL DE RECOMPENSAS\nAtual: +{} download por anúncio de 20s",
-"ad_panel_prompt": "⚙️ Painel de Anúncios\nAtual: {}",
-"password_saved": "🔐 Senha salva.",
-"password_too_long": "A senha deve ter 64 caracteres ou menos.",
-"file_to_link_prompt": "🔗 **Arquivo-para-Link**\nEnvie o(s) arquivo(s) que deseja compartilhar.",
-"link_invalid_expired": "❌ Este link é inválido ou expirou.",
-"link_limit_reached": "⛔ Este link atingiu seu limite de uso.",
-"link_password_protected": "🔐 Este link está protegido por senha. Envie a senha.",
-"files_sent": "✅ Seus arquivos foram enviados.",
-"file_added": "📥 Arquivo #{} adicionado. Envie mais ou toque em Criar Link.",
-"fl_cancelled": "Arquivo-para-Link cancelado",
-"fl_start_again": "Inicie Arquivo-para-Link novamente com /filetolink",
-"fl_choose_expiry": "Escolha a expiração do link:",
-"fl_expiry_updated": "Expiração atualizada",
-"fl_choose_max_uses": "Escolha o máximo de entregas bem-sucedidas:",
-"fl_uses_updated": "Limite de uso atualizado",
-"fl_set_password": "Envie uma senha ou /clearpassword para remover.",
-"fl_link_created": "Link criado",
-"fl_link_ready": "🔗 Seu link está pronto:\n{}\nArquivos: {}\nCusto: 1 download diário grátis",
-"fl_daily_limit": "Limite diário grátis atingido. Assista a um anúncio para ganhar mais.",
-"fl_ad_busy": "⚠️ Servidor de anúncios ocupado.",
-"admin_skipped": "✅ Ignorado!",
-"admin_bypassed": "✅ Ignorado",
-"free_set": "✅ Grátis definido para {}!",
-"free_updated": "✅ Downloads Grátis atualizados para {}!",
-"reward_set": "✅ Recompensa definida para +{}!",
-"reward_updated": "✅ Recompensa atualizada para +{}!",
-"mode_updated": "✅ Modo: {}",
-"support_opened": "✍️ Envie mensagem/foto/vídeo/arquivo abaixo.",
-"admin_reply_mode": "✍️ Responder a {}:",
-"user_reply_mode": "✍️ Digite o acompanhamento abaixo",
-"support_closed": "🔒 Fechado",
-"drop_cancelled": "❌ Cancelado",
-"drop_no_items": "⚠️ Sem itens!",
-"drop_timer_set": "{} definido!",
-"drop_broadcasting": "🚀 Transmitindo {} itens para {}...",
-"drop_flash_text": "🚨 FLASH DROP!\nAuto-exclui em {}\nToque para reivindicar:",
-"drop_done": "✅ Transmissão feita para {}",
-"age_expired": "⏳ Expirado!",
-"age_claimed": "❌ Já reivindicado!",
-"age_verified": "Verificado!",
-"age_denied": "❌ Negado. Deve ser 18+",
-"lang_updated": "Atualizado!",
-"batch_expired": "Expirado",
-"batch_loading": "Carregando...",
-"batch_no_channel": "Nenhum canal vinculado!",
-"batch_setup_prompt": "📦 Configuração: Torne o bot admin no canal e encaminhe uma mensagem aqui",
-"batch_mode_activated": "Modo ativado!",
-"batch_change_dest": "🔄 **Alterar Canal de Destino**\nTorne o bot admin no novo canal, depois encaminhe uma mensagem aqui.",
-"join_channel_first_alert": "Entre no canal primeiro! 📢 Deve entrar!",
-"join_channel_first": "Entre no canal primeiro! 📢",
-"watch_timer_first": "⏰ Abra o link e assista ao temporizador de 20s primeiro!",
-"test_ad_verified": "✅ Anúncio de Teste Verificado! +1",
-"test_ad_verified_msg": "✅ **ANÚNCIO DE TESTE VERIFICADO!**\nRecompensa: +1 download recarregado!",
-"finish_timer_first": "⏰ Termine o temporizador de 20s primeiro!",
-"verified_added": "Verificado! +1 adicionado",
-"resume_prompt": "✅ Verificado! Recarregado +1. Retomar?",
-"refilled_download": "✅ Recarregado +1! Baixe novamente.",
-"fetching_bundle": "✅ Verificado! Buscando pacote...",
-"outdated_button": "Este botão está desatualizado. Envie seu link novamente.",
-"stopping": "Parando...",
-"stopped": "🛑 Parado",
-"resuming": "Retomando...",
-"checking_vault": "Verificando cofre e carga do servidor...",
-"server_busy": "⏳ **Servidor Ocupado**\nAtivos: {}/{}\nLivre: {}MB\nFila: #{}\nIniciará auto!",
-"simulated": "🛠 Simulado! Agora toque em Verificar e Obter +1",
-"server_unreachable": "❌ Servidor inacessível",
-"monetag_failed_twice": "Complete duas tentativas falhas de Monetag primeiro.",
-"monetag_fallback_prompt": "🌐 Monetag falhou duas vezes. Continue com Adsterra:",
-"adsterra_ready": "Fallback de Adsterra pronto",
-"finish_monetag": "📺 Termine o anúncio Monetag no Mini App, depois verifique.",
-"monetag_failed_use_adsterra": "Monetag falhou duas vezes. Use o fallback de Adsterra abaixo.",
-"ad_link_expired": "Link de anúncio expirado. Envie seu link novamente.",
-"ad_verified_added": "✅ Anúncio verificado! +{} adicionado",
-"test_ad_completed": "✅ ANÚNCIO DE TESTE VERIFICADO\nRecompensa creditada: +{} download.",
-"sponsor_viewed": "✅ Patrocinador visto! +{} adicionado",
-"refilled_send_again": "✅ Recarregado +{}! Envie seu link novamente.",
-"queued": "⏳ Na fila #{}",
-"banned": "🚫 Você está banido.",
-"no_links": "❌ Nenhum link encontrado.",
-"batch_count": "📦 Lote {} links",
-"restore_invalid_json": "❌ Falha na restauração: **{}** não é JSON válido.",
-"restore_failed": "❌ Falha na restauração: {}",
-"restore_success": "✅ **Restauração Bem-sucedida!**\nArquivo: **{}**\nRestauradas **{}** entradas.",
-"admin_edit_welcome_prompt": "✏️ Envie a nova Mensagem de Boas-vindas. Use `{bot_name}` para o nome de usuário.",
-"admin_welcome_updated": "✅ Mensagem de boas-vindas atualizada!",
-"menu_edit_welcome": "✏️ Editar Mensagem de Boas-vindas",
-"cached_instant_video": "⚡ Cache Instantâneo [{}] {} {}",
-"cached_instant_audio": "⚡ **Cache Instantâneo** `{}`",
-"cached_instant_image": "⚡ **Cache Instantâneo** `{}`",
-"auto_delete_9m": "⏳ Auto-exclui em 9 mins",
-"download_success": "✅ Download bem-sucedido!"
-},
-"id": {
-"welcome": "🚀 **SELAMAT DATANG DI MICHAELBBC VAULT - PENGUNDUH MEDIA LENGKAP!**\n🔥 APA YANG BISA SAYA LAKUKAN:\n🎬 VIDEO HD Tanpa Watermark!\n🎵 AUDIO MP3 192kbps!\n🖼️ GAMBAR Ekstraksi SEMUA!\n📝 SUBTITLE Otomatis!\n📦 BATCH 100+ Link!\n⚡ CACHE 1 Detik!\n💎 BRANKAS Selamanya!\n📤 UNGGAH FILE!\n🔗 FILE-KE-LINK: Buat link yang bisa dibagikan!\n👉 TEMPEL LINK UNTUK MEMULAI! 👇",
-"btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Gambar", "btn_sub": "📝 Subtitle (SRT)",
-"ask_format": "👇 **KEREN! Format apa yang Anda inginkan? Pilih di bawah!**",
-"fetching": "📥 **Mengambil {} Anda... Tunggu sebentar! ⏳✨**",
-"error_generic": "❌ Ups! Gagal! 😢 Link pribadi/diblokir. Coba link publik!",
-"error_50mb": "❌ Terlalu besar! 😅 Video ini lebih dari 300MB. Coba yang lebih pendek!",
-"error_no_img": "❌ Tidak ada gambar ditemukan! 😢 Coba link lain!",
-"images_received": "⏳ **{} Gambar diterima.**",
-"select_lang": "🌍 Pilih bahasa Anda! Pilih di bawah! 👇",
-"lang_set": "✅ Bahasa diatur! Nikmati! 🎉✨",
-"batch_detected": "📦 **Batch Terdeteksi ({} link)**\nFormat apa?",
-"batch_dest": "📦 **Kirim ke mana?**",
-"btn_chat": "📥 Di Chat", "btn_chan": "📢 Ke Channel",
-"limit_reached": "⚠️ **Batas Tercapai!** Anda menggunakan 4 GRATIS! Tonton iklan 20d → Dapatkan +1 unduhan!",
-"refill_btn": "🔓 Buka Link & Isi Ulang +1",
-"join_btn": "📢 Gabung Channel", "check_btn": "💜 Cek Saldo",
-"limit_batch": "⚠️ **Batas Batch Tercapai pada {} dari {}**\nTonton iklan 20d → +1 unduhan untuk melanjutkan.",
-"batch_start": "📦 **Batch Dimulai:** {} **{} file**\n⏳ Memproses...",
-"batch_done": "🏁 **Selesai!** ✅ {} ❌ {}\n📥 {} file di sini.",
-"batch_done_chan": "🏁 **Selesai!** ✅ {} ❌ {}\n📢 {} file diteruskan!",
-"dl_video": "📥 Mengunduh video...", "dl_audio": "📥 Mengekstrak audio...", "dl_image": "📥 Mengekstrak gambar...", "dl_sub": "📥 Mengambil subtitle...",
-"failed_50": "❌ >300MB", "failed_blocked": "❌ Diblokir/pribadi", "failed_generic": "❌ Gagal",
-"menu_lang": "🌍 Bahasa", "menu_stats": "📊 Statistik Saya", "menu_help": "💬 Dukungan / FAQ", "menu_join": "📢 Gabung Channel",
-"menu_uploads": "🍿 Unggahan Penggemar", "menu_upload": "📤 Unggah File",
-"admin_upload_prompt": "📂 **Kotak Masuk Unggahan Penggemar**",
-"user_upload_prompt": "📤 **Unggah File**\nKirim video/gambar/file ke Admin. Batas 5/24jam.",
-"upload_success_user": "✅ Terkirim ke Admin!",
-"upload_limit_reached": "⚠️ Batas unggahan 5/24jam tercapai.",
-"no_uploads": "📭 Belum ada unggahan.",
-"stats_msg": "📊 **Statistik Anda:**\n• Sisa Unduhan: {}\n• Sisa Batch: {}",
-"change_channel_prompt": "🔄 **Ubah Channel Batch**\n1. Pastikan saya adalah admin di channel baru.\n2. Teruskan pesan apa pun dari channel tersebut ke sini.",
-"disk_config_prompt": "💾 **Konfigurasi Disk**\nMin disk bebas saat ini: **{}MB**\nUntuk mengubah: `/setdisk <nilai>`",
-"mtproto_config_prompt": "⚡ **Konfigurasi MTProto**\nMax unggah saat ini: **{}MB**\nUntuk mengubah: `/setmtproto <nilai>`",
-"free_panel_prompt": "📦 UNDUHAN GRATIS\nGratis saat ini per hari: {}",
-"reward_panel_prompt": "🎁 PANEL HADIAH\nSaat ini: +{} unduhan per iklan 20d",
-"ad_panel_prompt": "⚙️ Panel Iklan\nSaat ini: {}",
-"password_saved": "🔐 Kata sandi disimpan.",
-"password_too_long": "Kata sandi harus 64 karakter atau kurang.",
-"file_to_link_prompt": "🔗 **File-ke-Link**\nKirim file yang ingin Anda bagikan.",
-"link_invalid_expired": "❌ Link ini tidak valid atau kedaluwarsa.",
-"link_limit_reached": "⛔ Link ini mencapai batas penggunaan.",
-"link_password_protected": "🔐 Link ini dilindungi kata sandi. Kirim kata sandi.",
-"files_sent": "✅ File Anda telah dikirim.",
-"file_added": "📥 File #{} ditambahkan. Kirim lebih banyak, atau ketuk Buat Link.",
-"fl_cancelled": "File-ke-Link dibatalkan",
-"fl_start_again": "Mulai File-ke-Link lagi dengan /filetolink",
-"fl_choose_expiry": "Pilih kedaluwarsa link:",
-"fl_expiry_updated": "Kedaluwarsa diperbarui",
-"fl_choose_max_uses": "Pilih max pengiriman berhasil:",
-"fl_uses_updated": "Batas penggunaan diperbarui",
-"fl_set_password": "Kirim kata sandi, atau /clearpassword untuk menghapus.",
-"fl_link_created": "Link dibuat",
-"fl_link_ready": "🔗 Link Anda siap:\n{}\nFile: {}\nBiaya: 1 unduhan harian gratis",
-"fl_daily_limit": "Batas harian gratis tercapai. Tonton iklan untuk mendapatkan lebih banyak.",
-"fl_ad_busy": "⚠️ Server iklan sibuk.",
-"admin_skipped": "✅ Dilewati!",
-"admin_bypassed": "✅ Dilewati",
-"free_set": "✅ Gratis diatur ke {}!",
-"free_updated": "✅ Unduhan Gratis diperbarui ke {}!",
-"reward_set": "✅ Hadiah diatur ke +{}!",
-"reward_updated": "✅ Hadiah diperbarui ke +{}!",
-"mode_updated": "✅ Mode: {}",
-"support_opened": "✍️ Kirim pesan/foto/video/file di bawah.",
-"admin_reply_mode": "✍️ Balas ke {}:",
-"user_reply_mode": "✍️ Ketik tindak lanjut di bawah",
-"support_closed": "🔒 Ditutup",
-"drop_cancelled": "❌ Dibatalkan",
-"drop_no_items": "⚠️ Tidak ada item!",
-"drop_timer_set": "{} diatur!",
-"drop_broadcasting": "🚀 Menyiarakan {} item ke {}...",
-"drop_flash_text": "🚨 FLASH DROP!\nHapus otomatis dalam {}\nKetuk untuk klaim:",
-"drop_done": "✅ Siaran selesai ke {}",
-"age_expired": "⏳ Kedaluwarsa!",
-"age_claimed": "❌ Sudah diklaim!",
-"age_verified": "Terverifikasi!",
-"age_denied": "❌ Ditolak. Harus 18+",
-"lang_updated": "Diperbarui!",
-"batch_expired": "Kedaluwarsa",
-"batch_loading": "Memuat...",
-"batch_no_channel": "Tidak ada channel yang ditautkan!",
-"batch_setup_prompt": "📦 Pengaturan: Jadikan bot admin di channel dan teruskan pesan ke sini",
-"batch_mode_activated": "Mode diaktifkan!",
-"batch_change_dest": "🔄 **Ubah Channel Tujuan**\nJadikan bot admin di channel baru, lalu teruskan pesan ke sini.",
-"join_channel_first_alert": "Gabung channel dulu! 📢 Wajib gabung!",
-"join_channel_first": "Gabung channel dulu! 📢",
-"watch_timer_first": "⏰ Buka link dan tonton timer 20d dulu!",
-"test_ad_verified": "✅ Iklan Uji Terverifikasi! +1",
-"test_ad_verified_msg": "✅ **IKLAN UJI TERVERIFIKASI!**\nHadiah: +1 unduhan diisi ulang!",
-"finish_timer_first": "⏰ Selesaikan timer 20d dulu!",
-"verified_added": "Terverifikasi! +1 ditambahkan",
-"resume_prompt": "✅ Terverifikasi! Diisi ulang +1. Lanjutkan?",
-"refilled_download": "✅ Diisi ulang +1! Unduh lagi.",
-"fetching_bundle": "✅ Terverifikasi! Mengambil paket...",
-"outdated_button": "Tombol ini kedaluwarsa. Kirim link Anda lagi.",
-"stopping": "Menghentikan...",
-"stopped": "🛑 Berhenti",
-"resuming": "Melanjutkan...",
-"checking_vault": "Memeriksa brankas & beban server...",
-"server_busy": "⏳ **Server Sibuk**\nAktif: {}/{}\nBebas: {}MB\nAntrian: #{}\nAkan mulai otomatis!",
-"simulated": "🛠 Disimulasikan! Sekarang ketuk Periksa & Dapatkan +1",
-"server_unreachable": "❌ Server tidak dapat dijangkau",
-"monetag_failed_twice": "Selesaikan dua upaya Monetag yang gagal terlebih dahulu.",
-"monetag_fallback_prompt": "🌐 Monetag gagal dua kali. Lanjutkan dengan Adsterra:",
-"adsterra_ready": "Fallback Adsterra siap",
-"finish_monetag": "📺 Selesaikan iklan Monetag di Mini App, lalu periksa lagi.",
-"monetag_failed_use_adsterra": "Monetag gagal dua kali. Gunakan fallback Adsterra di bawah.",
-"ad_link_expired": "Link iklan kedaluwarsa. Kirim link Anda lagi.",
-"ad_verified_added": "✅ Iklan terverifikasi! +{} ditambahkan",
-"test_ad_completed": "✅ IKLAN UJI TERVERIFIKASI\nHadiah dikreditkan: +{} unduhan.",
-"sponsor_viewed": "✅ Sponsor dilihat! +{} ditambahkan",
-"refilled_send_again": "✅ Diisi ulang +{}! Kirim link Anda lagi.",
-"queued": "⏳ Dalam antrian #{}",
-"banned": "🚫 Anda dibanned.",
-"no_links": "❌ Tidak ada link ditemukan.",
-"batch_count": "📦 Batch {} link",
-"restore_invalid_json": "❌ Gagal memulihkan: **{}** bukan JSON yang valid.",
-"restore_failed": "❌ Gagal memulihkan: {}",
-"restore_success": "✅ **Pemulihan Berhasil!**\nFile: **{}**\nDipulihkan **{}** entri.",
-"admin_edit_welcome_prompt": "✏️ Kirim Pesan Selamat Datang baru. Gunakan `{bot_name}` untuk username bot.",
-"admin_welcome_updated": "✅ Pesan selamat datang diperbarui!",
-"menu_edit_welcome": "✏️ Edit Pesan Selamat Datang",
-"cached_instant_video": "⚡ Cache Instan [{}] {} {}",
-"cached_instant_audio": "⚡ **Cache Instan** `{}`",
-"cached_instant_image": "⚡ **Cache Instan** `{}`",
-"auto_delete_9m": "⏳ Hapus otomatis dalam 9 menit",
-"download_success": "✅ Unduhan berhasil!"
-},
-"fr": {
-"welcome": "🚀 **BIENVENUE SUR MICHAELBBC VAULT - TÉLÉCHARGEUR DE MÉDIAS COMPLET!**\n🔥 CE QUE JE PEUX FAIRE:\n🎬 VIDÉOS HD Sans Filigrane!\n🎵 AUDIO MP3 192kbps!\n🖼️ IMAGES Extraction TOTALE!\n📝 SOUS-TITRES Auto!\n📦 LOTS 100+ Liens!\n⚡ CACHE 1 Sec!\n💎 COFFRE Pour Toujours!\n📤 TÉLÉVERSER DES FICHIERS!\n🔗 FICHIER-VERS-LIEN: Créez des liens partageables!\n👉 COLLEZ UN LIEN POUR COMMENCER! 👇",
-"btn_video": "🎬 Vidéo (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Images", "btn_sub": "📝 Sous-titres (SRT)",
-"ask_format": "👇 **GÉNIAL! Quel format voulez-vous? Choisissez ci-dessous!**",
-"fetching": "📥 **Récupération de votre {}... Patientez! ⏳✨**",
-"error_generic": "❌ Oups! Échec! 😢 Lien privé/bloqué. Essayez un lien public!",
-"error_50mb": "❌ Trop grand! 😅 Cette vidéo dépasse 300 Mo. Essayez une plus courte!",
-"error_no_img": "❌ Aucune image trouvée! 😢 Essayez un autre lien!",
-"images_received": "⏳ **{} Images reçues.**",
-"select_lang": "🌍 Sélectionnez votre langue! Choisissez ci-dessous! 👇",
-"lang_set": "✅ Langue définie! Profitez-en! 🎉✨",
-"batch_detected": "📦 **Lot Détecté ({} liens)**\nQuel format?",
-"batch_dest": "📦 **Où envoyer?**",
-"btn_chat": "📥 Dans le Chat", "btn_chan": "📢 Vers le Canal",
-"limit_reached": "⚠️ **Limite Atteinte!** Vous avez utilisé 4 GRATUITS! Regardez une pub de 20s → Obtenez +1 téléchargement!",
-"refill_btn": "🔓 Ouvrir le Lien et Recharger +1",
-"join_btn": "📢 Rejoindre le Canal", "check_btn": "💜 Vérifier le Solde",
-"limit_batch": "⚠️ **Limite du Lot Atteinte à {} sur {}**\nRegardez une pub de 20s → +1 téléchargement pour continuer.",
-"batch_start": "📦 **Lot Démarré:** {} **{} fichiers**\n⏳ Traitement...",
-"batch_done": "🏁 **Terminé!** ✅ {} ❌ {}\n📥 {} fichiers ici.",
-"batch_done_chan": "🏁 **Terminé!** ✅ {} ❌ {}\n📢 {} fichiers transférés!",
-"dl_video": "📥 Téléchargement de la vidéo...", "dl_audio": "📥 Extraction de l'audio...", "dl_image": "📥 Extraction des images...", "dl_sub": "📥 Récupération des sous-titres...",
-"failed_50": "❌ >300MB", "failed_blocked": "❌ Bloqué/privé", "failed_generic": "❌ Échec",
-"menu_lang": "🌍 Langue", "menu_stats": "📊 Mes Statistiques", "menu_help": "💬 Support / FAQ", "menu_join": "📢 Rejoindre le Canal",
-"menu_uploads": "🍿 Téléversements des Fans", "menu_upload": "📤 Téléverser un Fichier",
-"admin_upload_prompt": "📂 **Boîte de Réception des Téléversements des Fans**",
-"user_upload_prompt": "📤 **Téléverser un Fichier**\nEnvoyez vidéo/image/fichier à l'Admin. Limite 5/24h.",
-"upload_success_user": "✅ Envoyé à l'Admin!",
-"upload_limit_reached": "⚠️ Limite de téléversement 5/24h atteinte.",
-"no_uploads": "📭 Aucun téléversement pour le moment.",
-"stats_msg": "📊 **Vos Statistiques:**\n• Téléchargements Restants: {}\n• Lots Restants: {}",
-"change_channel_prompt": "🔄 **Changer de Canal pour les Lots**\n1. Assurez-vous que je suis admin dans le nouveau canal.\n2. Transférez n'importe quel message de ce canal ici.",
-"disk_config_prompt": "💾 **Config du Disque**\nMin disque libre actuel: **{} Mo**\nPour changer: `/setdisk <valeur>`",
-"mtproto_config_prompt": "⚡ **Config MTProto**\nMax téléversement actuel: **{} Mo**\nPour changer: `/setmtproto <valeur>`",
-"free_panel_prompt": "📦 TÉLÉCHARGEMENTS GRATUITS\nGratuits actuels par jour: {}",
-"reward_panel_prompt": "🎁 PANNEAU DE RÉCOMPENSES\nActuel: +{} téléchargement par pub de 20s",
-"ad_panel_prompt": "⚙️ Panneau des Pubs\nActuel: {}",
-"password_saved": "🔐 Mot de passe enregistré.",
-"password_too_long": "Le mot de passe doit faire 64 caractères ou moins.",
-"file_to_link_prompt": "🔗 **Fichier-vers-Lien**\nEnvoyez le(s) fichier(s) que vous_ready": "🔗 Votre lien est prêt:\n{}\nFichiers: {}\nCoût: 1 téléchargement quotidien gratuit",
-"fl_daily_limit": "Limite quotidienne gratuite atteinte. Regardez une pub pour en gagner plus.",
-"fl_ad_busy": "⚠️ Serveur de publicités occupé.",
-"admin_skipped": "✅ Ignoré!",
-"admin_bypassed": "✅ Contourné",
-"free_set": "✅ Gratuit défini à {}!",
-"free_updated": "✅ Téléchargements Gratuits mis à jour à {}!",
-"reward_set": "✅ Récompense définie à +{}!",
-"reward_updated": "✅ Récompense mise à jour à +{}!",
-"mode_updated": "✅ Mode: {}",
-"support_opened": "✍️ Envoyez message/photo/vidéo/fichier ci-dessous.",
-"admin_reply_mode": "✍️ Répondre à {}:",
-"user_reply_mode": "✍️ Tapez le suivi ci-dessous",
-"support_closed": "🔒 Fermé",
-"drop_cancelled": "❌ Annulé",
-"drop_no_items": "⚠️ Aucun élément!",
-"drop_timer_set": "{} défini!",
-"drop_broadcasting": "🚀 Diffusion de {} éléments à {}...",
-"drop_flash_text": "🚨 FLASH DROP!\nAuto-suppression dans {}\nAppuyez pour réclamer:",
-"drop_done": "✅ Diffusion terminée pour {}",
-"age_expired": "⏳ Expiré!",
-"age_claimed": "❌ Déjà réclamé!",
-"age_verified": "Vérifié!",
-"age_denied": "❌ Refusé. Doit être 18+",
-"lang_updated": "Mis à jour!",
-"batch_expired": "Expiré",
-"batch_loading": "Chargement...",
-"batch_no_channel": "Aucun canal lié!",
-"batch_setup_prompt": "📦 Configuration: Rendez le bot admin dans le canal et transférez un message ici",
-"batch_mode_activated": "Mode activé!",
-"batch_change_dest": "🔄 **Changer de Canal de Destination**\nRendez le bot admin dans le nouveau canal, puis transférez un message ici.",
-"join_channel_first_alert": "Rejoignez le canal d'abord! 📢 Obligatoire!",
-"join_channel_first": "Rejoignez le canal d'abord! 📢",
-"watch_timer_first": "⏰ Ouvrez le lien et regardez le minuteur de 20s d'abord!",
-"test_ad_verified": "✅ Pub de Test Vérifiée! +1",
-"test_ad_verified_msg": "✅ **PUB DE TEST VÉRIFIÉE!**\nRécompense: +1 téléchargement rechargé!",
-"finish_timer_first": "⏰ Terminez le minuteur de 20s d'abord!",
-"verified_added": "Vérifié! +1 ajouté",
-"resume_prompt": "✅ Vérifié! Rechargé +1. Reprendre?",
-"refilled_download": "✅ Rechargé +1! Téléchargez à nouveau.",
-"fetching_bundle": "✅ Vérifié! Récupération du paquet...",
-"outdated_button": "Ce bouton est obsolète. Envoyez votre lien à nouveau.",
-"stopping": "Arrêt...",
-"stopped": "🛑 Arrêté",
-"resuming": "Reprise...",
-"checking_vault": "Vérification du coffre et de la charge du serveur...",
-"server_busy": "⏳ **Serveur Occupé**\nActifs: {}/{}\nLibre: {} Mo\nFile d'attente: #{}\nDémarrage auto!",
-"simulated": "🛠 Simulé! Appuyez maintenant sur Vérifier et Obtenir +1",
-"server_unreachable": "❌ Serveur injoignable",
-"monetag_failed_twice": "Terminez d'abord deux tentatives Monetag échouées.",
-"monetag_fallback_prompt": "🌐 Monetag a échoué deux fois. Continuez avec Adsterra:",
-"adsterra_ready": "Solution de repli Adsterra prête",
-"finish_monetag": "📺 Terminez la pub Monetag dans la Mini App, puis vérifiez à nouveau.",
-"monetag_failed_use_adsterra": "Monetag a échoué deux fois. Utilisez la solution de repli Adsterra ci-dessous.",
-"ad_link_expired": "Lien publicitaire expiré. Envoyez votre lien à nouveau.",
-"ad_verified_added": "✅ Pub vérifiée! +{} ajouté",
-"test_ad_completed": "✅ PUB DE TEST VÉRIFIÉE\nRécompense créditée: +{} téléchargement.",
-"sponsor_viewed": "✅ Sponsor vu! +{} ajouté",
-"refilled_send_again": "✅ Rechargé +{}! Envoyez votre lien à nouveau.",
-"queued": "⏳ En file d'attente #{}",
-"banned": "🚫 Vous êtes banni.",
-"no_links": "❌ Aucun lien trouvé.",
-"batch_count": "📦 Lot {} liens",
-"restore_invalid_json": "❌ Échec de la restauration: **{}** n'est pas un JSON valide.",
-"restore_failed": "❌ Échec de la restauration: {}",
-"restore_success": "✅ **Restauration Réussie!**\nFichier: **{}**\nRestaurées **{}** entrées.",
-"admin_edit_welcome_prompt": "✏️ Envoyez le nouveau Message de Bienvenue. Utilisez `{bot_name}` pour le nom d'utilisateur.",
-"admin_welcome_updated": "✅ Message de bienvenue mis à jour!",
-"menu_edit_welcome": "✏️ Modifier le Message de Bienvenue",
-"cached_instant_video": "⚡ Cache Instantané [{}] {} {}",
-"cached_instant_audio": "⚡ **Cache Instantané** `{}`",
-"cached_instant_image": "⚡ **Cache Instantané** `{}`",
-"auto_delete_9m": "⏳ Auto-suppression dans 9 mins",
-"download_success": "✅ Téléchargement réussi !"
-},
-"tr": {
-"welcome": "🚀 **MICHAELBBC VAULT'A HOŞGELDİNİZ - TAM MEDYA İNDİRİCİ!**\n🔥 NE YAPABİLİRİM:\n🎬 VİDEOLAR HD Filigransız!\n🎵 SES MP3 192kbps!\n🖼️ GÖRSELLER Tam Çekim!\n📝 ALTYAZILAR Oto!\n📦 TOPLU 100+ Bağlantı!\n⚡ ÖNBELLEK 1 Sn!\n💎 KASA Sonsuza Kadar!\n📤 DOSYA YÜKLE!\n🔗 DOSYADAN-LİNKE: Paylaşılabilir bağlantılar oluşturun!\n👉 BAŞLAMAK İÇİN BAĞLANTI YAPIŞTIRIN! 👇",
-"btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Ses (MP3)", "btn_image": "🖼️ Görseller", "btn_sub": "📝 Altyazılar (SRT)",
-"ask_format": "👇 **HARİKA! Hangi formatı istiyorsunuz? Aşağıdan seçin!**",
-"fetching": "📥 **{} getiriliyor... Bekleyin! ⏳✨**",
-"error_generic": "❌ Oops! Başarısız! 😢 Bağlantı özel/engelli. Halka açık bir bağlantı deneyin!",
-"error_50mb": "❌ Çok büyük! 😅 Bu video 300MB'ı aşıyor. Daha kısa bir tane deneyin!",
-"error_no_img": "❌ Görsel bulunamadı! 😢 Başka bir bağlantı deneyin!",
-"images_received": "⏳ **{} Görsel alındı.**",
-"select_lang": "🌍 Dilinizi seçin! Aşağıdan seçin! 👇",
-"lang_set": "✅ Dil ayarlandı! Keyfini çıkarın! 🎉✨",
-"batch_detected": "📦 **Toplu İşlem Algılandı ({} bağlantı)**\nHangi format?",
-"batch_dest": "📦 **Nereye gönderilsin?**",
-"btn_chat": "📥 Sohbette", "btn_chan": "📢 Kanala",
-"limit_reached": "⚠️ **Limit Aşıldı!** 4 ÜCRETSİZ kullandınız! 20 sn reklam izleyin → +1 indirme kazanın!",
-"refill_btn": "🔓 Bağlantıyı Aç ve +1 Doldur",
-"join_btn": "📢 Kanala Katıl", "check_btn": "💜 Bakiyeyi Kontrol Et",
-"limit_batch": "⚠️ **Toplu İşlem Limiti {}/{}'de Aşıldı**\n20 sn reklam izleyin → devam etmek için +1 indirme.",
-"batch_start": "📦 **Toplu İşlem Başladı:** {} **{} dosya**\n⏳ İşleniyor...",
-"batch_done": "🏁 **Bitti!** ✅ {} ❌ {}\n📥 Burada {} dosya var.",
-"batch_done_chan": "🏁 **Bitti!** ✅ {} ❌ {}\n📢 {} dosya iletildi!",
-"dl_video": "📥 Video indiriliyor...", "dl_audio": "📥 Ses çıkarılıyor...", "dl_image": "📥 Görseller çekiliyor...", "dl_sub": "📥 Altyazılar getiriliyor...",
-"failed_50": "❌ >300MB", "failed_blocked": "❌ Engelli/özel", "failed_generic": "❌ Başarısız",
-"menu_lang": "🌍 Dil", "menu_stats": "📊 İstatistiklerim", "menu_help": "💬 Destek / SSS", "menu_join": "📢 Kanala Katıl",
-"menu_uploads": "🍿 Hayran Yüklemeleri", "menu_upload": "📤 Dosya Yükle",
-"admin_upload_prompt": "📂 **Hayran Yüklemeleri Gelen Kutusu**",
-"user_upload_prompt": "📤 **Dosya Yükle**\nYöneticiye video/görsel/dosya gönderin. Limit 5/24s.",
-"upload_success_user": "✅ Yöneticiye gönderildi!",
-"upload_limit_reached": "⚠️ 5/24s yükleme limitine ulaşıldı.",
-"no_uploads": "📭 Henüz yükleme yok.",
-"stats_msg": "📊 **İstatistikleriniz:**\n• Kalan İndirme: {}\n• Kalan Toplu İşlem: {}",
-"change_channel_prompt": "🔄 **Toplu İşlem Kanalını Değiştir**\n1. Yeni kanalda yönetici olduğumdan emin olun.\n2. O kanaldan herhangi bir mesajı buraya iletin.",
-"disk_config_prompt": "💾 **Disk Yapılandırması**\nMevcut min boş disk: **{}MB**\nDeğiştirmek için: `/setdisk <değer>`",
-"mtproto_config_prompt": "⚡ **MTProto Yapılandırması**\nMevcut max yükleme: **{}MB**\nDeğiştirmek için: `/setmtproto <değer>`",
-"free_panel_prompt": "📦 ÜCRETSİZ İNDİRMELER\nGünlük mevcut ücretsiz: {}",
-"reward_panel_prompt": "🎁 ÖDÜL PANELİ\nMevcut: 20 sn reklam başına +{} indirme",
-"ad_panel_prompt": "⚙️ Reklam Paneli\nMevcut: {}",
-"password_saved": "🔐 Şifre kaydedildi.",
-"password_too_long": "Şifre 64 karakter veya daha az olmalıdır.",
-"file_to_link_prompt": "🔗 **Dosyadan-Link**\nPaylaşmak istediğiniz dosya(ları) gönderin.",
-"link_invalid_expired": "❌ Bu bağlantı geçersiz veya süresi dolmuş.",
-"link_limit_reached": "⛔ Bu bağlantı kullanım limitine ulaştı.",
-"link_password_protected": "🔐 Bu bağlantı şifre korumalıdır. Şifreyi gönderin.",
-"files_sent": "✅ Dosyalarınız gönderildi.",
-"file_added": "📥 Dosya #{} eklendi. Daha fazla gönderin veya Bağlantı Oluştur'a dokunun.",
-"fl_cancelled": "Dosyadan-Link iptal edildi",
-"fl_start_again": "/filetolink ile Dosyadan-Link'i yeniden başlatın",
-"fl_choose_expiry": "Bağlantı sona erme süresini seçin:",
-"fl_expiry_updated": "Sona erme güncellendi",
-"fl_choose_max_uses": "Maksimum başarılı teslimat sayısını seçin:",
-"fl_uses_updated": "Kullanım limiti güncellendi",
-"fl_set_password": "Bir şifre gönderin veya kaldırmak için /clearpassword gönderin.",
-"fl_link_created": "Bağlantı oluşturuldu",
-"fl_link_ready": "🔗 Bağlantınız hazır:\n{}\nDosyalar: {}\nMaliyet: 1 ücretsiz günlük indirme",
-"fl_daily_limit": "Günlük ücretsiz limite ulaşıldı. Daha fazlasını kazanmak için reklam izleyin.",
-"fl_ad_busy": "⚠️ Reklam sunucusu meşgul.",
-"admin_skipped": "✅ Atlandı!",
-"admin_bypassed": "✅ Atlatıldı",
-"free_set": "✅ Ücretsiz {} olarak ayarlandı!",
-"free_updated": "✅ Ücretsiz İndirmeler {} olarak güncellendi!",
-"reward_set": "✅ Ödül +{} olarak ayarlandı!",
-"reward_updated": "✅ Ödül +{} olarak güncellendi!",
-"mode_updated": "✅ Mod: {}",
-"support_opened": "✍️ Aşağıya mesaj/fotoğraf/video/dosya gönderin.",
-"admin_reply_mode": "✍️ {} kişisine yanıt ver:",
-"user_reply_mode": "✍️ Aşağıya takip mesajı yazın",
-"support_closed": "🔒 Kapatıldı",
-"drop_cancelled": "❌ İptal edildi",
-"drop_no_items": "⚠️ Öğe yok!",
-"drop_timer_set": "{} ayarlandı!",
-"drop_broadcasting": "🚀 {} öğe {} kişisine yayınlanıyor...",
-"drop_flash_text": "🚨 FLASH DROP!\n{} içinde otomatik silinir\nTalep etmek için dokunun:",
-"drop_done": "✅ {} kişisine yayın tamamlandı",
-"age_expired": "⏳ Süresi doldu!",
-"age_claimed": "❌ Zaten talep edildi!",
-"age_verified": "Doğrulandı!",
-"age_denied": "❌ Reddedildi. 18+ olmalı",
-"lang_updated": "Güncellendi!",
-"batch_expired": "Süresi doldu",
-"batch_loading": "Yükleniyor...",
-"batch_no_channel": "Bağlı kanal yok!",
-"batch_setup_prompt": "📦 Kurulum: Botu kanalda yönetici yapın ve buraya bir mesaj iletin",
-"batch_mode_activated": "Mod etkinleştirildi!",
-"batch_change_dest": "🔄 **Hedef Kanalı Değiştir**\nBotu yeni kanalda yönetici yapın, ardından buraya bir mesaj iletin.",
-"join_channel_first_alert": "Önce kanala katılın! 📢 Katılmalısınız!",
-"join_channel_first": "Önce kanala katılın! 📢",
-"watch_timer_first": "⏰ Önce bağlantıyı açın ve 20 sn'lik zamanlayıcıyı izleyin!",
-"test_ad_verified": "✅ Test Reklamı Doğrulandı! +1",
-"test_ad_verified_msg": "✅ **TEST REKLAMI DOĞRULANDI!**\nÖdül: +1 indirme dolduruldu!",
-"finish_timer_first": "⏰ Önce 20 sn'lik zamanlayıcıyı tamamlayın!",
-"verified_added": "Doğrulandı! +1 eklendi",
-"resume_prompt": "✅ Doğrulandı! +1 dolduruldu. Devam edilsin mi?",
-"refilled_download": "✅ +1 dolduruldu! Tekrar indirin.",
-"fetching_bundle": "✅ Doğrulandı! Paket getiriliyor...",
-"outdated_button": "Bu düğme güncel değil. Bağlantınızı tekrar gönderin.",
-"stopping": "Durduruluyor...",
-"stopped": "🛑 Durduruldu",
-"resuming": "Devam ediliyor...",
-"checking_vault": "Kasa ve sunucu yükü kontrol ediliyor...",
-"server_busy": "⏳ **Sunucu Meşgul**\nAktif: {}/{}\nBoş: {}MB\nKuyruk: #{}\nOtomatik başlayacak!",
-"simulated": "🛠 Simüle edildi! Şimdi Kontrol Et ve +1 Al'a dokunun",
-"server_unreachable": "❌ Sunucuya ulaşılamıyor",
-"monetag_failed_twice": "Önce iki başarısız Monetag denemesini tamamlayın.",
-"monetag_fallback_prompt": "🌐 Monetag iki kez başarısız oldu. Adsterra ile devam edin:",
-"adsterra_ready": "Adsterra yedeklemesi hazır",
-"finish_monetag": "📺 Mini Uygulama'da Monetag reklamını tamamlayın, sonra tekrar kontrol edin.",
-"monetag_failed_use_adsterra": "Monetag iki kez başarısız oldu. Aşağıdaki Adsterra yedeklemesini kullanın.",
-"ad_link_expired": "Reklam bağlantısının süresi doldu. Bağlantınızı tekrar gönderin.",
-"ad_verified_added": "✅ Reklam doğrulandı! +{} eklendi",
-"test_ad_completed": "✅ TEST REKLAMI DOĞRULANDI\nÖdül yatırıldı: +{} indirme.",
-"sponsor_viewed": "✅ Sponsor görüntülendi! +{} eklendi",
-"refilled_send_again": "✅ +{} dolduruldu! Bağlantınızı tekrar gönderin.",
-"queued": "⏳ Kuyrukta #{}",
-"banned": "🚫 Yasaklandınız.",
-"no_links": "❌ Bağlantı bulunamadı.",
-"batch_count": "📦 Toplu {} bağlantı",
-"restore_invalid_json": "❌ Geri yükleme başarısız: **{}** geçerli bir JSON değil.",
-"restore_failed": "❌ Geri yükleme başarısız: {}",
-"restore_success": "✅ **Geri Yükleme Başarılı!**\nDosya: **{}**\n**{}** girdi geri yüklendi.",
-"admin_edit_welcome_prompt": "✏️ Yeni Karşılama Mesajını gönderin. Bot kullanıcı adı için `{bot_name}` kullanın.",
-"admin_welcome_updated": "✅ Karşılama mesajı güncellendi!",
-"menu_edit_welcome": "✏️ Karşılama Mesajını Düzenle",
-"cached_instant_video": "⚡ Anında Önbellek [{}] {} {}",
-"cached_instant_audio": "⚡ **Anında Önbellek** `{}`",
-"cached_instant_image": "⚡ **Anında Önbellek** `{}`",
-"auto_delete_9m": "⏳ 9 dakikada otomatik silinir",
-"download_success": "✅ İndirme başarılı!"
-},
-"de": {
-"welcome": "🚀 **WILLKOMMEN IM MICHAELBBC VAULT - ALL-IN-ONE MEDIA DOWNLOADER!**\n🔥 WAS ICH KANN:\n🎬 VIDEOS HD Ohne Wasserzeichen!\n🎵 AUDIO MP3 192kbps!\n🖼️ BILDER Komplett Extrahiert!\n📝 UNTERTITEL Auto!\n📦 STAPEL 100+ Links!\n⚡ CACHE 1 Sek!\n💎 TRESOR Für Immer!\n📤 DATEIEN HOCHLADEN!\n🔗 DATEI-ZU-LINK: Erstelle teilbare Links!\n👉 FÜGE EINEN LINK EIN, UM ZU STARTEN! 👇",
-"btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Bilder", "btn_sub": "📝 Untertitel (SRT)",
-"ask_format": "👇 **TOLL! Welches Format möchtest du? Wähle unten!**",
-"fetching": "📥 **Dein {} wird abgerufen... Warte kurz! ⏳✨**",
-"error_generic": "❌ Oops! Fehlgeschlagen! 😢 Link privat/gesperrt. Versuche einen öffentlichen Link!",
-"error_50mb": "❌ Zu groß! 😅 Dieses Video ist über 300MB. Versuche ein kürzeres!",
-"error_no_img": "❌ Keine Bilder gefunden! 😢 Versuche einen anderen Link!",
-"images_received": "⏳ **{} Bilder erhalten.**",
-"select_lang": "🌍 Wähle deine Sprache! Wähle unten! 👇",
-"lang_set": "✅ Sprache eingestellt! Viel Spaß! 🎉✨",
-"batch_detected": "📦 **Stapel erkannt ({} Links)**\nWelches Format?",
-"batch_dest": "📦 **Wohin senden?**",
-"btn_chat": "📥 Im Chat", "btn_chan": "📢 An Kanal",
-"limit_reached": "⚠️ **Limit erreicht!** Du hast 4 KOSTENLOSE genutzt! Schau 20s Werbung → Erhalte +1 Download!",
-"refill_btn": "🔓 Link öffnen & +1 auffüllen",
-"join_btn": "📢 Kanal beitreten", "check_btn": "💜 Guthaben prüfen",
-"limit_batch": "⚠️ **Stapel-Limit bei {} von {} erreicht**\nSchau 20s Werbung → +1 Download um fortzufahren.",
-"batch_start": "📦 **Stapel gestartet:** {} **{} Dateien**\n⏳ Wird verarbeitet...",
-"batch_done": "🏁 **Fertig!** ✅ {} ❌ {}\n📥 {} Dateien hier.",
-"batch_done_chan": "🏁 **Fertig!** ✅ {} ❌ {}\n📢 {} Dateien weitergeleitet!",
-"dl_video": "📥 Video wird heruntergeladen...", "dl_audio": "📥 Audio wird extrahiert...", "dl_image": "📥 Bilder werden extrahiert...", "dl_sub": "📥 Untertitel werden abgerufen...",
-"failed_50": "❌ >300MB", "failed_blocked": "❌ Gesperrt/privat", "failed_generic": "❌ Fehlgeschlagen",
-"menu_lang": "🌍 Sprache", "menu_stats": "📊 Meine Statistiken", "menu_help": "💬 Support / FAQ", "menu_join": "📢 Kanal beitreten",
-"menu_uploads": "🍿 Fan-Uploads", "menu_upload": "📤 Datei hochladen",
-"admin_upload_prompt": "📂 **Fan-Uploads Posteingang**",
-"user_upload_prompt": "📤 **Datei hochladen**\nSende Video/Bild/Datei an Admin. Limit 5/24h.",
-"upload_success_user": "✅ An Admin gesendet!",
-"upload_limit_reached": "⚠️ Upload-Limit 5/24h erreicht.",
-"no_uploads": "📭 Noch keine Uploads.",
-"stats_msg": "📊 **Deine Statistiken:**\n• Verbleibende Downloads: {}\n• Verbleibende Stapel: {}",
-"change_channel_prompt": "🔄 **Stapel-Kanal ändern**\n1. Stelle sicher, dass ich im neuen Kanal Admin bin.\n2. Leite eine beliebige Nachricht aus diesem Kanal hierher weiter.",
-"disk_config_prompt": "💾 **Speicher-Konfiguration**\nAktueller min. freier Speicher: **{}MB**\nZum Ändern: `/setdisk <wert>`",
-"mtproto_config_prompt": "⚡ **MTProto-Konfiguration**\nAktueller max. Upload: **{}MB**\nZum Ändern: `/setmtproto <wert>`",
-"free_panel_prompt": "📦 KOSTENLOSE DOWNLOADS\nAktuell kostenlos pro Tag: {}",
-"reward_panel_prompt": "🎁 BELOHNUNGS-PANEL\nAktuell: +{} Download pro 20s Werbung",
-"ad_panel_prompt": "⚙️ Werbe-Panel\nAktuell: {}",
-"password_saved": "🔐 Passwort gespeichert.",
-"password_too_long": "Passwort muss 64 Zeichen oder weniger sein.",
-"file_to_link_prompt": "🔗 **Datei-zu-Link**\nSende die Datei(en), die du teilen möchtest.",
-"link_invalid_expired": "❌ Dieser Link ist ungültig oder abgelaufen.",
-"link_limit_reached": "⛔ Dieser Link hat sein Nutzungslimit erreicht.",
-"link_password_protected": "🔐 Dieser Link ist passwortgeschützt. Sende das Passwort.",
-"files_sent": "✅ Deine Dateien wurden gesendet.",
-"file_added": "📥 Datei #{} hinzugefügt. Sende mehr oder tippe auf Link erstellen.",
-"fl_cancelled": "Datei-zu-Link abgebrochen",
-"fl_start_again": "Starte Datei-zu-Link neu mit /filetolink",
-"fl_choose_expiry": "Wähle den Link-Ablauf:",
-"fl_expiry_updated": "Ablauf aktualisiert",
-"fl_choose_max_uses": "Wähle max. erfolgreiche Zustellungen:",
-"fl_uses_updated": "Nutzungslimit aktualisiert",
-"fl_set_password": "Sende ein Passwort oder /clearpassword zum Entfernen.",
-"fl_link_created": "Link erstellt",
-"fl_link_ready": "🔗 Dein Link ist bereit:\n{}\nDateien: {}\nKosten: 1 kostenloser täglicher Download",
-"fl_daily_limit": "Tägliches kostenloses Limit erreicht. Schau Werbung, um mehr zu verdienen.",
-"fl_ad_busy": "⚠️ Werbeserver beschäftigt.",
-"admin_skipped": "✅ Übersprungen!",
-"admin_bypassed": "✅ Umgangen",
-"free_set": "✅ Kostenlos auf {} gesetzt!",
-"free_updated": "✅ Kostenlose Downloads auf {} aktualisiert!",
-"reward_set": "✅ Belohnung auf +{} gesetzt!",
-"reward_updated": "✅ Belohnung auf +{} aktualisiert!",
-"mode_updated": "✅ Modus: {}",
-"support_opened": "✍️ Sende Nachricht/Foto/Video/Datei unten.",
-"admin_reply_mode": "✍️ Antworte an {}:",
-"user_reply_mode": "✍️ Tippe die Fortsetzung unten",
-"support_closed": "🔒 Geschlossen",
-"drop_cancelled": "❌ Abgebrochen",
-"drop_no_items": "⚠️ Keine Elemente!",
-"drop_timer_set": "{} eingestellt!",
-"drop_broadcasting": "🚡 Sende {} Elemente an {}...",
-"drop_flash_text": "🚨 FLASH DROP!\nAutomatische Löschung in {}\nTippe zum Einlösen:",
-"drop_done": "✅ Sendung abgeschlossen an {}",
-"age_expired": "⏳ Abgelaufen!",
-"age_claimed": "❌ Bereits eingelöst!",
-"age_verified": "Verifiziert!",
-"age_denied": "❌ Abgelehnt. Muss 18+ sein",
-"lang_updated": "Aktualisiert!",
-"batch_expired": "Abgelaufen",
-"batch_loading": "Wird geladen...",
-"batch_no_channel": "Kein Kanal verknüpft!",
-"batch_setup_prompt": "📦 Einrichtung: Mache den Bot im Kanal zum Admin und leite eine Nachricht hierher weiter",
-"batch_mode_activated": "Modus aktiviert!",
-"batch_change_dest": "🔄 **Zielkanal ändern**\nMache den Bot im neuen Kanal zum Admin, dann leite eine Nachricht hierher weiter.",
-"join_channel_first_alert": "Tritt zuerst dem Kanal bei! 📢 Muss beitreten!",
-"join_channel_first": "Tritt zuerst dem Kanal bei! 📢",
-"watch_timer_first": "⏰ Öffne zuerst den Link und schaue den 20s Timer!",
-"test_ad_verified": "✅ Test-Werbung verifiziert! +1",
-"test_ad_verified_msg": "✅ **TEST-WERBUNG VERIFIZIERT!**\nBelohnung: +1 Download aufgefüllt!",
-"finish_timer_first": "⏰ Schließe zuerst den 20s Timer ab!",
-"verified_added": "Verifiziert! +1 hinzugefügt",
-"resume_prompt": "✅ Verifiziert! +1 aufgefüllt. Fortsetzen?",
-"refilled_download": "✅ +1 aufgefüllt! Lade erneut herunter.",
-"fetching_bundle": "✅ Verifiziert! Paket wird abgerufen...",
-"outdated_button": "Diese Schaltfläche ist veraltet. Sende deinen Link erneut.",
-"stopping": "Wird gestoppt...",
-"stopped": "🛑 Gestoppt",
-"resuming": "Wird fortgesetzt...",
-"checking_vault": "Tresor und Serverlast werden überprüft...",
-"server_busy": "⏳ **Server beschäftigt**\nAktiv: {}/{}\nFrei: {}MB\nWarteschlange: #{}\nStartet automatisch!",
-"simulated": "🛠 Simuliert! Tippe jetzt auf Prüfen & +1 erhalten",
-"server_unreachable": "❌ Server nicht erreichbar",
-"monetag_failed_twice": "Schließe zuerst zwei fehlgeschlagene Monetag-Versuche ab.",
-"monetag_fallback_prompt": "🌐 Monetag ist zweimal fehlgeschlagen. Mit Adsterra fortfahren:",
-"adsterra_ready": "Adsterra-Fallback bereit",
-"finish_monetag": "📺 Schließe die Monetag-Werbung in der Mini-App ab, prüfe dann erneut.",
-"monetag_failed_use_adsterra": "Monetag ist zweimal fehlgeschlagen. Nutze den Adsterra-Fallback unten.",
-"ad_link_expired": "Werbelink abgelaufen. Sende deinen Link erneut.",
-"ad_verified_added": "✅ Werbung verifiziert! +{} hinzugefügt",
-"test_ad_completed": "✅ TEST-WERBUNG VERIFIZIERT\nBelohnung gutgeschrieben: +{} Download.",
-"sponsor_viewed": "✅ Sponsor angesehen! +{} hinzugefügt",
-"refilled_send_again": "✅ +{} aufgefüllt! Sende deinen Link erneut.",
-"queued": "⏳ In Warteschlange #{}",
-"banned": "🚫 Du bist gesperrt.",
-"no_links": "❌ Keine Links gefunden.",
-"batch_count": "📦 Stapel {} Links",
-"restore_invalid_json": "❌ Wiederherstellung fehlgeschlagen: **{}** ist kein gültiges JSON.",
-"restore_failed": "❌ Wiederherstellung fehlgeschlagen: {}",
-"restore_success": "✅ **Wiederherstellung erfolgreich!**\nDatei: **{}**\n**{}** Einträge wiederhergestellt.",
-"admin_edit_welcome_prompt": "✏️ Sende die neue Willkommensnachricht. Verwende `{bot_name}` für den Bot-Benutzernamen.",
-"admin_welcome_updated": "✅ Willkommensnachricht aktualisiert!",
-"menu_edit_welcome": "✏️ Willkommensnachricht bearbeiten",
-"cached_instant_video": "⚡ Sofortiger Cache [{}] {} {}",
-"cached_instant_audio": "⚡ **Sofortiger Cache** `{}`",
-"cached_instant_image": "⚡ **Sofortiger Cache** `{}`",
-"auto_delete_9m": "⏳ Automatische Löschung in 9 Min.",
-"download_success": "✅ Download erfolgreich!"
-}
-}
-
-web_app = Flask(__name__)
-
-@web_app.route('/')
-def health_check():
-    return "Bot alive! V24 Optimum +1", 200
-
-# --- ADDED: API route for Flask to acknowledge backup requests (Optional, as Flask can also fetch directly via Telegram API) ---
-@web_app.route('/api/bot/download-backup', methods=['POST'])
-def api_download_backup():
-    data = request.get_json()
-    if data.get('secret') != API_SECRET:
-        return jsonify({"ok": False, "error": "Unauthorized"}), 403
-    
-    # The Flask app can actually download the file directly using the BOT_TOKEN via getUpdates.
-    # This endpoint serves as an acknowledgment bridge if needed.
-    return jsonify({"ok": True, "message": "Backup request acknowledged. Bot includes arcade_backup.json in its 6-hour cycle."})
-
-def load_json_file(filename):
-    if os.path.exists(filename):
+# ===== ARCADE BACKUP HELPERS =====
+def load_arcade_backup():
+    if os.path.exists(ARCADE_BACKUP_FILE):
         try:
-            with open(filename, "r") as f:
+            with open(ARCADE_BACKUP_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
         except:
             pass
     return {}
 
-def save_json_file(filename, data):
+def save_arcade_backup(data):
     try:
-        with open(filename, "w") as f:
-            json.dump(data, f)
+        with open(ARCADE_BACKUP_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
     except Exception as e:
-        logger.error(f"Save {filename}: {e}")
+        print(f"Error saving arcade backup: {e}")
 
-async def get_canonical_key(url: str, chat_id=None, bot=None):
-    original_url = url
-    async def send_debug(text):
-        if chat_id and bot:
-            try: await bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
-            except: pass
-    await send_debug(f"🔍 <b>Processing Link:</b>\n<code>{url}</code>")
-    short_link_domains = ["vt.tiktok.com", "vm.tiktok.com", "youtu.be/", "t.co/", "instagr.am/", "fb.watch/"]
-    is_short_link = any(domain in url.lower() for domain in short_link_domains)
-    if is_short_link:
-        await send_debug("🔄 Resolving short link...")
-        try:
-            headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15'}
-            response = requests.get(url, headers=headers, allow_redirects=True, timeout=15)
-            resolved_url = response.url
-            if resolved_url != original_url:
-                url = resolved_url
-                await send_debug(f"✅ Resolved to:\n<code>{url}</code>")
-        except Exception as e:
-            await send_debug(f"❌ Redirect failed: {str(e)[:100]}")
-    tiktok_match = re.search(r'/video/(\d{15,20})', url)
-    if tiktok_match:
-        vid_id = tiktok_match.group(1)
-        await send_debug(f"🎯 <b>TikTok Regex Match!</b>\nVideo ID: <code>{vid_id}</code>")
-        return f"tiktok_{vid_id}"
-    await send_debug("🤖 Trying yt-dlp extraction...")
+def download_backup_from_telegram():
+    """Attempts to download the latest arcade_backup.json from the Telegram channel via the Bot API."""
+    if not BOT_TOKEN:
+        return False
+    
     try:
-        ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            if info:
-                if 'entries' in info and info['entries']: info = info['entries'][0]
-                extractor = info.get('extractor', 'generic').replace(':', '').replace(' ', '')
-                vid_id = info.get('id', '')
-                if vid_id:
-                    await send_debug(f"✅ yt-dlp found ID: <code>{vid_id}</code>")
-                    return f"{extractor}_{vid_id}"
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
+        r = requests.get(url, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("ok"):
+                for update in reversed(data.get("result", [])):
+                    if "channel_post" in update and update["channel_post"].get("document"):
+                        doc = update["channel_post"]["document"]
+                        if doc.get("file_name") == "arcade_backup.json":
+                            file_id = doc["file_id"]
+                            file_url = f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}"
+                            r_file = requests.get(file_url, timeout=10)
+                            if r_file.status_code == 200:
+                                file_path = r_file.json()["result"]["file_path"]
+                                download_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
+                                r_download = requests.get(download_url, timeout=10)
+                                if r_download.status_code == 200:
+                                    with open(ARCADE_BACKUP_FILE, "wb") as f:
+                                        f.write(r_download.content)
+                                    print("Successfully restored arcade_backup.json from Telegram.")
+                                    return True
     except Exception as e:
-        await send_debug(f"⚠️ yt-dlp failed: {str(e)[:50]}")
-    await send_debug("🎲 Using URL hash fallback.")
-    clean = url.split('?')[0].split('&')[0].lower().strip('/').replace('https://','').replace('http://','')
-    h = hashlib.md5(clean.encode()).hexdigest()[:12]
-    return f"url_{h}"
+        print(f"Error downloading backup: {e}")
+    return False
 
-async def backup_to_channel(bot):
-    try:
-        ts = time.strftime("%Y-%m-%d %H:%M")
-        free_mb = shutil.disk_usage(".").free // (1024*1024)
-        cap = f"📦 AUTO-BACKUP {ts}\nFree: {free_mb}MB | Active: {active_downloads} | Queue: {download_queue.qsize()} | Vault: {VIDEO_VAULT_ID}"
-        first = True
-        for fname in BACKUP_FILES:
-            if os.path.exists(fname):
-                try:
-                    with open(fname, 'rb') as f:
-                        await bot.send_document(chat_id=PRIVATE_CHANNEL_ID, document=f, filename=fname, caption=cap if first else None)
-                        first = False
-                except Exception as e:
-                    logger.error(f"Backup {fname}: {e}")
-        logger.info("Backup done")
-    except Exception as e:
-        logger.error(f"Backup error: {e}")
-
-async def auto_backup_loop(bot):
-    while True:
-        await asyncio.sleep(6 * 3600)
-        await backup_to_channel(bot)
-
-async def disk_cleaner_loop():
-    while True:
-        await asyncio.sleep(5 * 60)
-        try:
-            if not os.path.exists("downloads"): continue
-            now = time.time()
-            deleted = 0
-            for fname in os.listdir("downloads"):
-                fpath = os.path.join("downloads", fname)
-                try:
-                    if os.path.isfile(fpath):
-                        age = now - os.path.getmtime(fpath)
-                        if age > 3 * 60:
-                            os.remove(fpath)
-                            deleted += 1
-                except: pass
-            if deleted: logger.info(f"Cleaner deleted {deleted}")
-        except Exception as e: logger.error(f"Cleaner: {e}")
-
-def clean_downloads_startup():
-    try:
-        if os.path.exists("downloads"):
-            for fname in os.listdir("downloads"):
-                try: os.remove(os.path.join("downloads", fname))
-                except: pass
-    except: pass
-
-def is_flood(user_id):
-    if user_id == ADMIN_ID: return False, 0
-    flood_data = load_json_file(FLOOD_FILE)
-    now = time.time()
-    uid = str(user_id)
-    if uid not in flood_data: flood_data[uid] = []
-    flood_data[uid] = [t for t in flood_data[uid] if now - t < FLOOD_WINDOW]
-    if len(flood_data[uid]) >= FLOOD_LIMIT:
-        oldest = min(flood_data[uid]) if flood_data[uid] else now
-        wait = int(FLOOD_COOLDOWN - (now - oldest))
-        wait = max(wait, 5)
-        return True, wait
-    flood_data[uid].append(now)
-    save_json_file(FLOOD_FILE, flood_data)
-    return False, 0
-
-def is_banned(user_id):
-    banned = load_json_file(BANNED_FILE)
-    return str(user_id) in banned
-
-def track_user_activity(user_id):
-    activity = load_json_file(ACTIVITY_FILE)
-    user_str = str(user_id)
-    now = time.time()
-    if user_str not in activity: activity[user_str] = {"total_interactions": 0, "last_active": now}
-    activity[user_str]["total_interactions"] += 1
-    activity[user_str]["last_active"] = now
-    save_json_file(ACTIVITY_FILE, activity)
-
-def get_lang(user_id):
-    langs = load_json_file(LANG_FILE)
-    return langs.get(str(user_id), "en")
-
-def get_global_ab_network(user_id):
-    config = load_json_file(CONFIG_FILE)
-    mode = config.get("ad_mode", "auto")
-    if mode in ("monetag", "adsgram"): return "monetag"
-    elif mode == "adsterra": return "adsterra"
-    day_epoch = int(time.time() // 86400)
-    return "monetag" if (int(user_id) + day_epoch) % 2 == 0 else "adsterra"
+# Check if backup file is missing on startup, and try to fetch it
+if not os.path.exists(ARCADE_BACKUP_FILE):
+    print("Arcade backup missing, attempting to restore from Telegram...")
+    download_backup_from_telegram()
 
 def load_tokens():
-    try:
-        response = requests.get(f"{WEB_BASE_URL}/get_tokens", headers=API_HEADERS, timeout=5)
-        if response.status_code == 200: return response.json()
-    except Exception as e: logger.error(f"Tokens: {e}")
+    if os.path.exists(TOKEN_FILE):
+        try:
+            with open(TOKEN_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
     return {}
 
 def save_tokens(tokens):
-    try: requests.post(f"{WEB_BASE_URL}/save_tokens", json=tokens, headers=API_HEADERS, timeout=5)
-    except Exception as e: logger.error(f"Save tokens: {e}")
-
-def adsgram_start(user_id, kind="wall", msg_start=0, msg_end=0):
     try:
-        r = requests.post(f"{WEB_BASE_URL}/monetag-start", json={"user_id": int(user_id), "kind": kind, "msg_start": int(msg_start), "msg_end": int(msg_end), "secret": API_SECRET}, timeout=8)
-        if r.status_code == 200: return r.json().get("nonce")
-        logger.error(f"adsgram_start HTTP {r.status_code}: {r.text[:200]}")
-    except Exception as e: logger.error(f"adsgram_start: {e}")
-    return None
-
-def adsgram_status(user_id):
-    try:
-        r = requests.post(f"{WEB_BASE_URL}/monetag-status", json={"user_id": int(user_id), "secret": API_SECRET}, timeout=8)
-        if r.status_code == 200: return r.json()
-    except Exception as e: logger.error(f"adsgram_status: {e}")
-    return {"status": "error"}
-
-def adsgram_keyboard(user_id, kind="wall", msg_start=0, msg_end=0, extra_rows=None):
-    nonce = adsgram_start(user_id, kind, msg_start, msg_end)
-    if not nonce: return None
-    url = f"{WEB_BASE_URL}/monetag?n={nonce}&k={kind}"
-    rows = [
-        [InlineKeyboardButton("📺 Watch Monetag Ad +1", web_app=WebAppInfo(url=url))],
-        [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
-        [InlineKeyboardButton("✅ Check & Get +1", callback_data="monetag_check")],
-        [InlineKeyboardButton("↪️ Use Adsterra fallback (after 2 failures)", callback_data="monetag_fallback")],
-    ]
-    if extra_rows: rows.extend(extra_rows)
-    return InlineKeyboardMarkup(rows)
-
-async def report_vault_delivery(user_id, msg_start, msg_end, delivered_message_ids):
-    if not delivered_message_ids: return
-    try:
-        response = requests.post(f"{WEB_BASE_URL}/api/item-delivered", json={"user_id": int(user_id), "msg_start": int(msg_start), "msg_end": int(msg_end), "delivered_message_ids": [int(x) for x in delivered_message_ids], "event_id": uuid.uuid4().hex}, headers=API_HEADERS, timeout=8)
-        if response.status_code != 200: logger.warning("Vault analytics rejected delivery: %s %s", response.status_code, response.text[:200])
-    except Exception as e: logger.warning("Vault analytics report failed: %s", e)
-
-async def deliver_bundle(bot, user_id, msg_start, msg_end):
-    fwd_ids = []
-    for tid in range(msg_start, msg_end + 1):
-        try:
-            fwd = await bot.forward_message(chat_id=user_id, from_chat_id=DETECTED_CHANNEL_ID, message_id=tid)
-            fwd_ids.append(fwd.message_id)
-            await asyncio.sleep(0.2)
-        except Exception as e: logger.error(f"Forward {tid} fail: {e}")
-    await report_vault_delivery(user_id, msg_start, msg_end, fwd_ids)
-    if TUTORIAL_MESSAGE_ID not in range(msg_start, msg_end + 1):
-        try:
-            tut = await bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-            fwd_ids.append(tut.message_id)
-        except Exception: pass
-    kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
-    warn = await bot.send_message(chat_id=user_id, text="⏳ Auto-deletes in 9 mins", reply_markup=kb)
-    fwd_ids.append(warn.message_id)
-    asyncio.create_task(schedule_deletion(bot, user_id, fwd_ids, 540))
-
-def load_user_channels(): return load_json_file(CHANNELS_FILE)
-def save_user_channels(c): save_json_file(CHANNELS_FILE, c)
-def load_linking_states(): return load_json_file(LINKING_STATE_FILE)
-def save_linking_states(s): save_json_file(LINKING_STATE_FILE, s)
-
-async def schedule_deletion(bot, chat_id, message_ids, delay):
-    await asyncio.sleep(delay)
-    for msg_id in message_ids:
-        try: await bot.delete_message(chat_id=chat_id, message_id=msg_id)
-        except: pass
-
-def fetch_url_metadata(url):
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True}
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            if 'entries' in info and info['entries']: info = info['entries'][0]
-            title = info.get('title', 'Unknown')[:60]
-            duration = info.get('duration', 0)
-            mins, secs = divmod(duration, 60)
-            dur = f"{mins}m {secs}s" if mins else f"{secs}s"
-            return title, dur
-    except: return "Media Link", "N/A"
-
-def scrape_html_images(url, cookiefile=None):
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    try:
-        res = requests.get(url, headers=headers, timeout=15)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        og = soup.find('meta', property='og:image')
-        if og and og.get('content'): return og['content']
-    except Exception as e: logger.error(f"Scrape: {e}")
-    return None
-
-def get_min_free_disk_mb():
-    config = load_json_file(CONFIG_FILE)
-    return config.get("min_free_disk_mb", MIN_FREE_DISK_MB)
-
-def get_mtproto_max_mb():
-    config = load_json_file(CONFIG_FILE)
-    return config.get("mtproto_max_mb", MTPROTO_MAX_MB)
-
-def download_media_engine(url: str, download_type: str, max_mb=None):
-    cap_mb = int(max_mb or get_mtproto_max_mb())
-    cap_bytes = cap_mb * 1024 * 1024
-    output_dir = "downloads"
-    os.makedirs(output_dir, exist_ok=True)
-    http_headers = {'User-Agent': 'Mozilla/5.0'}
-    cookiefile = None
-    if "tiktok.com" in url.lower() and os.path.exists("tiktok_cookies.txt"): cookiefile = "tiktok_cookies.txt"
-    elif os.path.exists("cookies.txt"): cookiefile = "cookies.txt"
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL}
-    if cookiefile: ydl_opts['cookiefile'] = cookiefile
-    if download_type == 'audio':
-        ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            base = os.path.splitext(ydl.prepare_filename(info))[0]
-            path = f"{base}.mp3"
-            if os.path.exists(path):
-                if os.path.getsize(path) > cap_bytes:
-                    os.remove(path)
-                    raise ValueError("FILE_TOO_LARGE")
-                return [path], "audio", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
-            raise ValueError("FILE_NOT_FOUND")
-    elif download_type == 'images':
-        img_url = scrape_html_images(url, cookiefile)
-        if img_url:
-            data = requests.get(img_url, headers=http_headers, timeout=15).content
-            path = os.path.join(output_dir, f"img_{int(time.time())}.jpg")
-            with open(path, 'wb') as f: f.write(data)
-            if os.path.getsize(path) > 1000: return [path], "original", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
-            raise ValueError("NO_IMAGES")
-        else:
-            tiers = [
-                ("1080p", "bv*[height<=1080]+ba/b[height<=1080]"),
-                ("720p", "bv*[height<=720]+ba/b[height<=720]"),
-                ("480p", "bv*[height<=480]+ba/b[height<=480]"),
-                ("360p", "bv*[height<=360]+ba/b[height<=360]"),
-                ("worst", "worst")
-            ]
-            too_big = False
-            last_err = None
-            best_quality = "unknown"
-            for qual_name, fmt in tiers:
-                try:
-                    opts = dict(ydl_opts)
-                    opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, f'%(id)s_{qual_name}.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
-                    with yt_dlp.YoutubeDL(opts) as ydl:
-                        info = ydl.extract_info(url, download=True)
-                        path = ydl.prepare_filename(info)
-                        if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0]+".mp4"): path = os.path.splitext(path)[0]+".mp4"
-                        if os.path.exists(path):
-                            if os.path.getsize(path) > cap_bytes:
-                                os.remove(path)
-                                too_big = True
-                                continue
-                            actual_height = info.get('height', 0)
-                            if actual_height >= 1080: best_quality = "1080p"
-                            elif actual_height >= 720: best_quality = "720p"
-                            elif actual_height >= 480: best_quality = "480p"
-                            elif actual_height >= 360: best_quality = "360p"
-                            else: best_quality = "worst"
-                            return [path], best_quality, f"{os.path.getsize(path)/(1024*1024):.1f}MB"
-                        too_big = True
-                except Exception as e:
-                    if "Unsupported URL" in str(e) or "403" in str(e): raise e
-                    last_err = e
-                    continue
-            if too_big or last_err is None: raise ValueError("FILE_TOO_LARGE")
-            raise last_err
-
-def get_main_keyboard(lang_code, is_admin):
-    t = LANGUAGES.get(lang_code, LANGUAGES["en"])
-    keyboard = [
-        [KeyboardButton(t["menu_stats"]), KeyboardButton(t["menu_lang"])],
-        [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])],
-        [KeyboardButton(t["menu_upload"]), KeyboardButton("🔗 File-to-Link")],
-        [KeyboardButton("🟢 Bot Status")],
-        [KeyboardButton("🔄 Change Batch Channel")]
-    ]
-    if is_admin:
-        keyboard.append([KeyboardButton("/stats"), KeyboardButton("/toggleads")])
-        keyboard.append([KeyboardButton("/testad"), KeyboardButton("/adinfo")])
-        keyboard.append([KeyboardButton("/tokencheck"), KeyboardButton("/broadcast")])
-        keyboard.append([KeyboardButton("/ban"), KeyboardButton("/unban")])
-        keyboard.append([KeyboardButton("/backup"), KeyboardButton("/restore")])
-        keyboard.append([KeyboardButton("💾 Disk Config"), KeyboardButton("⚡ MTProto Config")])
-        keyboard.append([KeyboardButton(t["menu_uploads"]), KeyboardButton("⚡ Create Flash Drop")])
-        keyboard.append([KeyboardButton("🎁 Set Reward (1/2/3/5)"), KeyboardButton("📦 Set Free DL (2/3/4/5)")])
-        keyboard.append([KeyboardButton(t["menu_edit_welcome"])])
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
-def get_downloads_usage_mb():
-    try:
-        if not os.path.exists("downloads"): return 0
-        total = 0
-        for fname in os.listdir("downloads"):
-            fpath = os.path.join("downloads", fname)
-            if os.path.isfile(fpath): total += os.path.getsize(fpath)
-        return total // (1024*1024)
-    except: return 0
-
-def get_reward_amount():
-    try: return int(load_json_file(CONFIG_FILE).get("reward_amount", 1))
-    except: return 1
-
-def set_reward_amount(val):
-    cfg = load_json_file(CONFIG_FILE); cfg["reward_amount"] = int(val); save_json_file(CONFIG_FILE, cfg)
-
-def get_free_amount():
-    try: return int(load_json_file(CONFIG_FILE).get("free_amount", 4))
-    except: return 4
-
-def set_free_amount(val):
-    cfg = load_json_file(CONFIG_FILE); cfg["free_amount"] = int(val); save_json_file(CONFIG_FILE, cfg)
-
-def get_free_disk_mb():
-    try: return max(0, 512 - get_downloads_usage_mb())
-    except: return 512
-
-def deduct_download_counter(user_id, is_batch=False):
-    try: requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": is_batch}, headers=API_HEADERS, timeout=3)
-    except: pass
-
-async def acquire_slot():
-    global active_downloads
-    async with download_lock:
-        free_mb = shutil.disk_usage(".").free // (1024*1024)
-        min_free = get_min_free_disk_mb()
-        if active_downloads < MAX_CONCURRENT_SHORT and free_mb > min_free:
-            active_downloads += 1
-            return True
-        return False
-
-async def release_slot():
-    global active_downloads
-    async with download_lock: active_downloads = max(0, active_downloads - 1)
-
-async def queue_processor(bot):
-    global active_downloads
-    while True:
-        try:
-            job = await download_queue.get()
-            while True:
-                free_mb = shutil.disk_usage(".").free // (1024*1024)
-                min_free = get_min_free_disk_mb()
-                async with download_lock: can_run = active_downloads < MAX_CONCURRENT_SHORT and free_mb > min_free
-                if can_run: break
-                await asyncio.sleep(2)
-            async with download_lock: active_downloads += 1
-            try: await job['func'](*job['args'], **job['kwargs'])
-            except Exception as e: logger.error(f"Queue job: {e}")
-            finally:
-                await release_slot()
-                download_queue.task_done()
-        except Exception as e:
-            logger.error(f"Queue proc: {e}")
-            await asyncio.sleep(1)
-
-async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    track_user_activity(update.message.from_user.id)
-    lang = get_lang(update.message.from_user.id)
-    t = LANGUAGES.get(lang, LANGUAGES["en"])
-    keyboard = [
-        [InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"), InlineKeyboardButton("🇮🇳 हिंदी", callback_data="lang_hi")],
-        [InlineKeyboardButton("🇪🇸 Español", callback_data="lang_es"), InlineKeyboardButton("🇸🇦 العربية", callback_data="lang_ar")],
-        [InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru"), InlineKeyboardButton("🇧🇷 Português", callback_data="lang_pt")],
-        [InlineKeyboardButton("🇮🇩 Indonesia", callback_data="lang_id"), InlineKeyboardButton("🇫🇷 Français", callback_data="lang_fr")],
-        [InlineKeyboardButton("🇹🇷 Türkçe", callback_data="lang_tr"), InlineKeyboardButton("🇩🇪 Deutsch", callback_data="lang_de")]
-    ]
-    await update.message.reply_text(t["select_lang"], reply_markup=InlineKeyboardMarkup(keyboard))
-
-def file_link_keyboard(state):
-    settings = state.get("settings", {})
-    expiry = settings.get("expiry", "never")
-    expiry_label = {"3600":"1 hour", "86400":"1 day", "604800":"7 days", "2592000":"30 days", "never":"Never"}.get(str(expiry), "Never")
-    max_clicks = int(settings.get("max_clicks", 0) or 0)
-    kb = [[InlineKeyboardButton(f"⏳ Expiry: {expiry_label}", callback_data="fl_expiry")],
-          [InlineKeyboardButton(f"👥 Max uses: {max_clicks if max_clicks else 'Unlimited'}", callback_data="fl_maxuses")],
-          [InlineKeyboardButton("🔐 Set password" if not settings.get("password") else "🔐 Change/remove password", callback_data="fl_password")],
-          [InlineKeyboardButton(f"📎 Files: {len(state.get('items', []))}", callback_data="fl_refresh")],
-          [InlineKeyboardButton("✅ Create Link", callback_data="fl_create"), InlineKeyboardButton("❌ Cancel", callback_data="fl_cancel")]]
-    return InlineKeyboardMarkup(kb)
-
-async def file_link_add_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    if not update.effective_message or not update.effective_user: return False
-    uid = str(update.effective_user.id)
-    states = load_json_file(FILE_LINK_STATE_FILE)
-    state = states.get(uid)
-    if not state or state.get("mode") != "collecting": return False
-    try:
-        copied = await context.bot.copy_message(chat_id=FILE_LINK_STORAGE_ID, from_chat_id=update.effective_message.chat_id, message_id=update.effective_message.message_id)
-        state.setdefault("items", []).append({"message_id": copied.message_id})
-        states[uid] = state
-        save_json_file(FILE_LINK_STATE_FILE, states)
-        t = LANGUAGES.get(get_lang(uid), LANGUAGES["en"])
-        await update.effective_message.reply_text(t["file_added"].format(len(state['items'])), reply_markup=file_link_keyboard(state))
-    except Exception as exc: logger.exception("File-to-Link storage copy failed")
-    return True
-
-async def file_to_link_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.effective_user.id
-    t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
-    if is_banned(user_id): await update.effective_message.reply_text(t["banned"]); return
-    states = load_json_file(FILE_LINK_STATE_FILE)
-    state = {"mode": "collecting", "items": [], "created_at": time.time(), "settings": {"expiry": "never", "max_clicks": 0, "password": ""}}
-    states[str(user_id)] = state
-    save_json_file(FILE_LINK_STATE_FILE, states)
-    await update.effective_message.reply_text(t["file_to_link_prompt"], reply_markup=file_link_keyboard(state), parse_mode="Markdown")
-
-async def file_link_deep_link(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str) -> None:
-    t = LANGUAGES.get(get_lang(update.effective_user.id), LANGUAGES["en"])
-    links = load_json_file(FILE_LINKS_FILE)
-    record = links.get(token)
-    if not record or (record.get("expires_at") and time.time() > record["expires_at"]): await update.effective_message.reply_text(t["link_invalid_expired"]); return
-    if record.get("max_clicks", 0) and record.get("clicks", 0) >= record["max_clicks"]: await update.effective_message.reply_text(t["link_limit_reached"]); return
-    if record.get("password"):
-        states = load_json_file(FILE_LINK_STATE_FILE)
-        states[str(update.effective_user.id)] = {"mode": "file_link_password", "token": token}
-        save_json_file(FILE_LINK_STATE_FILE, states)
-        await update.effective_message.reply_text(t["link_password_protected"])
-        return
-    await send_file_link_payload(update, context, token, record)
-
-async def send_file_link_payload(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str, record: dict) -> None:
-    user_id = update.effective_user.id
-    t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
-    try:
-        member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_USERNAME, user_id=user_id)
-        if member.status not in ("member", "administrator", "creator"): raise ValueError("not joined")
-    except Exception: await update.effective_message.reply_text("📢 Join our required channel first: " + PUBLIC_CHANNEL_URL); return
-    for item in record.get("items", []): await context.bot.copy_message(chat_id=user_id, from_chat_id=FILE_LINK_STORAGE_ID, message_id=item["message_id"])
-    record["clicks"] = record.get("clicks", 0) + 1
-    links = load_json_file(FILE_LINKS_FILE); links[token] = record; save_json_file(FILE_LINKS_FILE, links)
-    await update.effective_message.reply_text(t["files_sent"])
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.message.from_user.id
-    t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
-    if is_banned(user_id): await update.message.reply_text(t["banned"]); return
-    track_user_activity(user_id)
-    args = context.args
-    lang = get_lang(user_id)
-    if not args:
-        config = load_json_file(CONFIG_FILE)
-        welcome_msg = config.get("welcome_message", t["welcome"])
-        try:
-            bot_user = context.bot.username
-            welcome_msg = welcome_msg.replace("{bot_name}", f"@{bot_user}")
-        except: pass
-        await update.message.reply_text(welcome_msg, reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID), parse_mode="Markdown")
-        return
-    arg_code = args[0]
-    if arg_code.startswith("fl_"): await file_link_deep_link(update, context, arg_code[3:]); return
-    if arg_code.startswith("drip_"):
-        drop_id = arg_code.replace("drip_", "")
-        drip_data = load_json_file(DRIP_FILE)
-        drop = drip_data.get(drop_id)
-        if not drop: await update.message.reply_text("❌ Invalid flash drop."); return
-        if time.time() > drop["expires_at"]: await update.message.reply_text(t["age_expired"], parse_mode="Markdown"); return
-        if "claimed_users" in drop and user_id in drop["claimed_users"]: await update.message.reply_text(t["age_claimed"], parse_mode="Markdown"); return
-        keyboard = [[InlineKeyboardButton("✅ Yes, 18+", callback_data=f"age_yes_{drop_id}"), InlineKeyboardButton("❌ No", callback_data="age_no")]]
-        await update.message.reply_text("🔞 Age verification?", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-        return
-    video_code = arg_code
-    if video_code.startswith("vid"):
-        clean_code = video_code.replace("vid", "")
-        if "to" in clean_code:
-            try: parts = clean_code.split("to"); msg_start, msg_end = int(parts[0]), int(parts[1])
-            except: return
-        else:
-            try: msg_start = msg_end = int(clean_code)
-            except: return
-    else: return
-    assigned_network = get_global_ab_network(user_id)
-    tokens = load_tokens()
-    if assigned_network == "monetag":
-        extra = [[InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")]] if user_id == ADMIN_ID else None
-        kb = adsgram_keyboard(user_id, "wall", msg_start, msg_end, extra)
-        if kb: await update.message.reply_text("📺 **Sponsor**\nTap **Watch Ad**, finish the ad in the Mini App, then tap **Check & Get +1**.", reply_markup=kb, parse_mode="Markdown")
-        else: await update.message.reply_text("⚠️ Ad server busy, try again in a moment.")
-        return
-    bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
-    tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": int(msg_start), "msg_end": int(msg_end), "clicked_ad": False, "verified": False, "expires": time.time() + 600}
-    save_tokens(tokens)
-    keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch", url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
-    if user_id == ADMIN_ID: keyboard.append([InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")])
-    try:
-        tut = await context.bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-        await asyncio.sleep(0.2)
-    except Exception as e1:
-        logger.error(f"Forward failed: {e1}")
-        try: await context.bot.copy_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-        except Exception as e2: logger.error(f"Copy failed: {e2}")
-    await update.message.reply_text("👇 **CONTENT LOCKED 🔒**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-
-async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0):
-    if not urls: return
-    lang = get_lang(user_id)
-    t = LANGUAGES.get(lang, LANGUAGES["en"])
-    success_count = fail_count = 0
-    active_batch_sessions[user_id] = True
-    stop_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop Batch", callback_data="stop_batch")]])
-    batch_notice = await bot.send_message(chat_id=chat_id, text=t["batch_start"].format(download_type.upper(), len(urls)), reply_markup=stop_markup, parse_mode="Markdown")
-    for index, url in enumerate(urls[start_index:], start=start_index+1):
-        if not active_batch_sessions.get(user_id, False): break
-        try:
-            response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": True}, headers=API_HEADERS, timeout=5)
-            res_data = response.json() if response.status_code == 200 else {}
-        except: res_data = {"status": "allowed"}
-        tokens = load_tokens()
-        d_left = tokens.get(str(user_id), {}).get("downloads_left", 4)
-        if res_data.get("status") != "allowed" and d_left <= 0 and user_id != ADMIN_ID:
-            assigned_network = get_global_ab_network(user_id)
-            if assigned_network == "monetag":
-                paused_batches[user_id] = {"urls": urls, "next_index": index-1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
-                kb = adsgram_keyboard(user_id, "wall", 0, 0)
-                await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=kb, parse_mode="Markdown")
-                break
-            bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
-            tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
-            save_tokens(tokens)
-            paused_batches[user_id] = {"urls": urls, "next_index": index-1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
-            keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)]]
-            await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-            break
-        status_msg = await bot.send_message(chat_id=chat_id, text=f"📥 [{index}/{len(urls)}] {t['dl_video']}")
-        try:
-            ckey = await get_canonical_key(url, chat_id, bot)
-            cache = load_json_file(CACHE_FILE)
-            if ckey in cache and "file_id" in cache[ckey] and "qualities" not in cache[ckey]:
-                cache[ckey]["qualities"] = {"720p": {"file_id": cache[ckey]["file_id"], "vault_msg_id": cache[ckey].get("vault_msg_id"), "size": cache[ckey].get("size", "unknown")}}
-                del cache[ckey]["file_id"]
-                save_json_file(CACHE_FILE, cache)
-            if ckey in cache and cache[ckey].get("type") == "video":
-                qualities_order = ["1080p", "720p", "480p", "360p", "worst"]
-                cached_qualities = cache[ckey].get("qualities", {})
-                best_cached_quality = None
-                for q in qualities_order:
-                    if q in cached_qualities:
-                        best_cached_quality = q
-                        break
-                if best_cached_quality:
-                    try:
-                        cached = cached_qualities[best_cached_quality]
-                        qual_tag = f"[{best_cached_quality}]"
-                        sent = await bot.send_video(chat_id=target_destination_id, video=cached["file_id"], caption=f"Item {index}/{len(urls)} ⚡ Cached {qual_tag}")
-                        if target_destination_id == chat_id:
-                            warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
-                            asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
-                        cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
-                        save_json_file(CACHE_FILE, cache)
-                        await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
-                        success_count += 1
-                        continue
-                    except Exception as e: logger.error(f"Batch cache fail {ckey}: {e}")
-            free_mb = shutil.disk_usage(".").free // (1024*1024)
-            min_free = get_min_free_disk_mb()
-            effective_max_mb = get_mtproto_max_mb()
-            if free_mb < min_free + 150: effective_max_mb = min(effective_max_mb, 50)
-            file_paths, res, size = await asyncio.to_thread(download_media_engine, url, download_type, effective_max_mb)
-            if file_paths and os.path.exists(file_paths[0]):
-                qual_tag = f"[{res}]"
-                sent = await send_video_file(bot, chat_id, target_destination_id, file_paths[0], f"Item {index}/{len(urls)} {qual_tag} Size {size}", None, status_msg)
-                if target_destination_id == chat_id:
-                    warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
-                    asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
-                try:
-                    vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent.video.file_id, caption=f"{ckey} [{res}]")
-                    cache = load_json_file(CACHE_FILE)
-                    if ckey not in cache: cache[ckey] = {"type": "video", "timestamp": time.time(), "qualities": {}, "hits": 0}
-                    cache[ckey]["qualities"][res] = {"file_id": sent.video.file_id, "vault_msg_id": vmsg.message_id, "size": size}
-                    save_json_file(CACHE_FILE, cache)
-                except Exception as e: logger.error(f"Vault save: {e}")
-                os.remove(file_paths[0])
-                await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
-                success_count += 1
-            else:
-                await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}] {t['failed_generic']}")
-                fail_count += 1
-        except Exception as e:
-            try: await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}] {str(e)[:50]}")
-            except: pass
-            fail_count += 1
-        await asyncio.sleep(3)
-    if user_id in active_batch_sessions: del active_batch_sessions[user_id]
-    try: await bot.delete_message(chat_id=chat_id, message_id=batch_notice.message_id)
-    except: pass
-    if user_id not in paused_batches:
-        dest = t["batch_done_chan"].format(success_count, fail_count, success_count) if target_destination_id != chat_id else t["batch_done"].format(success_count, fail_count, success_count)
-        await bot.send_message(chat_id=chat_id, text=dest, reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID), parse_mode="Markdown")
-
-async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.message.from_user.id
-    t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
-    if is_banned(user_id): await update.message.reply_text(t["banned"]); return
-    if await file_link_add_media(update, context): return
-    chat_id = update.message.chat_id
-    track_user_activity(user_id)
-    support_states = load_json_file(SUPPORT_STATES_FILE)
-    if str(user_id) in support_states and support_states[str(user_id)].get("mode") == "user_writing":
-        ticket_id = support_states[str(user_id)]["ticket_id"]
-        del support_states[str(user_id)]
-        save_json_file(SUPPORT_STATES_FILE, support_states)
-        keyboard = [[InlineKeyboardButton("💬 Reply", callback_data=f"support_reply_{user_id}"), InlineKeyboardButton("🔒 Close", callback_data=f"support_close_{ticket_id}")]]
-        await context.bot.send_message(chat_id=ADMIN_ID, text=f"💬 Ticket [{ticket_id}] From {user_id}\n📎 Media below:", parse_mode="Markdown")
-        try: await update.message.forward(chat_id=ADMIN_ID)
-        except: await context.bot.copy_message(chat_id=ADMIN_ID, from_chat_id=chat_id, message_id=update.message.message_id)
-        await context.bot.send_message(chat_id=ADMIN_ID, text="Manage:", reply_markup=InlineKeyboardMarkup(keyboard))
-        await update.message.reply_text(t["upload_success_user"], reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
-        return
-    if user_id == ADMIN_ID:
-        try:
-            await update.message.forward(chat_id=PRIVATE_CHANNEL_ID)
-            await update.message.reply_text("✅ Saved to vault!", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
-        except Exception as e: await update.message.reply_text(f"❌ {e}")
-    else:
-        limits = load_json_file(UPLOAD_LIMITS_FILE)
-        user_str = str(user_id)
-        now = time.time()
-        if user_str in limits and now - limits[user_str]["timestamp"] < 86400:
-            if limits[user_str]["count"] >= 5:
-                await update.message.reply_text(t["upload_limit_reached"], reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
-                return
-            limits[user_str]["count"] += 1
-        else: limits[user_str] = {"count": 1, "timestamp": now}
-        save_json_file(UPLOAD_LIMITS_FILE, limits)
-        try:
-            uploads = load_json_file(UPLOADS_FILE)
-            uploads[str(int(time.time()))] = {"user_id": user_id, "msg_id": update.message.message_id}
-            save_json_file(UPLOADS_FILE, uploads)
-            await update.message.forward(chat_id=ADMIN_ID)
-            await update.message.reply_text(t["upload_success_user"], reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
-        except: await update.message.reply_text("❌ Failed", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
-
-async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    text = update.message.text if update.message.text else ""
-    user_id = update.message.from_user.id
-    chat_id = update.message.chat_id
-    t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
-    if is_banned(user_id): await update.message.reply_text(t["banned"]); return
-    if "http" in text.lower():
-        flood, wait = is_flood(user_id)
-        if flood: await update.message.reply_text(f"🐢 **Slow down!** You sent {FLOOD_LIMIT} links in last minute.\nWait {wait}s before next link.", parse_mode="Markdown"); return
-        track_user_activity(user_id)
-        lang = get_lang(user_id)
-        if text == t.get("menu_edit_welcome", "✏️ Edit Welcome Msg") and user_id == ADMIN_ID:
-            support_states = load_json_file(SUPPORT_STATES_FILE)
-            support_states[str(user_id)] = {"mode": "admin_edit_welcome"}
-            save_json_file(SUPPORT_STATES_FILE, support_states)
-            try:
-                bot_user = context.bot.username
-                await update.message.reply_text(t["admin_edit_welcome_prompt"].format(bot_name=f"@{bot_user}"), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
-            except:
-                await update.message.reply_text(t["admin_edit_welcome_prompt"].format(bot_name="Bot"), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
-            return
-        support_states = load_json_file(SUPPORT_STATES_FILE)
-        if str(user_id) in support_states and isinstance(support_states[str(user_id)], dict) and support_states[str(user_id)].get("mode") == "admin_edit_welcome":
-            config = load_json_file(CONFIG_FILE)
-            config["welcome_message"] = text
-            save_json_file(CONFIG_FILE, config)
-            del support_states[str(user_id)]
-            save_json_file(SUPPORT_STATES_FILE, support_states)
-            await update.message.reply_text(t["admin_welcome_updated"], parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
-            return
-        linking_states = load_linking_states()
-        if linking_states.get(str(user_id)) == "waiting_for_channel":
-            forward_origin = getattr(update.message, "forward_origin", None)
-            f_chat = None
-            if forward_origin and getattr(forward_origin, "type", None) == "channel": f_chat = getattr(forward_origin, "chat", None)
-            if f_chat is None: f_chat = getattr(update.message, "forward_from_chat", None)
-            if f_chat is None: await update.message.reply_text("❌ Please forward a message directly from your channel, not a copied message.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
-            try:
-                bot_member = await context.bot.get_chat_member(chat_id=f_chat.id, user_id=context.bot.id)
-                if getattr(bot_member, "status", None) not in ("administrator", "creator"): await update.message.reply_text("⚠️ I detected the channel, but I'm not an admin there yet. Add me as an administrator, then forward a channel message again.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
-            except Exception as exc:
-                logger.warning(f"Could not verify bot admin status in channel {getattr(f_chat, 'id', 'unknown')}: {exc}")
-                await update.message.reply_text("⚠️ I couldn't verify my admin access. Please check my admin status and forward another channel message.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
-            user_channels = load_user_channels()
-            user_channels[str(user_id)] = f_chat.id
-            save_user_channels(user_channels)
-            linking_states.pop(str(user_id), None)
-            save_linking_states(linking_states)
-            await update.message.reply_text(f"✅ Linked {getattr(f_chat, 'title', 'your channel')} successfully. You can now use batch downloads to that channel.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            return
-        fl_states = load_json_file(FILE_LINK_STATE_FILE)
-        fl_state = fl_states.get(str(user_id))
-        if fl_state and fl_state.get("mode") == "file_link_password":
-            token = fl_state.get("token")
-            links = load_json_file(FILE_LINKS_FILE)
-            record = links.get(token)
-            fl_states.pop(str(user_id), None); save_json_file(FILE_LINK_STATE_FILE, fl_states)
-            if not record or (record.get("expires_at") and time.time() > record["expires_at"]): await update.message.reply_text(t["link_invalid_expired"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
-            if text.strip() != str(record.get("password", "")): await update.message.reply_text("❌ Incorrect password.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
-            if record.get("max_clicks", 0) and record.get("clicks", 0) >= record["max_clicks"]: await update.message.reply_text(t["link_limit_reached"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
-            await send_file_link_payload(update, context, token, record)
-            return
-        menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🔗 File-to-Link", "🟢 Bot Status", "🔄 Change Batch Channel", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel", t.get("menu_edit_welcome", "✏️ Edit Welcome Msg")]
-        if text in menu_texts:
-            support_states = load_json_file(SUPPORT_STATES_FILE)
-            if str(user_id) in support_states: del support_states[str(user_id)]; save_json_file(SUPPORT_STATES_FILE, support_states)
-            if text.strip() == "🔗 File-to-Link": await file_to_link_command(update, context); return
-            if text.strip() == "🔄 Change Batch Channel":
-                linking_states = load_linking_states()
-                linking_states[str(user_id)] = "waiting_for_channel"
-                save_linking_states(linking_states)
-                await update.message.reply_text(t["change_channel_prompt"], parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-                return
-            fl_states = load_json_file(FILE_LINK_STATE_FILE)
-            fl_state = fl_states.get(str(user_id))
-            if fl_state and fl_state.get("mode") == "file_link_set_password":
-                if text.strip() == "/clearpassword": fl_state.setdefault("settings", {})["password"] = ""
-                else:
-                    if len(text) > 64: await update.message.reply_text(t["password_too_long"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
-                    fl_state.setdefault("settings", {})["password"] = text.strip()
-                fl_state["mode"] = "collecting"
-                fl_states[str(user_id)] = fl_state; save_json_file(FILE_LINK_STATE_FILE, fl_states)
-                await update.message.reply_text(t["password_saved"], reply_markup=file_link_keyboard(fl_state))
-                return
-            if text == "💾 Disk Config" and user_id == ADMIN_ID:
-                current = get_min_free_disk_mb()
-                await update.message.reply_text(t["disk_config_prompt"].format(current), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
-                return
-            if text == "⚡ MTProto Config" and user_id == ADMIN_ID:
-                current = get_mtproto_max_mb()
-                await update.message.reply_text(t["mtproto_config_prompt"].format(current), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
-                return
-            if text.startswith("📦 Set Free") and user_id == ADMIN_ID:
-                current = get_free_amount()
-                keyboard = [[InlineKeyboardButton(f"✅ {i} (Current)" if i==current else f"{i} free", callback_data=f"set_free_{i}") for i in [2,3,4,5]]]
-                await update.message.reply_text(t["free_panel_prompt"].format(current), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-                return
-            if text.startswith("🎁 Set Reward") and user_id == ADMIN_ID:
-                current = get_reward_amount()
-                keyboard = [[InlineKeyboardButton(f"✅ {i} (Current)" if i==current else f"{i}", callback_data=f"set_reward_{i}") for i in [1,2,3,5]]]
-                await update.message.reply_text(t["reward_panel_prompt"].format(current), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-                return
-            if text == "⚙️ Ad Toggle Panel" and user_id == ADMIN_ID:
-                config = load_json_file(CONFIG_FILE)
-                mode = config.get("ad_mode", "auto").upper()
-                keyboard = [[InlineKeyboardButton("🔄 Auto", callback_data="set_ad_auto")],[InlineKeyboardButton("📺 Monetag", callback_data="set_ad_monetag")],[InlineKeyboardButton("🌐 Adsterra", callback_data="set_ad_adsterra")]]
-                await update.message.reply_text(t["ad_panel_prompt"].format(mode), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-                return
-            if user_id == ADMIN_ID and str(user_id) in support_states and isinstance(support_states[str(user_id)], dict) and support_states[str(user_id)].get("mode") == "admin_replying":
-                target_user_id = support_states[str(user_id)]["target_user_id"]
-                ticket_id = support_states[str(user_id)]["ticket_id"]
-                del support_states[str(user_id)]
-                save_json_file(SUPPORT_STATES_FILE, support_states)
-                keyboard = [[InlineKeyboardButton("💬 Reply", callback_data=f"support_reply_{user_id}"), InlineKeyboardButton("🔒 Close", callback_data=f"support_close_{ticket_id}")]]
-                try:
-                    await context.bot.send_message(chat_id=target_user_id, text=f"💬 **Admin Reply:**\n{text}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-                    await update.message.reply_text(f"✅ Sent to {target_user_id}!", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
-                except Exception as e: await update.message.reply_text(f"❌ {e}", reply_markup=get_main_keyboard(lang, True))
-                return
-            if str(user_id) in support_states and isinstance(support_states[str(user_id)], dict) and support_states[str(user_id)].get("mode") == "user_writing":
-                ticket_id = support_states[str(user_id)]["ticket_id"]
-                del support_states[str(user_id)]
-                save_json_file(SUPPORT_STATES_FILE, support_states)
-                keyboard = [[InlineKeyboardButton("💬 Reply", callback_data=f"support_reply_{user_id}"), InlineKeyboardButton("🔒 Close", callback_data=f"support_close_{ticket_id}")]]
-                await context.bot.send_message(chat_id=ADMIN_ID, text=f"💬 Ticket [{ticket_id}] From {user_id}\n{text}", parse_mode="Markdown")
-                await context.bot.send_message(chat_id=ADMIN_ID, text="Manage:", reply_markup=InlineKeyboardMarkup(keyboard))
-                await update.message.reply_text("✅ Sent!", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-                return
-            if text == "⚡ Create Flash Drop" and user_id == ADMIN_ID:
-                states = load_json_file(DRIP_STATE_FILE)
-                states[str(user_id)] = {"mode": "collecting", "items": []}
-                save_json_file(DRIP_STATE_FILE, states)
-                kb = [[KeyboardButton("🚀 Finish & Broadcast Drop")],[KeyboardButton("❌ Cancel / Exit")]]
-                await update.message.reply_text("⚡ Flash Drop Mode: Send files", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True), parse_mode="Markdown")
-                return
-            if text == "🟢 Bot Status": await status_command(update, context); return
-            if text.strip() in ("🧪 Test Ad", "📢 Ad Info"):
-                if user_id != ADMIN_ID: await update.message.reply_text("✅ Menu updated.", reply_markup=get_main_keyboard(lang, False)); return
-                if text.strip() == "🧪 Test Ad": await send_test_ad(update.message, user_id); return
-                if text.strip() == "📢 Ad Info" and user_id == ADMIN_ID: await update.message.reply_text(build_ad_info_text(user_id), reply_markup=get_main_keyboard(lang, True)); return
-            if text == "📢 Broadcast" and user_id == ADMIN_ID: await update.message.reply_text("📢 /broadcast [message] or reply with /broadcast", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True)); return
-            if text == "❌ Cancel / Exit" and user_id == ADMIN_ID:
-                states = load_json_file(DRIP_STATE_FILE)
-                if str(user_id) in states: del states[str(user_id)]; save_json_file(DRIP_STATE_FILE, states)
-                await update.message.reply_text(t["drop_cancelled"], reply_markup=get_main_keyboard(lang, True), parse_mode="Markdown")
-                return
-            if text == "🚀 Finish & Broadcast Drop" and user_id == ADMIN_ID:
-                states = load_json_file(DRIP_STATE_FILE)
-                user_state = states.get(str(user_id))
-                if not user_state or not user_state.get("items"): await update.message.reply_text(t["drop_no_items"], reply_markup=get_main_keyboard(lang, True)); return
-                user_state["mode"] = "waiting_for_timer"
-                save_json_file(DRIP_STATE_FILE, states)
-                keyboard = [[InlineKeyboardButton("30s", callback_data="drop_time_30"), InlineKeyboardButton("2m", callback_data="drop_time_120")],[InlineKeyboardButton("5m", callback_data="drop_time_300"), InlineKeyboardButton("10m", callback_data="drop_time_600")]]
-                await update.message.reply_text(f"Select timer: {len(user_state['items'])} items", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-                return
-            states = load_json_file(DRIP_STATE_FILE)
-            user_state = states.get(str(user_id))
-            if user_state and isinstance(user_state, dict) and user_state.get("mode") == "collecting":
-                user_state["items"].append({"chat_id": chat_id, "message_id": update.message.message_id})
-                save_json_file(DRIP_STATE_FILE, states)
-                await update.message.reply_text(f"📥 Item #{len(user_state['items'])} added", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-                return
-            if text == t["menu_stats"]:
-                if user_id == ADMIN_ID: await stats(update, context)
-                else:
-                    tokens = load_tokens()
-                    profile = tokens.get(str(user_id), {})
-                    d_left = profile.get("downloads_left", get_free_amount())
-                    b_left = profile.get("batch_downloads_left", get_free_amount()*5)
-                    await update.message.reply_text(t["stats_msg"].format(d_left, b_left), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-                return
-            if text == t["menu_join"]: await update.message.reply_text(f"[Join]({PUBLIC_CHANNEL_URL})", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
-            if text == t["menu_help"]:
-                keyboard = [[InlineKeyboardButton("💬 Open Support", callback_data="open_support")]]
-                await update.message.reply_text(f"Support: [Help]({HELP_CHANNEL_URL})", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-                return
-            if text == t["menu_lang"]: await language_command(update, context); return
-            if text == t["menu_upload"]:
-                prompt = t["admin_upload_prompt"] if user_id == ADMIN_ID else t["user_upload_prompt"]
-                await update.message.reply_text(prompt, parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-                return
-            if text == t["menu_uploads"] and user_id == ADMIN_ID:
-                uploads = load_json_file(UPLOADS_FILE)
-                if not uploads: await update.message.reply_text(t["no_uploads"], reply_markup=get_main_keyboard(lang, True)); return
-                await update.message.reply_text(t["admin_upload_prompt"], reply_markup=get_main_keyboard(lang, True))
-                for k, data in list(uploads.items())[-20:]:
-                    try: await context.bot.forward_message(chat_id=ADMIN_ID, from_chat_id=data["user_id"], message_id=data["msg_id"])
-                    except: pass
-                return
-        extracted_urls = re.findall(r'https?://[^\s]+', text)
-        filtered = [u for u in extracted_urls if not ("t.me/" in u and "start=" in u)]
-        extracted_urls = filtered
-        if not extracted_urls:
-            if "t.me/" in text and "start=" in text: await update.message.reply_text("👆 Please use the buttons above.", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            return
-        if user_id != ADMIN_ID:
-            tokens = load_tokens()
-            user_profile = tokens.get(str(user_id), {})
-            d_left = user_profile.get("downloads_left", 4)
-            if str(user_id) in tokens and d_left <= 0:
-                is_single_link = len(extracted_urls)==1 and "t.me/" not in extracted_urls[0]
-                if is_single_link:
-                    msg_start = msg_end = 0
-                    pending_single_links[f"retry_{user_id}"] = extracted_urls[0]
-                else:
-                    msg_start = user_profile.get("msg_start", 0)
-                    msg_end = user_profile.get("msg_end", 0)
-                assigned_network = get_global_ab_network(user_id)
-                if assigned_network == "monetag":
-                    kb = adsgram_keyboard(user_id, "wall", msg_start, msg_end)
-                    if kb: await update.message.reply_text(t["limit_reached"], reply_markup=kb, parse_mode="Markdown")
-                    else: await update.message.reply_text("⚠️ Ad server busy, try again in a moment.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-                    return
-                else:
-                    try:
-                        tut = await context.bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-                        await asyncio.sleep(0.2)
-                    except: pass
-                    bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
-                    keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")]]
-                    await update.message.reply_text(t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-                    return
-        if active_batch_sessions.get(user_id, False): return
-        if update.message.forward_origin and getattr(update.message.forward_origin, 'type', None) == 'channel':
-            f_chat = update.message.forward_origin.chat
-            user_channels = load_user_channels()
-            user_channels[str(user_id)] = f_chat.id
-            save_user_channels(user_channels)
-            await update.message.reply_text(f"✅ Linked {f_chat.title}", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            return
-        if len(extracted_urls) > 1:
-            payload_key = f"batch_{user_id}_{int(time.time())}"
-            pending_batch_payloads[payload_key] = extracted_urls
-            keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"batchtype_video_{payload_key}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"batchtype_audio_{payload_key}")]]
-            await update.message.reply_text(t["batch_detected"].format(len(extracted_urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-            return
-        url = extracted_urls[0]
-        status_preview = await update.message.reply_text("🔍 Checking link...")
-        title, dur = fetch_url_metadata(url)
-        try: await status_preview.delete()
-        except: pass
-        payload_key = f"single_{user_id}_{int(time.time())}"
-        pending_single_links[payload_key] = url
-        keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"fmt_vid_{payload_key}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"fmt_aud_{payload_key}")],[InlineKeyboardButton(t["btn_image"], callback_data=f"fmt_img_{payload_key}")]]
-        await update.message.reply_text(f"🎬 {title}\n⏱️ {dur}\n{t['ask_format']}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-
-async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.message.from_user.id
-    t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
-    if is_banned(user_id): await update.message.reply_text(t["banned"]); return
-    support_states = load_json_file(SUPPORT_STATES_FILE)
-    if str(user_id) in support_states and support_states[str(user_id)].get("mode") == "user_writing": await handle_user_upload(update, context); return
-    if user_id == ADMIN_ID and str(ADMIN_ID) in support_states and support_states[str(ADMIN_ID)].get("mode") == "admin_replying": await handle_user_upload(update, context); return
-    if await file_link_add_media(update, context): return
-    document = update.message.document
-    if user_id == ADMIN_ID and document.file_name in BACKUP_FILES:
-        await update.message.reply_text(f"🔄 Restoring <b>{document.file_name}</b>...", parse_mode="HTML")
-        try:
-            file = await context.bot.get_file(document.file_id)
-            temp_path = f"temp_{document.file_name}"
-            await file.download_to_drive(temp_path)
-            with open(temp_path, 'r') as f: data = json.load(f)
-            os.replace(temp_path, document.file_name)
-            await update.message.reply_text(t["restore_success"].format(document.file_name, len(data) if isinstance(data, dict) else len(data)), parse_mode="HTML", reply_markup=get_main_keyboard(get_lang(user_id), True))
-            return
-        except json.JSONDecodeError:
-            await update.message.reply_text(t["restore_invalid_json"].format(document.file_name), parse_mode="HTML", reply_markup=get_main_keyboard(get_lang(user_id), True))
-            if os.path.exists(f"temp_{document.file_name}"): os.remove(f"temp_{document.file_name}")
-            return
-        except Exception as e:
-            await update.message.reply_text(t["restore_failed"].format(str(e)), reply_markup=get_main_keyboard(get_lang(user_id), True))
-            if os.path.exists(f"temp_{document.file_name}"): os.remove(f"temp_{document.file_name}")
-            return
-    if not document.file_name or not document.file_name.endswith('.txt'): await handle_user_upload(update, context); return
-    if active_batch_sessions.get(user_id, False): return
-    try:
-        file = await context.bot.get_file(document.file_id)
-        file_bytes = await file.download_as_bytearray()
-        urls = re.findall(r'https?://[^\s]+', file_bytes.decode('utf-8', errors='ignore'))
-        if not urls: await update.message.reply_text(t["no_links"], reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)); return
-        payload_key = f"batch_{user_id}_{int(time.time())}"
-        pending_batch_payloads[payload_key] = urls
-        keyboard = [[InlineKeyboardButton("🎬 Video", callback_data=f"batchtype_video_{payload_key}")]]
-        await update.message.reply_text(t["batch_count"].format(len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-    except Exception as e: logger.error(f"File: {e}")
-
-async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message.from_user.id != ADMIN_ID: return
-    tokens = load_tokens()
-    activity = load_json_file(ACTIVITY_FILE)
-    config = load_json_file(CONFIG_FILE)
-    now = time.time()
-    total_users = len(tokens)
-    active_24hr = sum(1 for d in activity.values() if now - d.get("last_active",0) < 86400)
-    mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
-    adsgram_count = adsterra_count = 0
-    for uid in tokens.keys():
-        try:
-            uid_int = int(str(uid).strip())
-            net = get_global_ab_network(uid_int)
-            if net == "monetag": adsgram_count+=1
-            else: adsterra_count+=1
-        except: adsterra_count+=1
-    sorted_users = sorted(activity.items(), key=lambda x: x[1].get("total_interactions",0), reverse=True)[:10]
-    top_text = ""
-    for idx,(uid,info) in enumerate(sorted_users,1): top_text+=f"{idx}. `{uid}` — {info.get('total_interactions',0)}\n"
-    if not top_text: top_text="No activity yet"
-    free_mb = shutil.disk_usage(".").free // (1024*1024)
-    used_mb = get_downloads_usage_mb()
-    cache = load_json_file(CACHE_FILE)
-    flood_data = load_json_file(FLOOD_FILE)
-    banned = load_json_file(BANNED_FILE)
-    total_hits = sum(v.get("hits",0) for v in cache.values() if isinstance(v, dict))
-    host_free = shutil.disk_usage(".").free // (1024*1024) if os.path.exists(".") else 0
-    txt = (f"📊 **ADVANCED ADMIN**\n"
-           f"• Total: **{total_users}**\n"
-           f"• 24h Active: **{active_24hr}**\n"
-           f"• Ad Mode: **{mode}**\n"
-           f"📢 **Ad Split:**\n"
-           f"• Monetag: **{adsgram_count}**\n"
-           f"• Adsterra: **{adsterra_count}**\n"
-           f"🖥️ **Render:**\n"
-           f"• Used: **{used_mb}MB**\n"
-           f"• Free: **{free_mb}MB**\n"
-           f"• Host: **{host_free}MB**\n"
-           f"• Active: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\n"
-           f"• Queue: **{download_queue.qsize()}**\n"
-           f"• Cache: **{len(cache)}** files\n"
-           f"• Hits: **{total_hits}** saved\n"
-           f"• Flood: **{len(flood_data)}**\n"
-           f"• Banned: **{len(banned)}**\n"
-           f"🎞️ **Video Vault:** `{VIDEO_VAULT_ID}`\n"
-           f"🏆 **Top 10:**\n{top_text}")
-    await update.message.reply_text(txt, parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
-
-async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    track_user_activity(update.message.from_user.id)
-    config = load_json_file(CONFIG_FILE)
-    mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
-    free_mb = shutil.disk_usage(".").free // (1024*1024)
-    cache = load_json_file(CACHE_FILE)
-    await update.message.reply_text(f"🟢 **Status V38 Monetag**\n"
-                                    f"Mode: **{mode}**\n"
-                                    f"Free: **{free_mb}MB**\n"
-                                    f"DL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\n"
-                                    f"Queue: **{download_queue.qsize()}**\n"
-                                    f"Cache: **{len(cache)}**\n"
-                                    f"Vault: **{VIDEO_VAULT_ID}**\n"
-                                    f"Reward: +1 realistic\n"
-                                    f"Flood: **ON**\n"
-                                    f"Backup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown", reply_markup=get_main_keyboard(get_lang(update.message.from_user.id), update.message.from_user.id == ADMIN_ID))
-
-async def restore_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user.id != ADMIN_ID: return
-    file_list = "\n".join([f"   • <b>{f}</b>" for f in BACKUP_FILES])
-    await update.message.reply_text(f"🔄 <b>Restore Backup Files</b>\n"
-                                    f"1. Go to your private backup channel.\n"
-                                    f"2. <b>Long-press</b> a backup file, then tap all the others to select them.\n"
-                                    f"3. Hit <b>Forward</b> and send them all to this bot at once!\n"
-                                    f"<b>Files to restore:</b>\n{file_list}\n"
-                                    f"I will automatically detect and restore each file! ⚡", parse_mode="HTML", reply_markup=get_main_keyboard("en", True))
-
-async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message.from_user.id != ADMIN_ID: return
-    config = load_json_file(CONFIG_FILE)
-    mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
-    keyboard = [[InlineKeyboardButton("🔄 Auto", callback_data="set_ad_auto")],[InlineKeyboardButton("📺 Monetag", callback_data="set_ad_monetag")],[InlineKeyboardButton("🌐 Adsterra", callback_data="set_ad_adsterra")]]
-    await update.message.reply_text(f"Ad Panel: {mode}\nReward: +1 optimum", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-
-async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message.from_user.id != ADMIN_ID: return
-    args = context.args
-    reply_msg = update.message.reply_to_message
-    if not args and not reply_msg: await update.message.reply_text("Usage: /broadcast [msg] or reply with /broadcast", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True)); return
-    all_users = set()
-    for d in [load_json_file(LANG_FILE), load_tokens()]:
-        for uid in d.keys():
-            try: all_users.add(int(uid))
-            except: pass
-    status_msg = await update.message.reply_text(f"🚀 Broadcasting to {len(all_users)}...", parse_mode="Markdown")
-    success = fail = 0
-    for uid in all_users:
-        if uid == ADMIN_ID or is_banned(uid): continue
-        try:
-            if reply_msg: await context.bot.copy_message(chat_id=uid, from_chat_id=update.message.chat_id, message_id=reply_msg.message_id)
-            else: await context.bot.send_message(chat_id=uid, text=" ".join(args), parse_mode="Markdown")
-            success+=1
-            await asyncio.sleep(0.05)
-        except: fail+=1
-    await status_msg.edit_text(f"✅ Done\nSent: {success}\nFail: {fail}", parse_mode="Markdown")
-
-async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message.from_user.id != ADMIN_ID: return
-    if not context.args: await update.message.reply_text("Usage: /ban <user_id>", reply_markup=get_main_keyboard("en", True)); return
-    try:
-        target = context.args[0]
-        banned = load_json_file(BANNED_FILE)
-        banned[target] = {"banned_at": time.time(), "reason": "spam"}
-        save_json_file(BANNED_FILE, banned)
-        await update.message.reply_text(f"🚫 Banned {target}", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
-    except Exception as e: await update.message.reply_text(f"❌ {e}", reply_markup=get_main_keyboard("en", True))
-
-async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message.from_user.id != ADMIN_ID: return
-    if not context.args: await update.message.reply_text("Usage: /unban <user_id>", reply_markup=get_main_keyboard("en", True)); return
-    try:
-        target = context.args[0]
-        banned = load_json_file(BANNED_FILE)
-        if target in banned:
-            del banned[target]
-            save_json_file(BANNED_FILE, banned)
-            await update.message.reply_text(f"✅ Unbanned {target}", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
-        else: await update.message.reply_text(f"Not banned", reply_markup=get_main_keyboard("en", True))
-    except Exception as e: await update.message.reply_text(f"❌ {e}", reply_markup=get_main_keyboard("en", True))
-
-async def backup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message.from_user.id != ADMIN_ID: return
-    await update.message.reply_text(f"📦 Backing up ALL files to {PRIVATE_CHANNEL_ID}...", reply_markup=get_main_keyboard("en", True))
-    await backup_to_channel(context.bot)
-    await update.message.reply_text("✅ Full Backup sent!", reply_markup=get_main_keyboard("en", True))
-
-async def set_disk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
-    if not context.args: await update.message.reply_text("Usage: `/setdisk <mb>`\nExample: `/setdisk 500`", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True)); return
-    try:
-        value = int(context.args[0])
-        if value < 50: await update.message.reply_text("⚠️ Value must be at least 50MB.", reply_markup=get_main_keyboard("en", True)); return
-        config = load_json_file(CONFIG_FILE)
-        config["min_free_disk_mb"] = value
-        save_json_file(CONFIG_FILE, config)
-        await update.message.reply_text(f"✅ Minimum free disk space set to **{value}MB**", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
-    except ValueError: await update.message.reply_text("❌ Invalid number.", reply_markup=get_main_keyboard("en", True))
-
-async def set_mtproto_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
-    if not context.args: await update.message.reply_text("Usage: `/setmtproto <mb>`\nExample: `/setmtproto 1000`", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True)); return
-    try:
-        value = int(context.args[0])
-        if value < 50: await update.message.reply_text("⚠️ Value must be at least 50MB.", reply_markup=get_main_keyboard("en", True)); return
-        config = load_json_file(CONFIG_FILE)
-        config["mtproto_max_mb"] = value
-        save_json_file(CONFIG_FILE, config)
-        await update.message.reply_text(f"✅ MTProto max upload size set to **{value}MB**", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
-    except ValueError: await update.message.reply_text("❌ Invalid number.", reply_markup=get_main_keyboard("en", True))
-
-async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
-    cache = load_json_file(CACHE_FILE)
-    ckey = await get_canonical_key(url, chat_id, bot)
-    if ckey in cache and "file_id" in cache[ckey] and "qualities" not in cache[ckey]:
-        cache[ckey]["qualities"] = {"720p": {"file_id": cache[ckey]["file_id"], "vault_msg_id": cache[ckey].get("vault_msg_id"), "size": cache[ckey].get("size", "unknown")}}
-        del cache[ckey]["file_id"]
-        save_json_file(CACHE_FILE, cache)
-    if ckey in cache and cache[ckey].get("type") in ("video", "images", "audio"):
-        cached_qualities = cache[ckey].get("qualities", {})
-        if dl_type == 'video': qualities_order = ["1080p", "720p", "480p", "360p", "worst"]
-        elif dl_type == 'audio': qualities_order = ["audio"]
-        else: qualities_order = ["original"]
-        best_cached_quality = None
-        for q in qualities_order:
-            if q in cached_qualities:
-                best_cached_quality = q
-                break
-        if best_cached_quality:
-            try:
-                cached = cached_qualities[best_cached_quality]
-                file_id = cached.get("file_id")
-                if file_id:
-                    sz = cached.get("size", "")
-                    qual_tag = f"[{best_cached_quality}]"
-                    kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
-                    if dl_type == 'video':
-                        sent = await bot.send_video(chat_id=chat_id, video=file_id, caption=t["cached_instant_video"].format(qual_tag, sz, ckey), reply_markup=kb)
-                    elif dl_type == 'audio':
-                        sent = await bot.send_audio(chat_id=chat_id, audio=file_id, caption=t["cached_instant_audio"].format(ckey), reply_markup=kb)
-                    else:
-                        sent = await bot.send_photo(chat_id=chat_id, photo=file_id, caption=t["cached_instant_image"].format(ckey), reply_markup=kb)
-                    warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
-                    asyncio.create_task(schedule_deletion(bot, chat_id, [sent.message_id, warn.message_id], 540))
-                    cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
-                    save_json_file(CACHE_FILE, cache)
-                    deduct_download_counter(user_id, is_batch=False)
-                    return True
-            except Exception as e:
-                logger.error(f"Cache send fail {ckey} {best_cached_quality}: {e}")
-                try:
-                    vmid = cached.get("vault_msg_id")
-                    if vmid:
-                        kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
-                        fwd = await bot.forward_message(chat_id=chat_id, from_chat_id=VIDEO_VAULT_ID, message_id=vmid)
-                        warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"] + " (from vault)", reply_markup=kb)
-                        asyncio.create_task(schedule_deletion(bot, chat_id, [fwd.message_id, warn.message_id], 540))
-                        cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
-                        save_json_file(CACHE_FILE, cache)
-                        deduct_download_counter(user_id, is_batch=False)
-                        return True
-                except Exception as e2:
-                    logger.error(f"Vault fallback fail: {e2}")
-                if ckey in cache and "qualities" in cache[ckey] and best_cached_quality in cache[ckey]["qualities"]:
-                    del cache[ckey]["qualities"][best_cached_quality]
-                    save_json_file(CACHE_FILE, cache)
-    status_msg = await bot.send_message(chat_id=chat_id, text=t["fetching"].format(dl_type) + f"\n`{ckey}`", parse_mode="Markdown")
-    try:
-        free_mb = shutil.disk_usage(".").free // (1024*1024)
-        min_free = get_min_free_disk_mb()
-        effective_max_mb = get_mtproto_max_mb()
-        if free_mb < min_free + 150: effective_max_mb = min(effective_max_mb, 50)
-        file_paths, res, size = await asyncio.to_thread(download_media_engine, url, dl_type, effective_max_mb)
-        if not file_paths: raise ValueError("FILE_NOT_FOUND")
-        cache = load_json_file(CACHE_FILE)
-        if ckey not in cache: cache[ckey] = {"type": dl_type, "timestamp": time.time(), "qualities": {}, "hits": 0}
-        qual_tag = f"[{res}]"
-        kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
-        if dl_type == 'images':
-            media_group = [InputMediaPhoto(media=open(p, 'rb')) for p in file_paths]
-            sent_media = await bot.send_media_group(chat_id=chat_id, media=media_group)
-            warn = await bot.send_message(chat_id=chat_id, text=t["images_received"].format(len(file_paths)), reply_markup=kb)
-            asyncio.create_task(schedule_deletion(bot, chat_id, [m.message_id for m in sent_media] + [warn.message_id], 540))
-            try:
-                vmsg = await bot.send_photo(chat_id=VIDEO_VAULT_ID, photo=sent_media[0].photo[-1].file_id, caption=ckey)
-                cache[ckey]["qualities"]["original"] = {"file_id": sent_media[0].photo[-1].file_id, "vault_msg_id": vmsg.message_id, "size": size}
-            except: cache[ckey]["qualities"]["original"] = {"file_id": sent_media[0].photo[-1].file_id, "size": size}
-            for p in file_paths: os.remove(p)
-        elif dl_type == 'audio':
-            sent_media = await send_audio_file(bot, chat_id, file_paths[0], f"🎵 Size {size} `{ckey}`", "Markdown", status_msg)
-            warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
-            asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
-            try:
-                vmsg = await bot.send_audio(chat_id=VIDEO_VAULT_ID, audio=sent_media.audio.file_id, caption=ckey)
-                cache[ckey]["qualities"]["audio"] = {"file_id": sent_media.audio.file_id, "vault_msg_id": vmsg.message_id, "size": size}
-            except: cache[ckey]["qualities"]["audio"] = {"file_id": sent_media.audio.file_id, "size": size}
-            os.remove(file_paths[0])
-        else:
-            sent_media = await send_video_file(bot, chat_id, chat_id, file_paths[0], f"✨ {qual_tag} Size {size} `{ckey}`", "Markdown", status_msg)
-            warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
-            asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
-            try:
-                vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent_media.video.file_id, caption=f"{ckey} [{res}]")
-                cache[ckey]["qualities"][res] = {"file_id": sent_media.video.file_id, "vault_msg_id": vmsg.message_id, "size": size}
-            except Exception as e:
-                logger.error(f"Vault save fail: {e}")
-                cache[ckey]["qualities"][res] = {"file_id": sent_media.video.file_id, "size": size}
-            os.remove(file_paths[0])
-        cache[ckey]["hits"] = cache[ckey].get("hits", 0) + 1
-        save_json_file(CACHE_FILE, cache)
-        await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
-        deduct_download_counter(user_id, is_batch=False)
-        await bot.send_message(chat_id=chat_id, text=t["download_success"], reply_markup=kb)
-        return True
+        with open(TOKEN_FILE, "w", encoding="utf-8") as f:
+            json.dump(tokens, f, indent=4)
     except Exception as e:
-        logger.error(f"DL {ckey}: {e}")
-        if "FILE_TOO_LARGE" in str(e): err = t["error_50mb"]
-        elif "MTPROTO_OFF" in str(e): err = "⚠️ Big files need fast mode, which is offline right now."
-        elif "MTPROTO_PEER" in str(e): err = "⚠️ Send /start to this bot once, then send the link again."
-        else: err = t["error_generic"]
-        kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
-        try: await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=err, reply_markup=kb)
-        except: pass
-        return False
+        print(f"Error saving tokens: {e}")
 
-async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    user_id = query.from_user.id
-    t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
-    if is_banned(user_id): await query.answer(t["banned"], show_alert=True); return
-    track_user_activity(user_id)
-    data = query.data
-    chat_id = query.message.chat_id
-    lang = get_lang(user_id)
-    if data.startswith("fl_"):
-        states = load_json_file(FILE_LINK_STATE_FILE)
-        state = states.get(str(user_id))
-        if data == "fl_cancel":
-            states.pop(str(user_id), None); save_json_file(FILE_LINK_STATE_FILE, states)
-            await query.answer(t["fl_cancelled"])
-            try: await query.message.edit_text(t["fl_cancelled"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            except: pass
-            return
-        if data == "fl_refresh":
-            await query.answer()
-            if state: await query.message.edit_reply_markup(reply_markup=file_link_keyboard(state))
-            return
-        if not state: await query.answer(t["fl_start_again"], show_alert=True); return
-        settings = state.setdefault("settings", {})
-        if data == "fl_expiry":
-            kb = [[InlineKeyboardButton("1 hour", callback_data="fl_exp_3600"), InlineKeyboardButton("1 day", callback_data="fl_exp_86400")],
-                  [InlineKeyboardButton("7 days", callback_data="fl_exp_604800"), InlineKeyboardButton("30 days", callback_data="fl_exp_2592000")],
-                  [InlineKeyboardButton("Never", callback_data="fl_exp_never"), InlineKeyboardButton("⬅ Back", callback_data="fl_refresh")]]
-            await query.answer(); await query.message.reply_text(t["fl_choose_expiry"], reply_markup=InlineKeyboardMarkup(kb)); return
-        if data.startswith("fl_exp_"):
-            value = data[7:]
-            settings["expiry"] = "never" if value == "never" else value
-            states[str(user_id)] = state; save_json_file(FILE_LINK_STATE_FILE, states)
-            await query.answer(t["fl_expiry_updated"])
-            try: await query.message.edit_reply_markup(reply_markup=file_link_keyboard(state))
-            except: pass
-            return
-        if data == "fl_maxuses":
-            kb = [[InlineKeyboardButton(str(n), callback_data=f"fl_uses_{n}") for n in (1,5,10)],
-                  [InlineKeyboardButton("25", callback_data="fl_uses_25"), InlineKeyboardButton("50", callback_data="fl_uses_50"), InlineKeyboardButton("Unlimited", callback_data="fl_uses_0")],
-                  [InlineKeyboardButton("⬅ Back", callback_data="fl_refresh")]]
-            await query.answer(); await query.message.reply_text(t["fl_choose_max_uses"], reply_markup=InlineKeyboardMarkup(kb)); return
-        if data.startswith("fl_uses_"):
-            settings["max_clicks"] = int(data.rsplit("_",1)[1])
-            states[str(user_id)] = state; save_json_file(FILE_LINK_STATE_FILE, states)
-            await query.answer(t["fl_uses_updated"])
-            try: await query.message.edit_reply_markup(reply_markup=file_link_keyboard(state))
-            except: pass
-            return
-        if data == "fl_password":
-            state["mode"] = "file_link_set_password"
-            states[str(user_id)] = state; save_json_file(FILE_LINK_STATE_FILE, states)
-            await query.answer(); await query.message.reply_text(t["fl_set_password"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            return
-        if data == "fl_create":
-            items = state.get("items", [])
-            if not items: await query.answer("Send at least one file first", show_alert=True); return
-            if user_id != ADMIN_ID:
-                tokens = load_tokens(); profile = tokens.get(str(user_id))
-                if not isinstance(profile, dict): profile = {"user_id": int(user_id), "downloads_left": get_free_amount(), "batch_downloads_left": get_free_amount()*5, "last_reset": time.time()}
-                try:
-                    last_reset = float(profile.get("last_reset", 0) or 0)
-                    if time.time() - last_reset >= 86400: profile["downloads_left"] = get_free_amount(); profile["batch_downloads_left"] = get_free_amount()*5; profile["last_reset"] = time.time()
-                except: pass
-                remaining = int(profile.get("downloads_left", get_free_amount()) or 0)
-                if remaining <= 0:
-                    await query.answer(t["fl_daily_limit"], show_alert=True)
-                    assigned_network = get_global_ab_network(user_id)
-                    if assigned_network == "monetag":
-                        kb = adsgram_keyboard(user_id, "wall", 0, 0)
-                        if kb: await query.message.reply_text(t["limit_reached"], reply_markup=kb, parse_mode="Markdown")
-                        else: await query.message.reply_text(t["fl_ad_busy"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-                    else:
-                        bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
-                        reward_kb = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get +1", callback_data="verify_user")]]
-                        await query.message.reply_text(t["limit_reached"], reply_markup=InlineKeyboardMarkup(reward_kb), parse_mode="Markdown")
-                    return
-                profile["downloads_left"] = remaining - 1
-                tokens[str(user_id)] = profile; save_tokens(tokens)
-            token = hashlib.sha256(f"{user_id}:{time.time_ns()}".encode()).hexdigest()[:12]
-            expiry_setting = settings.get("expiry", "never")
-            expires_at = None if expiry_setting == "never" else time.time() + int(expiry_setting)
-            links = load_json_file(FILE_LINKS_FILE)
-            links[token] = {"creator_id": user_id, "items": items, "created_at": time.time(), "expires_at": expires_at, "max_clicks": int(settings.get("max_clicks", 0) or 0), "clicks": 0, "password": settings.get("password", "")}
-            save_json_file(FILE_LINKS_FILE, links)
-            states.pop(str(user_id), None); save_json_file(FILE_LINK_STATE_FILE, states)
-            me = await context.bot.get_me()
-            link = f"https://t.me/{me.username}?start=fl_{token}"
-            await query.answer(t["fl_link_created"])
-            await query.message.reply_text(t["fl_link_ready"].format(link, len(items)), disable_web_page_preview=True, reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            try: await query.message.edit_reply_markup(reply_markup=None)
-            except: pass
-            return
-        await query.answer(); return
-    if data == "admin_skip_ad" and user_id == ADMIN_ID:
-        tokens = load_tokens()
-        if str(user_id) in tokens: del tokens[str(user_id)]; save_tokens(tokens)
-        await query.answer(t["admin_skipped"], show_alert=True)
-        try: await query.message.edit_text(t["admin_bypassed"], reply_markup=get_main_keyboard(lang, True))
-        except: pass
-        return
-    if data.startswith("set_free_") and user_id == ADMIN_ID:
-        val = int(data.replace("set_free_", "")); set_free_amount(val)
-        await query.answer(t["free_set"].format(val), show_alert=True)
-        try: await query.message.edit_text(t["free_updated"].format(val), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
-        except: pass
-        return
-    if data.startswith("set_reward_") and user_id == ADMIN_ID:
-        val = int(data.replace("set_reward_", "")); set_reward_amount(val)
-        await query.answer(t["reward_set"].format(val), show_alert=True)
-        try: await query.message.edit_text(t["reward_updated"].format(val), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
-        except: pass
-        return
-    if data.startswith("set_ad_") and user_id == ADMIN_ID:
-        mode = data.replace("set_ad_", "")
-        if mode == "adsgram": mode = "monetag"
-        config = load_json_file(CONFIG_FILE); config["ad_mode"] = mode; save_json_file(CONFIG_FILE, config)
-        await query.answer(t["mode_updated"].format(mode.upper().replace('ADSGRAM', 'MONETAG')), show_alert=True)
-        try: await query.message.edit_text(t["mode_updated"].format(mode.upper().replace('ADSGRAM','MONETAG')), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
-        except: pass
-        return
-    if data == "open_support":
-        support_states = load_json_file(SUPPORT_STATES_FILE)
-        ticket_id = str(int(time.time()))
-        support_states[str(user_id)] = {"mode": "user_writing", "ticket_id": ticket_id}
-        save_json_file(SUPPORT_STATES_FILE, support_states)
-        await query.answer(t["lang_updated"]); await query.message.reply_text(t["support_opened"], parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-        return
-    if data.startswith("support_reply_"):
-        target_user_id = data.replace("support_reply_", "")
-        ticket_id = str(int(time.time()))
-        support_states = load_json_file(SUPPORT_STATES_FILE)
-        support_states[str(ADMIN_ID)] = {"mode": "admin_replying", "target_user_id": int(target_user_id), "ticket_id": ticket_id}
-        save_json_file(SUPPORT_STATES_FILE, support_states)
-        await query.answer(t["admin_reply_mode"].split(":")[0]); await context.bot.send_message(chat_id=ADMIN_ID, text=t["admin_reply_mode"].format(target_user_id), parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
-        return
-    if data.startswith("user_reply_ticket_"):
-        ticket_id = data.replace("user_reply_ticket_", "")
-        support_states = load_json_file(SUPPORT_STATES_FILE)
-        support_states[str(user_id)] = {"mode": "user_writing", "ticket_id": ticket_id}
-        save_json_file(SUPPORT_STATES_FILE, support_states)
-        await query.answer(t["user_reply_mode"].split(":")[0]); await query.message.reply_text(t["user_reply_mode"], parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-        return
-    if data.startswith("support_close_"):
-        await query.answer(t["support_closed"], show_alert=True)
-        try: await query.message.edit_text(t["support_closed"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-        except: pass
-        return
-    if data == "drop_cancel" and user_id == ADMIN_ID:
-        states = load_json_file(DRIP_STATE_FILE)
-        if str(user_id) in states: del states[str(user_id)]; save_json_file(DRIP_STATE_FILE, states)
-        await query.answer(t["drop_cancelled"])
-        try: await query.message.delete()
-        except: pass
-        await context.bot.send_message(chat_id=chat_id, text=t["drop_cancelled"], reply_markup=get_main_keyboard(lang, True))
-        return
-    if data.startswith("drop_time_") and user_id == ADMIN_ID:
-        seconds = int(data.replace("drop_time_", ""))
-        mins_label = "30 Seconds" if seconds == 30 else f"{seconds//60} Minutes"
-        states = load_json_file(DRIP_STATE_FILE)
-        user_state = states.get(str(user_id))
-        if not user_state or not user_state.get("items"): await query.answer(t["drop_no_items"], show_alert=True); return
-        items_to_drop = user_state["items"]
-        del states[str(user_id)]; save_json_file(DRIP_STATE_FILE, states)
-        drop_id = str(int(time.time()))
-        expires_at = time.time() + 480
-        drop_data = load_json_file(DRIP_FILE)
-        drop_data[drop_id] = {"items": items_to_drop, "expires_at": expires_at, "delete_delay": seconds, "delete_label": mins_label, "claimed_users": []}
-        save_json_file(DRIP_FILE, drop_data)
-        await query.answer(t["drop_timer_set"].format(mins_label))
-        try: await query.message.delete()
-        except: pass
-        bot_username = context.bot.username
-        claim_url = f"https://t.me/{bot_username}?start=drip_{drop_id}"
-        all_users = set()
-        for d in [load_json_file(LANG_FILE), load_tokens()]:
-            for uid in d.keys():
-                try: all_users.add(int(uid))
-                except: pass
-        await context.bot.send_message(chat_id=chat_id, text=t["drop_broadcasting"].format(len(items_to_drop), len(all_users)), parse_mode="Markdown")
-        keyboard = [[InlineKeyboardButton("🎁 Claim Now", url=claim_url)]]
-        broadcast_text = t["drop_flash_text"].format(mins_label)
-        success = 0
-        for uid in all_users:
-            if uid == ADMIN_ID or is_banned(uid): continue
-            try:
-                await context.bot.send_message(chat_id=uid, text=broadcast_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-                success+=1; await asyncio.sleep(0.05)
-            except: pass
-        await context.bot.send_message(chat_id=chat_id, text=t["drop_done"].format(success), reply_markup=get_main_keyboard(lang, True), parse_mode="Markdown")
-        return
-    if data.startswith("age_yes_"):
-        drop_id = data.replace("age_yes_", "")
-        drip_data = load_json_file(DRIP_FILE)
-        drop = drip_data.get(drop_id)
-        if not drop: await query.answer(t["age_expired"], show_alert=True); return
-        if time.time() > drop["expires_at"]:
-            await query.answer(t["age_expired"], show_alert=True)
-            try: await query.message.edit_text(t["age_expired"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            except: pass
-            return
-        if "claimed_users" not in drop: drop["claimed_users"]=[]
-        if user_id in drop["claimed_users"]:
-            await query.answer(t["age_claimed"], show_alert=True)
-            try: await query.message.edit_text(t["age_claimed"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            except: pass
-            return
-        drop["claimed_users"].append(user_id)
-        drip_data[drop_id]=drop; save_json_file(DRIP_FILE, drip_data)
-        await query.answer(t["age_verified"])
+# ===== DYNAMIC ITEM STORAGE =====
+def load_items():
+    if os.path.exists(ITEMS_FILE):
         try:
-            await query.message.delete()
-            sent_ids=[]
-            for item in drop["items"]:
-                fwd = await context.bot.copy_message(chat_id=user_id, from_chat_id=item["chat_id"], message_id=item["message_id"])
-                sent_ids.append(fwd.message_id); await asyncio.sleep(0.2)
-            warn = await context.bot.send_message(chat_id=user_id, text=f"⏳ Auto-deletes in {drop.get('delete_label','9 Minutes')}", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            sent_ids.append(warn.message_id)
-            asyncio.create_task(schedule_deletion(context.bot, user_id, sent_ids, drop.get("delete_delay",540)))
-        except Exception as e: await context.bot.send_message(chat_id=user_id, text=f"❌ {e}", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-        return
-    if data == "age_no":
-        await query.answer(t["age_denied"], show_alert=True)
-        try: await query.message.edit_text(t["age_denied"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-        except: pass
-        return
-    if data.startswith("lang_"):
-        new_lang = data.split("_")[1]
-        langs = load_json_file(LANG_FILE); langs[str(user_id)]=new_lang; save_json_file(LANG_FILE, langs)
-        new_t = LANGUAGES.get(new_lang, LANGUAGES["en"])
-        await query.answer(t["lang_updated"], show_alert=True)
-        try:
-            config = load_json_file(CONFIG_FILE)
-            welcome_msg = config.get("welcome_message", new_t["welcome"])
-            try:
-                bot_user = context.bot.username
-                welcome_msg = welcome_msg.replace("{bot_name}", f"@{bot_user}")
-            except: pass
-            await query.message.reply_text(welcome_msg, reply_markup=get_main_keyboard(new_lang, user_id==ADMIN_ID), parse_mode="Markdown")
-            await query.message.delete()
-        except: pass
-        return
-    if data.startswith("batchtype_"):
-        parts = data.split("_",2); dl_type = parts[1]; payload_key = parts[2]
-        urls = pending_batch_payloads.get(payload_key)
-        if not urls: await query.answer(t["batch_expired"], show_alert=True); return
-        await query.message.delete()
-        keyboard = [[InlineKeyboardButton(t["btn_chat"], callback_data=f"dest_chat_{dl_type}_{payload_key}")], [InlineKeyboardButton(t["btn_chan"], callback_data=f"dest_chan_{dl_type}_{payload_key}")], [InlineKeyboardButton("🔄 Change Channel", callback_data="change_channel")]]
-        await context.bot.send_message(chat_id=chat_id, text=t["batch_dest"].format(len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-        return
-    if data.startswith("fmt_"):
-        parts = data.split("_",2); fmt_type, payload_key = parts[1], parts[2]
-        url = pending_single_links.pop(payload_key, None)
-        if not url: await query.answer(t["batch_expired"], show_alert=True); return
-        await query.answer(t["checking_vault"])
-        await query.message.delete()
-        dl_type = 'video'
-        if fmt_type == 'aud': dl_type='audio'
-        elif fmt_type == 'img': dl_type='images'
-        elif fmt_type == 'sub': dl_type='subtitles'
-        ckey = await get_canonical_key(url, chat_id, context.bot)
-        cache = load_json_file(CACHE_FILE)
-        if ckey in cache:
-            await cached_download_and_send(context.bot, chat_id, user_id, url, dl_type, t)
-            return
-        can_dl = await acquire_slot()
-        if can_dl:
-            try: await cached_download_and_send(context.bot, chat_id, user_id, url, dl_type, t)
-            finally: await release_slot()
-        else:
-            pos = download_queue.qsize()+1
-            await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, user_id, url, dl_type, t), 'kwargs': {}})
-            free_mb = shutil.disk_usage(".").free // (1024*1024)
-            await context.bot.send_message(chat_id=chat_id, text=t["server_busy"].format(active_downloads, MAX_CONCURRENT_SHORT, free_mb, pos), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-        return
-    if data == "admin_sim_ad" and user_id == ADMIN_ID:
-        try:
-            r = requests.get(f"{WEB_BASE_URL}/monetag-reward", params={"userid": user_id, "secret": API_SECRET}, timeout=8)
-            ok = r.status_code == 200
-        except Exception as e: logger.error(f"simulate ad: {e}"); ok = False
-        await query.answer(t["simulated"] if ok else t["server_unreachable"], show_alert=True)
-        return
-    if data == "monetag_fallback":
-        st = adsgram_status(user_id)
-        if st.get("status") != "fallback_available": await query.answer(t["monetag_failed_twice"], show_alert=True); return
-        bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
-        tokens = load_tokens()
-        tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
-        save_tokens(tokens)
-        await query.message.reply_text(t["monetag_fallback_prompt"], reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔓 Open Adsterra Link", url=bridge_link)], [InlineKeyboardButton("✅ Check & Get +1", callback_data="verify_user")]]))
-        await query.answer(t["adsterra_ready"], show_alert=True)
-        return
-    if data in ("monetag_check", "adsgram_check"):
-        st = adsgram_status(user_id)
-        if st.get("status") == "pending": await query.answer(t["finish_monetag"], show_alert=True); return
-        if st.get("status") == "fallback_available": await query.answer(t["monetag_failed_use_adsterra"], show_alert=True); return
-        if st.get("status") != "done": await query.answer(t["ad_link_expired"], show_alert=True); return
-        reward = st.get("reward", 1)
-        try: await query.message.delete()
-        except: pass
-        if st.get("kind") == "test":
-            await query.answer(t["ad_verified_added"].format(reward), show_alert=True)
-            await context.bot.send_message(chat_id=chat_id, text=t["test_ad_completed"].format(reward), reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            return
-        await query.answer(t["sponsor_viewed"].format(reward), show_alert=True)
-        paused = paused_batches.pop(user_id, None)
-        if paused:
-            asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"]))
-            return
-        msg_start, msg_end = int(st.get("msg_start", 0)), int(st.get("msg_end", 0))
-        if msg_start > 0:
-            await context.bot.send_message(chat_id=chat_id, text=t["fetching_bundle"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            try: await deliver_bundle(context.bot, user_id, msg_start, msg_end)
-            except Exception as e: await context.bot.send_message(chat_id=chat_id, text=f"❌ {e}", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            return
-        retry_url = pending_single_links.pop(f"retry_{user_id}", None)
-        if retry_url:
-            can_dl = await acquire_slot()
-            if can_dl:
-                try: await cached_download_and_send(context.bot, chat_id, user_id, retry_url, "video", t)
-                finally: await release_slot()
-            else:
-                await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, user_id, retry_url, "video", t), 'kwargs': {}})
-                await context.bot.send_message(chat_id=chat_id, text=t["queued"].format(download_queue.qsize()), reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            return
-        await context.bot.send_message(chat_id=chat_id, text=t["refilled_send_again"].format(reward), reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-        return
-    if data.startswith("adsgram_complete_") or data in ("adsgram_resume_batch",): await query.answer(t["outdated_button"], show_alert=True); return
-    if data == "stop_batch":
-        active_batch_sessions[user_id]=False
-        await query.answer(t["stopping"], show_alert=True)
-        try: await query.edit_message_text(t["stopped"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-        except: pass
-        return
-    if data == "resume_batch":
-        paused = paused_batches.pop(user_id, None)
-        if not paused: await query.answer(t["batch_expired"], show_alert=True); return
-        await query.answer(t["resuming"])
-        await query.message.delete()
-        asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"]))
-        return
-    if data.startswith("dest_chat_") or data.startswith("dest_chan_"):
-        parts = data.split("_",3); action_type, dl_type, payload_key = parts[1], parts[2], parts[3]
-        urls = pending_batch_payloads.pop(payload_key, None)
-        if not urls: await query.answer(t["batch_expired"], show_alert=True); return
-        if action_type=="chat":
-            await query.answer(t["batch_loading"])
-            await query.message.delete()
-            asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, chat_id, urls, dl_type))
-        else:
-            user_channels = load_user_channels()
-            target = user_channels.get(str(user_id))
-            if not target:
-                await query.answer(t["batch_no_channel"], show_alert=True)
-                linking_states = load_linking_states()
-                linking_states[str(user_id)]="waiting_for_channel"
-                save_linking_states(linking_states)
-                await query.message.edit_text(t["batch_setup_prompt"], parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-                return
-            await query.answer(t["batch_loading"])
-            await query.message.delete()
-            asyncio.create_task(process_url_batch(context.bot, user_id, chat_id, target, urls, dl_type))
-        return
-    if data == "change_channel":
-        linking_states = load_linking_states()
-        linking_states[str(user_id)]="waiting_for_channel"
-        save_linking_states(linking_states)
-        await query.answer(t["batch_mode_activated"])
-        await query.message.reply_text(t["batch_change_dest"], parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-        return
-    if data == "verify_user":
-        try:
-            member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_USERNAME, user_id=user_id)
-            if member.status not in ["creator","administrator","member"]: await query.answer(t["join_channel_first_alert"], show_alert=True); return
-        except: await query.answer(t["join_channel_first"], show_alert=True); return
-        tokens = load_tokens()
-        user_str = str(user_id)
-        if user_str not in tokens:
-            if user_id != ADMIN_ID: await query.answer(t["watch_timer_first"], show_alert=True); return
-            reward = get_reward_amount()
-            tokens[user_str] = {"user_id": int(user_id), "downloads_left": reward, "batch_downloads_left": reward * 5, "last_reset": time.time(), "msg_start": 0, "msg_end": 0, "clicked_ad": True, "verified": True, "expires": time.time() + 600}
-            save_tokens(tokens)
-            await query.answer(t["test_ad_verified"], show_alert=True)
-            await query.message.reply_text(t["test_ad_verified_msg"], parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            return
-        token_data = tokens[user_str]
-        if not token_data.get("verified", False): await query.answer(t["finish_timer_first"], show_alert=True); return
-        msg_start, msg_end = token_data.get("msg_start",0), token_data.get("msg_end",0)
-        reward = get_reward_amount()
-        tokens[user_str]["downloads_left"] = reward
-        tokens[user_str]["batch_downloads_left"] = reward * 5
-        tokens[user_str]["verified"] = True
-        tokens[user_str]["msg_start"] = 0
-        tokens[user_str]["msg_end"] = 0
-        save_tokens(tokens)
-        await query.answer(t["verified_added"])
-        if user_id in paused_batches:
-            keyboard = [[InlineKeyboardButton("▶️ Resume Batch +1", callback_data="resume_batch")]]
-            await query.message.reply_text(t["resume_prompt"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-            return
-        if msg_start==0:
-            await query.message.reply_text(t["refilled_download"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            return
-        await query.message.reply_text(t["fetching_bundle"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-        fwd_ids=[]
-        try:
-            for tid in range(msg_start, msg_end+1):
-                try:
-                    fwd = await context.bot.forward_message(chat_id=user_id, from_chat_id=DETECTED_CHANNEL_ID, message_id=tid)
-                    fwd_ids.append(fwd.message_id); await asyncio.sleep(0.2)
-                except Exception as inner_e: logger.error(f"Forward {tid} fail: {inner_e}")
-            await report_vault_delivery(user_id, msg_start, msg_end, fwd_ids)
-            if TUTORIAL_MESSAGE_ID not in range(msg_start, msg_end+1):
-                try:
-                    tut = await context.bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-                    fwd_ids.append(tut.message_id)
-                except Exception as tut_e: logger.error(f"Tutorial forward fail: {tut_e}")
-            warn = await context.bot.send_message(chat_id=user_id, text="⏳ Auto-deletes in 9 mins", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            fwd_ids.append(warn.message_id)
-            asyncio.create_task(schedule_deletion(context.bot, user_id, fwd_ids, 540))
-        except Exception as e: await query.message.reply_text(f"❌ {e}", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+            with open(ITEMS_FILE, "r", encoding="utf-8") as f:
+                return repair_obj(json.load(f))
+        except:
+            pass
+    return [
+        {"id": "1", "title": "Private Pharmacy Course Material", "desc": "Complete pharmacognosy & physical pharmaceutics vault files.", "meta": "📄 PDF • 14MB", "image": "https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=500&q=80", "category": "Courses", "downloads": 0, "pinned": True, "link": "https://t.me/Michaelbbcvaultbot?start=vid1"},
+        {"id": "2", "title": "Tic Tac Toe Mini Game Bot", "desc": "Source code & build guide for interactive telegram arcade games.", "meta": "📦 ZIP • 3.2MB", "image": "https://images.unsplash.com/photo-1611996575749-79a3a250f948?w=500&q=80", "category": "Mini Apps", "downloads": 0, "pinned": False, "link": "https://t.me/Michaelbbcvaultbot?start=vid2"}
+    ]
 
-TEST_AD_TEXT = "🧪 AD PLACEMENT TEST\n1️⃣ User sends link\n2️⃣ User gets 4 FREE downloads\n3️⃣ LIMIT REACHED screen appears\n4️⃣ Tap Watch Ad\n5️⃣ Tap Check & Get +1\n👇 TRY THE AD NOW:"
+def save_items(items):
+    try:
+        with open(ITEMS_FILE, "w", encoding="utf-8") as f:
+            json.dump(items, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        print(f"Error saving items: {e}")
 
-async def send_adsgram_test(message, user_id):
-    extra = [[InlineKeyboardButton("🛠 Admin: simulate ad finished", callback_data="admin_sim_ad")]] if user_id == ADMIN_ID else None
-    kb = adsgram_keyboard(user_id, "test", 0, 0, extra)
-    if not kb: await message.reply_text("⚠️ Ad server not reachable.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)); return
-    await message.reply_text(TEST_AD_TEXT, reply_markup=kb)
+DEFAULT_CATEGORIES = ["Courses", "Vault Files", "Mini Apps"]
 
-ADSTERRA_TEST_TEXT = "🧪 AD PLACEMENT TEST (Adsterra)\n1️⃣ User sends link\n2️⃣ LIMIT REACHED screen appears\n3️⃣ Stay 20s on ad page\n4️⃣ Tap Check & Get +1\n👇 TRY THE AD NOW:"
+def load_categories():
+    try:
+        with open(CATEGORIES_FILE, "r", encoding="utf-8") as f:
+            data = repair_obj(json.load(f))
+            if isinstance(data, list):
+                cleaned = list(dict.fromkeys(str(x).strip() for x in data if str(x).strip()))
+                return cleaned or DEFAULT_CATEGORIES.copy()
+    except (OSError, ValueError, TypeError):
+        pass
+    existing = [str(i.get("category", "")).strip() for i in load_items()]
+    return list(dict.fromkeys(DEFAULT_CATEGORIES + [x for x in existing if x]))
 
-async def send_adsterra_test(message, user_id):
-    tokens = load_tokens()
-    uid = str(user_id)
+def save_categories(categories):
+    with open(CATEGORIES_FILE, "w", encoding="utf-8") as f:
+        json.dump(categories, f, indent=4, ensure_ascii=False)
+
+# ===== BLOG CONFIG =====
+DEFAULT_BLOG = {
+    "url": "",
+    "title": "My Blog",
+    "tagline": "Latest news, tutorials and updates — fresh daily.",
+    "about": "I write about tech, coding, student life, and side hustles. Follow for weekly updates.",
+    "cta_text": "🚀 Visit My Blog",
+    "categories": [
+        {"label": "📰 Latest", "url": ""},
+        {"label": "🔥 Trending", "url": ""},
+        {"label": "📚 Topics", "url": ""},
+        {"label": "💬 Contact", "url": ""}
+    ],
+    "socials": [
+        {"name": "WhatsApp", "url": ""},
+        {"name": "Telegram", "url": ""},
+        {"name": "X", "url": ""},
+        {"name": "Instagram", "url": ""}
+    ],
+    "latest_count": 3
+}
+
+def load_blog_cfg():
+    cfg = dict(DEFAULT_BLOG)
+    if os.path.exists(REWARD_FILE):
+        try:
+            with open(REWARD_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data.get("blog"), dict):
+                    cfg.update(data["blog"])
+                elif isinstance(data.get("blog_url"), str) and data["blog_url"]:
+                    cfg["url"] = data["blog_url"]
+        except Exception:
+            pass
+    return cfg
+
+def save_blog_cfg(updates):
+    data = {}
+    if os.path.exists(REWARD_FILE):
+        try:
+            with open(REWARD_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            data = {}
+    blog = data.get("blog") if isinstance(data.get("blog"), dict) else {}
+    blog.update(updates or {})
+    data["blog"] = blog
+    try:
+        with open(REWARD_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        print(f"Error saving blog: {e}")
+
+def load_blog_url():
+    return load_blog_cfg().get("url", "")
+
+def save_blog_url(url):
+    save_blog_cfg({"url": url.strip()})
+
+# ===== POSTS STORAGE =====
+def load_posts():
+    if os.path.exists(POSTS_FILE):
+        try:
+            with open(POSTS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            pass
+    return []
+
+def save_posts(posts):
+    try:
+        with open(POSTS_FILE, "w", encoding="utf-8") as f:
+            json.dump(posts, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        print(f"Error saving posts: {e}")
+
+# ===== BLOG FEED FETCHER =====
+_BLOG_CACHE = {"url": None, "ts": 0, "posts": []}
+_BLOG_LOCK = threading.Lock()
+
+def _strip_html(s):
+    return _re.sub(r"<[^>]+>", "", s or "").strip()
+
+def fetch_blog_posts(blog_url, force=False):
+    if not blog_url: return []
+    if "blogspot.com" not in blog_url:
+        blog_url = "https://michaelbbc.blogspot.com"
     now = time.time()
-    if uid in tokens and isinstance(tokens[uid], dict): tokens[uid].update({"msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": now + 600})
-    else:
-        free = get_free_amount()
-        tokens[uid] = {"user_id": int(user_id), "downloads_left": free, "batch_downloads_left": free * 5, "last_reset": now, "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": now + 600}
-    save_tokens(tokens)
-    bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
-    keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")]]
-    await message.reply_text(ADSTERRA_TEST_TEXT, reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def send_test_ad(message, user_id):
-    if get_global_ab_network(user_id) == "monetag": await send_adsgram_test(message, user_id)
-    else: await send_adsterra_test(message, user_id)
-
-def build_ad_info_text(user_id):
-    mode = load_json_file(CONFIG_FILE).get("ad_mode", "auto")
-    monetag = "• Monetag: LIMIT REACHED screen -> Watch Ad Mini App -> Check & Get +1\n"
-    adsterra = "• Adsterra: LIMIT REACHED screen -> Open Link 20s -> Check & Get +1\n"
-    if mode in ("monetag", "adsgram"): head, body = "Mode: MONETAG only", monetag
-    elif mode == "adsterra": head, body = "Mode: ADSTERRA only", adsterra
-    else:
-        net = "Monetag" if get_global_ab_network(user_id) == "monetag" else "Adsterra"
-        head, body = f"Mode: AUTO (you currently get {net})", monetag + adsterra
-    return ("📢 AD INFO\n"
-            "Bot: @Michaelbbcvaultbot\n" + head + "\n"
-            "📍 Exact ad placement:\n" + body + "\n"
-            "• Reward: +1 download per completed ad\n"
-            "🧪 To test: tap 🧪 Test Ad or send /testad")
-
-async def test_ad_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
-    await send_test_ad(update.message, update.effective_user.id)
-
-async def tokencheck_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
-    mine = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()[:8] if BOT_TOKEN else "none"
-    try: s = requests.get(f"{WEB_BASE_URL}/monetag-selfcheck", timeout=15).json()
-    except Exception as e: await update.message.reply_text(f"❌ Could not reach server: {type(e).__name__}", reply_markup=get_main_keyboard("en", True)); return
-    same = (s.get("fingerprint") == mine)
-    lines = ["🔐 TOKEN CHECK", f"Render bot: fingerprint {mine}", f"PythonAnywhere: fingerprint {s.get('fingerprint')}", f"PA token works: {s.get('telegram_ok')}"]
-    lines.append("✅ MATCH" if same else "❌ DIFFERENT")
-    await update.message.reply_text("\n".join(lines), reply_markup=get_main_keyboard("en", True))
-
-async def ad_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
-    await update.message.reply_text(build_ad_info_text(update.effective_user.id), reply_markup=get_main_keyboard("en", True))
-
-def run_telegram_bot():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    async def start_bot():
-        clean_downloads_startup()
-        app = Application.builder().token(BOT_TOKEN).build()
+    with _BLOG_LOCK:
+        if not force and _BLOG_CACHE["url"] == blog_url and now - _BLOG_CACHE["ts"] < 300:
+            return _BLOG_CACHE["posts"]
+        posts = []
         try:
-            from telegram import BotCommand
-            await app.bot.set_my_commands([BotCommand("start", "Start bot"), BotCommand("filetolink", "Create a File-to-Link"), BotCommand("language", "Choose language"), BotCommand("stats", "View download balance")])
-        except Exception as e: logger.warning(f"Could not set bot menu commands: {e}")
-        app.add_handler(CommandHandler("start", start))
-        app.add_handler(CommandHandler("filetolink", file_to_link_command))
-        app.add_handler(CommandHandler("language", language_command))
-        app.add_handler(CommandHandler("stats", stats))
-        app.add_handler(CommandHandler("status", status_command))
-        app.add_handler(CommandHandler("testad", test_ad_command))
-        app.add_handler(CommandHandler("adinfo", ad_info_command))
-        app.add_handler(CommandHandler("tokencheck", tokencheck_command))
-        app.add_handler(CommandHandler("toggleads", toggle_ads_command))
-        app.add_handler(CommandHandler("broadcast", broadcast_command))
-        app.add_handler(CommandHandler("ban", ban_command))
-        app.add_handler(CommandHandler("unban", unban_command))
-        app.add_handler(CommandHandler("backup", backup_command))
-        app.add_handler(CommandHandler("restore", restore_command))
-        app.add_handler(CommandHandler("setdisk", set_disk_command))
-        app.add_handler(CommandHandler("setmtproto", set_mtproto_command))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
-        app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
-        app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.ATTACHMENT, handle_user_upload))
-        app.add_handler(CallbackQueryHandler(handle_buttons))
-        await app.initialize()
-        await app.start()
-        asyncio.create_task(disk_cleaner_loop())
-        asyncio.create_task(auto_backup_loop(app.bot))
-        asyncio.create_task(queue_processor(app.bot))
-        await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
-        print(f"Bot started! V24 Optimum +1 Vault={VIDEO_VAULT_ID} Backup={PRIVATE_CHANNEL_ID} Free {get_free_disk_mb()}MB")
-        await asyncio.Event().wait()
-    loop.run_until_complete(start_bot())
+            rss = blog_url.rstrip("/") + "/feeds/posts/default?alt=rss"
+            api_url = f"https://api.rss2json.com/v1/api.json?rss_url={quote(rss)}"
+            req = Request(api_url, headers={"User-Agent": "Mozilla/5.0"})
+            with urlopen(req, timeout=10) as r:
+                data = json.loads(r.read())
+                if data.get("status") == "ok" and data.get("items"):
+                    for entry in data["items"][:6]:
+                        img = entry.get("thumbnail", "")
+                        if not img and entry.get("content"):
+                            m = _re.search(r'<img[^>]+src=["\']([^"\']+)["\']', entry["content"])
+                            if m: img = m.group(1)
+                        posts.append({
+                            "title": _strip_html(entry.get("title", ""))[:120],
+                            "url": entry.get("link", ""),
+                            "thumb": img,
+                            "summary": _strip_html(entry.get("description", ""))[:160]
+                        })
+        except Exception as e:
+            print(f"rss2json error: {e}")
+        if not posts:
+            try:
+                feed_url = blog_url.rstrip("/") + "/feeds/posts/default?alt=rss"
+                req = Request(feed_url, headers={"User-Agent": "Mozilla/5.0 MichaelBBC-Vault/1.0"})
+                with urlopen(req, timeout=12) as r:
+                    body = r.read()
+                parsed = feedparser.parse(body)
+                for entry in parsed.entries[:6]:
+                    img = ""
+                    if "media_content" in entry and entry.media_content:
+                        img = entry.media_content[0].get("url", "")
+                    elif "summary" in entry:
+                        m = _re.search(r'<img[^>]+src=["\']([^"\']+)["\']', entry.summary)
+                        if m: img = m.group(1)
+                    posts.append({
+                        "title": _strip_html(entry.get("title", ""))[:120],
+                        "url": entry.get("link", ""),
+                        "thumb": img,
+                        "summary": _strip_html(entry.get("summary", entry.get("description", "")))[:160]
+                    })
+            except Exception as e:
+                print(f"Feedparser error: {e}")
+        with _BLOG_LOCK:
+            _BLOG_CACHE["url"] = blog_url
+            _BLOG_CACHE["ts"] = now
+            _BLOG_CACHE["posts"] = posts
+        return posts
+
+# ===== TEXT REPAIR =====
+import shutil as _shutil
+_CP1252_EXTRA = {}
+for _b in range(0x80, 0xA0):
+    try:
+        _CP1252_EXTRA[bytes([_b]).decode("cp1252")] = _b
+    except UnicodeDecodeError:
+        pass
+
+_RUN_CLASS = "[\u0080-\u00ff" + " ".join(_CP1252_EXTRA.keys()) + "]+"
+_RUN_RE = _re.compile(_RUN_CLASS)
+_MOJI_LEADS = "\u00c2\u00c3\u00e2\u00e3\u00f0"
+_TRUNCATED_FIX = {b"\xf0\x9f\x93": b"\x81", b"\xf0\x9f\x83": b"\x8f", b"\xef\xb8": b"\x8f"}
+
+def _run_to_bytes(run):
+    out = bytearray()
+    for ch in run:
+        o = ord(ch)
+        if o <= 0xFF:
+            out.append(o)
+        elif ch in _CP1252_EXTRA:
+            out.append(_CP1252_EXTRA[ch])
+        else:
+            return None
+    return bytes(out)
+
+def _decode_damaged(data):
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        pass
+    for tail, fix in _TRUNCATED_FIX.items():
+        if data.endswith(tail):
+            try:
+                return (data + fix).decode("utf-8")
+            except UnicodeDecodeError:
+                pass
+    if len(data) >= 4:
+        for cut in (1, 2, 3):
+            try:
+                kept = data[:-cut].decode("utf-8")
+            except UnicodeDecodeError:
+                continue
+            if kept:
+                return kept
+    return None
+
+def _fix_run(match):
+    run = match.group(0)
+    if run[0] not in _MOJI_LEADS:
+        return run
+    data = _run_to_bytes(run)
+    if data is None:
+        return run
+    fixed = _decode_damaged(data)
+    return run if fixed is None else fixed
+
+def repair_text(value):
+    if not isinstance(value, str):
+        return value
+    cur = value
+    for _ in range(3):
+        new = _RUN_RE.sub(_fix_run, cur)
+        if new == cur:
+            break
+        cur = new
+    return cur
+
+def repair_obj(obj):
+    if isinstance(obj, str):
+        return repair_text(obj)
+    if isinstance(obj, list):
+        return [repair_obj(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: repair_obj(v) for k, v in obj.items()}
+    return obj
+
+_text_repair_done = False
+
+def repair_data_files():
+    global _text_repair_done
+    _text_repair_done = True
+    for path in (ITEMS_FILE, CATEGORIES_FILE):
+        try:
+            if not os.path.exists(path):
+                continue
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            fixed = repair_obj(data)
+            if fixed != data:
+                backup = path + ".bak-" + time.strftime("%Y%m%d-%H%M%S")
+                _shutil.copyfile(path, backup)
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(fixed, f, indent=4, ensure_ascii=False)
+                print("Text repair: fixed " + os.path.basename(path) + " (backup: " + os.path.basename(backup) + ")")
+        except Exception as e:
+            print("Text repair skipped for " + str(path) + ": " + str(e))
+
+def get_free():
+    if os.path.exists(REWARD_FILE):
+        try:
+            with open(REWARD_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return int(data.get("free", 4))
+        except:
+            pass
+    return 4
+
+def get_reward():
+    if os.path.exists(REWARD_FILE):
+        try:
+            with open(REWARD_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return int(data.get("reward", 1))
+        except:
+            pass
+    return 1
+
+def get_user_profile(user_id, tokens):
+    user_id_str = str(user_id)
+    now = time.time()
+    day_in_seconds = 86400
+    if user_id_str not in tokens:
+        tokens[user_id_str] = {
+            "user_id": int(user_id),
+            "downloads_left": get_free(),
+            "batch_downloads_left": get_free() * 5,
+            "last_reset": now,
+            "msg_start": 0,
+            "msg_end": 0,
+            "clicked_ad": False,
+            "verified": False,
+            "expires": 0
+        }
+    else:
+        profile = tokens[user_id_str]
+        if now - profile.get("last_reset", 0) >= day_in_seconds:
+            profile["downloads_left"] = get_free()
+            profile["batch_downloads_left"] = get_free() * 5
+            profile["last_reset"] = now
+            profile["verified"] = False
+    return tokens[user_id_str]
+
+# ===== 1. POLISHED FRONTEND HUB TEMPLATE (ROUTE /) =====
+HUB_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>MichaelBBC Vault & News Hub</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root {
+--bg-color: #101114;
+--card-bg: #191b20;
+--accent-color: #8b75ff;
+--text-color: #f7f7fb;
+--muted-color: #a0a2ad;
+--green-color: #24c66b;
+--red-color: #ef4444;
+--spring-transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: radial-gradient(ellipse at 85% 0%, rgba(111,83,220,.14), transparent 34%), var(--bg-color); color: var(--text-color); margin: 0; padding-bottom: 90px; -webkit-tap-highlight-color: transparent; user-select: none; }
+.header { padding: 16px 20px; background: rgba(15,16,20,.94); backdrop-filter: blur(14px); display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.06); position: sticky; top: 0; z-index: 90; }
+.header h2 { margin: 0; font-size: 18px; color: #a995ff; font-weight: 700; letter-spacing: -.4px; }
+.badge { font-size: 11px; background: rgba(255,255,255,0.1); padding: 4px 8px; border-radius: 6px; color: var(--muted-color); }
+.bouncy-btn, .card, .cell, .chip, .game-card { transition: var(--spring-transition); cursor: pointer; }
+.bouncy-btn:active, .card:active, .chip:active, .game-card:active { transform: scale(0.95); }
+.tab-content { display: none; padding: 18px 16px 26px; opacity: 0; transform: translateY(12px); transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+.tab-content.active { display: block; opacity: 1; transform: translateY(0); }
+.search-box { position: relative; margin-bottom: 14px; }
+.search-box input { width: 100%; background: #1b1d23; border: 1px solid rgba(255, 255, 255, 0.07); color: var(--text-color); padding: 14px 16px; border-radius: 13px; font-size: 14px; box-sizing: border-box; outline: none; }
+.filter-bar { display: flex; gap: 9px; overflow-x: auto; padding-bottom: 17px; scrollbar-width: none; }
+.filter-bar::-webkit-scrollbar { display: none; }
+.chip { background: #1c1e25; padding: 8px 15px; border-radius: 20px; font-size: 12px; white-space: nowrap; color: #b5b6c0; border: 1px solid rgba(255,255,255,0.07); }
+.chip.active { background: #8b75ff; border-color: #8b75ff; color: #fff; font-weight: bold; }
+.grid { display: grid; grid-template-columns: 1fr; gap: 17px; }
+@media(min-width: 500px) { .grid { grid-template-columns: 1fr 1fr; } }
+.card { background: var(--card-bg); border-radius: 17px; overflow: hidden; border: 1px solid rgba(255,255,255,0.065); box-shadow: 0 8px 24px rgba(0,0,0,.17); opacity: 0; animation: cardPopIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; position: relative; }
+.card.pinned { border: 1px solid rgba(151,128,255, .65); }
+.pinned-badge { position: absolute; top: 8px; right: 8px; background: #8b75ff; color: #fff; font-size: 10px; font-weight: bold; padding: 3px 8px; border-radius: 7px; z-index: 2; }
+.card img { width: 100%; height: 165px; object-fit: cover; background: #24232e; }
+.card-body { padding: 15px 15px 16px; }
+.card-title { font-size: 16px; font-weight: 700; margin-bottom: 7px; letter-spacing: -.2px; }
+.card-meta { font-size: 11px; color: var(--muted-color); margin-bottom: 10px; display: flex; gap: 7px; align-items: center; }
+.card-desc { font-size: 12px; color: var(--muted-color); margin-bottom: 15px; line-height: 1.55; }
+.action-row { display: flex; gap: 9px; }
+.btn { flex: 1; background: var(--green-color); color: #fff; border: 0; min-height: 43px; padding: 10px; border-radius: 10px; font-weight: 700; font-size: 13px; text-align: center; text-decoration: none; display: inline-flex; justify-content: center; align-items: center; }
+.btn-copy { background: #292b33; width: 45px; flex: none; color: var(--text-color); }
+.btn-danger { background: var(--red-color); padding: 6px 12px; font-size: 11px; flex: unset; }
+.btn-edit { background: #292b33; color: #fff; padding: 6px 12px; font-size: 11px; flex: unset; border: 1px solid rgba(255,255,255,0.1); }
+@keyframes cardPopIn { 0% { opacity: 0; transform: scale(0.85) translateY(20px); } 100% { opacity: 1; transform: scale(1) translateY(0); } }
+.nav-bar { position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(12,13,16,.97); backdrop-filter: blur(16px); display: flex; justify-content: space-around; padding: 11px 0 calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid rgba(255,255,255,0.07); z-index: 100; }
+.nav-item { background: none; border: 0; color: var(--muted-color); font-size: 11px; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.nav-item.active { color: #a995ff; font-weight: bold; }
+.news-hero { background: linear-gradient(135deg, #282044 0%, #171a29 100%); border: 1px solid rgba(190,173,255,.18); border-radius: 20px; padding: 20px; margin-bottom: 20px; }
+.news-hero h2 { margin: 0 0 8px; font-size: 20px; letter-spacing: -.5px; }
+.news-hero p { color: #d1cce2; font-size: 13px; margin: 0 0 14px; line-height: 1.45; }
+.blog-cta { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; padding:18px; margin-bottom:16px; border-radius:16px; background:linear-gradient(135deg,#8b75ff,#5c3fe0); color:#fff; text-align:center; font-weight:800; font-size:16px; text-decoration: none; border:1px solid rgba(255,255,255,.2); box-shadow:0 8px 24px rgba(139,117,255,.35); box-sizing:border-box; }
+.blog-cta:active { transform:scale(0.97); }
+.hero { position: relative; border-radius: 22px; padding: 22px 20px; margin-bottom: 18px; overflow: hidden; background: linear-gradient(135deg, #3a2b6b 0%, #241b46 48%, #171a29 100%); border: 1px solid rgba(190,173,255,.28); box-shadow: 0 12px 32px rgba(111,83,220,.24); }
+.hero:before { content: ""; position: absolute; width: 220px; height: 220px; background: radial-gradient(circle, rgba(139,117,255,.55), transparent 70%); top: -100px; right: -80px; pointer-events: none; }
+.hero .eyebrow { font-size: 11px; letter-spacing: 2px; color: #bfb1ff; font-weight: 700; text-transform: uppercase; margin-bottom: 8px; }
+.hero h1 { margin: 0 0 6px; font-size: 24px; font-weight: 800; letter-spacing: -.6px; line-height: 1.15; }
+.hero p { margin: 0 0 16px; color: #d1cce2; font-size: 13px; line-height: 1.5; }
+.section-title { font-size: 15px; font-weight: 800; margin: 22px 2px 12px; display: flex; justify-content: space-between; align-items: center; letter-spacing: -.2px; }
+.section-title small { font-size: 11px; color: var(--muted-color); font-weight: 500; }
+.cat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 6px; }
+.cat-btn { background: var(--card-bg); border: 1px solid rgba(255,255,255,.08); border-radius: 14px; padding: 14px 12px; text-align: center; font-size: 13px; font-weight: 700; color: var(--text-color); text-decoration: none; transition: var(--spring-transition); }
+.cat-btn:active { transform: scale(.96); background: #20222b; }
+.post-card { display: flex; flex-direction: column; background: var(--card-bg); border: 1px solid rgba(255,255,255,.07); border-radius: 16px; overflow: hidden; margin-bottom: 16px; text-decoration: none; color: var(--text-color); transition: var(--spring-transition); }
+.post-card:active { transform: scale(.98); background: #20222b; }
+.post-img { width: 100%; height: auto; max-height: 250px; object-fit: cover; background: #24232e; }
+.post-body { padding: 16px; }
+.post-title { font-size: 16px; font-weight: 800; line-height: 1.35; margin-bottom: 8px; letter-spacing: -.2px; }
+.post-content { font-size: 13px; color: var(--muted-color); line-height: 1.55; margin-bottom: 14px; position: relative; }
+.post-content img { max-width: 100%; height: auto; border-radius: 10px; margin: 10px 0; display: block; }
+.post-content.collapsed { max-height: 150px; overflow: hidden; mask-image: linear-gradient(to bottom, black 70%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, black 70%, transparent 100%); }
+.read-more-btn { display: inline-block; background: transparent; color: var(--accent-color); font-size: 12px; font-weight: 700; border: 0; padding: 8px 0; cursor: pointer; margin-bottom: 10px; }
+.post-link-btn { display: none; width: 100%; margin-top: 10px; }
+.post-card.expanded .post-link-btn { display: inline-flex; }
+.about-card { background: var(--card-bg); border: 1px solid rgba(255,255,255,.07); border-radius: 16px; padding: 16px; margin-top: 6px; }
+.about-card p { margin: 0 0 12px; color: var(--muted-color); font-size: 13px; line-height: 1.55; }
+.socials { display: flex; gap: 8px; flex-wrap: wrap; }
+.social-btn { padding: 8px 14px; border-radius: 20px; background: #24232e; color: var(--text-color); font-size: 12px; font-weight: 700; text-decoration: none; border: 1px solid rgba(255,255,255,.08); transition: var(--spring-transition); }
+.social-btn:active { transform: scale(.94); }
+.empty-msg { text-align: center; color: var(--muted-color); font-size: 13px; padding: 20px; background: var(--card-bg); border-radius: 14px; border: 1px dashed rgba(255,255,255,.1); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.game-board { display: grid; grid-template-columns: repeat(3, 80px); gap: 10px; justify-content: center; margin: 20px auto; }
+.cell { width: 80px; height: 80px; background: var(--card-bg); border: 2px solid rgba(255,255,255,0.1); font-size: 32px; font-weight: bold; color: var(--accent-color); display: flex; align-items: center; justify-content: center; border-radius: 12px; }
+.cell-pop { animation: popCell 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+@keyframes popCell { 0% { transform: scale(0); } 70% { transform: scale(1.25); } 100% { transform: scale(1); } }
+.whot-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:8px 0 10px; }
+.whot-status { color:var(--muted-color); font-size:13px; line-height:1.5; text-align:center; min-height:38px; }
+.whot-modebar { display:flex; gap:7px; flex-wrap:wrap; justify-content:center; margin:12px 0; }
+.whot-modebar button,.whot-mini-btn { border:1px solid rgba(255,255,255,.18); border-radius:20px; padding:9px 12px; background:var(--card-bg); color:var(--text-color); font-weight:700; }
+.whot-modebar button.active { background:var(--accent-color); color:#fff; }
+.whot-opponent { display:flex; justify-content:space-between; align-items:center; padding:9px 12px; border-radius:10px; background:var(--card-bg); font-size:13px; margin:10px 0; }
+.whot-table { position:relative; overflow:hidden; border-radius:22px; padding:12px 9px 16px; background:radial-gradient(ellipse at center,#18794e 0%,#075638 68%,#043b29 100%); border:5px solid #7b4a25; box-shadow:inset 0 0 0 2px rgba(255,255,255,.12),0 8px 22px #0005; perspective: 1000px; }
+.whot-fan { display:flex; justify-content:center; align-items:center; min-height:72px; padding:4px 0; }
+.whot-back { width:39px;height:58px; margin-left:-15px; border-radius:7px; border:2px solid #f2d48b; background:repeating-linear-gradient(45deg,#8c1824 0 5px,#b62b36 5px 10px); box-shadow:0 3px 6px #0007; position:relative; }
+.whot-back:first-child { margin-left:0; }
+.whot-back:after { content:'WHOT'; position:absolute; inset:17px 1px auto; color:#ffe8a8; font-size:7px; font-weight:900; text-align:center; transform:rotate(-28deg); }
+.whot-pile-wrap { display:flex; justify-content:center; gap:30px; align-items:center; padding:14px 0; }
+.whot-pile-wrap small { display:block; text-align:center; color:#f6edcf; font-size:10px; margin-bottom:8px; letter-spacing:1px; }
+.whot-card { position:relative; width:88px; min-height:116px; border-radius:11px; border:3px solid #f8e8bd; box-shadow:0 5px 14px rgba(0,0,0,.3); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; font-size:27px; font-weight:900; color:#171717; background:linear-gradient(145deg,#fffdf4,#eadfbe); transform-style:preserve-3d; transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.whot-card:before { content:''; position:absolute; inset:5px; border:1px solid currentColor; border-radius:7px; opacity:.35; pointer-events:none; }
+.whot-card .whot-symbol { font-size:37px; line-height:1; }
+.whot-card small { color:#333; font-size:9px; margin:0; }
+.draw-card { background:repeating-linear-gradient(45deg,#761b29 0 7px,#a62635 7px 14px); color:#fff; border-color:#f5d68c; font-size:16px; }
+.whot-hand { display:flex; flex-wrap:wrap; justify-content:center; gap:6px; min-height:90px; }
+.whot-hand .whot-card { width:60px; min-height:86px; font-size:18px; border-width:2px; cursor:pointer; }
+.whot-hand .whot-card .whot-symbol { font-size:27px; }
+.whot-hand .whot-card small { font-size:7px; }
+.whot-hand .whot-card:disabled { opacity:.55; cursor:not-allowed; }
+.whot-hand .whot-card:not(:disabled):hover { transform: translateY(-8px) scale(1.05); }
+.whot-hand .whot-card:not(:disabled):active { transform:translateY(-14px) scale(1.1); }
+.whot-actions { margin:16px auto; max-width:300px; display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
+.whot-rules { color:var(--muted-color); font-size:11px; line-height:1.5; text-align:center; }
+.whot-actor { position:absolute; z-index:8; width:110px; height:150px; left:50%; top:65%; opacity:0; pointer-events:none; transform:translate(-50%,-50%) translate(-120px,95px) rotate(-18deg) scale(0.9); transform-origin: bottom right; }
+.whot-actor .arm { position:absolute; width:95px; height:34px; left:0; top:65px; border-radius:22px; background:linear-gradient(135deg,#f4c29d,#c18561); transform:rotate(-18deg); box-shadow:0 6px 14px rgba(0,0,0,0.4); }
+.whot-actor .palm { position:absolute; width:48px; height:44px; left:68px; top:44px; border-radius:50%; background:linear-gradient(135deg,#f9d0b2,#bd805d); transform:rotate(-15deg); box-shadow:0 4px 8px rgba(0,0,0,0.3); }
+.whot-actor.go { animation:whotReach 0.8s cubic-bezier(0.22, 0.75, 0.2, 1) both; }
+.whot-actor.opponent { transform:translate(-50%,-50%) scaleX(-1) translate(-120px,95px) rotate(-18deg) scale(0.9); }
+.whot-actor.opponent.go { animation:whotReachOpponent 0.8s cubic-bezier(0.22, 0.75, 0.2, 1) both; }
+@keyframes whotReach { 0% { opacity: 0; transform: translate(-50%,-50%) translate(-130px, 120px) rotate(-25deg) scale(0.8); } 20% { opacity: 1; transform: translate(-50%,-50%) translate(-60px, 40px) rotate(-12deg) scale(0.95); } 70% { opacity: 1; transform: translate(-50%,-50%) translate(10px, -15px) rotate(4deg) scale(1.05); } 100% { opacity: 0; transform: translate(-50%,-50%) translate(30px, -40px) rotate(10deg) scale(1); } }
+@keyframes whotReachOpponent { 0% { opacity: 0; transform: translate(-50%,-50%) scaleX(-1) translate(-130px, 120px) rotate(-25deg) scale(0.8); } 20% { opacity: 1; transform: translate(-50%,-50%) scaleX(-1) translate(-60px, 40px) rotate(-12deg) scale(0.95); } 70% { opacity: 1; transform: translate(-50%,-50%) scaleX(-1) translate(10px, -15px) rotate(4deg) scale(1.05); } 100% { opacity: 0; transform: translate(-50%,-50%) scaleX(-1) translate(30px, -40px) rotate(10deg) scale(1); } }
+.whot-play-card { animation:whotCardLand 0.5s cubic-bezier(0.18, 0.8, 0.25, 1) both; }
+@keyframes whotCardLand { 0% { transform: translateY(70px) rotate(-22deg) scale(0.7); opacity: 0.2; } 70% { transform: translateY(-8px) rotate(3deg) scale(1.08); opacity: 1; } 100% { transform: none; opacity: 1; } }
+@media(max-width:360px) { .whot-hand .whot-card { width:52px; min-height:77px; } .whot-pile-wrap { gap:20px; } .whot-back{width:32px;height:50px;margin-left:-13px} }
+.arcade-subnav{display:flex;gap:7px;overflow-x:auto;padding:4px 0 14px;scrollbar-width:none}.arcade-subnav .chip{flex:none}
+.arcade-panel{background:var(--card-bg);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:14px;margin:10px 0 16px}
+.arcade-btn{border:1px solid rgba(255,255,255,.14);background:#292b33;color:#fff;border-radius:11px;padding:10px 13px;font-weight:700;margin:3px;cursor:pointer}
+.arcade-btn.primary{background:var(--accent-color);border-color:var(--accent-color)}
+.sea-board{display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:3px;width:100%;max-width:430px;margin:10px auto;touch-action:manipulation}
+.sea-cell{aspect-ratio:1/1;min-width:0;border:1px solid rgba(255,255,255,.15);border-radius:5px;background:#2478a5;color:#fff;padding:0;font-size:clamp(10px,3vw,16px);font-weight:900}
+.sea-cell.own{background:#a96849}.sea-cell.ship{background:#c47c55}.sea-cell.hit{background:#df594d}.sea-cell.miss{background:#d9e8ee;color:#28617c}.sea-cell.target{outline:2px solid #ffe16a;outline-offset:-2px}
+.sea-cell:disabled{opacity:1}.sea-ship-picks{display:flex;gap:6px;justify-content:center;flex-wrap:wrap}.sea-ship-picks button{font-size:12px}
+.sea-status{text-align:center;color:var(--muted-color);min-height:36px;font-size:13px;line-height:1.45}
+.word-wheel{width:min(270px,78vw);height:min(270px,78vw);border-radius:50%;background:#bd7da4;border:9px solid #d28caf;margin:15px auto;display:flex;align-items:center;justify-content:center;position:relative}
+.word-wheel button{position:absolute;width:48px;height:48px;border:0;border-radius:13px;background:#f1c5d9;color:#34313a;font-size:25px;font-weight:900}
+.word-wheel button:nth-child(1){top:12px;left:calc(50% - 24px)}.word-wheel button:nth-child(2){right:20px;top:calc(50% - 24px)}.word-wheel button:nth-child(3){bottom:12px;left:calc(50% - 24px)}.word-wheel button:nth-child(4){left:20px;top:calc(50% - 24px)}
+.word-current{text-align:center;font-size:26px;letter-spacing:5px;min-height:36px;font-weight:900}.word-targets{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.word-target{background:#252832;border-radius:9px;padding:9px;text-align:center;letter-spacing:3px;font-weight:800;color:#aaa}.word-target.done{color:#66d68a;background:#183d2c}
+.water-row{display:flex;justify-content:center;align-items:flex-end;gap:12px;flex-wrap:wrap;padding:20px 4px}.water-tube{height:150px;width:42px;border:3px solid #aab7c9;border-top:0;border-radius:0 0 15px 15px;display:flex;flex-direction:column-reverse;overflow:hidden;background:#ffffff12;padding:2px;cursor:pointer}.water-layer{height:25%;min-height:0;border-radius:3px}.water-tube.selected{transform:translateY(-9px);border-color:#ffe16a}.water-controls{text-align:center}
+.sea-board{position:relative;padding:5px;border-radius:13px;background:radial-gradient(ellipse at 45% 35%,#2f9bc0 0%,#12658f 52%,#073b65 100%);box-shadow:inset 0 0 22px #031d3a99,0 8px 20px #0004;}
+.sea-cell{position:relative;overflow:hidden;border:1px solid #ffffff20!important;border-radius:3px!important;background:linear-gradient(145deg,#2489b1,#12648f 60%,#0c527d)!important;box-shadow:inset 0 1px 4px #b9edff22;transition:filter .2s,transform .18s;}
+.sea-cell:after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(115deg,transparent 0 9px,#d8f6ff08 10px 11px);pointer-events:none}
+.sea-cell.own{background:linear-gradient(145deg,#247fa2,#0b557e)!important}
+.sea-cell.ship{background:linear-gradient(180deg,#8799a3,#465965 35%,#263d4c 70%,#172a37)!important;border:1px solid #c3d3d8!important;box-shadow:inset 0 2px 4px #fff7,inset 0 -3px 4px #0009,0 2px 3px #0018}
+.sea-cell.ship:before{content:' ';position:absolute;left:12%;right:12%;top:27%;height:46%;border-radius:45% 45% 35% 35%;background:linear-gradient(180deg,#dce5e8,#667983 48%,#253d4a);box-shadow:0 1px 2px #0008}
+.sea-cell.ship:before,.sea-cell.ship:after{display:none}
+.sea-ship-art{position:absolute;z-index:7;pointer-events:none;filter:drop-shadow(0 3px 3px #001b);overflow:visible}
+.sea-ship-art svg{width:100%;height:100%;overflow:visible}.sea-ship-art.sunk{filter:drop-shadow(0 0 5px #ff6b32) sepia(.72) saturate(1.7) hue-rotate(325deg);opacity:.94}.sea-ship-art.sunk:after{content:'';position:absolute;inset:8% 12%;border-radius:45%;background:radial-gradient(ellipse at 35% 45%,#ffb13b88,transparent 24%),radial-gradient(ellipse at 70% 55%,#ff542c66,transparent 30%);mix-blend-mode:screen;animation:seaWreckGlow 1.3s ease-in-out infinite alternate}@keyframes seaWreckGlow{from{opacity:.35}to{opacity:.9}}
+.sea-cell.ship:after{content:'▪  ▪';position:absolute;z-index:1;top:34%;left:23%;right:20%;font-size:clamp(5px,1.7vw,9px);letter-spacing:3px;color:#eaf5f5;text-shadow:0 1px 2px #111}
+.sea-impact-mark{position:absolute;z-index:10;inset:0;display:grid;place-items:center;color:#fff3a8;font-size:clamp(17px,4vw,26px);text-shadow:0 0 10px #ff3b16,0 2px 3px #000;pointer-events:none;animation:seaBlast .55s ease-out}
+.sea-cell.hit{background:radial-gradient(circle,#ffe8a2 0 9%,#ff7a32 15%,#b51f25 38%,#45252c 70%)!important;animation:seaHit .55s ease-out}
+.sea-cell.hit:before{content:'✹';position:absolute;inset:0;display:grid;place-items:center;color:#fff1b0;font-size:clamp(16px,4vw,25px);text-shadow:0 0 9px #ff4b00;animation:seaBlast .55s ease-out}
+.sea-cell.miss{background:radial-gradient(circle,#e5fbff 0 5%,#70d9f5 8%,#176b98 30%,#0b527e 75%)!important}
+.sea-cell.miss:before{content:'';position:absolute;width:45%;height:45%;left:27%;top:25%;border:2px solid #c8f7ff;border-radius:50%;animation:seaRipple .65s ease-out}
+.sea-cell.target:not(:disabled){outline:2px solid #ffe17a;outline-offset:-3px;cursor:crosshair}
+.sea-cell:disabled{opacity:1}
+@keyframes seaHit{0%{filter:brightness(2.2);transform:scale(.8)}100%{filter:none;transform:scale(1)}}
+@keyframes seaBlast{0%{transform:scale(.1) rotate(-30deg);opacity:0}45%{transform:scale(1.5) rotate(25deg);opacity:1}100%{transform:scale(1);opacity:.9}}
+@keyframes seaRipple{0%{transform:scale(.1);opacity:1}100%{transform:scale(2.4);opacity:0}}
+.sea-shell{position:fixed;z-index:30;width:9px;height:15px;border-radius:60% 60% 35% 35%;background:linear-gradient(90deg,#493d32,#d7c4a0 45%,#4a3526);box-shadow:0 0 8px #ffd37a;pointer-events:none;animation:seaShellFly .48s cubic-bezier(.2,.7,.25,1) forwards}
+@keyframes seaShellFly{0%{transform:translate(0,0) rotate(35deg) scale(1.2);opacity:1}85%{opacity:1}100%{transform:translate(var(--dx),var(--dy)) rotate(420deg) scale(.55);opacity:0}}
+.sea-cannon{position:relative;width:76px;height:36px;margin:4px auto 2px;filter:drop-shadow(0 3px 3px #0018)}
+.sea-turret{position:absolute;left:22px;bottom:2px;width:34px;height:25px;border-radius:11px 11px 7px 7px;background:linear-gradient(145deg,#b7c5c9,#566b76 48%,#263b47);border:2px solid #d4e1e4;box-shadow:inset 0 2px 3px #fff8}
+.sea-barrel{position:absolute;left:35px;top:4px;width:37px;height:9px;border-radius:6px 8px 8px 6px;background:linear-gradient(#dbe3e5,#465b66 55%,#192c36);border:1px solid #d6e1e4;transform:rotate(-22deg);transform-origin:5px 50%}
+.sea-cannon.recoil .sea-barrel{animation:cannonRecoil .22s ease-out}
+@keyframes cannonRecoil{0%{transform:rotate(-22deg) translateX(0)}45%{transform:rotate(-22deg) translateX(-7px)}100%{transform:rotate(-22deg) translateX(0)}}
+.sea-action-row{display:flex;gap:7px;justify-content:center;flex-wrap:wrap;margin:9px 0}
+.sea-fire-flash{animation:seaFireFlash .45s ease-out}@keyframes seaFireFlash{0%{filter:brightness(1)}25%{filter:brightness(2.5)}100%{filter:brightness(1)}}
+.word-stage{background:radial-gradient(ellipse at top,#a76b9e,#714879 75%);border-radius:18px;padding:15px;color:#fff;overflow:hidden}
+.word-crossword{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:5px;max-width:420px;margin:12px auto 18px}
+.word-cell{aspect-ratio:1;border-radius:7px;background:#75ce38;color:#263d36;display:grid;place-items:center;font-weight:900;font-size:clamp(17px,5vw,27px);box-shadow:inset 0 -3px 0 #438d25;animation:wordCellIn .28s both}
+.word-cell.blank{background:transparent;box-shadow:none}.word-cell.empty{background:#fff;color:#333;box-shadow:none}
+@keyframes wordCellIn{from{transform:scale(.65);opacity:.3}to{transform:scale(1);opacity:1}}
+.word-wheel{width:min(270px,78vw);height:min(270px,78vw);border-radius:50%;background:radial-gradient(circle at 35% 25%,#d99bb9,#b56f98);border:10px solid #d28caf;box-shadow:inset 0 0 0 5px #e4aac5,0 8px 18px #32152f55;margin:15px auto;touch-action:none}
+.word-wheel button{width:52px;height:52px;border-radius:16px;background:#f5c8dc;box-shadow:0 4px 0 #a65e83,0 5px 12px #401d3855;touch-action:none;user-select:none;transition:transform .12s,background .12s}
+.word-wheel button.picked{background:#fff0a8;transform:scale(1.12);box-shadow:0 0 0 4px #ffe58b66,0 4px 0 #a65e83}
+.word-current{min-height:42px;background:#fff2;border-radius:10px;padding:6px;letter-spacing:5px}
+.word-found-list{display:flex;justify-content:center;gap:7px;flex-wrap:wrap;font-size:12px}
+.word-found-list span{background:#ffffff22;padding:5px 8px;border-radius:8px}
+.water-row{gap:17px;perspective:900px}
+.water-tube{position:relative;height:166px;width:48px;border:3px solid #dceaf4;border-top:0;border-radius:0 0 17px 17px;background:linear-gradient(90deg,#ffffff28,#ffffff08 35%,#ffffff30 75%,#ffffff12);box-shadow:inset 5px 0 8px #fff3,inset -5px 0 8px #0002,0 8px 13px #0004;overflow:visible;transition:transform .25s,border-color .25s;}
+.water-tube:before{content:'';position:absolute;left:-3px;right:-3px;top:-7px;height:9px;border:3px solid #e6f5ff;border-radius:50%;background:#c9efff33;z-index:3}
+.water-tube:after{content:'';position:absolute;left:7px;top:9px;width:5px;height:72%;border-radius:8px;background:linear-gradient(#fff9,#fff0);pointer-events:none}
+.water-layer{height:25%;width:100%;border-radius:4px 4px 2px 2px;position:relative;box-shadow:inset 0 3px 5px #fff5,inset 0 -3px 4px #0002;animation:waterSettle .25s ease-out both}
+.water-layer:after{content:'';position:absolute;left:0;right:0;top:0;height:4px;border-radius:50%;background:#ffffff75}
+.water-tube.selected{transform:translateY(-13px) rotate(-3deg);border-color:#ffe16a;filter:drop-shadow(0 0 8px #ffe16a66)}
+.water-tube.pouring{animation:waterTilt .55s ease-in-out}
+.water-layer.flowing{animation:waterFlow .65s ease-in-out}
+@keyframes waterTilt{0%,100%{transform:translateY(-8px) rotate(0)}35%,70%{transform:translateY(-16px) rotate(var(--tilt,13deg))}}
+@keyframes waterFlow{0%{transform:translateY(-12px);filter:brightness(1.5)}100%{transform:translateY(0);filter:brightness(1)}}
+@keyframes waterSettle{from{transform:scaleY(.4);transform-origin:bottom;opacity:.5}to{transform:scaleY(1);opacity:1}}
+.water-stream{position:fixed;width:9px;height:80px;border-radius:10px;z-index:999;background:linear-gradient(90deg,#fff5,var(--pour-color),#fff8);filter:drop-shadow(0 0 5px var(--pour-color));pointer-events:none;animation:waterStream .48s ease-in forwards}
+@keyframes waterStream{0%{opacity:0;transform:translate(0,0) scaleY(.1)}25%{opacity:1;transform:translate(0,0) scaleY(1)}100%{opacity:0;transform:translate(var(--stream-dx),var(--stream-dy)) scaleY(.7)}}
+.arcade-panel{overflow:hidden}
+.word-stage{padding:clamp(10px,3vw,18px)}
+.word-crossword{width:min(100%,390px);gap:clamp(3px,1.1vw,6px)}
+.word-wheel{width:min(270px,76vw);height:min(270px,76vw);touch-action:none;user-select:none;-webkit-user-select:none}
+.word-wheel button{position:absolute;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+.word-wheel button.picked{z-index:2}
+.word-current{font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.water-row{position:relative;isolation:isolate;overflow:visible;min-height:190px;gap:clamp(9px,3vw,18px);padding:24px 6px 18px}
+.water-tube{transform-origin:50% 8%;will-change:transform;z-index:1}
+.water-tube.pouring{animation:waterTilt .72s cubic-bezier(.35,.05,.2,1) both;z-index:4}
+.water-tube.receiving{animation:waterReceive .72s ease-out both}
+.water-tube .water-layer{display:block;flex:0 0 25%;height:25%;width:100%;will-change:transform}
+.water-stream-svg{position:fixed;inset:0;width:100vw;height:100vh;z-index:99999;pointer-events:none;overflow:visible}
+.water-stream-path{fill:none;stroke:var(--pour-color);stroke-width:11;stroke-linecap:round;filter:drop-shadow(0 0 5px var(--pour-color));stroke-dasharray:1;stroke-dashoffset:1;animation:waterPath .62s ease-in-out forwards}
+.water-stream-glint{fill:none;stroke:#ffffffaa;stroke-width:3;stroke-linecap:round;stroke-dasharray:1;stroke-dashoffset:1;animation:waterPath .62s ease-in-out forwards}
+.water-drop{fill:var(--pour-color);filter:drop-shadow(0 1px 3px #0005);animation:waterDrop .62s ease-in forwards}
+@keyframes waterPath{0%{stroke-dashoffset:1;opacity:.1}20%{opacity:1}100%{stroke-dashoffset:0;opacity:.9}}
+@keyframes waterDrop{0%{transform:translateY(-14px) scale(.7);opacity:0}35%{opacity:1}100%{transform:translateY(12px) scale(1.15);opacity:0}}
+@keyframes waterReceive{0%,100%{filter:none}35%{filter:brightness(1.35)}65%{transform:translateY(2px)}}
+.water-layer.water-moving{animation:waterLiquidMove .62s ease-in-out}
+@keyframes waterLiquidMove{0%{transform:translateY(-8px) scaleY(.82)}45%{transform:translateY(2px) scaleY(1.08)}100%{transform:translateY(0) scaleY(1)}}
+.arcade-result{position:fixed;inset:0;z-index:100000;display:none;place-items:center;background:#061525b8;padding:24px;backdrop-filter:blur(5px)}
+.arcade-result.show{display:grid;animation:resultFade .22s ease-out}
+.arcade-result-card{width:min(320px,90vw);padding:25px 20px;border-radius:22px;text-align:center;background:linear-gradient(145deg,#263e58,#172538);border:1px solid #ffffff35;box-shadow:0 18px 55px #0008;color:#fff}
+.arcade-result-card h3{font-size:25px;margin:5px 0 8px}.arcade-result-card p{color:#d5e4ef}
+@keyframes resultFade{from{opacity:0}to{opacity:1}}
+@media(max-width:390px){.water-tube{width:39px;height:148px}.water-row{gap:8px}.word-wheel{width:min(210px,64vw);height:min(210px,64vw);margin:12px auto}.word-stage{padding:10px 8px}.word-crossword{max-width:100%;gap:3px}.word-cell{min-width:0;min-height:29px;font-size:13px}.word-stage>p{font-size:12px!important;line-height:1.35;margin:6px 0 10px}.word-found-list{min-height:24px}}
+.word-stage{width:100%;max-width:560px;margin:8px auto;padding:clamp(10px,3vw,18px);box-sizing:border-box}
+.word-instructions{font-size:12px;line-height:1.4;text-align:center;margin:0 auto 10px;max-width:390px;color:#fff}
+.word-crossword{width:min(100%,360px);grid-template-columns:repeat(8,minmax(0,1fr));gap:clamp(2px,.8vw,5px);margin:8px auto 10px}
+.word-cell{min-width:0;min-height:0;font-size:clamp(12px,3.5vw,21px);border-radius:5px}
+.word-current{min-height:34px;display:flex;align-items:center;justify-content:center;margin:6px auto;padding:5px 8px;font-size:clamp(17px,5vw,23px);letter-spacing:2px;max-width:360px}
+.word-wheel{width:min(238px,66vw);height:min(238px,66vw);margin:10px auto 8px;border-width:8px;position:relative}
+.word-wheel button{width:clamp(40px,12vw,48px);height:clamp(40px,12vw,48px);font-size:clamp(19px,6vw,24px);border-radius:13px}
+.word-found-list{min-height:22px;margin:5px auto 8px;max-width:400px}
+.word-controls{display:flex;flex-wrap:wrap;justify-content:center;gap:7px;margin:8px auto}
+.word-controls .arcade-btn{flex:1 1 42%;max-width:180px;min-height:40px;margin:0;padding:8px 9px;font-size:12px}
+#word-status{min-height:20px;text-align:center;margin:6px 0 0;font-size:12px}
+@media(max-width:420px){.word-stage{border-radius:14px;padding:9px 7px}.word-crossword{width:min(100%,330px);gap:2px}.word-cell{border-radius:4px;font-size:clamp(11px,3.2vw,16px)}.word-wheel{width:min(218px,62vw);height:min(218px,62vw);margin:8px auto}.word-wheel button{width:42px;height:42px;font-size:21px}.word-controls .arcade-btn{flex-basis:45%;font-size:11px;padding:7px 5px}.word-found-list{font-size:11px}}
+@media(min-width:700px){.word-stage{padding:18px 24px}.word-crossword{width:min(100%,390px)}.word-wheel{width:250px;height:250px}}
+.stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+.stat-card { background: var(--bg-color); padding: 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08); text-align: center; }
+.stat-num { font-size: 20px; font-weight: bold; color: var(--accent-color); }
+.stat-label { font-size: 11px; color: var(--muted-color); }
+input, textarea, select { width: 100%; background: var(--bg-color); border: 1px solid rgba(255,255,255,0.1); color: var(--text-color); padding: 10px; border-radius: 8px; margin-bottom: 10px; box-sizing: border-box; outline: none; }
+label { font-size: 12px; color: var(--muted-color); margin-bottom: 4px; display: block; }
+.whot-shape-picker { display:none; position:fixed; inset:0; background:rgba(0,0,0,.75); z-index:200; align-items:center; justify-content:center; }
+.whot-shape-picker.open { display:flex; }
+.whot-shape-box { background:#191b20; padding:24px; border-radius:16px; text-align:center; border:1px solid rgba(255,255,255,.1); max-width:320px; width:90%; }
+.whot-shape-box h3 { margin:0 0 16px; font-size:16px; }
+.whot-shape-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.whot-shape-btn { padding:14px; border-radius:12px; border:1px solid rgba(255,255,255,.15); background:#24232e; color:#fff; font-weight:700; font-size:14px; cursor:pointer; }
+.whot-shape-btn:active { transform:scale(.96); }
+</style>
+</head>
+<body>
+<div class="header">
+<h2>📁 MichaelBBC Vault</h2>
+<span class="badge" id="user-badge">Connected</span>
+</div>
+<div id="tab-discover" class="tab-content active">
+    <h3 style="margin-top:0; color:var(--accent-color); font-weight: 800; font-size: 22px;">📰 Latest Updates</h3>
+    <p style="color:var(--muted-color); font-size:13px; margin-bottom:20px;">News, guides, and updates posted by the Admin.</p>
+    <div id="postsContainer">
+        <p style="text-align:center; color:var(--muted-color);">Loading posts...</p>
+    </div>
+</div>
+<div id="tab-vault" class="tab-content">
+    <section class="welcome-strip" style="background:linear-gradient(112deg,#282044 0%,#32265d 52%,#171a29 100%); padding:20px; border-radius:16px; margin-bottom:16px; border:1px solid rgba(190,173,255,.18);">
+        <h2 style="margin:0 0 6px; font-size:22px;">Find your next useful download.</h2>
+        <p style="margin:0; color:#d1cce2; font-size:12px;">Courses, resources and mini apps — all in one place.</p>
+    </section>
+    <div class="search-box">
+        <input type="text" id="searchInput" placeholder="🔍 Search courses, files..." oninput="debounceSearch()">
+    </div>
+    <div class="filter-bar">
+        <div class="chip bouncy-btn active" onclick="filterCategory('All', this)">All</div>
+        {% for category in categories %}
+        <div class="chip bouncy-btn" onclick='filterCategory({{ category|tojson }}, this)'>{{ category }}</div>
+        {% endfor %}
+    </div>
+    <div class="grid" id="itemsContainer"></div>
+</div>
+<div id="tab-games" class="tab-content">
+    <div class="arcade-subnav" id="arcade-subnav">
+        <div class="chip bouncy-btn active" onclick="switchGame('tictactoe', this)">⭕ Tic Tac Toe</div>
+        <div class="chip bouncy-btn" onclick="switchGame('whot', this)">🃏 WHOT</div>
+        <div class="chip bouncy-btn" onclick="switchGame('sea', this)">🚢 Sea Battle</div>
+        <div class="chip bouncy-btn" onclick="switchGame('word', this)">🔤 World Puzzle</div>
+        <div class="chip bouncy-btn" onclick="switchGame('water', this)">💧 Water Sort</div>
+    </div>
+    <div id="game-sea" style="display:none;">
+        <div class="whot-head"><div><span class="eyebrow">ARCADE • NAVAL PUZZLE</span><h3 style="margin:0;">🚢 Sea Battle</h3></div><span class="badge" id="sea-turn">Set up fleet</span></div>
+        <div class="arcade-panel" id="sea-lobby">
+            <p style="text-align:center;color:var(--muted-color);font-size:13px;">Deploy your fleet, then battle the computer or challenge another player online.</p>
+            <div style="text-align:center"><button class="arcade-btn primary" onclick="seaStartComputer()">🤖 Play Computer</button><button class="arcade-btn" onclick="seaCreateRoom()">➕ Create private room</button><button class="arcade-btn" onclick="seaJoinPrompt()">🔗 Join room</button><button class="arcade-btn" onclick="seaFindRandom()">🎲 Find opponent</button></div>
+            <p id="sea-code" class="sea-status"></p>
+        </div>
+        <div class="arcade-panel" id="sea-play-panel" style="display:none;">
+            <div class="sea-action-row"><button class="arcade-btn" id="sea-cancel" onclick="seaCancel()">✕ Cancel / Leave game</button></div><p id="sea-status" class="sea-status">Choose a ship, then tap a starting cell.</p>
+            <div id="sea-setup-tools"><div class="sea-ship-picks" id="sea-ship-picks"></div><p style="text-align:center"><button class="arcade-btn" onclick="seaRotate()">↻ Rotate selected ship</button><button class="arcade-btn" onclick="seaResetPlacement()">Reset fleet</button><button class="arcade-btn primary" id="sea-confirm-fleet" onclick="seaConfirmFleet()">⚓ Confirm fleet / Start</button></p></div>
+            <h4 id="sea-board-title" style="text-align:center;margin:8px 0">Your ocean</h4><div class="sea-board" id="sea-board"></div>
+            <div id="sea-target-wrap" style="display:none"><h4 style="text-align:center;margin:18px 0 8px">Opponent's ocean — tap to fire</h4><div class="sea-cannon" id="sea-cannon"><span class="sea-turret"></span><span class="sea-barrel"></span></div><div class="sea-board" id="sea-target-board"></div></div>
+        </div>
+    </div>
+    <div id="game-word" style="display:none;">
+        <div class="whot-head"><div><span class="eyebrow">ARCADE • WORD CONNECT</span><h3 style="margin:0;">🔤 World Puzzle</h3></div><span class="badge" id="word-level">Level 1</span></div>
+        <div class="word-stage"><p class="word-instructions">Swipe across the letters to form words. Each correct word fills the crossword.</p><div class="word-crossword" id="word-crossword"></div><div class="word-current" id="word-current">Swipe letters to make a word</div><div class="word-wheel" id="word-wheel"></div><div class="word-found-list" id="word-found-list"></div><div class="word-controls"><button class="arcade-btn" onclick="wordShuffle()">🔀 Shuffle</button><button class="arcade-btn" onclick="wordClear()">⌫ Clear</button><button class="arcade-btn primary" id="word-hint-ad" onclick="wordWatchHint()">💡 Get a hint · Watch ad</button><button class="arcade-btn primary" onclick="wordNext()">Next level →</button></div><p class="sea-status" id="word-status"></p></div>
+    </div>
+    <div id="game-water" style="display:none;">
+        <div class="whot-head"><div><span class="eyebrow">ARCADE • SORTING PUZZLE</span><h3 style="margin:0;">💧 Water Sort</h3></div><span class="badge" id="water-level">Level 1</span></div>
+        <div class="arcade-panel"><p style="text-align:center;color:var(--muted-color);font-size:13px">Sort each colour into its own tube. Tap a tube to pour into another.</p><div class="water-row" id="water-board" aria-label="Water sorting tubes"></div><div class="water-effects" id="water-effects" aria-hidden="true"></div><div class="water-controls"><button class="arcade-btn" onclick="waterUndo()">↶ Undo</button><button class="arcade-btn" onclick="waterNew()">🔄 Restart</button><button class="arcade-btn primary" onclick="waterNext()">Next level →</button></div><p class="sea-status" id="water-status"></p></div>
+    </div>
+    <div class="arcade-result" id="arcade-result" role="dialog" aria-modal="true"><div class="arcade-result-card"><div id="arcade-result-icon" style="font-size:48px">🏆</div><h3 id="arcade-result-title">You won!</h3><p id="arcade-result-text">Well played.</p><button class="arcade-btn primary" onclick="arcadeResultClose()">Continue</button></div></div>
+    <div id="game-tictactoe">
+        <h4 style="text-align:center; margin: 0 0 10px;" id="game-status">Player X's Turn</h4>
+        <div class="game-board" id="board">
+            <div class="cell bouncy-btn" onclick="cellClicked(0)"></div>
+            <div class="cell bouncy-btn" onclick="cellClicked(1)"></div>
+            <div class="cell bouncy-btn" onclick="cellClicked(2)"></div>
+            <div class="cell bouncy-btn" onclick="cellClicked(3)"></div>
+            <div class="cell bouncy-btn" onclick="cellClicked(4)"></div>
+            <div class="cell bouncy-btn" onclick="cellClicked(5)"></div>
+            <div class="cell bouncy-btn" onclick="cellClicked(6)"></div>
+            <div class="cell bouncy-btn" onclick="cellClicked(7)"></div>
+            <div class="cell bouncy-btn" onclick="cellClicked(8)"></div>
+        </div>
+        <button class="btn bouncy-btn" style="background:var(--card-bg); max-width: 180px; margin: 0 auto; display:block; color:var(--text-color);" onclick="resetGame()">🔄 Reset</button>
+    </div>
+    <div id="game-whot" style="display:none;">
+        <div class="whot-head"><div><span class="eyebrow">ARCADE • NIGERIAN CARD GAME</span><h3 style="margin:0;">🃏 WHOT!</h3></div><span class="badge" id="whot-turn">Your turn</span></div>
+        <div class="whot-modebar" id="whot-modebar">
+            <button id="btn-mode-computer" class="active" onclick="whotSelectMode('computer')">🤖 Computer</button>
+            <button id="btn-mode-online" onclick="whotSelectMode('online')">👥 Friend / Random</button>
+        </div>
+        <div id="whot-lobby" style="display:none; text-align:center; padding: 20px; background: var(--card-bg); border-radius: 16px; margin-bottom: 16px;">
+            <h3 style="margin-top:0; color:var(--accent-color);">Play with Friends</h3>
+            <p style="font-size:12px; color:var(--muted-color); margin-bottom:16px;">Create a room, or join with a code.</p>
+            <button class="whot-mini-btn" style="width:100%; margin-bottom:8px; padding:12px;" onclick="whotCreateRoom()">➕ Create Private Room</button>
+            <button class="whot-mini-btn" style="width:100%; margin-bottom:8px; padding:12px;" onclick="whotJoinRoomPrompt()">🔗 Join with Room Code</button>
+            <button class="whot-mini-btn" style="width:100%; margin-bottom:8px; padding:12px;" onclick="whotFindRandom()">🎲 Find Random Opponent</button>
+            <hr style="border-color:#333; margin:16px 0;">
+            <button class="btn btn-danger" style="width:100%;" onclick="whotSelectMode('computer')">❌ Cancel & Play Computer</button>
+        </div>
+        <p id="whot-room-code" class="whot-status"></p>
+        <p id="whot-status" class="whot-status" aria-live="polite">Choose a game mode to begin.</p>
+        <div class="whot-table">
+            <div class="whot-opponent"><span id="whot-opponent-name">🤖 Computer</span><strong id="whot-cpu-count">5 cards</strong></div>
+            <div id="whot-opponent-fan" class="whot-fan" aria-label="Opponent's face-down cards"></div>
+            <div class="whot-pile-wrap"><div><small>TOP CARD</small><div id="whot-top" class="whot-card top-card">1<br><small>CIRCLE</small></div></div><div><small>DRAW PILE</small><button type="button" id="whot-draw" class="whot-card draw-card" onclick="whotDraw()">WHOT</button></div></div>
+            <div id="whot-actor" class="whot-actor" aria-hidden="true"><span class="arm"></span><span class="palm"></span></div>
+            <div class="whot-opponent"><span>🙋 Your hand</span><strong id="whot-player-count">0 cards</strong></div>
+            <div id="whot-hand" class="whot-hand"></div>
+        </div>
+        <div class="whot-actions" id="whot-actions-computer"><button class="btn bouncy-btn" type="button" onclick="whotNewGame()">🔄 New computer game</button></div>
+        <p class="whot-rules">Match by number or shape. Specials: 1 Hold On, 2 Pick Two, 5 Pick Three, 8 Suspension, 14 General Market, 20 = WHOT (wild, pick shape).</p>
+    </div>
+</div>
+<div id="tab-admin" class="tab-content">
+    <h3 style="margin-top:0; color:var(--accent-color);">🛠️ Live Dashboard & Admin</h3>
+    <div class="stats-grid">
+        <div class="stat-card"><div class="stat-num" id="statUsers">--</div><div class="stat-label">Total Users</div></div>
+        <div class="stat-card"><div class="stat-num" id="statDownloads">--</div><div class="stat-label">Vault Items</div></div>
+    </div>
+    <h4>📰 Publish New Post</h4>
+    <div style="background:var(--card-bg);padding:12px;border-radius:10px;margin-bottom:20px;">
+        <p style="font-size:11px;color:var(--muted-color);margin-top:0;">This will instantly appear on the Discover tab for everyone.</p>
+        <form action="/admin/add-post" method="POST">
+            <input type="hidden" name="secret" value="{{ secret }}">
+            <label>Post Title</label>
+            <input type="text" name="title" placeholder="e.g. eFootball Update" required>
+            <label>Post Message (Just type normally)</label>
+            <textarea name="content" id="postContent" rows="6" placeholder="Write your news here. You can press Enter to start a new line." required></textarea>
+            <div style="display:flex; gap:8px; margin-bottom:10px;">
+                <input type="file" accept="image/*" onchange="insertImageInPost(this)" style="display:none;" id="inPostImageInput">
+                <button type="button" class="btn bouncy-btn" style="background:#292b33; color:#fff; font-size:12px; min-height:38px;" onclick="document.getElementById('inPostImageInput').click()">🖼️ Insert Image in Post</button>
+                <span id="inPostImageStatus" style="color:var(--green-color); font-size:12px; align-self:center;"></span>
+            </div>
+            <label>Add a Link (Optional)</label>
+            <input type="text" name="link_text" placeholder="e.g. Watch Video">
+            <input type="url" name="link_url" placeholder="https://example.com">
+            <label>Cover Image (Optional)</label>
+            <input type="file" accept="image/*" onchange="encodePostImage(this)">
+            <input type="hidden" name="image" id="postImageBase64">
+            <button type="submit" class="btn bouncy-btn" style="margin-top:8px;">🚀 Publish Post</button>
+        </form>
+    </div>
+    <h4>🗑 Manage Posts</h4>
+    <div style="background:var(--card-bg);padding:12px;border-radius:10px;margin-bottom:20px;">
+        {% for p in posts %}
+        <div style="display:flex;flex-direction:column;padding:10px;border-bottom:1px solid rgba(255,255,255,0.05);margin-bottom:8px;">
+            <div style="font-size:13px;font-weight:bold;margin-bottom:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ p.title }}</div>
+            <div style="display:flex; gap:8px;">
+                <button class="btn btn-edit" style="flex:1;" onclick="document.getElementById('edit-post-{{ p.id }}').style.display='block'">Edit</button>
+                <a href="/admin/delete-post?id={{ p.id }}&secret={{ secret }}" class="btn btn-danger" style="flex:1;" onclick="return confirm('Delete this post?')">Delete</a>
+            </div>
+            <form id="edit-post-{{ p.id }}" action="/admin/edit-post" method="POST" style="display:none; margin-top:10px; background:#101114; padding:10px; border-radius:8px;">
+                <input type="hidden" name="secret" value="{{ secret }}">
+                <input type="hidden" name="id" value="{{ p.id }}">
+                <label>Title</label><input type="text" name="title" value="{{ p.title }}" required>
+                <label>Content</label><textarea name="content" rows="4" required>{{ p.content }}</textarea>
+                <label>Link Text</label><input type="text" name="link_text" value="{{ p.link_text or '' }}">
+                <label>Link URL</label><input type="url" name="link_url" value="{{ p.link_url or '' }}">
+                <button type="submit" class="btn bouncy-btn" style="margin-top:8px; background:var(--accent-color);">Save Changes</button>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+    <h4>📁 Manage Categories</h4>
+    <div style="background:var(--card-bg);padding:12px;border-radius:10px;margin-bottom:20px;">
+        <form action="/admin/category" method="POST" style="display:flex; gap:8px; margin-bottom:16px;">
+            <input type="hidden" name="secret" value="{{ secret }}">
+            <input type="hidden" name="action" value="add">
+            <input type="text" name="name" placeholder="New category name" required style="margin-bottom:0;">
+            <button type="submit" class="btn bouncy-btn" style="width:80px; flex:none;">Add</button>
+        </form>
+        {% for cat in categories %}
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px;border-bottom:1px solid rgba(255,255,255,0.05);margin-bottom:8px;">
+            <div style="font-size:13px;">{{ cat }}</div>
+            <div style="display:flex; gap:6px;">
+                <button class="btn btn-edit" style="padding:4px 8px; font-size:10px;" onclick="document.getElementById('edit-cat-{{ loop.index }}').style.display='block'">Rename</button>
+                <form action="/admin/category" method="POST" style="display:inline;" onsubmit="return confirm('Delete category? Make sure no items are in it.')">
+                    <input type="hidden" name="secret" value="{{ secret }}">
+                    <input type="hidden" name="action" value="delete">
+                    <input type="hidden" name="old_name" value="{{ cat }}">
+                    <button type="submit" class="btn btn-danger" style="padding:4px 8px; font-size:10px;">Del</button>
+                </form>
+            </div>
+            <form id="edit-cat-{{ loop.index }}" action="/admin/category" method="POST" style="display:none; margin-top:10px; width:100%; background:#101114; padding:8px; border-radius:8px;">
+                <input type="hidden" name="secret" value="{{ secret }}">
+                <input type="hidden" name="action" value="rename">
+                <input type="hidden" name="old_name" value="{{ cat }}">
+                <input type="text" name="name" value="{{ cat }}" required style="margin-bottom:6px;">
+                <button type="submit" class="btn bouncy-btn" style="background:var(--accent-color); padding:6px; font-size:11px;">Save Name</button>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+    <form action="/admin/add-item" method="POST" style="background: var(--card-bg); padding: 14px; border-radius: 12px; margin-bottom: 20px;">
+        <input type="hidden" name="secret" value="{{ secret }}">
+        <h4 style="margin-top:0;">Add New Vault Item</h4>
+        <label>Item Title</label><input type="text" name="title" placeholder="e.g. Pharmacognosy PDF" required>
+        <label>Description</label><textarea name="desc" rows="2" placeholder="Short file description..." required></textarea>
+        <label>Upload Image Directly</label><input type="file" id="imageInput" accept="image/*" onchange="encodeImageFileAsURL(this)"><input type="hidden" name="image" id="imageBase64" required>
+        <label>File Indicator</label><input type="text" name="meta" value="📄 PDF • 5.0MB">
+        <label>Category</label>
+        <select name="category">
+            {% for category in categories %}<option value="{{ category }}">{{ category }}</option>{% endfor %}
+        </select>
+        <label>Telegram Bot / File Link</label><input type="text" name="link" placeholder="https://t.me/..." required>
+        <label><input type="checkbox" name="pinned" value="true" style="width:auto;"> Pin to top</label>
+        <button type="submit" class="btn bouncy-btn">➕ Add New Item</button>
+    </form>
+    <h4>Existing Items Manager:</h4>
+    {% for item in items %}
+    <details style="background: var(--card-bg); padding: 12px; border-radius: 10px; margin-bottom: 10px; border: 1px solid rgba(255,255,255,0.08);">
+        <summary style="cursor:pointer; display:flex; justify-content:space-between; align-items:center; gap:10px;">
+            <span><strong style="font-size:14px;">{{ item.title }}</strong><br><small style="color:var(--muted-color);">{{ item.category }}</small></span>
+            <span style="color:var(--accent-color);">Edit ▾</span>
+        </summary>
+        <form action="/admin/edit-item" method="POST" style="margin-top:14px;">
+            <input type="hidden" name="secret" value="{{ secret }}">
+            <input type="hidden" name="id" value="{{ item.id }}">
+            <label>Title</label><input type="text" name="title" value="{{ item.title }}" required>
+            <label>Description</label><textarea name="desc" rows="2" required>{{ item.desc }}</textarea>
+            <label>Link</label><input type="text" name="link" value="{{ item.link }}" required>
+            <button type="submit" class="btn bouncy-btn">Save Changes</button>
+        </form>
+        <a href="/admin/delete-item?id={{ item.id }}&secret={{ secret }}" class="btn btn-danger" style="display:inline-block;margin-top:10px;" onclick="return confirm('Delete item?')">Delete Item</a>
+    </details>
+    {% endfor %}
+</div>
+<nav class="nav-bar">
+    <button class="nav-item bouncy-btn active" onclick="switchTab('discover', this)">📰 <span>News</span></button>
+    <button class="nav-item bouncy-btn" onclick="switchTab('vault', this)">📁 <span>Vault</span></button>
+    <button class="nav-item bouncy-btn" onclick="switchTab('games', this)">🎮 <span>Arcade</span></button>
+    <button class="nav-item bouncy-btn" id="admin-nav-btn" style="display:none;" onclick="switchTab('admin', this)">⚙️ <span>Admin</span></button>
+</nav>
+<div id="whot-shape-picker" class="whot-shape-picker">
+    <div class="whot-shape-box">
+        <h3>🃏 WHOT! Choose a shape</h3>
+        <div class="whot-shape-grid">
+            <button class="whot-shape-btn" onclick="whotShapeChosen('CIRCLE')">● CIRCLE</button>
+            <button class="whot-shape-btn" onclick="whotShapeChosen('TRIANGLE')">▲ TRIANGLE</button>
+            <button class="whot-shape-btn" onclick="whotShapeChosen('CROSS')">✚ CROSS</button>
+            <button class="whot-shape-btn" onclick="whotShapeChosen('SQUARE')">■ SQUARE</button>
+            <button class="whot-shape-btn" onclick="whotShapeChosen('STAR')">★ STAR</button>
+            <button class="whot-shape-btn" onclick="whotShapeCancelled()" style="background:#3a1f1f;color:#ffb4b4;">Cancel</button>
+        </div>
+    </div>
+</div>
+<script>
+    const tg = window.Telegram.WebApp;
+    tg.ready(); tg.expand();
+    const ADMIN_ID = 6248570946;
+    const userId = (tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id) || null;
+    if (userId == ADMIN_ID) {
+        document.getElementById('admin-nav-btn').style.display = 'flex';
+    }
+    function arcadeResultShow(won,title,message){const el=document.getElementById('arcade-result');if(!el)return;document.getElementById('arcade-result-icon').textContent=won?'🏆':'💥';document.getElementById('arcade-result-title').textContent=title;document.getElementById('arcade-result-text').textContent=message;el.classList.add('show');if(tg.HapticFeedback)triggerHaptic('notification',won?'success':'error');}
+    function arcadeResultClose(){document.getElementById('arcade-result').classList.remove('show')}
+    function triggerHaptic(type = 'impact', style = 'light') {
+        if (tg.HapticFeedback) {
+            if (type === 'impact') tg.HapticFeedback.impactOccurred(style);
+            if (type === 'notification') tg.HapticFeedback.notificationOccurred(style);
+        }
+    }
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playSound(type) {
+        if (!audioCtx) return;
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        const now = audioCtx.currentTime;
+        if (type === 'deal') {
+            osc.type = 'triangle'; osc.frequency.setValueAtTime(320, now);
+            osc.frequency.exponentialRampToValueAtTime(140, now + 0.12);
+            gain.gain.setValueAtTime(0.25, now); gain.gain.linearRampToValueAtTime(0.01, now + 0.12);
+            osc.start(now); osc.stop(now + 0.12);
+        } else if (type === 'win') {
+            osc.type = 'sine'; osc.frequency.setValueAtTime(523.25, now);
+            osc.frequency.setValueAtTime(659.25, now + 0.1); osc.frequency.setValueAtTime(783.99, now + 0.2);
+            gain.gain.setValueAtTime(0.3, now); gain.gain.linearRampToValueAtTime(0.01, now + 0.35);
+            osc.start(now); osc.stop(now + 0.35);
+        } else if (type === 'click') {
+            osc.type = 'square'; osc.frequency.setValueAtTime(400, now);
+            gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0.01, now + 0.05);
+            osc.start(now); osc.stop(now + 0.05);
+        }
+    }
+    function switchTab(tabName, el) {
+        playSound('click'); triggerHaptic('impact', 'light');
+        document.querySelectorAll('.tab-content').forEach(s => s.classList.remove('active'));
+        document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+        document.getElementById('tab-' + tabName).classList.add('active');
+        el.classList.add('active');
+    }
+    async function loadPosts() {
+        try {
+            const res = await fetch('/api/posts');
+            const data = await res.json();
+            const box = document.getElementById('postsContainer');
+            if (!data.ok || !data.posts || data.posts.length === 0) {
+                box.innerHTML = '<p style="text-align:center; color:var(--muted-color);">No posts yet. The Admin will publish news soon!</p>';
+                return;
+            }
+            box.innerHTML = '';
+            data.posts.forEach(p => {
+                const needsTruncation = p.content.length > 250 || p.link_url;
+                const btnId = `read-more-${p.id}`;
+                const card = document.createElement('div');
+                card.className = 'post-card';
+                card.id = `post-card-${p.id}`;
+                card.innerHTML = `
+                    ${p.image ? `<img src="${p.image}" class="post-img" loading="lazy">` : ''}
+                    <div class="post-body">
+                        <div class="post-title">${p.title}</div>
+                        <div class="post-content ${needsTruncation ? 'collapsed' : ''}" id="post-content-${p.id}">${p.content}</div>
+                        ${needsTruncation ? `<button class="read-more-btn" id="${btnId}" onclick="toggleReadMore('${p.id}')">Read More ▾</button>` : ''}
+                        ${p.link_url ? `<a href="${p.link_url}" target="_blank" class="btn bouncy-btn post-link-btn" style="text-decoration:none;">${p.link_text || 'Click Here'} ↗</a>` : ''}
+                    </div>
+                `;
+                box.appendChild(card);
+            });
+        } catch(e) { console.error(e); }
+    }
+    function toggleReadMore(postId) {
+        playSound('click');
+        const content = document.getElementById(`post-content-${postId}`);
+        const card = document.getElementById(`post-card-${postId}`);
+        const btn = document.getElementById(`read-more-${postId}`);
+        if (content.classList.contains('collapsed')) {
+            content.classList.remove('collapsed');
+            card.classList.add('expanded');
+            btn.innerText = 'Show Less ▴';
+        } else {
+            content.classList.add('collapsed');
+            card.classList.remove('expanded');
+            btn.innerText = 'Read More ▾';
+        }
+    }
+    loadPosts();
+    const rawItems = {{ items | tojson }};
+    let sampleItems = rawItems.sort((a, b) => (b.pinned === true) - (a.pinned === true));
+    document.getElementById('statDownloads').innerText = sampleItems.length;
+    document.getElementById('statUsers').innerText = "~";
+    function renderItems(items) {
+        const container = document.getElementById('itemsContainer');
+        container.innerHTML = '';
+        if (items.length === 0) {
+            container.innerHTML = '<p style="text-align:center; color:var(--muted-color); grid-column: 1/-1;">No items found.</p>';
+            return;
+        }
+        items.forEach((item, idx) => {
+            const card = document.createElement('div');
+            card.className = `card bouncy-btn ${item.pinned ? 'pinned' : ''}`;
+            card.style.animationDelay = `${idx * 0.08}s`;
+            card.innerHTML = `
+                ${item.pinned ? '<div class="pinned-badge">📌 PINNED</div>' : ''}
+                <img src="${item.image}" alt="Thumbnail" loading="lazy">
+                <div class="card-body">
+                    <div class="card-title">${item.title}</div>
+                    <div class="card-meta"><span>${item.meta || '📄 File'}</span></div>
+                    <div class="card-desc">${item.desc}</div>
+                    <div class="action-row">
+                        <a href="${item.link}" target="_blank" class="btn bouncy-btn" onclick="playSound('click'); triggerHaptic('impact','medium')">📥 Download</a>
+                        <button class="btn btn-copy bouncy-btn" onclick="playSound('click'); copyLink('${item.link}')">📋</button>
+                    </div>
+                </div>
+            `;
+            container.appendChild(card);
+        });
+    }
+    function copyLink(link) {
+        triggerHaptic('notification', 'success');
+        navigator.clipboard.writeText(link);
+        tg.showAlert('Link copied to clipboard!');
+    }
+    let timer;
+    function debounceSearch() {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+            const q = document.getElementById('searchInput').value.toLowerCase();
+            renderItems(sampleItems.filter(i => i.title.toLowerCase().includes(q) || i.desc.toLowerCase().includes(q)));
+        }, 300);
+    }
+    function filterCategory(cat, el) {
+        playSound('click'); triggerHaptic('impact', 'light');
+        document.querySelectorAll('#tab-vault .filter-bar .chip').forEach(c => c.classList.remove('active'));
+        el.classList.add('active');
+        renderItems(cat === 'All' ? sampleItems : sampleItems.filter(i => i.category === cat));
+    }
+    function encodeImageFileAsURL(element) {
+        const file = element.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onloadend = function() { document.getElementById('imageBase64').value = reader.result; }
+            reader.readAsDataURL(file);
+        }
+    }
+    function encodePostImage(element) {
+        const file = element.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onloadend = function() { document.getElementById('postImageBase64').value = reader.result; }
+            reader.readAsDataURL(file);
+        }
+    }
+    function insertImageInPost(element) {
+        const file = element.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onloadend = function() {
+                const textarea = document.getElementById('postContent');
+                const imgTag = `\n<img src="${reader.result}" style="max-width:100%; border-radius:8px; margin:10px 0;">\n`;
+                const start = textarea.selectionStart;
+                const end = textarea.selectionEnd;
+                const text = textarea.value;
+                textarea.value = text.substring(0, start) + imgTag + text.substring(end);
+                element.value = '';
+                document.getElementById('inPostImageStatus').innerText = '✅ Image added!';
+                setTimeout(() => { document.getElementById('inPostImageStatus').innerText = ''; }, 3000);
+            }
+            reader.readAsDataURL(file);
+        }
+    }
+    function switchGame(gameName, el) {
+        playSound('click'); triggerHaptic('impact', 'light');
+        document.querySelectorAll('#tab-games .arcade-subnav .chip').forEach(c => c.classList.remove('active'));
+        el.classList.add('active');
+        ['tictactoe','whot','sea','word','water'].forEach(name => { const el=document.getElementById('game-'+name); if(el) el.style.display = gameName === name ? 'block' : 'none'; });
+        if (gameName === 'whot' && !whotStarted && !whotOnlineGame) whotNewGame();
+        if (gameName === 'sea') seaInit();
+        if (gameName === 'word') wordInit();
+        if (gameName === 'water') waterInit();
+    }
+    const SEA_W=9, SEA_H=7, SEA_LENGTHS=[5,4,3,3,2];
+    let seaCode=null,seaPoll=null,seaGame=null,seaAxis='H',seaSelected=0,seaPlaced=[],seaBusy=false,seaMode='online';
+    let seaCpuShips=[],seaCpuShots=[],seaCpuHits=[],seaCpuMisses=[],seaPlayerHits=[],seaPlayerMisses=[],seaCpuTurnTimer=null,seaLastResultKey='';
+    function seaInit(){if(!document.getElementById('sea-ship-picks').children.length)seaResetPlacement()}
+    async function seaApi(path,body){const r=await fetch(path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json','X-Telegram-Init-Data':tg.initData||''},body:body?JSON.stringify(body):undefined});const d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error||'Sea Battle service error');return d}
+    function seaStop(){if(seaPoll){clearInterval(seaPoll);seaPoll=null}if(seaCpuTurnTimer){clearTimeout(seaCpuTurnTimer);seaCpuTurnTimer=null}}
+    function seaMessage(t){document.getElementById('sea-status').textContent=t}
+    function seaResetPlacement(){seaPlaced=[];seaSelected=0;seaAxis='H';seaRenderSetup()}
+    function seaRotate(){if(seaSelected>=SEA_LENGTHS.length){seaMessage('Select a ship first.');return}const current=seaPlaced[seaSelected];if(current&&current.cells.length){const first=current.cells[0],vertical=current.cells[0][1]===current.cells[1][1];seaAxis=vertical?'H':'V';}else seaAxis=seaAxis==='H'?'V':'H';playSound('click');seaRenderSetup();seaMessage('Selected ship direction: '+(seaAxis==='H'?'horizontal':'vertical')+'. Tap the board to reposition it.')}
+    function seaRenderSetup(){const p=document.getElementById('sea-ship-picks');p.innerHTML='';SEA_LENGTHS.forEach((n,i)=>{const b=document.createElement('button');b.className='arcade-btn'+(i===seaSelected?' primary':'');b.textContent=(seaPlaced[i]?'✓ ':'')+['Carrier','Battleship','Cruiser','Submarine','Patrol boat'][i]+' · '+n;b.disabled=false;b.onclick=()=>{seaSelected=i;const sh=seaPlaced[i];if(sh&&sh.cells.length>1)seaAxis=sh.cells[0][1]===sh.cells[1][1]?'V':'H';seaRenderSetup();seaMessage('Editing '+['Carrier','Battleship','Cruiser','Submarine','Patrol boat'][i]+'. Rotate it or tap a new starting cell.')};p.appendChild(b)});const placed=seaPlaced.filter(Boolean).length;document.getElementById('sea-confirm-fleet').disabled=placed!==SEA_LENGTHS.length;document.getElementById('sea-confirm-fleet').textContent=placed===SEA_LENGTHS.length?'⚓ Confirm fleet / Start':'⚓ Place all '+SEA_LENGTHS.length+' ships';seaDrawOwnBoard(null)}
+    function seaCoords(r,c,len,axis){const a=[];for(let k=0;k<len;k++)a.push([r+(axis==='V'?k:0),c+(axis==='H'?k:0)]);return a}
+    function seaCellShipMarkup(ship,idx,r,c){const pos=ship.findIndex(([y,x])=>y===r&&x===c);const vertical=ship.length>1&&ship[0][1]===ship[1][1];return `<span class="ship-piece ${vertical?'vertical':''} ${pos===0?'bow':pos===ship.length-1?'stern':'mid'}"></span>`}
+    function seaShipSvg(length,vertical,index){const w=vertical?100:length*100,h=vertical?length*100:100;let details='';for(let i=0;i<length;i++){const x=vertical?50:(i+.5)*100,y=vertical?(i+.5)*100:50;details+=`<circle cx="${x}" cy="${y}" r="5" fill="#b9d4df" stroke="#243a47" stroke-width="2"/>`;if(i>0&&i<length-1)details+=`<path d="M ${vertical?28:x-22} ${vertical?y-22:28} l ${vertical?44:0} ${vertical?0:44}" stroke="#d7e2e6" stroke-width="3" opacity=".75"/>`;}let hull,deck;if(vertical){hull=`M50 3 Q78 12 80 45 L80 ${h-45} Q75 ${h-8} 50 ${h-2} Q25 ${h-8} 20 ${h-45} L20 45 Q22 12 50 3Z`;deck=`<rect x="36" y="${h*.28}" width="28" height="${h*.42}" rx="10" fill="url(#deck${index})" stroke="#d8e4e8" stroke-width="3"/><rect x="42" y="${h*.40}" width="16" height="${h*.13}" rx="4" fill="#dce8ec"/>`;}else{hull=`M3 50 Q12 20 45 20 L${w-45} 20 Q${w-12} 20 ${w-3} 50 Q${w-12} 80 ${w-45} 80 L45 80 Q12 80 3 50Z`;deck=`<rect x="${w*.28}" y="34" width="${w*.42}" height="32" rx="10" fill="url(#deck${index})" stroke="#d8e4e8" stroke-width="3"/><rect x="${w*.40}" y="40" width="${w*.13}" height="20" rx="4" fill="#dce8ec"/>`;}return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="hull${index}" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#d8e2e5"/><stop offset=".32" stop-color="#71858f"/><stop offset=".72" stop-color="#344c59"/><stop offset="1" stop-color="#152c39"/></linearGradient><linearGradient id="deck${index}" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#c5d1d4"/><stop offset=".5" stop-color="#647984"/><stop offset="1" stop-color="#283e49"/></linearGradient></defs><path d="${hull}" fill="url(#hull${index})" stroke="#e3edf0" stroke-width="3"/><path d="${vertical?`M50 12 L50 ${h-12}`:`M12 50 L${w-12} 50`}" stroke="#eff7f8" stroke-width="2" opacity=".65"/>${deck}${details}<path d="${vertical?`M35 ${h*.18} L65 ${h*.18}`:`M${w*.18} 35 L${w*.82} 35`}" stroke="#f2f8fa" stroke-width="3" opacity=".7"/></svg>`}
+    function seaDrawShipArt(board,ships){board.querySelectorAll('.sea-ship-art').forEach(x=>x.remove());if(!ships||!ships.length)return;const cells=board.querySelectorAll('.sea-cell'),br=board.getBoundingClientRect();ships.forEach((ship,i)=>{const first=ship[0],last=ship[ship.length-1],a=cells[first[0]*SEA_W+first[1]],z=cells[last[0]*SEA_W+last[1]];if(!a||!z)return;const ar=a.getBoundingClientRect(),zr=z.getBoundingClientRect(),vertical=first[1]===last[1],art=document.createElement('div');art.className='sea-ship-art'+(board.id==='sea-target-board'?' sunk':'');art.style.left=(ar.left-br.left)+'px';art.style.top=(ar.top-br.top)+'px';art.style.width=(vertical?ar.width:zr.right-ar.left)+'px';art.style.height=(vertical?zr.bottom-ar.top:ar.height)+'px';art.innerHTML=seaShipSvg(ship.length,vertical,i+1);board.appendChild(art)})}
+    function seaDrawOwnBoard(preview){const b=document.getElementById('sea-board');b.innerHTML='';for(let r=0;r<SEA_H;r++)for(let c=0;c<SEA_W;c++){const cell=document.createElement('button');cell.className='sea-cell own';const found=seaPlaced.find((ship)=>ship&&ship.cells.some(x=>x[0]===r&&x[1]===c));if(found){cell.classList.add('ship');cell.innerHTML=seaCellShipMarkup(found.cells,0,r,c)}if(preview&&preview.some(x=>x[0]===r&&x[1]===c)){cell.classList.add('target');cell.textContent='＋'}cell.onclick=()=>seaPlaceAt(r,c);b.appendChild(cell)}seaDrawShipArt(b,seaPlaced.map(x=>x.cells))}
+    function seaShowPlay(){document.getElementById('sea-play-panel').style.display='block';document.getElementById('sea-lobby').style.display='none'}
+    function seaShowLobby(){document.getElementById('sea-play-panel').style.display='none';document.getElementById('sea-lobby').style.display='block';document.getElementById('sea-code').textContent=''}
+    async function seaCreateRoom(){try{seaStop();seaLastIncomingCount=0;seaLastIncomingHitCount=0;seaLastResultKey='';seaMode='online';const d=await seaApi('/api/sea/create',{});seaCode=d.code;seaShowPlay();document.getElementById('sea-code').textContent='Room code: '+d.code+' — share with your friend';if(tg.openTelegramLink)tg.openTelegramLink(d.share_url);else window.open(d.share_url,'_blank');seaResetPlacement();seaMessage('Room created. Arrange your fleet while your friend joins.');seaStartPoll()}catch(e){tg.showAlert(e.message)}}
+    async function seaJoinPrompt(){const code=prompt('Enter your Sea Battle room code');if(!code)return;try{seaStop();seaLastIncomingCount=0;seaLastIncomingHitCount=0;seaLastResultKey='';seaMode='online';const d=await seaApi('/api/sea/join',{code});seaCode=code.trim().toUpperCase();seaShowPlay();seaRenderOnline(d.game);seaStartPoll()}catch(e){tg.showAlert(e.message)}}
+    async function seaFindRandom(){try{seaStop();seaLastIncomingCount=0;seaLastIncomingHitCount=0;seaLastResultKey='';seaMode='online';const d=await seaApi('/api/sea/random',{});seaCode=d.code;seaShowPlay();if(d.game)seaRenderOnline(d.game);else{seaResetPlacement();seaMessage(d.message)}seaStartPoll()}catch(e){tg.showAlert(e.message)}}
+    async function seaCancel(){seaStop();seaLastIncomingCount=0;seaLastIncomingHitCount=0;if(seaMode==='online'&&seaCode){try{await seaApi('/api/sea/cancel',{code:seaCode})}catch(e){}}seaCode=null;seaGame=null;seaBusy=false;seaPlaced=[];seaMode='online';seaShowLobby();seaMessage('You left the Sea Battle game.');document.getElementById('sea-turn').textContent='Ready';}
+    function seaPlaceAt(r,c){if(seaBusy||seaSelected>=SEA_LENGTHS.length)return;if(seaMode==='online'&&!seaCode)return;const len=SEA_LENGTHS[seaSelected],cells=seaCoords(r,c,len,seaAxis),others=seaPlaced.filter((sh,i)=>i!==seaSelected&&sh).flatMap(sh=>sh.cells);if(cells.some(([y,x])=>y<0||y>=SEA_H||x<0||x>=SEA_W)||cells.some(([y,x])=>others.some(([yy,xx])=>yy===y&&xx===x))){seaMessage('That ship will not fit there. Rotate it or choose another starting cell.');return}seaPlaced[seaSelected]={cells};playSound('deal');const next=SEA_LENGTHS.findIndex((_,i)=>!seaPlaced[i]);seaSelected=next<0?0:next;seaRenderSetup();seaMessage(next<0?'All ships placed. You can still select any ship to reposition or rotate it, then confirm your fleet.':'Ship placed. You can return to any ship to change its direction or position.')}
+    function seaConfirmFleet(){if(seaPlaced.filter(Boolean).length!==SEA_LENGTHS.length){seaMessage('Place all five ships first.');return}if(seaMode==='computer')seaStartComputerBattle();else seaSubmitFleet()}
+    async function seaSubmitFleet(){try{seaBusy=true;const d=await seaApi('/api/sea/place',{code:seaCode,ships:seaPlaced});seaRenderOnline(d.game)}catch(e){seaMessage(e.message)}finally{seaBusy=false}}
+    function seaStartPoll(){seaStop();seaPoll=setInterval(async()=>{if(!seaCode||seaMode!=='online')return;try{const d=await seaApi('/api/sea/state?code='+encodeURIComponent(seaCode));seaRenderOnline(d.game)}catch(e){seaMessage(e.message)}},1300)}
+    function seaRenderOnline(g){const incoming=(g.my_hits||[]).length+(g.my_misses||[]).length,hitCount=(g.my_hits||[]).length;if(incoming>seaLastIncomingCount){if(hitCount>seaLastIncomingHitCount)seaExplosionSound();else seaSplashSound();}seaLastIncomingCount=incoming;seaLastIncomingHitCount=hitCount;seaGame=g;seaShowPlay();document.getElementById('sea-turn').textContent=g.status==='finished'?'Finished':g.status==='waiting'?'Waiting':g.my_turn?'Your turn':'Opponent turn';document.getElementById('sea-board-title').textContent='Your fleet';document.getElementById('sea-setup-tools').style.display=g.placed?'none':'block';document.getElementById('sea-target-wrap').style.display=g.status==='playing'||g.status==='finished'?'block':'none';if(g.placed){seaPlaced=g.my_ships.map(c=>({cells:c}));seaDrawOnlineBoard('sea-board',g.my_ships,g.my_hits,g.my_misses,false)}else seaDrawOwnBoard(null);if(g.status==='playing'||g.status==='finished'){seaDrawOnlineBoard('sea-target-board',[],g.shots_hit,g.shots_miss,true);if(g.opponent_ships_revealed&&g.opponent_ships_revealed.length)seaDrawShipArt(document.getElementById('sea-target-board'),g.opponent_ships_revealed);else if(g.sunk_opponent_ships&&g.sunk_opponent_ships.length)seaDrawShipArt(document.getElementById('sea-target-board'),g.sunk_opponent_ships)}if(g.status==='finished'){seaStop();const won=g.winner===String(userId);seaMessage(won?'🎉 Victory! Enemy fleet destroyed.':'Your fleet has been defeated.');const key=seaCode+':'+g.winner;if(seaLastResultKey!==key){seaLastResultKey=key;playSound('win');arcadeResultShow(won,won?'You won!':'You lost',won?'Enemy fleet destroyed.':'Your fleet was destroyed.')}}else if(g.status==='cancelled'){seaStop();seaMessage('Your opponent left the match.');playSound('click');arcadeResultShow(false,'Match ended','Your opponent left the game.')}else seaMessage(g.status==='waiting'?'Waiting for an opponent to join…':g.status==='placing'?'Place all five ships. The battle begins when both fleets are ready.':g.my_turn?'Your turn — fire at the enemy ocean.':(g.message||'Opponent is aiming…'))}
+    function seaDrawOnlineBoard(id,ships,hits,misses,target){const b=document.getElementById(id);b.innerHTML='';for(let r=0;r<SEA_H;r++)for(let c=0;c<SEA_W;c++){const key=r+','+c,cell=document.createElement('button');cell.className='sea-cell'+(target?'':' own');const isHit=hits.includes(key),isMiss=misses.includes(key),ship=ships.find(s=>s.some(([y,x])=>y===r&&x===c));if(isHit){cell.classList.add('hit');cell.textContent='✹'}else if(isMiss){cell.classList.add('miss');cell.textContent=''}else if(ship&&!target){cell.classList.add('ship');cell.innerHTML=seaCellShipMarkup(ship,0,r,c)}cell.disabled=!target||!seaGame||!seaGame.my_turn||seaGame.status!=='playing'||isHit||isMiss;cell.onclick=()=>seaFire(r,c);b.appendChild(cell)}if(!target){seaDrawShipArt(b,ships);hits.forEach(k=>{const [r,c]=k.split(',').map(Number),cell=b.querySelectorAll('.sea-cell')[r*SEA_W+c];if(cell){const mark=document.createElement('span');mark.className='sea-impact-mark';mark.textContent='✹';cell.appendChild(mark)}})}}
+    function seaAnimateShell(r,c){const board=document.getElementById('sea-target-board'),cannon=document.getElementById('sea-cannon'),cells=board.querySelectorAll('.sea-cell'),target=cells[r*SEA_W+c];if(!target)return;const br=board.getBoundingClientRect(),cr=cannon.getBoundingClientRect(),tr=target.getBoundingClientRect(),shell=document.createElement('span');shell.className='sea-shell';shell.style.left=(cr.left+cr.width*.72)+'px';shell.style.top=(cr.top+cr.height*.25)+'px';shell.style.setProperty('--dx',(tr.left+tr.width/2-(cr.left+cr.width*.72))+'px');shell.style.setProperty('--dy',(tr.top+tr.height/2-(cr.top+cr.height*.25))+'px');cannon.classList.remove('recoil');void cannon.offsetWidth;cannon.classList.add('recoil');document.body.appendChild(shell);setTimeout(()=>shell.remove(),520)}
+    async function seaFire(r,c){if(!seaGame||!seaGame.my_turn||seaGame.status!=='playing')return;playSound('click');seaCannonSound();seaAnimateShell(r,c);const board=document.getElementById('sea-target-board');board.classList.add('sea-fire-flash');setTimeout(()=>board.classList.remove('sea-fire-flash'),450);try{const d=await seaApi('/api/sea/fire',{code:seaCode,row:r,col:c});if(d.game.last_shot==='hit')seaExplosionSound();else seaSplashSound();seaRenderOnline(d.game)}catch(e){seaMessage(e.message)}}
+    async function seaJoinInvite(code){try{seaLastIncomingCount=0;seaLastIncomingHitCount=0;seaLastResultKey='';seaMode='online';const d=await seaApi('/api/sea/join',{code});seaCode=code.toUpperCase();seaShowPlay();seaRenderOnline(d.game);seaStartPoll()}catch(e){tg.showAlert(e.message)}}
+    function seaRandomFleet(){const fleet=[];for(const len of SEA_LENGTHS){let placed=false,tries=0;while(!placed&&tries++<500){const axis=Math.random()<.5?'H':'V',r=Math.floor(Math.random()*SEA_H),c=Math.floor(Math.random()*SEA_W),cells=seaCoords(r,c,len,axis);if(cells.every(([y,x])=>y>=0&&y<SEA_H&&x>=0&&x<SEA_W)&&!cells.some(([y,x])=>fleet.some(sh=>sh.cells.some(([yy,xx])=>yy===y&&xx===x)))){fleet.push({cells});placed=true}}if(!placed)return null}return fleet}
+    function seaStartComputer(){seaStop();seaLastIncomingCount=0;seaLastIncomingHitCount=0;seaLastResultKey='';seaCode=null;seaGame=null;seaMode='computer';seaPlayerHits=[];seaPlayerMisses=[];seaCpuShots=[];seaCpuHits=[];seaCpuMisses=[];seaCpuShips=seaRandomFleet();seaShowPlay();seaResetPlacement();document.getElementById('sea-turn').textContent='Deploy fleet';document.getElementById('sea-setup-tools').style.display='block';document.getElementById('sea-target-wrap').style.display='none';seaMessage('Arrange your five ships. The computer has deployed its fleet.');}
+    function seaStartComputerBattle(){seaBusy=false;document.getElementById('sea-setup-tools').style.display='none';document.getElementById('sea-target-wrap').style.display='block';document.getElementById('sea-board-title').textContent='Your fleet';document.getElementById('sea-turn').textContent='Your turn';seaDrawLocalBoards();seaMessage('Battle stations! Fire at the computer fleet.');}
+    function seaDrawLocalBoards(){const own=document.getElementById('sea-board'),target=document.getElementById('sea-target-board');own.innerHTML='';target.innerHTML='';for(let r=0;r<SEA_H;r++)for(let c=0;c<SEA_W;c++){const k=r+','+c,cell=document.createElement('button');cell.className='sea-cell own';const ship=seaPlaced.find(x=>x&&x.cells.some(([y,x])=>y===r&&x===c));if(ship){cell.classList.add('ship');cell.innerHTML=seaCellShipMarkup(ship.cells,0,r,c)}if(seaCpuHits.includes(k)){cell.classList.add('hit');cell.textContent='✹'}else if(seaCpuMisses.includes(k))cell.classList.add('miss');cell.disabled=true;own.appendChild(cell);const t=document.createElement('button');t.className='sea-cell';if(seaPlayerHits.includes(k)){t.classList.add('hit');t.textContent='✹'}else if(seaPlayerMisses.includes(k))t.classList.add('miss');t.disabled=seaPlayerHits.includes(k)||seaPlayerMisses.includes(k)||seaMode!=='computer';t.onclick=()=>seaComputerFire(r,c);target.appendChild(t)}seaDrawShipArt(own,seaPlaced.map(x=>x.cells));seaCpuHits.forEach(k=>{const [r,c]=k.split(',').map(Number),cell=own.querySelectorAll('.sea-cell')[r*SEA_W+c];if(cell){const mark=document.createElement('span');mark.className='sea-impact-mark';mark.textContent='✹';cell.appendChild(mark)}});const sunk=seaCpuShips.filter(sh=>sh.cells.every(([y,x])=>seaPlayerHits.includes(y+','+x))).map(sh=>sh.cells);seaDrawShipArt(target,sunk)}
+    function seaComputerFire(r,c){if(seaMode!=='computer'||seaCpuTurnTimer||seaPlayerHits.includes(r+','+c)||seaPlayerMisses.includes(r+','+c))return;seaCannonSound();const k=r+','+c,hit=seaCpuShips.some(sh=>sh.cells.some(([y,x])=>y===r&&x===c));(hit?seaPlayerHits:seaPlayerMisses).push(k);if(hit)seaExplosionSound();else seaSplashSound();seaDrawLocalBoards();const remaining=seaCpuShips.reduce((a,sh)=>a+sh.cells.filter(([y,x])=>!seaPlayerHits.includes(y+','+x)).length,0);if(!remaining){seaMessage('🎉 You destroyed the computer fleet!');document.getElementById('sea-turn').textContent='Victory';playSound('win');arcadeResultShow(true,'You won!','You destroyed the computer fleet.');return}document.getElementById('sea-turn').textContent='Computer aiming…';seaMessage(hit?'Direct hit! The computer is preparing its shot.':'Splash! The computer is preparing its shot.');seaCpuTurnTimer=setTimeout(seaComputerTurn,1100)}
+    function seaComputerTurn(){seaCpuTurnTimer=null;let r,c,k;do{r=Math.floor(Math.random()*SEA_H);c=Math.floor(Math.random()*SEA_W);k=r+','+c}while(seaCpuShots.includes(k));seaCpuShots.push(k);const hit=seaPlaced.some(sh=>sh.cells.some(([y,x])=>y===r&&x===c));(hit?seaCpuHits:seaCpuMisses).push(k);seaCannonSound();setTimeout(()=>{if(hit)seaExplosionSound();else seaSplashSound();seaDrawLocalBoards();const remaining=seaPlaced.reduce((a,sh)=>a+sh.cells.filter(([y,x])=>!seaCpuHits.includes(y+','+x)).length,0);if(!remaining){seaMessage('💥 Your fleet has been destroyed. The computer wins.');document.getElementById('sea-turn').textContent='Defeat';playSound('win');arcadeResultShow(false,'Computer wins','Your entire fleet was destroyed.')}else{document.getElementById('sea-turn').textContent='Your turn';seaMessage(hit?'The computer scored a hit! Your turn.':'The computer missed. Your turn.')}},450)}
+    function seaCannonSound(){try{const c=audioCtx;if(c.state==='suspended')c.resume();const t=c.currentTime,o=c.createOscillator(),g=c.createGain(),n=c.createBufferSource(),b=c.createBuffer(1,Math.floor(c.sampleRate*.16),c.sampleRate),d=b.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*(1-i/d.length);n.buffer=b;const f=c.createBiquadFilter(),ng=c.createGain();o.type='sawtooth';o.frequency.setValueAtTime(105,t);o.frequency.exponentialRampToValueAtTime(38,t+.2);g.gain.setValueAtTime(.34,t);g.gain.exponentialRampToValueAtTime(.001,t+.25);f.type='lowpass';f.frequency.value=850;ng.gain.setValueAtTime(.22,t);ng.gain.exponentialRampToValueAtTime(.001,t+.13);o.connect(g);g.connect(c.destination);n.connect(f);f.connect(ng);ng.connect(c.destination);o.start(t);o.stop(t+.26);n.start(t)}catch(e){}}
+    function seaExplosionSound(){try{const c=audioCtx;if(c.state==='suspended')c.resume();const t=c.currentTime,n=c.createBufferSource(),b=c.createBuffer(1,Math.floor(c.sampleRate*.62),c.sampleRate),d=b.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/d.length,1.7);n.buffer=b;const f=c.createBiquadFilter(),g=c.createGain(),o=c.createOscillator(),og=c.createGain();f.type='lowpass';f.frequency.setValueAtTime(1200,t);f.frequency.exponentialRampToValueAtTime(120,t+.55);g.gain.setValueAtTime(.52,t);g.gain.exponentialRampToValueAtTime(.001,t+.6);o.type='sine';o.frequency.setValueAtTime(75,t);o.frequency.exponentialRampToValueAtTime(28,t+.32);og.gain.setValueAtTime(.45,t);og.gain.exponentialRampToValueAtTime(.001,t+.35);n.connect(f);f.connect(g);g.connect(c.destination);o.connect(og);og.connect(c.destination);n.start(t);o.start(t);o.stop(t+.36)}catch(e){}}
+    function seaSplashSound(){try{const c=audioCtx;if(c.state==='suspended')c.resume();const t=c.currentTime,dur=.75,n=c.createBufferSource(),b=c.createBuffer(1,Math.floor(c.sampleRate*dur),c.sampleRate),a=b.getChannelData(0);for(let i=0;i<a.length;i++){const x=i/a.length,env=Math.pow(1-x,2.4);a[i]=(Math.random()*2-1)*env;}n.buffer=b;const f=c.createBiquadFilter(),g=c.createGain();f.type='bandpass';f.frequency.setValueAtTime(1900,t);f.frequency.exponentialRampToValueAtTime(520,t+.55);f.Q.value=.7;g.gain.setValueAtTime(.42,t);g.gain.exponentialRampToValueAtTime(.001,t+dur);n.connect(f);f.connect(g);g.connect(c.destination);n.start(t);const bubble=c.createOscillator(),bg=c.createGain();bubble.type='sine';bubble.frequency.setValueAtTime(560,t+.04);bubble.frequency.exponentialRampToValueAtTime(170,t+.42);bg.gain.setValueAtTime(.12,t+.04);bg.gain.exponentialRampToValueAtTime(.001,t+.44);bubble.connect(bg);bg.connect(c.destination);bubble.start(t+.04);bubble.stop(t+.45)}catch(e){}}
+    function arcadeNoise(freq,duration,volume,filterType){try{const ctx=audioCtx;if(ctx.state==='suspended')ctx.resume();const n=Math.floor(ctx.sampleRate*duration),buf=ctx.createBuffer(1,n,ctx.sampleRate),data=buf.getChannelData(0);for(let i=0;i<n;i++)data[i]=(Math.random()*2-1)*(1-i/n);const src=ctx.createBufferSource(),filter=ctx.createBiquadFilter(),gain=ctx.createGain();src.buffer=buf;filter.type=filterType;filter.frequency.value=freq;gain.gain.value=volume;src.connect(filter);filter.connect(gain);gain.connect(ctx.destination);src.start();}catch(e){}}
+    const seaInviteCode=new URLSearchParams(location.search).get('sea');
+    if(seaInviteCode){setTimeout(()=>{const tab=document.querySelector('#arcade-subnav .chip:nth-child(3)');switchGame('sea',tab);seaJoinInvite(seaInviteCode)},600)}
+    const ARCADE_PROGRESS_KEY='mbbc_arcade_progress_v1_'+String(userId||'guest');
+    let arcadeProgress={wordLevel:0,wordFound:[],waterLevel:0,waterTubes:[],waterHistory:[]};
+    let arcadeSaveTimer=null;
+    function arcadeSaveProgress(){
+        arcadeProgress.wordLevel=wordLevel;arcadeProgress.wordFound=wordFound.slice();
+        arcadeProgress.waterLevel=waterLevel;arcadeProgress.waterTubes=waterTubes.map(t=>t.slice());
+        try{localStorage.setItem(ARCADE_PROGRESS_KEY,JSON.stringify(arcadeProgress))}catch(e){}
+        clearTimeout(arcadeSaveTimer);arcadeSaveTimer=setTimeout(()=>fetch('/api/arcade/progress',{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Init-Data':tg.initData||''},body:JSON.stringify({progress:arcadeProgress})}).catch(()=>{}),250);
+    }
+    window.addEventListener('pagehide',()=>{try{if(arcadeSaveTimer)clearTimeout(arcadeSaveTimer);fetch('/api/arcade/progress',{method:'POST',keepalive:true,headers:{'Content-Type':'application/json','X-Telegram-Init-Data':tg.initData||''},body:JSON.stringify({progress:arcadeProgress})})}catch(e){}});
+    async function arcadeLoadProgress(){
+        let saved=null;try{saved=JSON.parse(localStorage.getItem(ARCADE_PROGRESS_KEY)||'null')}catch(e){}
+        try{const r=await fetch('/api/arcade/progress',{headers:{'X-Telegram-Init-Data':tg.initData||''}});if(r.ok){const d=await r.json();if(d.ok&&d.progress)saved=d.progress}}catch(e){}
+        if(!saved||typeof saved!=='object')return;
+        if(Number.isInteger(saved.wordLevel)&&saved.wordLevel>=0){wordLevel=saved.wordLevel%WORD_LEVELS.length;wordFound=Array.isArray(saved.wordFound)?saved.wordFound.filter(w=>WORD_LEVELS[wordLevel].words.some(x=>x.w===w)):[];wordLoad(wordLevel);wordFound=Array.isArray(saved.wordFound)?saved.wordFound.filter(w=>WORD_LEVELS[wordLevel].words.some(x=>x.w===w)):[];wordRender();}
+        if(Number.isInteger(saved.waterLevel)&&saved.waterLevel>=0)waterLevel=saved.waterLevel;
+        if(Array.isArray(saved.waterTubes)&&saved.waterTubes.length&&saved.waterTubes.every(t=>Array.isArray(t)&&t.length<=4&&t.every(c=>Number.isInteger(c)&&c>=0&&c<WATER_COLORS.length))){waterTubes=saved.waterTubes.map(t=>t.slice());waterSelected=-1;waterHistory=[];document.getElementById('water-level').textContent='Level '+(waterLevel+1);waterRender();}
+    }
+    const WORD_LEVELS=[
+      {letters:'PTOS',words:[{w:'TOPS',cells:[[0,0],[1,0],[2,0],[3,0]]},{w:'POST',cells:[[2,0],[2,1],[2,2],[2,3]]},{w:'POTS',cells:[[0,4],[1,4],[2,4],[3,4]]},{w:'OPT',cells:[[1,4],[1,5],[1,6]]},{w:'STOP',cells:[[3,4],[3,5],[3,6],[3,7]]},{w:'TOP',cells:[[3,5],[4,5],[5,5]]},{w:'POT',cells:[[5,5],[5,6],[5,7]]}]},
+      {letters:'EARTH',words:[{w:'HEART',cells:[[0,1],[1,1],[2,1],[3,1],[4,1]]},{w:'EARTH',cells:[[2,0],[2,1],[2,2],[2,3],[2,4]]},{w:'HEAT',cells:[[0,1],[0,2],[0,3],[0,4]]},{w:'RATE',cells:[[2,2],[3,2],[4,2],[5,2]]},{w:'EAT',cells:[[5,2],[5,3],[5,4]]}]},
+      {letters:'PLANE',words:[{w:'PLANE',cells:[[2,0],[2,1],[2,2],[2,3],[2,4]]},{w:'PLAN',cells:[[2,0],[3,0],[4,0],[5,0]]},{w:'PALE',cells:[[0,0],[0,1],[0,2],[0,3]]}]}
+    ];
+    let wordLevel=0,wordLetters=[],wordCurrent='',wordFound=[],wordPath=[],wordPointer=false,wordWheelPointerId=null;
+    function wordInit(){if(!wordLetters.length)wordLoad(0)}
+    function wordLoad(i){wordLevel=i%WORD_LEVELS.length;const l=WORD_LEVELS[wordLevel];wordLetters=l.letters.split('');wordFound=[];wordCurrent='';wordPath=[];document.getElementById('word-level').textContent='Level '+(wordLevel+1);wordRender();document.getElementById('word-status').textContent='Swipe the letters to find '+l.words.length+' hidden words.'}
+    function wordGridMap(){const targets={},solved={};WORD_LEVELS[wordLevel].words.forEach(({w,cells})=>cells.forEach(([r,c],i)=>{const k=r+','+c;targets[k]=true;if(wordFound.includes(w))solved[k]=w[i]}));return {targets,solved}}
+    function wordRender(){document.getElementById('word-current').textContent=wordCurrent.split('').join(' · ')||'Swipe letters to make a word';const map=wordGridMap(),grid=document.getElementById('word-crossword');grid.innerHTML='';for(let r=0;r<6;r++)for(let c=0;c<8;c++){const d=document.createElement('div'),k=r+','+c,ch=map.solved[k];d.className='word-cell'+(!map.targets[k]?' blank':ch?'':' empty');if(ch)d.textContent=ch;grid.appendChild(d)}const found=document.getElementById('word-found-list');found.innerHTML=wordFound.map(w=>'<span>✓ '+w+'</span>').join('');const wheel=document.getElementById('word-wheel');wheel.innerHTML='';const count=wordLetters.length,rad=wheel.clientWidth*.34;wordLetters.forEach((ch,i)=>{const b=document.createElement('button');b.type='button';b.textContent=ch;b.dataset.index=i;const angle=(-Math.PI/2)+(2*Math.PI*i/count);b.style.left='calc(50% + '+(Math.cos(angle)*rad)+'px - 21px)';b.style.top='calc(50% + '+(Math.sin(angle)*rad)+'px - 21px)';b.addEventListener('pointerdown',e=>{e.preventDefault();wordStart(i,b,e)});wheel.appendChild(b)});}
+    function wordStart(i,b,e){if(e&&e.pointerId!==undefined)wordWheelPointerId=e.pointerId;wordPointer=true;wordCurrent='';wordPath=[];document.getElementById('word-wheel').querySelectorAll('.picked').forEach(x=>x.classList.remove('picked'));wordAdd(i,b)}
+    function wordAdd(i,b){if(!wordPointer||wordPath.includes(i))return;wordPath.push(i);wordCurrent+=wordLetters[i];b.classList.add('picked');document.getElementById('word-current').textContent=wordCurrent.split('').join(' · ');playSound('click')}
+    document.addEventListener('pointermove',e=>{if(!wordPointer)return;if(wordWheelPointerId!==null&&e.pointerId!==wordWheelPointerId)return;const el=document.elementFromPoint(e.clientX,e.clientY),b=el&&el.closest?el.closest('#word-wheel button'):null;if(b)wordAdd(Number(b.dataset.index),b)},{passive:false});
+    function wordEnd(e){if(!wordPointer)return;if(e&&wordWheelPointerId!==null&&e.pointerId!==undefined&&e.pointerId!==wordWheelPointerId)return;wordPointer=false;wordWheelPointerId=null;wordSubmit()}
+    document.addEventListener('pointerup',wordEnd);document.addEventListener('pointercancel',wordEnd);
+    function wordClear(){wordPointer=false;wordWheelPointerId=null;wordCurrent='';wordPath=[];wordRender()}
+    function wordShuffle(){wordLetters.sort(()=>Math.random()-.5);wordClear();wordRender();playSound('click')}
+    function wordSubmit(){if(!wordCurrent){wordRender();return}const w=wordCurrent.toUpperCase(),level=WORD_LEVELS[wordLevel];if(level.words.some(x=>x.w===w)&&!wordFound.includes(w)){wordFound.push(w);playSound('win');triggerHaptic('notification','success');wordMessage('✓ '+w+' found!');if(wordFound.length===level.words.length){wordMessage('🎉 Crossword complete!');arcadeResultShow(true,'Puzzle complete!','You found every hidden word.');triggerHaptic('notification','success');playSound('win');}arcadeSaveProgress();}else{playSound('click');wordMessage(wordFound.includes(w)?'You already found '+w+'.':'Not one of the hidden words. Try again.')}wordCurrent='';wordPath=[];wordPointer=false;wordWheelPointerId=null;wordRender()}
+    function wordMessage(t){document.getElementById('word-status').textContent=t}
+    const WORD_HINTS=[{'TOPS':'A word for more than one top; also the highest parts of things.','POST':'To send a letter, or a strong upright pole.','POTS':'Containers used for cooking or growing plants.','OPT':'To make a choice.','STOP':'The opposite of go.','TOP':'The highest point, or a spinning toy.','POT':'A container used for cooking.'},{'HEART':'The organ that pumps blood around your body.','EARTH':'The planet we live on.','HEAT':'The opposite of cold.','RATE':'A speed, price, or level measured over time.','EAT':'What you do when you have a meal.'},{'PLANE':'A vehicle that flies through the sky.','PLAN':'A set of steps for what you intend to do.','PALE':'A word meaning light in colour.'}];
+    let wordHintGranted=false,wordHintIndex=0;
+    function wordGiveHint(){const next=WORD_LEVELS[wordLevel].words.find(x=>!wordFound.includes(x.w));if(!next){wordMessage('All words found!');return}const hint=(WORD_HINTS[wordLevel]||{})[next.w]||('Think of a common '+next.w.length+'-letter word.');wordMessage('💡 Hint: '+hint);wordHintGranted=false;}
+    async function wordWatchHint(){
+        const btn=document.getElementById('word-hint-ad');
+        if(btn.disabled)return;
+        if(wordFound.length>=WORD_LEVELS[wordLevel].words.length){wordMessage('You have already found every word in this level.');return;}
+        btn.disabled=true;const old=btn.textContent;
+        try{
+            const pendingKey='mbbc_word_hint_nonce';
+            const pendingNonce=sessionStorage.getItem(pendingKey);
+            if(pendingNonce){
+                btn.textContent='Checking your ad…';
+                const check=await fetch('/arcade-hint-status',{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Init-Data':tg.initData||''},body:JSON.stringify({nonce:pendingNonce})});
+                const status=await check.json();
+                if(check.ok&&status.status==='done'){
+                    sessionStorage.removeItem(pendingKey);wordGiveHint();playSound('win');triggerHaptic('notification','success');return;
+                }
+                if(status.status==='pending'){wordMessage('Your sponsored page is still open. Finish the ad, return here, then tap Get a hint again.');return;}
+                sessionStorage.removeItem(pendingKey);
+            }
+            btn.textContent='Opening sponsor page…';
+            const start=await fetch('/arcade-hint-start',{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Init-Data':tg.initData||''},body:JSON.stringify({})});
+            const data=await start.json();
+            if(!start.ok||!data.ok||!data.url)throw new Error(data.error||'Could not start sponsored ad');
+            sessionStorage.setItem(pendingKey,data.nonce);
+            wordMessage('Complete the rewarded ad on the sponsored page. Return here and tap Get a hint to unlock your hint.');
+            if(tg&&typeof tg.openLink==='function')tg.openLink(data.url);else window.location.href=data.url;
+        }catch(e){wordMessage(e.message==='Open the Arcade inside Telegram to watch a rewarded ad.'?e.message:'Could not open the sponsored page. Please try again.');}
+        finally{btn.textContent=old;btn.disabled=false;}
+    }
+    function wordNext(){if(wordFound.length<WORD_LEVELS[wordLevel].words.length){wordMessage('Find all the words before moving on.');return}wordLevel++;wordLoad(wordLevel);arcadeSaveProgress()}
+    const WATER_COLORS=['#f15b5b','#4aa3df','#e9bd45','#56bd79','#a77be8','#e98bc1'];let waterLevel=0,waterTubes=[],waterSelected=-1,waterHistory=[],waterPourBusy=false;
+    function waterInit(){if(!waterTubes.length)waterNew()}
+    function waterNew(){const colors=4+Math.min(waterLevel,2),arr=[];for(let c=0;c<colors;c++)for(let n=0;n<4;n++)arr.push(c);for(let i=arr.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]]}waterTubes=[];for(let i=0;i<colors;i++)waterTubes.push(arr.slice(i*4,i*4+4));waterTubes.push([],[]);waterSelected=-1;waterHistory=[];document.getElementById('water-level').textContent='Level '+(waterLevel+1);waterMsg('Tap a glass, then tap another glass to pour matching liquid.');waterRender();arcadeSaveProgress()}
+    function waterMsg(t){document.getElementById('water-status').textContent=t}
+    function waterRender(){const b=document.getElementById('water-board');b.innerHTML='';waterTubes.forEach((tube,i)=>{const el=document.createElement('button');el.type='button';el.className='water-tube'+(i===waterSelected?' selected':'');el.setAttribute('aria-label','Glass '+(i+1));tube.forEach(c=>{const d=document.createElement('span');d.className='water-layer';d.style.background='linear-gradient(90deg, '+WATER_COLORS[c]+'cc, '+WATER_COLORS[c]+', '+WATER_COLORS[c]+'bb)';el.appendChild(d)});el.onclick=()=>waterTap(i);b.appendChild(el)})}
+    function waterSound(){try{const c=audioCtx;if(c.state==='suspended')c.resume();const t=c.currentTime,dur=.9,n=c.createBufferSource(),buf=c.createBuffer(1,Math.floor(c.sampleRate*dur),c.sampleRate),a=buf.getChannelData(0);for(let i=0;i<a.length;i++){const x=i/a.length,env=Math.pow(1-x,1.6);a[i]=(Math.random()*2-1)*env*.34;}n.buffer=buf;const f=c.createBiquadFilter(),g=c.createGain();f.type='bandpass';f.frequency.setValueAtTime(1150,t);f.frequency.linearRampToValueAtTime(720,t+.7);f.Q.value=.55;g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(.3,t+.08);g.gain.exponentialRampToValueAtTime(.001,t+dur);n.connect(f);f.connect(g);g.connect(c.destination);n.start(t);for(let j=0;j<3;j++){const o=c.createOscillator(),og=c.createGain(),st=t+.12+j*.2;o.type='sine';o.frequency.setValueAtTime(460-j*65,st);o.frequency.exponentialRampToValueAtTime(180-j*20,st+.16);og.gain.setValueAtTime(.0001,st);og.gain.linearRampToValueAtTime(.10,st+.025);og.gain.exponentialRampToValueAtTime(.001,st+.19);o.connect(og);og.connect(c.destination);o.start(st);o.stop(st+.2)}}catch(e){}}
+    function waterCompleteSound(){try{const c=audioCtx;if(c.state==='suspended')c.resume();const t=c.currentTime;[523.25,659.25,783.99,1046.5].forEach((f,i)=>{const o=c.createOscillator(),g=c.createGain(),st=t+i*.11;o.type='sine';o.frequency.setValueAtTime(f,st);g.gain.setValueAtTime(.0001,st);g.gain.linearRampToValueAtTime(.18,st+.025);g.gain.exponentialRampToValueAtTime(.001,st+.34);o.connect(g);g.connect(c.destination);o.start(st);o.stop(st+.36)})}catch(e){}}
+    function waterPourVisual(fromIndex,toIndex,color){const tubes=document.querySelectorAll('.water-tube'),from=tubes[fromIndex],to=tubes[toIndex];if(!from||!to)return;const a=from.getBoundingClientRect(),b=to.getBoundingClientRect(),x1=a.left+a.width*.76,y1=a.top+16,x2=b.left+b.width*.52,y2=b.top+Math.max(12,b.height*.20),midY=Math.max(y1+18,(y1+y2)/2),path=`M ${x1} ${y1} Q ${x1+(x2-x1)*.32} ${midY} ${x2} ${y2}`;from.classList.add('pouring');to.classList.add('receiving');from.style.setProperty('--tilt',b.left>=a.left?'15deg':'-15deg');const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('class','water-stream-svg');const p=document.createElementNS('http://www.w3.org/2000/svg','path');p.setAttribute('d',path);p.setAttribute('pathLength','1');p.setAttribute('class','water-stream-path');p.style.setProperty('--pour-color',WATER_COLORS[color]);const gl=document.createElementNS('http://www.w3.org/2000/svg','path');gl.setAttribute('d',path);gl.setAttribute('pathLength','1');gl.setAttribute('class','water-stream-glint');svg.append(p,gl);for(let j=0;j<4;j++){const drop=document.createElementNS('http://www.w3.org/2000/svg','circle');drop.setAttribute('cx',x2+(Math.random()-.5)*14);drop.setAttribute('cy',y2+4);drop.setAttribute('r',2+Math.random()*2);drop.setAttribute('class','water-drop');drop.style.setProperty('--pour-color',WATER_COLORS[color]);svg.appendChild(drop)}document.body.appendChild(svg);const layers=from.querySelectorAll('.water-layer');if(layers.length)layers[layers.length-1].classList.add('water-moving');setTimeout(()=>{svg.remove();from.classList.remove('pouring');to.classList.remove('receiving');if(layers.length)layers[layers.length-1].classList.remove('water-moving')},850)}
+    function waterTap(i){if(waterPourBusy)return;if(waterSelected<0){if(waterTubes[i].length){waterSelected=i;waterRender();playSound('click')}return}if(waterSelected===i){waterSelected=-1;waterRender();return}const from=waterTubes[waterSelected],to=waterTubes[i];if(from.length&&to.length<4&&(!to.length||to[to.length-1]===from[from.length-1])){waterHistory.push(JSON.stringify(waterTubes));const color=from[from.length-1];waterPourBusy=true;waterPourVisual(waterSelected,i,color);waterSound();let count=0;while(from.length&&from[from.length-1]===color&&to.length<4){to.push(from.pop());count++}waterSelected=-1;setTimeout(()=>{waterRender();waterPourBusy=false;arcadeSaveProgress();if(waterTubes.every(t=>!t.length||(t.length===4&&t.every(x=>x===t[0])))){waterMsg('🎉 Beautiful! Every colour is sorted.');playSound('win');triggerHaptic('notification','success');waterCompleteSound();arcadeResultShow(true,'Level complete!','Every colour is sorted correctly.')}else waterMsg('Nice pour! Keep sorting the colours.')},900);return}waterSelected=i;waterRender();playSound('click');waterMsg('Pour into an empty glass or one with the same top colour.')}
+    function waterUndo(){if(waterPourBusy)return;if(waterHistory.length){waterTubes=JSON.parse(waterHistory.pop());waterSelected=-1;waterRender();playSound('click');arcadeSaveProgress()}}function waterNext(){if(!waterTubes.every(t=>!t.length||(t.length===4&&t.every(x=>x===t[0])))){waterMsg('Sort every colour first.');return}waterLevel++;waterNew();arcadeSaveProgress()}
+    const WHOT_SHAPES = ['CIRCLE', 'TRIANGLE', 'CROSS', 'SQUARE', 'STAR'];
+    const WHOT_MAX = { CIRCLE: 14, TRIANGLE: 14, CROSS: 14, SQUARE: 14, STAR: 8 };
+    const whotSymbols = { CIRCLE:'●', TRIANGLE:'▲', CROSS:'✚', SQUARE:'■', STAR:'★', WHOT:'W' };
+    const whotColors = ['#c9343e','#d69a19','#2879b9','#25834f','#7448a5','#8b75ff'];
+    const WHOT_SPECIAL = {
+        1: 'HOLD_ON', 2: 'PICK_TWO', 5: 'PICK_THREE',
+        8: 'SUSPENSION', 14: 'GENERAL_MARKET', 20: 'WHOT'
+    };
+    function whotBuildDeck() {
+        const deck = [];
+        WHOT_SHAPES.forEach((shape, si) => {
+            for (let n = 1; n <= WHOT_MAX[shape]; n++) {
+                deck.push({ number: n, shape, color: si });
+            }
+        });
+        deck.push({ number: 20, shape: 'WHOT', color: 5 });
+        return deck;
+    }
+    function whotShuffle(cards) {
+        for (let i = cards.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [cards[i], cards[j]] = [cards[j], cards[i]];
+        }
+        return cards;
+    }
+    function whotCanPlay(card, top, declaredShape) {
+        if (!card || !top) return false;
+        if (card.shape === 'WHOT') return true;
+        if (top.shape === 'WHOT') return card.shape === declaredShape;
+        if (card.number === top.number) return true;
+        if (card.shape === top.shape) return true;
+        return false;
+    }
+    function whotApplySpecial(card, declaredShape) {
+        const effect = WHOT_SPECIAL[card.number];
+        switch (effect) {
+            case 'HOLD_ON':        return { skipNext: true,  drawCount: 0, declaredShape: null };
+            case 'SUSPENSION':     return { skipNext: true,  drawCount: 0, declaredShape: null };
+            case 'PICK_TWO':       return { skipNext: true,  drawCount: 2, declaredShape: null };
+            case 'PICK_THREE':     return { skipNext: true,  drawCount: 3, declaredShape: null };
+            case 'GENERAL_MARKET': return { skipNext: true,  drawCount: 1, declaredShape: null };
+            case 'WHOT':           return { skipNext: false, drawCount: 0, declaredShape: declaredShape };
+            default:               return { skipNext: false, drawCount: 0, declaredShape: null };
+        }
+    }
+    let whotDeck = [];
+    let whotPlayer = [];
+    let whotCpu = [];
+    let whotTop = null;
+    let whotStarted = false;
+    let whotLocked = false;
+    let whotDeclaredShape = null;
+    let whotShapeResolve = null;
+    let whotOnlineCode = null;
+    let whotPollTimer = null;
+    let whotOnlineGame = false;
+    let whotLastOnlineTop = null;
+    function whotStopPolling() {
+        if (whotPollTimer) { clearInterval(whotPollTimer); whotPollTimer = null; }
+    }
+    function whotKillOnline() {
+        whotStopPolling();
+        whotOnlineGame = false;
+        whotOnlineCode = null;
+        whotLastOnlineTop = null;
+        try { localStorage.removeItem('whot_state'); } catch(e) {}
+    }
+    function whotPromptShape() {
+        const picker = document.getElementById('whot-shape-picker');
+        picker.classList.add('open');
+        return new Promise(resolve => { whotShapeResolve = resolve; });
+    }
+    function whotShapeChosen(shape) {
+        document.getElementById('whot-shape-picker').classList.remove('open');
+        if (whotShapeResolve) { whotShapeResolve(shape); whotShapeResolve = null; }
+    }
+    function whotShapeCancelled() {
+        document.getElementById('whot-shape-picker').classList.remove('open');
+        if (whotShapeResolve) { whotShapeResolve(null); whotShapeResolve = null; }
+    }
+    function whotSelectMode(mode) {
+        playSound('click');
+        if (mode === 'computer' && whotOnlineGame) {
+            whotKillOnline();
+            try { sessionStorage.clear(); } catch(e) {}
+            setTimeout(() => { window.location.reload(); }, 100);
+            return;
+        }
+        whotKillOnline();
+        const lobby = document.getElementById('whot-lobby');
+        const actionsComp = document.getElementById('whot-actions-computer');
+        const btnComp = document.getElementById('btn-mode-computer');
+        const btnOnline = document.getElementById('btn-mode-online');
+        if (mode === 'computer') {
+            btnComp.classList.add('active');
+            btnOnline.classList.remove('active');
+            lobby.style.display = 'none';
+            actionsComp.style.display = 'flex';
+            document.getElementById('whot-opponent-name').textContent = '🤖 Computer';
+            whotNewGame();
+        } else {
+            btnOnline.classList.add('active');
+            btnComp.classList.remove('active');
+            lobby.style.display = 'block';
+            actionsComp.style.display = 'none';
+            whotStarted = false;
+            whotLocked = true;
+            document.getElementById('whot-hand').innerHTML = '';
+            document.getElementById('whot-player-count').textContent = '—';
+            document.getElementById('whot-cpu-count').textContent = '—';
+            document.getElementById('whot-opponent-fan').innerHTML = '';
+            document.getElementById('whot-turn').textContent = '—';
+            document.getElementById('whot-room-code').textContent = '';
+            whotMessage('Choose an option above to start playing online.');
+        }
+    }
+    async function whotApi(path, body) {
+        const response = await fetch(path, {
+            method: body ? 'POST' : 'GET',
+            headers: {'Content-Type': 'application/json', 'X-Telegram-Init-Data': tg.initData || ''},
+            body: body ? JSON.stringify(body) : undefined
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.error || 'WHOT service error');
+        return data;
+    }
+    async function whotCreateRoom() {
+        playSound('click');
+        try {
+            whotKillOnline();
+            whotOnlineGame = true;
+            const d = await whotApi('/api/whot/create', {});
+            whotOnlineCode = d.code;
+            document.getElementById('whot-room-code').textContent = 'Room Code: ' + d.code;
+            if (tg.openTelegramLink) tg.openTelegramLink(d.share_url); else window.open(d.share_url, '_blank');
+            whotMessage('Room created. Waiting for friend to join…');
+            whotStartPolling();
+        } catch(e) {
+            whotKillOnline();
+            whotMessage(e.message);
+            tg.showAlert(e.message);
+        }
+    }
+    async function whotJoinRoomPrompt() {
+        playSound('click');
+        const code = window.prompt('Enter your friend’s WHOT room code');
+        if (!code) return;
+        try {
+            whotKillOnline();
+            const d = await whotApi('/api/whot/join', {code});
+            whotOnlineCode = code.toUpperCase();
+            whotOnlineGame = true;
+            whotRenderOnline(d.game);
+            whotStartPolling();
+        } catch(e) {
+            whotKillOnline();
+            whotMessage(e.message);
+            tg.showAlert(e.message);
+        }
+    }
+    async function whotFindRandom() {
+        playSound('click');
+        try {
+            whotKillOnline();
+            whotOnlineGame = true;
+            const d = await whotApi('/api/whot/random', {});
+            whotOnlineCode = d.code;
+            if (d.matched) whotRenderOnline(d.game);
+            else whotMessage(d.message);
+            whotStartPolling();
+        } catch(e) {
+            whotKillOnline();
+            whotMessage(e.message);
+            tg.showAlert(e.message);
+        }
+    }
+    function whotStartPolling() {
+        whotStopPolling();
+        whotPollTimer = setInterval(async () => {
+            if (!whotOnlineGame || !whotOnlineCode) return;
+            try {
+                const d = await whotApi('/api/whot/state?code=' + encodeURIComponent(whotOnlineCode));
+                if (!whotOnlineGame) return;
+                whotRenderOnline(d.game);
+            } catch(e) { whotMessage(e.message); }
+        }, 1200);
+    }
+    function whotRenderOnline(g) {
+        if (!whotOnlineGame) return;
+        const topKey = JSON.stringify(g.top);
+        if (whotLastOnlineTop && topKey !== whotLastOnlineTop) { whotAnimate('opponent'); playSound('deal'); }
+        whotLastOnlineTop = topKey;
+        whotStarted = g.status === 'playing';
+        whotLocked = !g.my_turn || g.status !== 'playing';
+        whotDeclaredShape = g.declared_shape || null;
+        document.getElementById('whot-opponent-name').textContent = '👤 ' + g.opponent_name;
+        document.getElementById('whot-cpu-count').textContent = g.opponent_count + ' cards';
+        document.getElementById('whot-player-count').textContent = g.my_count + ' cards';
+        document.getElementById('whot-turn').textContent = g.my_turn ? 'Your turn' : 'Opponent’s turn';
+        document.getElementById('whot-top').outerHTML = whotCardMarkup(g.top, 'top-card').replace('<div class="whot-card','<div id="whot-top" class="whot-card');
+        const fan = document.getElementById('whot-opponent-fan');
+        fan.innerHTML = '';
+        for (let i = 0; i < Math.min(g.opponent_count, 14); i++) {
+            const b = document.createElement('span'); b.className = 'whot-back'; fan.appendChild(b);
+        }
+        const hand = document.getElementById('whot-hand');
+        hand.innerHTML = '';
+        whotPlayer = g.hand || [];
+        whotPlayer.forEach((card, i) => {
+            const b = document.createElement('button');
+            b.type = 'button'; b.className = 'whot-card';
+            b.style.borderColor = whotColors[card.color]; b.style.color = whotColors[card.color];
+            b.innerHTML = `<span class="whot-symbol">${whotSymbols[card.shape] || '?'}</span>${card.number}<small>${card.shape}</small>`;
+            b.disabled = whotLocked || !whotCanPlay(card, g.top, g.declared_shape);
+            b.onclick = () => whotOnlineMove('play', i);
+            hand.appendChild(b);
+        });
+        document.getElementById('whot-draw').disabled = whotLocked || g.deck_count === 0;
+        whotMessage(g.status === 'waiting' ? 'Waiting for an opponent…' : g.status === 'finished' ? (g.winner === String(userId) ? '🎉 You won!' : g.message) : g.message);
+    }
+    async function whotOnlineMove(action, index) {
+        if (!whotOnlineGame || !whotOnlineCode) return;
+        let declared = null;
+        if (action === 'play' && whotPlayer[index] && whotPlayer[index].shape === 'WHOT') {
+            declared = await whotPromptShape();
+            if (!declared) return;
+        }
+        try {
+            whotAnimate('player'); playSound('deal');
+            const payload = { code: whotOnlineCode, action, index };
+            if (declared) payload.declared_shape = declared;
+            const d = await whotApi('/api/whot/move', payload);
+            if (!whotOnlineGame) return;
+            whotRenderOnline(d.game);
+        } catch(e) {
+            whotMessage(e.message);
+            tg.showAlert(e.message);
+        }
+    }
+    function whotNewGame() {
+        playSound('click');
+        whotKillOnline();
+        whotStarted = true;
+        whotLocked = false;
+        whotDeclaredShape = null;
+        whotDeck = whotShuffle(whotBuildDeck());
+        whotPlayer = whotDeck.splice(0, 5);
+        whotCpu = whotDeck.splice(0, 5);
+        whotTop = whotDeck.pop();
+        while (whotTop && whotTop.shape === 'WHOT') {
+            whotDeck.unshift(whotTop);
+            whotTop = whotDeck.pop();
+        }
+        whotRenderLocal();
+        playSound('deal');
+        whotMessage('Your turn. Match by number or shape. (1=Hold On, 2=Pick Two, 5=Pick Three, 8=Suspension, 14=General Market, 20=WHOT)');
+    }
+    function whotCardMarkup(card, extra='') {
+        const shapeLabel = card.shape === 'WHOT' ? 'WHOT!' : card.shape;
+        const sym = whotSymbols[card.shape] || '?';
+        const num = card.shape === 'WHOT' ? '20' : card.number;
+        return `<div class="whot-card ${extra}" style="border-color:${whotColors[card.color]};color:${whotColors[card.color]}"><span class="whot-symbol">${sym}</span>${num}<small>${shapeLabel}</small></div>`;
+    }
+    function whotAnimate(actor) {
+        const el = document.getElementById('whot-actor');
+        el.classList.remove('go', 'opponent');
+        if (actor === 'opponent' || actor === 'cpu') el.classList.add('opponent');
+        void el.offsetWidth;
+        el.classList.add('go');
+        const top = document.getElementById('whot-top');
+        if (top) {
+            top.classList.remove('whot-play-card');
+            void top.offsetWidth;
+            top.classList.add('whot-play-card');
+        }
+    }
+    function whotRenderLocal() {
+        const topEl = document.getElementById('whot-top');
+        if (topEl) topEl.outerHTML = whotCardMarkup(whotTop, 'top-card').replace('<div class="whot-card','<div id="whot-top" class="whot-card');
+        document.getElementById('whot-player-count').textContent = `${whotPlayer.length} cards`;
+        document.getElementById('whot-cpu-count').textContent = `${whotCpu.length} cards`;
+        const fan = document.getElementById('whot-opponent-fan');
+        fan.innerHTML = '';
+        whotCpu.forEach(() => { const b = document.createElement('span'); b.className = 'whot-back'; fan.appendChild(b); });
+        const hand = document.getElementById('whot-hand');
+        hand.innerHTML = '';
+        whotPlayer.forEach((card, index) => {
+            const button = document.createElement('button');
+            button.type = 'button'; button.className = 'whot-card';
+            button.style.borderColor = whotColors[card.color]; button.style.color = whotColors[card.color];
+            button.innerHTML = `<span class="whot-symbol">${whotSymbols[card.shape] || '?'}</span>${card.shape === 'WHOT' ? '20' : card.number}<small>${card.shape === 'WHOT' ? 'WHOT!' : card.shape}</small>`;
+            button.disabled = whotLocked || !whotCanPlay(card, whotTop, whotDeclaredShape);
+            button.addEventListener('click', () => whotPlayLocal(index));
+            hand.appendChild(button);
+        });
+    }
+    function whotMessage(message) { document.getElementById('whot-status').textContent = message; }
+    function whotDraw() {
+        if (whotOnlineGame === true && whotOnlineCode !== null && whotOnlineCode !== '') {
+            whotOnlineMove('draw');
+            return;
+        }
+        if (!whotStarted || whotLocked) return;
+        if (!whotDeck.length) { whotMessage('The draw pile is empty!'); return; }
+        playSound('deal');
+        const drawn = whotDeck.pop();
+        whotPlayer.push(drawn);
+        whotRenderLocal();
+        if (!whotCanPlay(drawn, whotTop, whotDeclaredShape)) {
+            whotMessage('Card drawn does not match. Computer plays next.');
+            whotLocked = true;
+            window.setTimeout(whotCpuTurn, 1000);
+        } else {
+            whotMessage('Card drawn matches! You can play it or draw again.');
+        }
+    }
+    async function whotPlayLocal(index) {
+        if (whotLocked) return;
+        const card = whotPlayer[index];
+        if (!whotCanPlay(card, whotTop, whotDeclaredShape)) return;
+        let declared = null;
+        if (card.shape === 'WHOT') {
+            declared = await whotPromptShape();
+            if (!declared) return;
+        }
+        whotTop = whotPlayer.splice(index, 1)[0];
+        playSound('deal'); triggerHaptic('impact', 'light');
+        whotAnimate('player');
+        const sp = whotApplySpecial(whotTop, declared);
+        if (sp.declaredShape) whotDeclaredShape = sp.declaredShape;
+        else if (whotTop.shape !== 'WHOT') whotDeclaredShape = null;
+        whotRenderLocal();
+        if (!whotPlayer.length) {
+            whotLocked = true; playSound('win');
+            whotMessage('🎉 You won!'); return;
+        }
+        if (sp.skipNext) {
+            for (let i = 0; i < sp.drawCount; i++) {
+                if (whotDeck.length) whotCpu.push(whotDeck.pop());
+            }
+            whotRenderLocal();
+            whotLocked = false;
+            const eff = WHOT_SPECIAL[whotTop.number];
+            if (sp.drawCount) {
+                whotMessage(`You played ${whotTop.number} (${eff}). Computer picks ${sp.drawCount} and is skipped — your turn again!`);
+            } else {
+                whotMessage(`You played ${whotTop.number} (${eff}). Computer is skipped — your turn again!`);
+            }
+            return;
+        }
+        whotLocked = true;
+        whotMessage('You played. Computer is thinking...');
+        window.setTimeout(whotCpuTurn, 1000);
+    }
+    function whotCpuTurn() {
+        if (!whotStarted || whotOnlineGame) return;
+        if (!whotCpu.length) {
+            whotLocked = true; whotRenderLocal();
+            whotMessage('🤖 Computer wins!'); return;
+        }
+        const index = whotCpu.findIndex(c => whotCanPlay(c, whotTop, whotDeclaredShape));
+        if (index >= 0) {
+            const card = whotCpu[index];
+            let declared = null;
+            if (card.shape === 'WHOT') {
+                declared = WHOT_SHAPES[Math.floor(Math.random() * WHOT_SHAPES.length)];
+            }
+            whotTop = whotCpu.splice(index, 1)[0];
+            whotAnimate('cpu'); playSound('deal');
+            const sp = whotApplySpecial(whotTop, declared);
+            if (sp.declaredShape) whotDeclaredShape = sp.declaredShape;
+            else if (whotTop.shape !== 'WHOT') whotDeclaredShape = null;
+            if (!whotCpu.length) {
+                whotLocked = true; whotRenderLocal();
+                whotMessage('🤖 Computer wins!'); return;
+            }
+            if (sp.skipNext) {
+                for (let i = 0; i < sp.drawCount; i++) {
+                    if (whotDeck.length) whotPlayer.push(whotDeck.pop());
+                }
+                whotLocked = true;
+                whotRenderLocal();
+                const eff = WHOT_SPECIAL[whotTop.number];
+                if (sp.drawCount) {
+                    whotMessage(`Computer played ${whotTop.number} (${eff}). You pick ${sp.drawCount} and are skipped!`);
+                } else {
+                    whotMessage(`Computer played ${whotTop.number} (${eff}). You are skipped!`);
+                }
+                window.setTimeout(whotCpuTurn, 1000);
+                return;
+            }
+            whotLocked = false;
+            whotRenderLocal();
+            whotMessage('Computer played. Your turn.');
+            return;
+        }
+        if (whotDeck.length) {
+            const drawn = whotDeck.pop();
+            whotCpu.push(drawn);
+            playSound('deal');
+            if (whotCanPlay(drawn, whotTop, whotDeclaredShape)) {
+                let declared = null;
+                if (drawn.shape === 'WHOT') {
+                    declared = WHOT_SHAPES[Math.floor(Math.random() * WHOT_SHAPES.length)];
+                }
+                whotTop = whotCpu.pop();
+                whotAnimate('cpu');
+                const sp = whotApplySpecial(whotTop, declared);
+                if (sp.declaredShape) whotDeclaredShape = sp.declaredShape;
+                else if (whotTop.shape !== 'WHOT') whotDeclaredShape = null;
+                if (!whotCpu.length) {
+                    whotLocked = true; whotRenderLocal();
+                    whotMessage('🤖 Computer wins!'); return;
+                }
+                if (sp.skipNext) {
+                    for (let i = 0; i < sp.drawCount; i++) {
+                        if (whotDeck.length) whotPlayer.push(whotDeck.pop());
+                    }
+                    whotLocked = true;
+                    whotRenderLocal();
+                    whotMessage(`Computer drew and played ${whotTop.number}. You pick ${sp.drawCount} and are skipped.`);
+                    window.setTimeout(whotCpuTurn, 1000);
+                    return;
+                }
+                whotLocked = false;
+                whotRenderLocal();
+                whotMessage('Computer drew and played. Your turn.');
+                return;
+            }
+            whotMessage('Computer drew a card. Your turn.');
+        } else {
+            whotMessage('Draw pile empty! Your turn.');
+        }
+        whotLocked = false;
+        whotRenderLocal();
+    }
+    const whotInviteCode = new URLSearchParams(location.search).get('whot');
+    if (whotInviteCode) {
+        whotSelectMode('online');
+        setTimeout(() => { whotJoinInvite(whotInviteCode); }, 500);
+    }
+    async function whotJoinInvite(code) {
+        try {
+            whotKillOnline();
+            const d = await whotApi('/api/whot/join', {code});
+            whotOnlineCode = code.toUpperCase();
+            whotOnlineGame = true;
+            whotRenderOnline(d.game);
+            whotStartPolling();
+        } catch(e) {
+            whotKillOnline();
+            whotMessage(e.message);
+            tg.showAlert(e.message);
+        }
+    }
+    let board = ['', '', '', '', '', '', '', '', ''];
+    let currentPlayer = 'X';
+    let isGameActive = true;
+    function cellClicked(index) {
+        if (board[index] !== '' || !isGameActive) return;
+        playSound('click'); triggerHaptic('impact', 'light');
+        board[index] = currentPlayer;
+        const el = document.getElementsByClassName('cell')[index];
+        el.innerText = currentPlayer; el.classList.add('cell-pop');
+        const wins = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+        for(let c of wins) {
+            if (board[c[0]] && board[c[0]] === board[c[1]] && board[c[1]] === board[c[2]]) {
+                playSound('win'); triggerHaptic('notification', 'success');
+                document.getElementById('game-status').innerText = `Player ${currentPlayer} Wins! 🎉`;
+                isGameActive = false; return;
+            }
+        }
+        if (!board.includes('')) { document.getElementById('game-status').innerText = `It's a Draw! 🤝`; isGameActive = false; return; }
+        currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
+        document.getElementById('game-status').innerText = `Player ${currentPlayer}'s Turn`;
+    }
+    function resetGame() {
+        playSound('click');
+        board = ['', '', '', '', '', '', '', '', '']; isGameActive = true; currentPlayer = 'X';
+        document.getElementById('game-status').innerText = `Player X's Turn`;
+        Array.from(document.getElementsByClassName('cell')).forEach(c => { c.innerText = ''; c.classList.remove('cell-pop'); });
+    }
+    arcadeLoadProgress();
+    renderItems(sampleItems);
+</script>
+</body>
+</html>
+"""
+
+# ===== MONETAG REWARDED INTERSTITIAL =====
+MONETAG_ZONE_ID = "12168607"
+MONETAG_PENDING = {}
+MONETAG_LOCK = threading.Lock()
+MONETAG_TTL = 15 * 60
+
+@app.route('/arcade-hint-start', methods=['POST'])
+def arcade_hint_start():
+    user = _telegram_webapp_user()
+    if not user:
+        return jsonify({"ok": False, "error": "Open the Arcade inside Telegram to watch a rewarded ad."}), 401
+    nonce = secrets.token_urlsafe(24)
+    with MONETAG_LOCK:
+        MONETAG_PENDING[nonce] = {"user_id": int(user['id']), "kind": "hint", "msg_start": 0, "msg_end": 0, "created": time.time(), "done": False, "claimed": False, "failures": 0}
+        for key in list(MONETAG_PENDING):
+            if time.time() - MONETAG_PENDING[key]["created"] > MONETAG_TTL:
+                MONETAG_PENDING.pop(key, None)
+    return jsonify({"ok": True, "nonce": nonce, "url": request.host_url.rstrip('/') + '/monetag?n=' + nonce})
+
+@app.route('/arcade-hint-status', methods=['POST'])
+def arcade_hint_status():
+    user = _telegram_webapp_user()
+    if not user:
+        return jsonify({"status": "unauthorized"}), 401
+    data = request.get_json(silent=True) or {}
+    nonce = str(data.get('nonce', ''))
+    with MONETAG_LOCK:
+        rec = MONETAG_PENDING.get(nonce)
+        if not rec or rec.get('kind') != 'hint' or str(rec.get('user_id')) != user['id'] or time.time() - rec['created'] > MONETAG_TTL:
+            return jsonify({"status": "expired"}), 410
+        if not rec.get('done'):
+            return jsonify({"status": "pending"})
+        if rec.get('claimed'):
+            return jsonify({"status": "claimed"}), 409
+        rec['claimed'] = True
+    return jsonify({"status": "done"})
+
+@app.route('/monetag-start', methods=['POST'])
+def monetag_start():
+    data = request.get_json(silent=True) or {}
+    if not _secret_ok(data.get('secret')):
+        return jsonify({"status": "forbidden"}), 403
+    try:
+        uid = int(data.get('user_id'))
+    except (TypeError, ValueError):
+        return jsonify({"status": "invalid_user"}), 400
+    nonce = secrets.token_urlsafe(24)
+    record = {"user_id": uid, "kind": str(data.get("kind", "wall")), "msg_start": int(data.get("msg_start", 0) or 0), "msg_end": int(data.get("msg_end", 0) or 0), "created": time.time(), "done": False, "claimed": False, "failures": 0}
+    with MONETAG_LOCK:
+        MONETAG_PENDING[nonce] = record
+        for key in list(MONETAG_PENDING):
+            if time.time() - MONETAG_PENDING[key]["created"] > MONETAG_TTL:
+                MONETAG_PENDING.pop(key, None)
+    return jsonify({"status": "ok", "nonce": nonce})
+
+@app.route('/monetag')
+def monetag_page():
+    nonce = request.args.get('n', '')
+    with MONETAG_LOCK:
+        rec = MONETAG_PENDING.get(nonce)
+    valid = bool(rec and time.time() - rec["created"] <= MONETAG_TTL)
+    if not valid:
+        return "This ad session expired. Return to Telegram and request a new ad.", 410
+    page = '''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Watch sponsor</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script async src="https://libtl.com/sdk.js" data-zone="12168607" data-sdk="show_12168607"></script>
+<style>body{font:16px Arial;background:#101827;color:white;text-align:center;padding:28px}button{padding:14px 22px;border:0;border-radius:10px;background:#22c55e;color:#07130a;font-weight:bold}#msg{margin:24px}</style></head>
+<body><h2>🎬 Sponsored message</h2><p>{{ 'Complete the rewarded ad to unlock your World Puzzle hint.' if ad_kind == 'hint' else 'Complete the rewarded ad to receive your download credit.' }}</p><button id="watch">Watch rewarded ad</button><div id="msg">{{ 'After the ad completes, return to World Puzzle and tap Get a hint again.' if ad_kind == 'hint' else 'Your reward is not credited until the ad flow completes and you verify in the bot.' }}</div>
+<script>const nonce={{ nonce|tojson }}; const tg=window.Telegram?.WebApp; if(tg)tg.ready();
+document.getElementById('watch').onclick=async()=>{const b=document.getElementById('watch'),m=document.getElementById('msg');b.disabled=true;m.textContent='Loading ad…';
+try{let waited=0;while(typeof window.show_12168607!=='function'&&waited<12000){await new Promise(r=>setTimeout(r,250));waited+=250;}if(typeof window.show_12168607!=='function')throw new Error('Ad SDK did not load');await window.show_12168607();
+const r=await fetch('/monetag-complete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nonce})});if(!r.ok)throw new Error('Could not record completion');m.textContent={{ ('Ad completed! Return to World Puzzle and tap Get a hint again to unlock your hint.' if ad_kind == 'hint' else 'Ad completed successfully. Your reward has been credited. You can return to MichaelBBC Vault.')|tojson }};
+}catch(e){try{const fr=await fetch('/monetag-failed',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nonce})});const fd=await fr.json();m.textContent=fd.failures>=2?'Monetag failed twice. Return to Telegram and choose Adsterra fallback.':'Ad failed. You can retry Monetag.';}catch(_){m.textContent='The ad did not complete. Return to Telegram and try again.';}b.disabled=false;}};</script></body></html>'''
+    return render_template_string(page, nonce=nonce, ad_kind=rec.get('kind', 'wall'))
+
+@app.route('/monetag-failed', methods=['POST'])
+def monetag_failed():
+    data = request.get_json(silent=True) or {}
+    nonce = str(data.get('nonce', ''))
+    with MONETAG_LOCK:
+        rec = MONETAG_PENDING.get(nonce)
+        if not rec or time.time() - rec['created'] > MONETAG_TTL:
+            return jsonify({"status": "expired"}), 410
+        rec['failures'] = int(rec.get('failures', 0)) + 1
+    return jsonify({"status": "fallback_available" if rec['failures'] >= 2 else "retry", "failures": rec['failures']})
+
+@app.route('/monetag-complete', methods=['POST'])
+def monetag_complete():
+    data = request.get_json(silent=True) or {}
+    nonce = str(data.get('nonce', ''))
+    with MONETAG_LOCK:
+        rec = MONETAG_PENDING.get(nonce)
+        if not rec or time.time() - rec["created"] > MONETAG_TTL:
+            return jsonify({"status": "expired"}), 410
+        rec["done"] = True
+    return jsonify({"status": "ok"})
+
+@app.route('/monetag-status', methods=['POST'])
+def monetag_status():
+    data = request.get_json(silent=True) or {}
+    if not _secret_ok(data.get('secret')):
+        return jsonify({"status": "forbidden"}), 403
+    try:
+        uid = int(data.get('user_id'))
+    except (TypeError, ValueError):
+        return jsonify({"status": "invalid_user"}), 400
+    with MONETAG_LOCK:
+        matches = [(k, v) for k, v in MONETAG_PENDING.items() if v["user_id"] == uid and not v["claimed"]]
+        if not matches:
+            return jsonify({"status": "expired"})
+        nonce, rec = max(matches, key=lambda item: item[1]["created"])
+        if not rec["done"]:
+            return jsonify({"status": "fallback_available" if int(rec.get("failures", 0)) >= 2 else "pending"})
+        rec["claimed"] = True
+        tokens = load_tokens()
+        profile = get_user_profile(uid, tokens)
+        reward = get_reward()
+        profile["downloads_left"] = int(profile.get("downloads_left", 0)) + reward
+        profile["batch_downloads_left"] = int(profile.get("batch_downloads_left", 0)) + reward * 5
+        profile["verified"] = True
+        save_tokens(tokens)
+    return jsonify({"status": "done", "reward": reward, "kind": rec["kind"], "msg_start": rec["msg_start"], "msg_end": rec["msg_end"], "downloads_left": profile["downloads_left"]})
+
+@app.route('/monetag-reward')
+def monetag_admin_reward():
+    if not _secret_ok(request.args.get('secret')) or str(request.args.get('userid')) != str(ADMIN_ID):
+        return jsonify({"status": "forbidden"}), 403
+    nonce = secrets.token_urlsafe(24)
+    with MONETAG_LOCK:
+        MONETAG_PENDING[nonce] = {"user_id": ADMIN_ID, "kind": "test", "msg_start": 0, "msg_end": 0, "created": time.time(), "done": True, "claimed": False}
+    return jsonify({"status": "ok"})
+
+# ===== FLASK BACKEND ROUTING =====
+@app.route('/get_tokens', methods=['GET'])
+def get_tokens_route():
+    if not _secret_ok(request.headers.get("X-Api-Secret")):
+        return jsonify({"status": "forbidden"}), 403
+    return jsonify(load_tokens())
+
+@app.route('/save_tokens', methods=['POST'])
+def api_save_tokens():
+    if not _secret_ok(request.headers.get("X-Api-Secret")):
+        return jsonify({"status": "forbidden"}), 403
+    try:
+        new_tokens = request.json
+        if new_tokens is not None:
+            save_tokens(new_tokens)
+        return jsonify({"status": "success"}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    return jsonify({"status": "invalid data"}), 400
+
+@app.route('/get_reward', methods=['GET'])
+def get_reward_route():
+    return jsonify({"reward": get_reward(), "free": get_free(), "status": "success"})
+
+@app.route('/check-download', methods=['POST'])
+def check_download():
+    if not _secret_ok(request.headers.get("X-Api-Secret")):
+        return jsonify({"status": "forbidden"}), 403
+    data = request.json or {}
+    user_id = data.get('user_id')
+    is_batch = data.get('is_batch', False)
+    if not user_id:
+        return jsonify({"status": "error", "message": "Missing user_id"}), 400
+    if int(user_id) == ADMIN_ID:
+        return jsonify({"status": "allowed", "left": 999})
+    tokens = load_tokens()
+    profile = get_user_profile(user_id, tokens)
+    if is_batch:
+        if profile.get("batch_downloads_left", 20) > 0:
+            profile["batch_downloads_left"] -= 1
+            save_tokens(tokens)
+            return jsonify({"status": "allowed", "left": profile["batch_downloads_left"]})
+        else:
+            save_tokens(tokens)
+            return jsonify({"status": "blocked", "reason": "limit_reached", "left": 0})
+    else:
+        if profile["downloads_left"] > 0:
+            profile["downloads_left"] -= 1
+            if profile["downloads_left"] <= 0:
+                profile["verified"] = False
+            save_tokens(tokens)
+            return jsonify({"status": "allowed", "left": profile["downloads_left"]})
+        else:
+            save_tokens(tokens)
+            return jsonify({"status": "blocked", "reason": "limit_reached", "left": 0})
+
+def _secret_ok(val):
+    return bool(val) and hmac.compare_digest(str(val), str(API_SECRET))
+
+DOWNLOAD_EVENTS_FILE = os.path.join(os.path.dirname(ITEMS_FILE), "item_download_events.json")
+DOWNLOAD_RESET_MARKER = os.path.join(os.path.dirname(ITEMS_FILE), "download_counts_reset_v1.done")
+
+def reset_legacy_download_counts_once():
+    if os.path.exists(DOWNLOAD_RESET_MARKER):
+        return
+    items = load_items()
+    changed = False
+    for item in items:
+        if int(item.get("downloads", 0) or 0) != 0:
+            item["downloads"] = 0
+            changed = True
+    if changed:
+        save_items(items)
+        with open(DOWNLOAD_RESET_MARKER, "w", encoding="utf-8") as marker:
+            marker.write("Download counts reset for verified delivery tracking.\n")
+
+def _item_message_range(item):
+    link = str(item.get("link", ""))
+    try:
+        code = parse_qs(urlparse(link).query).get("start", [""])[0]
+        if not code.startswith("vid"):
+            return None
+        value = code[3:]
+        if "to" in value:
+            first, last = value.split("to", 1)
+            start_id, end_id = int(first), int(last)
+        else:
+            start_id = end_id = int(value)
+        return (min(start_id, end_id), max(start_id, end_id))
+    except (ValueError, TypeError):
+        return None
+
+@app.route('/api/item-delivered', methods=['POST'])
+def api_item_delivered():
+    data = request.get_json(silent=True) or {}
+    supplied_secret = request.headers.get("X-Api-Secret") or data.get("secret", "")
+    if not _secret_ok(supplied_secret):
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    try:
+        msg_start = int(data.get("msg_start", 0))
+        msg_end = int(data.get("msg_end", 0))
+        delivered = {int(x) for x in data.get("delivered_message_ids", [])}
+        user_id = str(int(data.get("user_id", 0)))
+        event_id = str(data.get("event_id", ""))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "invalid payload"}), 400
+    if not event_id or not delivered or not user_id or msg_start <= 0 or msg_end < msg_start:
+        return jsonify({"ok": False, "error": "incomplete delivery data"}), 400
+    try:
+        with open(DOWNLOAD_EVENTS_FILE, "r") as f:
+            events = json.load(f)
+        if not isinstance(events, list): events = []
+    except (OSError, ValueError):
+        events = []
+    if event_id in events:
+        return jsonify({"ok": True, "duplicate": True, "counted": 0})
+    items = load_items()
+    counted = 0
+    for item in items:
+        item_range = _item_message_range(item)
+        if item_range and item_range == (msg_start, msg_end) and any(item_range[0] <= mid <= item_range[1] for mid in delivered):
+            item["downloads"] = int(item.get("downloads", 0) or 0) + 1
+            counted += 1
+    if counted:
+        save_items(items)
+    events.append(event_id)
+    events = events[-20000:]
+    try:
+        with open(DOWNLOAD_EVENTS_FILE, "w") as f:
+            json.dump(events, f)
+    except OSError as e:
+        app.logger.error("Could not save item download event: %s", e)
+    return jsonify({"ok": True, "counted": counted})
+
+# ===== CUSTOM POSTS ROUTES =====
+@app.route('/api/posts', methods=['GET'])
+def api_posts():
+    posts = load_posts()
+    return jsonify({"ok": True, "posts": posts})
+
+@app.route('/admin/add-post', methods=['POST'])
+def admin_add_post():
+    if not _secret_ok(request.form.get('secret')):
+        return "Forbidden", 403
+    title = request.form.get('title', '').strip()
+    content = request.form.get('content', '').strip()
+    image = request.form.get('image', '').strip()
+    link_text = request.form.get('link_text', '').strip()
+    link_url = request.form.get('link_url', '').strip()
+    if not title or not content:
+        return "Title and Content are required", 400
+    posts = load_posts()
+    new_post = {
+        "id": str(int(time.time() * 1000)),
+        "title": title,
+        "content": content,
+        "image": image,
+        "link_text": link_text,
+        "link_url": link_url,
+        "timestamp": time.time()
+    }
+    posts.insert(0, new_post)
+    save_posts(posts)
+    return redirect(url_for('home'))
+
+@app.route('/admin/edit-post', methods=['POST'])
+def admin_edit_post():
+    if not _secret_ok(request.form.get('secret')):
+        return "Forbidden", 403
+    post_id = request.form.get('id')
+    title = request.form.get('title', '').strip()
+    content = request.form.get('content', '').strip()
+    link_text = request.form.get('link_text', '').strip()
+    link_url = request.form.get('link_url', '').strip()
+    posts = load_posts()
+    for p in posts:
+        if p.get('id') == post_id:
+            p['title'] = title
+            p['content'] = content
+            p['link_text'] = link_text
+            p['link_url'] = link_url
+            break
+    save_posts(posts)
+    return redirect(url_for('home'))
+
+@app.route('/admin/delete-post')
+def admin_delete_post():
+    if not _secret_ok(request.args.get('secret')):
+        return "Forbidden", 403
+    post_id = request.args.get('id')
+    posts = load_posts()
+    posts = [p for p in posts if p.get('id') != post_id]
+    save_posts(posts)
+    return redirect(url_for('home'))
+
+@app.route('/admin/add-item', methods=['POST'])
+def admin_add_item():
+    if request.form.get('secret') != API_SECRET:
+        return "Forbidden", 403
+    items = load_items()
+    new_item = {
+        "id": str(int(time.time())),
+        "title": request.form.get('title'),
+        "desc": request.form.get('desc'),
+        "meta": request.form.get('meta', '📄 File'),
+        "image": request.form.get('image'),
+        "category": request.form.get('category', 'Vault Files'),
+        "downloads": 0,
+        "pinned": True if request.form.get('pinned') == 'true' else False,
+        "link": request.form.get('link')
+    }
+    items.insert(0, new_item)
+    save_items(items)
+    return redirect(url_for('home'))
+
+@app.route('/admin/edit-item', methods=['POST'])
+def admin_edit_item():
+    if not _secret_ok(request.form.get('secret')):
+        return "Forbidden", 403
+    item_id = str(request.form.get('id', '')).strip()
+    items = load_items()
+    for item in items:
+        if str(item.get('id')) == item_id:
+            item['title'] = request.form.get('title', '').strip()
+            item['desc'] = request.form.get('desc', '').strip()
+            item['link'] = request.form.get('link', '').strip()
+            break
+    save_items(items)
+    return redirect(url_for('home'))
+
+@app.route('/admin/delete-item')
+def admin_delete_item():
+    if request.args.get('secret') != API_SECRET:
+        return "Forbidden", 403
+    item_id = request.args.get('id')
+    items = load_items()
+    items = [i for i in items if i['id'] != item_id]
+    save_items(items)
+    return redirect(url_for('home'))
+
+@app.route('/admin/category', methods=['POST'])
+def admin_manage_category():
+    if not _secret_ok(request.form.get('secret')):
+        return "Forbidden", 403
+    categories = load_categories()
+    action = request.form.get('action', '')
+    name = request.form.get('name', '').strip()
+    old_name = request.form.get('old_name', '').strip()
+    if action == 'add':
+        if not name:
+            return "Category name is required", 400
+        if any(x.casefold() == name.casefold() for x in categories):
+            return "Category already exists", 400
+        categories.append(name)
+    elif action == 'rename':
+        if not name or not old_name or old_name not in categories:
+            return "Invalid category", 400
+        if any(x.casefold() == name.casefold() and x != old_name for x in categories):
+            return "Category already exists", 400
+        categories[categories.index(old_name)] = name
+        items = load_items()
+        for item in items:
+            if item.get('category') == old_name:
+                item['category'] = name
+        save_items(items)
+    elif action == 'delete':
+        if old_name not in categories:
+            return "Category not found", 404
+        if any(item.get('category') == old_name for item in load_items()):
+            return "Move all items out of this category before deleting it", 400
+        categories.remove(old_name)
+        if not categories:
+            return "At least one category must remain", 400
+    else:
+        return "Invalid action", 400
+    save_categories(categories)
+    return redirect(url_for('home'))
+
+# ===== WHOT MULTIPLAYER SESSIONS =====
+WHOT_DB = os.path.join(os.path.dirname(ITEMS_FILE), "whot_sessions.sqlite3")
+_whot_db_lock = threading.RLock()
+WHOT_SHAPES = ["CIRCLE", "TRIANGLE", "CROSS", "SQUARE", "STAR"]
+WHOT_MAX = {"CIRCLE": 14, "TRIANGLE": 14, "CROSS": 14, "SQUARE": 14, "STAR": 8}
+WHOT_SPECIAL_MAP = {
+    1: "HOLD_ON",
+    2: "PICK_TWO",
+    5: "PICK_THREE",
+    8: "SUSPENSION",
+    14: "GENERAL_MARKET",
+    20: "WHOT",
+}
+
+def _whot_db():
+    conn = sqlite3.connect(WHOT_DB, timeout=10)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("CREATE TABLE IF NOT EXISTS whot_sessions (code TEXT PRIMARY KEY, state TEXT NOT NULL, updated REAL NOT NULL)")
+    conn.execute("CREATE TABLE IF NOT EXISTS whot_queue (user_id TEXT PRIMARY KEY, queued REAL NOT NULL)")
+    conn.execute("CREATE TABLE IF NOT EXISTS sea_sessions (code TEXT PRIMARY KEY, state TEXT NOT NULL, updated REAL NOT NULL)")
+    conn.execute("CREATE TABLE IF NOT EXISTS sea_queue (user_id TEXT PRIMARY KEY, queued REAL NOT NULL)")
+    conn.execute("CREATE TABLE IF NOT EXISTS arcade_progress (user_id TEXT PRIMARY KEY, progress TEXT NOT NULL, updated REAL NOT NULL)")
+    conn.commit()
+    return conn
+
+def _telegram_webapp_user():
+    raw = request.headers.get("X-Telegram-Init-Data", "")
+    if not raw or not BOT_TOKEN:
+        return None
+    try:
+        pairs = dict(parse_qsl(raw, keep_blank_values=True))
+        supplied_hash = pairs.pop("hash", "")
+        auth_date = int(pairs.get("auth_date", "0"))
+        if not supplied_hash or time.time() - auth_date > 86400:
+            return None
+        check_string = "\n".join(f"{k}={v}" for k, v in sorted(pairs.items()))
+        secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
+        expected = hmac.new(secret_key, check_string.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, supplied_hash):
+            return None
+        user = json.loads(pairs.get("user", "{}"))
+        uid = str(int(user.get("id", 0)))
+        return {"id": uid, "name": str(user.get("first_name", "Player"))[:40]}
+    except Exception:
+        return None
+
+@app.route('/api/arcade/progress', methods=['GET', 'POST'])
+def arcade_progress_api():
+    user = _telegram_webapp_user()
+    if not user:
+        return jsonify({"ok": False, "error": "Open the Arcade inside Telegram to save progress."}), 401
+    
+    # Ensure backup file exists before accessing DB
+    if not os.path.exists(ARCADE_BACKUP_FILE):
+        download_backup_from_telegram()
+
+    conn = _whot_db()
+    if request.method == 'GET':
+        row = conn.execute("SELECT progress FROM arcade_progress WHERE user_id=?", (user['id'],)).fetchone()
+        conn.close()
+        try:
+            progress = json.loads(row['progress']) if row else {}
+        except Exception:
+            progress = {}
+        
+        # If DB is empty but we have a backup, restore it
+        if not progress:
+            backup_data = load_arcade_backup()
+            if user['id'] in backup_data:
+                progress = backup_data[user['id']]
+                conn = _whot_db()
+                conn.execute("INSERT OR REPLACE INTO arcade_progress(user_id,progress,updated) VALUES(?,?,?)",
+                             (user['id'], json.dumps(progress, ensure_ascii=False), time.time()))
+                conn.commit(); conn.close()
+                
+        return jsonify({"ok": True, "progress": progress})
+    
+    data = request.get_json(silent=True) or {}
+    progress = data.get('progress')
+    if not isinstance(progress, dict):
+        conn.close()
+        return jsonify({"ok": False, "error": "Invalid progress data."}), 400
+    
+    encoded = json.dumps(progress, ensure_ascii=False)
+    if len(encoded) > 50000:
+        conn.close()
+        return jsonify({"ok": False, "error": "Progress data is too large."}), 413
+    
+    conn.execute("INSERT OR REPLACE INTO arcade_progress(user_id,progress,updated) VALUES(?,?,?)",
+                 (user['id'], encoded, time.time()))
+    conn.commit(); conn.close()
+    
+    # Also save to backup file
+    backup_data = load_arcade_backup()
+    backup_data[user['id']] = progress
+    save_arcade_backup(backup_data)
+    
+    return jsonify({"ok": True, "saved": True})
+
+def _whot_deck():
+    cards = []
+    for si, shape in enumerate(WHOT_SHAPES):
+        for n in range(1, WHOT_MAX[shape] + 1):
+            cards.append({"number": n, "shape": shape, "color": si})
+    cards.append({"number": 20, "shape": "WHOT", "color": 5})
+    random.shuffle(cards)
+    return cards
+
+def _whot_special(card):
+    return WHOT_SPECIAL_MAP.get(card["number"])
+
+def _whot_can_play(card, top, declared):
+    if card["shape"] == "WHOT":
+        return True
+    if top["shape"] == "WHOT":
+        return card["shape"] == declared
+    if card["number"] == top["number"]:
+        return True
+    if card["shape"] == top["shape"]:
+        return True
+    return False
+
+def _whot_new_state(code, first):
+    deck = _whot_deck()
+    top = deck.pop()
+    while top["shape"] == "WHOT":
+        deck.insert(0, top)
+        top = deck.pop()
+    return {"code": code, "players": [first], "names": {first["id"]: first["name"]},
+            "hands": {first["id"]: [deck.pop() for _ in range(5)]}, "deck": deck,
+            "top": top, "declared_shape": None, "turn": first["id"], "status": "waiting",
+            "winner": None, "last_action": "Room created. Waiting for another player.",
+            "updated": time.time()}
+
+def _whot_save(conn, state):
+    state["updated"] = time.time()
+    conn.execute("INSERT OR REPLACE INTO whot_sessions(code,state,updated) VALUES(?,?,?)",
+                 (state["code"], json.dumps(state, ensure_ascii=False), state["updated"]))
+    conn.commit()
+
+def _whot_get(conn, code):
+    row = conn.execute("SELECT state FROM whot_sessions WHERE code=?", (code.upper(),)).fetchone()
+    return json.loads(row["state"]) if row else None
+
+def _whot_view(state, uid):
+    if uid not in state.get("hands", {}): return None
+    others = [p for p in state["players"] if p["id"] != uid]
+    opponent = others[0] if others else None
+    return {"code": state["code"], "status": state["status"], "hand": state["hands"].get(uid, []),
+            "top": state["top"], "declared_shape": state.get("declared_shape"),
+            "my_count": len(state["hands"].get(uid, [])),
+            "opponent_count": len(state["hands"].get(opponent["id"], [])) if opponent else 0,
+            "opponent_name": opponent["name"] if opponent else "Waiting for opponent",
+            "turn": state["turn"], "my_turn": state["turn"] == uid,
+            "deck_count": len(state["deck"]), "winner": state.get("winner"),
+            "message": state.get("last_action", "")}
+
+def _whot_auth_error():
+    user = _telegram_webapp_user()
+    if not user:
+        return None, (jsonify({"ok": False, "error": "Open WHOT inside Telegram to authenticate."}), 401)
+    return user, None
+
+@app.route('/api/whot/create', methods=['POST'])
+def whot_api_create():
+    user, err = _whot_auth_error()
+    if err: return err
+    code = secrets.token_urlsafe(5).replace('-', '').replace(' ', '').upper()[:7]
+    state = _whot_new_state(code, user)
+    with _whot_db_lock:
+        conn = _whot_db(); _whot_save(conn, state); conn.close()
+    invite_url = quote(f"{request.host_url.rstrip('/')}/?whot={code}", safe="")
+    return jsonify({"ok": True, "code": code, "share_url": f"https://t.me/share/url?url={invite_url}&text=Join%20my%20WHOT%20game"})
+
+@app.route('/api/whot/join', methods=['POST'])
+def whot_api_join():
+    user, err = _whot_auth_error()
+    if err: return err
+    code = str((request.get_json(silent=True) or {}).get('code', '')).strip().upper()
+    if not code: return jsonify({"ok": False, "error": "Enter a room code."}), 400
+    with _whot_db_lock:
+        conn = _whot_db(); state = _whot_get(conn, code)
+        if not state: conn.close(); return jsonify({"ok": False, "error": "Room not found."}), 404
+        if any(p['id'] == user['id'] for p in state['players']): pass
+        elif len(state['players']) >= 2 or state['status'] != 'waiting':
+            conn.close(); return jsonify({"ok": False, "error": "This room is already full."}), 409
+        else:
+            state['players'].append(user); state['names'][user['id']] = user['name']
+            state['hands'][user['id']] = [state['deck'].pop() for _ in range(5)]
+            state['status'] = 'playing'; state['turn'] = state['players'][0]['id']
+            state['last_action'] = f"{user['name']} joined. {state['players'][0]['name']} starts."
+            _whot_save(conn, state)
+        view = _whot_view(state, user['id']); conn.close()
+    return jsonify({"ok": True, "game": view})
+
+@app.route('/api/whot/random', methods=['POST'])
+def whot_api_random():
+    user, err = _whot_auth_error()
+    if err: return err
+    with _whot_db_lock:
+        conn = _whot_db()
+        row = conn.execute("SELECT user_id FROM whot_queue WHERE user_id <>? ORDER BY queued LIMIT 1", (user['id'],)).fetchone()
+        if row:
+            other_id = row['user_id']; conn.execute("DELETE FROM whot_queue WHERE user_id IN (?,?)", (other_id, user['id']))
+            other_row = conn.execute("SELECT state FROM whot_sessions WHERE json_extract(state,'$.players[0].id')=? AND json_extract(state,'$.status')='waiting' ORDER BY updated DESC LIMIT 1", (other_id,)).fetchone()
+            state = json.loads(other_row['state']) if other_row else None
+            if state:
+                state['players'].append(user); state['names'][user['id']] = user['name']; state['hands'][user['id']] = [state['deck'].pop() for _ in range(5)]
+                state['status']='playing'; state['turn']=state['players'][0]['id']; state['last_action']=f"Matched with {user['name']}."
+                _whot_save(conn,state)
+                view = _whot_view(state,user['id']); conn.close(); return jsonify({"ok":True, "matched":True, "game":view})
+        code = secrets.token_urlsafe(5).replace('-', '').replace(' ', '').upper()[:7]
+        state = _whot_new_state(code, user); _whot_save(conn,state)
+        conn.execute("INSERT OR REPLACE INTO whot_queue(user_id,queued) VALUES(?,?)",(user['id'],time.time())); conn.commit(); conn.close()
+    return jsonify({"ok":True, "matched":False, "code":code, "message": "Searching for an opponent… keep this screen open."})
+
+@app.route('/api/whot/state', methods=['GET'])
+def whot_api_state():
+    user, err = _whot_auth_error()
+    if err: return err
+    code = request.args.get('code','').upper()
+    with _whot_db_lock:
+        conn=_whot_db(); state=_whot_get(conn,code); conn.close()
+        if not state or user['id'] not in state.get('hands',{}): return jsonify({"ok":False,"error":"Game not found."}),404
+    return jsonify({"ok":True,"game":_whot_view(state,user['id'])})
+
+@app.route('/api/whot/move', methods=['POST'])
+def whot_api_move():
+    user, err = _whot_auth_error()
+    if err: return err
+    data = request.get_json(silent=True) or {}
+    code = str(data.get('code', '')).upper()
+    action = data.get('action')
+    index = data.get('index')
+    declared = data.get('declared_shape')
+    with _whot_db_lock:
+        conn = _whot_db(); state = _whot_get(conn, code)
+        if not state or user['id'] not in state.get('hands', {}):
+            conn.close(); return jsonify({"ok": False, "error": "Game not found."}), 404
+        if state['status'] != 'playing' or state['turn'] != user['id']:
+            conn.close(); return jsonify({"ok": False, "error": "Not your turn."}), 409
+        hand = state['hands'][user['id']]
+        opponent_id = next(p['id'] for p in state['players'] if p['id'] != user['id'])
+        opp_hand = state['hands'][opponent_id]
+        if action == 'play':
+            try:
+                card = hand[int(index)]
+            except (ValueError, TypeError, IndexError):
+                conn.close(); return jsonify({"ok": False, "error": "Invalid card."}), 400
+            if not _whot_can_play(card, state['top'], state.get('declared_shape')):
+                conn.close(); return jsonify({"ok": False, "error": "Match the number or shape."}), 400
+            if card['shape'] == 'WHOT':
+                if declared not in WHOT_SHAPES:
+                    conn.close(); return jsonify({"ok": False, "error": "Declare a shape for WHOT."}), 400
+                state['declared_shape'] = declared
+            elif state['top']['shape'] == 'WHOT':
+                state['declared_shape'] = None
+            state['top'] = hand.pop(int(index))
+            state['last_action'] = f"{user['name']} played a card."
+            if not hand:
+                state['winner'] = user['id']; state['status'] = 'finished'
+                state['last_action'] = f"{user['name']} won!"
+            else:
+                effect = _whot_special(state['top'])
+                if effect in ('PICK_TWO', 'PICK_THREE', 'GENERAL_MARKET'):
+                    draw_count = {'PICK_TWO': 2, 'PICK_THREE': 3, 'GENERAL_MARKET': 1}[effect]
+                    for _ in range(draw_count):
+                        if state['deck']:
+                            opp_hand.append(state['deck'].pop())
+                    state['last_action'] = f"{user['name']} played {state['top']['number']} ({effect}). {draw_count} drawn and skipped."
+                elif effect in ('HOLD_ON', 'SUSPENSION'):
+                    state['last_action'] = f"{user['name']} played {state['top']['number']} ({effect}). Opponent skipped."
+                else:
+                    state['turn'] = opponent_id
+                    state['last_action'] = f"{user['name']} played a card."
+        elif action == 'draw':
+            if not state['deck']:
+                conn.close(); return jsonify({"ok": False, "error": "Draw pile empty."}), 409
+            drawn = state['deck'].pop()
+            hand.append(drawn)
+            state['last_action'] = f"{user['name']} drew a card."
+            if not _whot_can_play(drawn, state['top'], state.get('declared_shape')):
+                state['turn'] = opponent_id
+        else:
+            conn.close(); return jsonify({"ok": False, "error": "Unknown action."}), 400
+        _whot_save(conn, state)
+        view = _whot_view(state, user['id']); conn.close()
+    return jsonify({"ok": True, "game": view})
+
+# ===== SEA BATTLE MULTIPLAYER =====
+SEA_W, SEA_H = 9, 7
+SEA_FLEET = [5, 4, 3, 3, 2]
+
+def _sea_new_state(code, first):
+    return {"code": code, "players": [first], "names": {first["id"]: first["name"]},
+            "ships": {first["id"]: []}, "hits": {first["id"]: []}, "misses": {first["id"]: []},
+            "turn": first["id"], "status": "waiting", "winner": None,
+            "last_action": "Room created. Waiting for another player.", "updated": time.time()}
+
+def _sea_save(conn, state):
+    state["updated"] = time.time()
+    conn.execute("INSERT OR REPLACE INTO sea_sessions(code,state,updated) VALUES(?,?,?)",
+                 (state["code"], json.dumps(state, ensure_ascii=False), state["updated"]))
+    conn.commit()
+
+def _sea_get(conn, code):
+    row = conn.execute("SELECT state FROM sea_sessions WHERE code=?", (code.upper(),)).fetchone()
+    return json.loads(row["state"]) if row else None
+
+def _sea_view(state, uid):
+    if uid not in state.get("ships", {}): return None
+    other = next((p for p in state["players"] if p["id"] != uid), None)
+    opponent_id = other["id"] if other else None
+    own_ships = state["ships"].get(uid, [])
+    own_hits = state["hits"].get(uid, [])
+    own_misses = state["misses"].get(uid, [])
+    fired_hits = state.get("hits", {}).get(opponent_id, []) if opponent_id else []
+    fired_misses = state.get("misses", {}).get(opponent_id, []) if opponent_id else []
+    ready = len(own_ships) == len(SEA_FLEET)
+    opponent_ships = state.get("ships", {}).get(opponent_id, []) if opponent_id else []
+    opponent_hit_cells = set(state.get("hits", {}).get(opponent_id, [])) if opponent_id else set()
+    sunk_opponent_ships = [ship for ship in opponent_ships if all(f"{r},{c}" in opponent_hit_cells for r,c in ship)]
+    reveal_fleet = state.get("status") == "finished"
+    return {"code": state["code"], "status": state["status"], "placed": ready,
+            "my_ships": own_ships, "my_hits": own_hits, "my_misses": own_misses,
+            "shots_hit": fired_hits, "shots_miss": fired_misses,
+            "sunk_opponent_ships": sunk_opponent_ships,
+            "opponent_ships_revealed": opponent_ships if reveal_fleet else [],
+            "opponent_name": other["name"] if other else "Waiting for opponent",
+            "opponent_ready": bool(opponent_id and len(state["ships"].get(opponent_id, [])) == len(SEA_FLEET)),
+            "my_turn": state.get("turn") == uid, "winner": state.get("winner"),
+            "message": state.get("last_action", "")}
+
+def _sea_auth_error():
+    user = _telegram_webapp_user()
+    if not user:
+        return None, (jsonify({"ok": False, "error": "Open Sea Battle inside Telegram to authenticate."}), 401)
+    return user, None
+
+def _sea_validate_ship(cells, existing):
+    if not isinstance(cells, list) or len(cells) not in SEA_FLEET: return False
+    try: coords = [(int(x[0]), int(x[1])) for x in cells]
+    except (TypeError, ValueError, IndexError): return False
+    if len(set(coords)) != len(coords): return False
+    if any(r < 0 or r >= SEA_H or c < 0 or c >= SEA_W for r, c in coords): return False
+    rows = {r for r, c in coords}; cols = {c for r, c in coords}
+    if len(rows) == 1:
+        ordered = sorted(c for r, c in coords)
+        if ordered != list(range(ordered[0], ordered[0] + len(ordered))): return False
+    elif len(cols) == 1:
+        ordered = sorted(r for r, c in coords)
+        if ordered != list(range(ordered[0], ordered[0] + len(ordered))): return False
+    else: return False
+    occupied = {(r, c) for ship in existing for r, c in ship}
+    return not any(pos in occupied for pos in coords)
+
+@app.route('/api/sea/cancel', methods=['POST'])
+def sea_api_cancel():
+    user, err = _sea_auth_error()
+    if err: return err
+    code = str((request.get_json(silent=True) or {}).get('code', '')).strip().upper()
+    with _whot_db_lock:
+        conn = _whot_db()
+        conn.execute("CREATE TABLE IF NOT EXISTS sea_sessions (code TEXT PRIMARY KEY, state TEXT NOT NULL, updated REAL NOT NULL)")
+        conn.execute("CREATE TABLE IF NOT EXISTS sea_queue (user_id TEXT PRIMARY KEY, queued REAL NOT NULL)")
+        state = _sea_get(conn, code)
+        if state and any(p.get('id') == user['id'] for p in state.get('players', [])):
+            state['status'] = 'cancelled'
+            state['last_action'] = f"{user['name']} left the match."
+            _sea_save(conn, state)
+            conn.execute("DELETE FROM sea_queue WHERE user_id=?", (user['id'],))
+            conn.commit(); conn.close()
+    return jsonify({"ok": True})
+
+@app.route('/api/sea/create', methods=['POST'])
+def sea_api_create():
+    user, err = _sea_auth_error()
+    if err: return err
+    code = secrets.token_urlsafe(5).replace('-', '').replace(' ', '').upper()[:7]
+    state = _sea_new_state(code, user)
+    with _whot_db_lock:
+        conn = _whot_db()
+        conn.execute("CREATE TABLE IF NOT EXISTS sea_sessions (code TEXT PRIMARY KEY, state TEXT NOT NULL, updated REAL NOT NULL)")
+        conn.execute("CREATE TABLE IF NOT EXISTS sea_queue (user_id TEXT PRIMARY KEY, queued REAL NOT NULL)")
+        _sea_save(conn, state); conn.close()
+    invite = quote(f"{request.host_url.rstrip('/')}/?sea={code}", safe="")
+    return jsonify({"ok": True, "code": code, "share_url": f"https://t.me/share/url?url={invite}&text=Join%20my%20Sea%20Battle%20game"})
+
+@app.route('/api/sea/join', methods=['POST'])
+def sea_api_join():
+    user, err = _sea_auth_error()
+    if err: return err
+    code = str((request.get_json(silent=True) or {}).get('code', '')).strip().upper()
+    with _whot_db_lock:
+        conn = _whot_db(); conn.execute("CREATE TABLE IF NOT EXISTS sea_sessions (code TEXT PRIMARY KEY, state TEXT NOT NULL, updated REAL NOT NULL)")
+        state = _sea_get(conn, code)
+        if not state or state.get('status') == 'cancelled': conn.close(); return jsonify({"ok": False, "error": "This room has been cancelled."}), 404
+        if any(p['id'] == user['id'] for p in state['players']): pass
+        elif len(state['players']) >= 2 or state['status'] != 'waiting': conn.close(); return jsonify({"ok": False, "error": "This room is already full."}), 409
+        else:
+            state['players'].append(user); state['names'][user['id']] = user['name']
+            state['ships'][user['id']] = []; state['hits'][user['id']] = []; state['misses'][user['id']] = []
+            state['status'] = 'placing'; state['last_action'] = f"{user['name']} joined. Both players can place their fleets."
+            _sea_save(conn, state)
+        view = _sea_view(state, user['id']); conn.close()
+    return jsonify({"ok": True, "game": view})
+
+@app.route('/api/sea/random', methods=['POST'])
+def sea_api_random():
+    user, err = _sea_auth_error()
+    if err: return err
+    with _whot_db_lock:
+        conn = _whot_db(); conn.execute("CREATE TABLE IF NOT EXISTS sea_sessions (code TEXT PRIMARY KEY, state TEXT NOT NULL, updated REAL NOT NULL)")
+        conn.execute("CREATE TABLE IF NOT EXISTS sea_queue (user_id TEXT PRIMARY KEY, queued REAL NOT NULL)")
+        row = conn.execute("SELECT user_id FROM sea_queue WHERE user_id <>? ORDER BY queued LIMIT 1", (user['id'],)).fetchone()
+        state = None
+        if row:
+            other_id = row['user_id']
+            other_row = conn.execute("SELECT state FROM sea_sessions WHERE json_extract(state,'$.players[0].id')=? AND json_extract(state,'$.status')='waiting' ORDER BY updated DESC LIMIT 1", (other_id,)).fetchone()
+            if other_row:
+                state = json.loads(other_row['state']); conn.execute("DELETE FROM sea_queue WHERE user_id=?", (other_id,))
+                state['players'].append(user); state['names'][user['id']] = user['name']; state['ships'][user['id']] = []; state['hits'][user['id']] = []; state['misses'][user['id']] = []
+                state['status'] = 'placing'; state['last_action'] = f"Matched with {user['name']}. Place your fleets."
+                _sea_save(conn, state)
+                view = _sea_view(state, user['id']); conn.close(); return jsonify({"ok": True, "matched": True, "code": state['code'], "game": view})
+        code = secrets.token_urlsafe(5).replace('-', '').replace(' ', '').upper()[:7]
+        state = _sea_new_state(code, user); _sea_save(conn, state)
+        conn.execute("INSERT OR REPLACE INTO sea_queue(user_id,queued) VALUES(?,?)", (user['id'], time.time())); conn.commit(); conn.close()
+    return jsonify({"ok": True, "matched": False, "code": code, "message": "Searching for an opponent… keep this screen open."})
+
+@app.route('/api/sea/place', methods=['POST'])
+def sea_api_place():
+    user, err = _sea_auth_error()
+    if err: return err
+    data = request.get_json(silent=True) or {}; code = str(data.get('code', '')).upper(); ships = data.get('ships')
+    if not isinstance(ships, list) or len(ships) != len(SEA_FLEET): return jsonify({"ok": False, "error": "Place all five ships first."}), 400
+    with _whot_db_lock:
+        conn = _whot_db(); conn.execute("CREATE TABLE IF NOT EXISTS sea_sessions (code TEXT PRIMARY KEY, state TEXT NOT NULL, updated REAL NOT NULL)")
+        state = _sea_get(conn, code)
+        if not state or user['id'] not in state['ships']: conn.close(); return jsonify({"ok": False, "error": "Game not found."}), 404
+        if state['status'] not in ('placing', 'waiting'): conn.close(); return jsonify({"ok": False, "error": "Fleet placement is closed."}), 409
+        clean=[]; occupied=[]
+        for i, ship in enumerate(ships):
+            cells = ship.get('cells') if isinstance(ship, dict) else ship
+            if not _sea_validate_ship(cells, clean) or len(cells) != SEA_FLEET[i]: conn.close(); return jsonify({"ok": False, "error": f"Invalid placement for ship {i+1}."}), 400
+            clean.append([[int(x[0]), int(x[1])] for x in cells])
+        state['ships'][user['id']] = clean
+        ready = all(len(state['ships'].get(p['id'], [])) == len(SEA_FLEET) for p in state['players'])
+        if ready:
+            state['status'] = 'playing'; state['turn'] = state['players'][0]['id']; state['last_action'] = 'Both fleets are ready. First player starts.'
+        else:
+            state['status'] = 'waiting' if len(state['players']) < 2 else 'placing'
+            state['last_action'] = f"{user['name']} placed their fleet. Waiting for the other player."
+        _sea_save(conn, state); view = _sea_view(state, user['id']); conn.close()
+    return jsonify({"ok": True, "game": view})
+
+@app.route('/api/sea/state', methods=['GET'])
+def sea_api_state():
+    user, err = _sea_auth_error()
+    if err: return err
+    code = request.args.get('code', '').upper()
+    with _whot_db_lock:
+        conn = _whot_db(); conn.execute("CREATE TABLE IF NOT EXISTS sea_sessions (code TEXT PRIMARY KEY, state TEXT NOT NULL, updated REAL NOT NULL)")
+        state = _sea_get(conn, code); conn.close()
+        if not state or user['id'] not in state.get('ships', {}): return jsonify({"ok": False, "error": "This Sea Battle room is no longer active."}), 404
+    return jsonify({"ok": True, "game": _sea_view(state, user['id'])})
+
+@app.route('/api/sea/fire', methods=['POST'])
+def sea_api_fire():
+    user, err = _sea_auth_error()
+    if err: return err
+    data = request.get_json(silent=True) or {}; code = str(data.get('code', '')).upper()
+    try: r, c = int(data.get('row')), int(data.get('col'))
+    except (TypeError, ValueError): return jsonify({"ok": False, "error": "Invalid target."}), 400
+    if not (0 <= r < SEA_H and 0 <= c < SEA_W): return jsonify({"ok": False, "error": "Target is outside the ocean."}), 400
+    key = f"{r},{c}"
+    with _whot_db_lock:
+        conn = _whot_db(); conn.execute("CREATE TABLE IF NOT EXISTS sea_sessions (code TEXT PRIMARY KEY, state TEXT NOT NULL, updated REAL NOT NULL)")
+        state = _sea_get(conn, code)
+        if not state or user['id'] not in state.get('ships', {}): conn.close(); return jsonify({"ok": False, "error": "Game not found."}), 404
+        if state['status'] != 'playing' or state['turn'] != user['id']: conn.close(); return jsonify({"ok": False, "error": "It is not your turn."}), 409
+        opponent = next(p['id'] for p in state['players'] if p['id'] != user['id'])
+        shots = state['hits'][opponent] + state['misses'][opponent]
+        if key in shots: conn.close(); return jsonify({"ok": False, "error": "You already fired at that cell."}), 409
+        enemy_cells = {(y, x) for ship in state['ships'][opponent] for y, x in ship}
+        if (r, c) in enemy_cells:
+            state['hits'][opponent].append(key); result = 'hit'
+        else:
+            state['misses'][opponent].append(key); result = 'miss'
+        remaining = enemy_cells - {(int(v.split(',')[0]), int(v.split(',')[1])) for v in state['hits'][opponent]}
+        if not remaining:
+            state['status'] = 'finished'; state['winner'] = user['id']; state['last_action'] = f"{user['name']} destroyed the enemy fleet!"
+        else:
+            state['turn'] = opponent; state['last_action'] = f"{user['name']} fired: {result.upper()}."
+        _sea_save(conn, state); view = _sea_view(state, user['id']); view['last_shot'] = result; conn.close()
+    return jsonify({"ok": True, "game": view})
+
+@app.route('/')
+def home():
+    reset_legacy_download_counts_once()
+    items = load_items()
+    response = app.make_response(render_template_string(
+        HUB_TEMPLATE, items=items, categories=load_categories(),
+        admin_id=ADMIN_ID, secret=API_SECRET, posts=load_posts()
+    ))
+    response.headers["Content-Type"] = "text/html; charset=utf-8"
+    return response
+
+@app.before_request
+def _repair_text_once():
+    if not _text_repair_done:
+        repair_data_files()
+
+@app.after_request
+def _force_utf8(response):
+    ctype = response.headers.get("Content-Type", "")
+    if ctype.startswith("text/") and "charset" not in ctype.lower():
+        response.headers["Content-Type"] = ctype + "; charset=utf-8"
+    return response
 
 try:
-    API_ID = int(os.getenv("API_ID", "0") or "0")
-except ValueError: API_ID = 0
-API_HASH = os.getenv("API_HASH", "").strip()
-BOT_API_LIMIT_BYTES = 49 * 1024 * 1024
-MTPROTO = {"client": None, "loop": None, "ready": threading.Event(), "no_parse": None}
-
-def mtproto_limit_mb():
-    max_mb = get_mtproto_max_mb()
-    min_free = get_min_free_disk_mb()
-    spare = (shutil.disk_usage(".").free // (1024*1024)) - min_free
-    if not MTPROTO["ready"].is_set(): return 49
-    return int(max(50, min(max_mb, spare // max(1, active_downloads))))
-
-def probe_video(path):
-    import subprocess
-    info = {"duration": 0, "width": 0, "height": 0, "thumb": None}
-    try:
-        text = subprocess.run([ffmpeg_path, "-hide_banner", "-i", path], capture_output=True, text=True, timeout=60).stderr or ""
-        m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", text)
-        if m: info["duration"] = int(int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)))
-        m = re.search(r"Video:.*?,\s*(\d{2,5})x(\d{2,5})[\s,\[]", text)
-        if m: info["width"], info["height"] = int(m.group(1)), int(m.group(2))
-        thumb = path + ".jpg"
-        subprocess.run([ffmpeg_path, "-y", "-ss", "1", "-i", path, "-vframes", "1", "-vf", "scale=320:-2", thumb], capture_output=True, timeout=60)
-        if os.path.exists(thumb) and os.path.getsize(thumb) > 0: info["thumb"] = thumb
-    except Exception as e: logger.error(f"probe_video: {e}")
-    return info
-
-async def mtproto_upload(kind, chat_id, path, caption, **extra):
-    if not MTPROTO["ready"].is_set(): raise RuntimeError("MTPROTO_OFF")
-    client, loop = MTPROTO["client"], MTPROTO["loop"]
-    kwargs = dict(chat_id=chat_id, caption=caption, **extra)
-    if MTPROTO["no_parse"] is not None: kwargs["parse_mode"] = MTPROTO["no_parse"]
-    async def _send():
-        if kind == "audio": return await client.send_audio(audio=path, **kwargs)
-        return await client.send_video(video=path, supports_streaming=True, **kwargs)
-    fut = asyncio.run_coroutine_threadsafe(_send(), loop)
-    try: return await asyncio.wait_for(asyncio.wrap_future(fut), timeout=1800)
-    except Exception as e:
-        if "PEER_ID_INVALID" in str(e).upper() or "PEER ID INVALID" in str(e).upper(): raise RuntimeError("MTPROTO_PEER")
-        raise
-
-async def _tell_uploading(status_msg, path):
-    if status_msg is None: return
-    try: await status_msg.edit_text(f"📤 Uploading {os.path.getsize(path)/(1024*1024):.0f}MB in fast mode...")
-    except Exception: pass
-
-async def send_video_file(bot, chat_id, target_id, path, caption, parse_mode, status_msg=None):
-    if os.path.getsize(path) <= BOT_API_LIMIT_BYTES:
-        with open(path, 'rb') as f: return await bot.send_video(chat_id=target_id, video=f, caption=caption, parse_mode=parse_mode)
-    await _tell_uploading(status_msg, path)
-    info = await asyncio.to_thread(probe_video, path)
-    try:
-        extra = {k: v for k, v in (("duration", info["duration"]), ("width", info["width"]), ("height", info["height"]), ("thumb", info["thumb"])) if v}
-        msg = await mtproto_upload("video", chat_id, path, caption.replace("`", ""), **extra)
-    finally:
-        if info.get("thumb") and os.path.exists(info["thumb"]): os.remove(info["thumb"])
-    media = msg.video or msg.document
-    file_id, message_id = media.file_id, msg.id
-    if target_id != chat_id:
-        copied = await bot.copy_message(chat_id=target_id, from_chat_id=chat_id, message_id=message_id)
-        try: await bot.delete_message(chat_id=chat_id, message_id=message_id)
-        except Exception: pass
-        message_id = copied.message_id
-    return types.SimpleNamespace(message_id=message_id, video=types.SimpleNamespace(file_id=file_id))
-
-async def send_audio_file(bot, chat_id, path, caption, parse_mode, status_msg=None):
-    if os.path.getsize(path) <= BOT_API_LIMIT_BYTES:
-        with open(path, 'rb') as f: return await bot.send_audio(chat_id=chat_id, audio=f, caption=caption, parse_mode=parse_mode)
-    await _tell_uploading(status_msg, path)
-    msg = await mtproto_upload("audio", chat_id, path, caption.replace("`", ""))
-    media = msg.audio or msg.document
-    return types.SimpleNamespace(message_id=msg.id, audio=types.SimpleNamespace(file_id=media.file_id))
-
-def run_mtproto_worker():
-    if not API_ID or not API_HASH:
-        print("MTProto worker skipped: API_ID or API_HASH missing.")
-        return
-    try: from pyrogram import Client as PyroClient
-    except ImportError:
-        print("MTProto worker skipped: add pyrogram and tgcrypto.")
-        return
-    try:
-        from pyrogram import enums as pyro_enums
-        MTPROTO["no_parse"] = pyro_enums.ParseMode.DISABLED
-    except Exception: MTPROTO["no_parse"] = None
-    import inspect
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        client = PyroClient("mtproto_web_worker", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN, in_memory=True)
-        print("Starting MTProto Worker Thread...")
-        started = client.start()
-        if inspect.isawaitable(started): loop.run_until_complete(started)
-        MTPROTO["client"], MTPROTO["loop"] = client, loop
-        MTPROTO["ready"].set()
-        print("MTProto worker is running.")
-        loop.run_forever()
-    except Exception as e:
-        MTPROTO["ready"].clear()
-        logger.error(f"MTProto worker stopped: {e}")
-
-if not getattr(web_app, '_bot_started', False):
-    web_app._bot_started = True
-    print("Starting bot thread...")
-    threading.Thread(target=run_telegram_bot, daemon=True).start()
-
-if not getattr(web_app, '_mtproto_started', False):
-    web_app._mtproto_started = True
-    if API_ID and API_HASH: threading.Thread(target=run_mtproto_worker, daemon=True).start()
-    else: print("MTProto worker not started.")
+    repair_data_files()
+except Exception as _e:
+    print("Text repair at start failed: " + str(_e))
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    web_app.run(host="0.0.0.0", port=port)
+    app.run(debug=True)
