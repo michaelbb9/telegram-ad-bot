@@ -19,13 +19,6 @@ from flask import Flask, request, jsonify
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, InputMediaVideo, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
-# Auto-install gallery-dl if missing
-try:
-    import gallery_dl
-except ImportError:
-    os.system("pip install gallery-dl")
-    import gallery_dl
-
 ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 try:
     os.chmod(ffmpeg_path, 0o755)
@@ -1716,7 +1709,7 @@ def get_mtproto_max_mb():
     return config.get("mtproto_max_mb", MTPROTO_MAX_MB)
 
 def download_media_engine(url: str, download_type: str, max_mb=None):
-    # FIX #1: Strip query params (fixes Instagram ?img_index bug)
+    # FIX #1: Strip query params to avoid Instagram's ?img_index bug
     url = url.split('?')[0]
     
     cap_mb = int(max_mb or get_mtproto_max_mb())
@@ -1749,41 +1742,28 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
         raise ValueError("FILE_NOT_FOUND")
 
     elif download_type == 'images':
-        # Your suggested tools: gallery-dl, fxtwitter, reddit.json
         urls_to_download = []
         
-        # 1. Try gallery-dl (Instagram, Facebook, X, etc.)
-        try:
-            logger.info(f"Trying gallery-dl for {url}")
-            res = subprocess.run(["gallery-dl", "--get-urls", url], capture_output=True, text=True, timeout=60)
-            if res.returncode == 0 and res.stdout.strip():
-                urls_to_download = [u for u in res.stdout.splitlines() if u.startswith('http')]
-        except Exception as e:
-            logger.error(f"gallery-dl failed: {e}")
-
-        # 2. Reddit .json fallback
-        if not urls_to_download and "reddit.com" in url:
+        # 1. Instagram (Fast Embed Scraper)
+        if "instagram.com" in url:
             try:
-                logger.info("Trying Reddit .json for gallery")
-                r = requests.get(url + ".json" if not url.endswith(".json") else url, headers=http_headers, timeout=15)
-                data = r.json()
-                if isinstance(data, list) and len(data) > 0:
-                    post = data[0]["data"]["children"][0]["data"]
-                    if "media_metadata" in post:
-                        for img_id, img_data in post["media_metadata"].items():
-                            if "s" in img_data and "u" in img_data["s"]:
-                                urls_to_download.append(img_data["s"]["u"])
-                    elif "url" in post and post["url"].endswith((".jpg", ".png", ".jpeg")):
-                        urls_to_download.append(post["url"])
+                embed_url = f"{url.rstrip('/')}/embed/captioned/"
+                r = requests.get(embed_url, headers=http_headers, timeout=10)
+                soup = BeautifulSoup(r.text, 'html.parser')
+                for img in soup.find_all("img", class_="EmbeddedMediaImage"):
+                    src = img.get("src")
+                    if src: urls_to_download.append(src)
+                if not urls_to_download:
+                    og = soup.find('meta', property='og:image')
+                    if og and og.get('content'): urls_to_download.append(og['content'])
             except Exception as e:
-                logger.error(f"Reddit json failed: {e}")
+                logger.error(f"Instagram embed failed: {e}")
 
-        # 3. X/Twitter fxtwitter fallback
-        if not urls_to_download and ("twitter.com" in url or "x.com" in url):
+        # 2. X / Twitter
+        elif "twitter.com" in url or "x.com" in url:
             try:
-                logger.info("Trying fxtwitter API")
                 clean_url = url.replace("twitter.com", "fxtwitter.com").replace("x.com", "fxtwitter.com")
-                r = requests.get(f"https://api.fxtwitter.com/{clean_url.split('://')[1]}", headers=http_headers, timeout=15)
+                r = requests.get(f"https://api.fxtwitter.com/{clean_url.split('://')[1]}", headers=http_headers, timeout=10)
                 data = r.json()
                 if "tweet" in data and "media" in data["tweet"] and "all" in data["tweet"]["media"]:
                     for media in data["tweet"]["media"]["all"]:
@@ -1792,37 +1772,74 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
             except Exception as e:
                 logger.error(f"fxtwitter failed: {e}")
 
-        # 4. Generic fallback (scrape HTML)
+        # 3. Reddit
+        elif "reddit.com" in url:
+            try:
+                r = requests.get(url + ".json" if not url.endswith(".json") else url, headers=http_headers, timeout=10)
+                data = r.json()
+                if isinstance(data, list) and len(data) > 0:
+                    post = data[0]["data"]["children"][0]["data"]
+                    if "media_metadata" in post:
+                        for img_id, img_data in post["media_metadata"].items():
+                            if "s" in img_data and "u" in img_data["s"]:
+                                urls_to_download.append(img_data["s"]["u"])
+                    elif "url" in post and post["url"].endswith((".jpg", ".png", ".jpeg", ".webp")):
+                        urls_to_download.append(post["url"])
+            except Exception as e:
+                logger.error(f"Reddit json failed: {e}")
+
+        # 4. Generic Fallback (yt-dlp with noplaylist)
         if not urls_to_download:
             try:
-                res = requests.get(url, headers=http_headers, timeout=15)
+                ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True, 'http_headers': http_headers, 'proxy': PROXY_URL}
+                if cookiefile: ydl_opts['cookiefile'] = cookiefile
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                    if info:
+                        if 'entries' in info:
+                            for entry in info['entries']:
+                                thumb = entry.get('thumbnail') or entry.get('url')
+                                if thumb: urls_to_download.append(thumb)
+                        else:
+                            thumb = info.get('thumbnail')
+                            if thumb: urls_to_download.append(thumb)
+            except Exception as e:
+                logger.error(f"yt-dlp image extraction failed: {e}")
+
+        # 5. HTML Scrape Fallback
+        if not urls_to_download:
+            try:
+                res = requests.get(url, headers=http_headers, timeout=10)
                 soup = BeautifulSoup(res.text, 'html.parser')
                 og = soup.find('meta', property='og:image')
-                if og and og.get('content'): urls_to_download.append(og['content'])
+                if og and og.get('content'): 
+                    urls_to_download.append(og['content'])
             except: pass
 
         if not urls_to_download:
             raise ValueError("NO_IMAGES")
 
+        # Download images
         paths = []
         for i, img_url in enumerate(urls_to_download):
             try:
-                data = requests.get(img_url, headers=http_headers, timeout=15).content
-                path = os.path.join(output_dir, f"img_{int(time.time())}_{i}.jpg")
-                with open(path, 'wb') as f: f.write(data)
-                if os.path.getsize(path) > 1000: paths.append(path)
+                data = requests.get(img_url, headers=http_headers, timeout=10).content
+                if len(data) > 5000: # Must be larger than 5KB (ignore tracking pixels)
+                    path = os.path.join(output_dir, f"img_{int(time.time())}_{i}.jpg")
+                    with open(path, 'wb') as f: f.write(data)
+                    paths.append(path)
             except: pass
             
         if paths:
             total_size = sum(os.path.getsize(p) for p in paths)
             return paths, "gallery", f"{total_size/(1024*1024):.1f}MB"
         raise ValueError("NO_IMAGES")
-        
+
     else:
-        # Video mode (With gallery-dl fallback for carousels)
+        # Video mode
         ydl_opts = {
             'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL,
-            'noplaylist': False  # Enable playlists for carousels
+            'noplaylist': False
         }
         if cookiefile: ydl_opts['cookiefile'] = cookiefile
 
