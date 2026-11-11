@@ -1708,20 +1708,18 @@ def get_mtproto_max_mb():
     return config.get("mtproto_max_mb", MTPROTO_MAX_MB)
 
 def download_media_engine(url: str, download_type: str, max_mb=None):
-    # FIX #1: URL SANITIZATION
-    # Strips Instagram ?img_index, Twitter tracking, and TikTok query params
-    url = re.sub(r'\?.*$', '', url)
+    # FIX #1: URL SANITIZATION - Strip ALL query params to avoid Instagram's ?img_index bug
+    url = url.split('?')[0]
     
     cap_mb = int(max_mb or get_mtproto_max_mb())
     cap_bytes = cap_mb * 1024 * 1024
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
-    http_headers = {'User-Agent': 'Mozilla/5.0'}
+    http_headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15'}
     cookiefile = None
     if "tiktok.com" in url.lower() and os.path.exists("tiktok_cookies.txt"): cookiefile = "tiktok_cookies.txt"
     elif os.path.exists("cookies.txt"): cookiefile = "cookies.txt"
     
-    # Check if URL is a known gallery/carousel link
     is_gallery = any(domain in url.lower() for domain in ["instagram.com", "twitter.com", "x.com", "tiktok.com", "facebook.com"])
     
     ydl_opts = {
@@ -1729,7 +1727,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
         'no_warnings': True, 
         'http_headers': http_headers, 
         'proxy': PROXY_URL,
-        'noplaylist': not is_gallery  # Allow playlists/galleries for these sites
+        'noplaylist': not is_gallery
     }
     if cookiefile: ydl_opts['cookiefile'] = cookiefile
     
@@ -1748,15 +1746,14 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
         raise ValueError("FILE_NOT_FOUND")
         
     elif download_type == 'images':
-        # FIX #2: NATIVE GALLERY EXTRACTION
-        if is_gallery:
+        # FIX #2: NATIVE GALLERY EXTRACTION (Only use yt-dlp for Tiktok/Twitter galleries, NOT Instagram)
+        if is_gallery and "instagram.com" not in url:
             try:
                 opts = dict(ydl_opts)
                 opts.update({'format': 'best', 'outtmpl': os.path.join(output_dir, f'img_%(id)s_%(autonumber)s.%(ext)s')})
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=True)
                     paths = []
-                    
                     if 'entries' in info:
                         for e in info['entries']:
                             p = ydl.prepare_filename(e)
@@ -1766,7 +1763,6 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                         p = ydl.prepare_filename(info)
                         if os.path.exists(p): paths.append(p)
                         elif os.path.exists(os.path.splitext(p)[0]+".mp4"): paths.append(os.path.splitext(p)[0]+".mp4")
-                        
                     valid_paths = [p for p in paths if os.path.getsize(p) > 1000]
                     if valid_paths:
                         total_size = sum(os.path.getsize(p) for p in valid_paths)
@@ -1774,42 +1770,38 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
             except Exception as e:
                 logger.error(f"Gallery image extraction failed: {e}")
                 
-        # FIX #5: DEEP HTML FALLBACK
+        # FIX #3: THE MASTER HTML FALLBACK (Instagram Embed + Deep JSON Scrape)
         try:
-            res = requests.get(url, headers=http_headers, timeout=15)
-            soup = BeautifulSoup(res.text, 'html.parser')
             img_urls = []
             
-            # Instagram / Facebook Internal JSON hunt
+            # Instagram Embed Endpoint (Much more reliable for carousels)
             if "instagram.com" in url:
-                match = re.search(r'<script type="text/javascript">window\._sharedData = (.*?);</script>', res.text)
-                if match:
-                    data = json.loads(match.group(1))
-                    try:
-                        edges = data['entry_data']['PostPage'][0]['graphql']['shortcode_media']['edge_sidecar_to_children']['edges']
-                        for edge in edges:
-                            node = edge['node']
-                            img_urls.append(node.get('display_url') or node.get('video_url'))
-                    except: pass
+                embed_url = f"{url.rstrip('/')}/embed/captioned/"
+                res = requests.get(embed_url, headers=http_headers, timeout=15)
+                soup = BeautifulSoup(res.text, 'html.parser')
+                
+                # Instagram embeds store images inside <img class="EmbeddedMediaImage">
+                for img in soup.find_all("img", class_="EmbeddedMediaImage"):
+                    src = img.get("src")
+                    if src: img_urls.append(src)
                     
-            # Twitter / X Internal JSON hunt
-            elif "twitter.com" in url or "x.com" in url:
-                match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', res.text)
-                if match:
-                    data = json.loads(match.group(1))
-                    try:
-                        instructions = data['props']['pageProps']['timeline']['instructions']
-                        for inst in instructions:
-                            if 'entries' in inst:
-                                for entry in inst['entries']:
-                                    for media in entry['content']['itemContent']['tweet_results']['result']['legacy'].get('extended_entities', {}).get('media', []):
-                                        img_urls.append(media.get('media_url_https') or media.get('video_info', {}).get('variants', [{}])[-1].get('url'))
-                    except: pass
+            else:
+                # Twitter, Facebook, Reddit Standard Scraper
+                res = requests.get(url, headers=http_headers, timeout=15)
+                soup = BeautifulSoup(res.text, 'html.parser')
+                
+                # Deep JSON hunt for modern platforms
+                scripts = soup.find_all("script")
+                for script in scripts:
+                    if script.string and ("window.__INITIAL_STATE__" in script.string or "__NEXT_DATA__" in script.string or "application/ld+json" in str(script)):
+                        # Broad regex to find any high-res jpg/webp URL in the JSON
+                        found = re.findall(r'https://[^"\s]+\.(?:jpg|jpeg|png|webp)', script.string)
+                        img_urls.extend(found)
 
-            # Default scraper fallback (og:image)
-            if not img_urls:
-                og = soup.find('meta', property='og:image')
-                if og and og.get('content'): img_urls.append(og['content'])
+                # Standard OG scrape fallback
+                if not img_urls:
+                    og = soup.find('meta', property='og:image')
+                    if og and og.get('content'): img_urls.append(og['content'])
             
             # Clean up URLs and deduplicate
             img_urls = list(dict.fromkeys([u for u in img_urls if u and u.startswith('http')]))
@@ -1827,7 +1819,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                 total_size = sum(os.path.getsize(p) for p in paths)
                 return paths, "gallery", f"{total_size/(1024*1024):.1f}MB"
         except Exception as e:
-            logger.error(f"Deep HTML scrape failed: {e}")
+            logger.error(f"Master HTML scrape failed: {e}")
             
         raise ValueError("NO_IMAGES")
         
