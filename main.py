@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import time
 import json
 import os
@@ -13,7 +14,7 @@ import types
 import imageio_ffmpeg
 import yt_dlp
 from bs4 import BeautifulSoup
-from flask import Flask
+from flask import Flask, request, jsonify
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
@@ -1370,9 +1371,26 @@ LANGUAGES = {
 }
 
 web_app = Flask(__name__)
+
 @web_app.route('/')
 def health_check():
     return "Bot alive! V25 Cloud Sync", 200
+
+@web_app.route('/api/receive-arcade-backup', methods=['POST'])
+def receive_arcade_backup():
+    data = request.get_json()
+    if data.get('secret') != API_SECRET:
+        return jsonify({"ok": False, "error": "Unauthorized"}), 403
+    
+    progress = data.get('progress')
+    if progress:
+        try:
+            with open("arcade_backup.json", "w") as f:
+                json.dump(progress, f)
+            return jsonify({"ok": True}), 200
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+    return jsonify({"ok": False, "error": "No data"}), 400
 
 def load_json_file(filename):
     if os.path.exists(filename):
@@ -1443,7 +1461,6 @@ async def restore_arcade_backup(bot):
     """Downloads the latest arcade_backup.json from the private channel to the server disk."""
     try:
         logger.info("Attempting to restore arcade_backup.json from Telegram channel...")
-        # Get updates to find the latest arcade_backup.json document
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
         r = requests.get(url, timeout=10)
         if r.status_code == 200:
@@ -3164,7 +3181,7 @@ def run_telegram_bot():
         asyncio.create_task(disk_cleaner_loop())
         asyncio.create_task(auto_backup_loop(app.bot))
         asyncio.create_task(queue_processor(app.bot))
-        asyncio.create_task(restore_arcade_backup(app.bot)) # <--- ADDED THIS LINE
+        asyncio.create_task(restore_arcade_backup(app.bot)) 
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
         print(f"Bot started! V25 Cloud Sync Vault={VIDEO_VAULT_ID} Backup={PRIVATE_CHANNEL_ID} Free {get_free_disk_mb()}MB")
         await asyncio.Event().wait()
