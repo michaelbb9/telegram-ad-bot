@@ -8,3 +8,4 @@ ytmusicapi
 pyrogram
 tgcrypto
 gallery-dl
+parthdl
