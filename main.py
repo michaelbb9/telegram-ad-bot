@@ -63,7 +63,6 @@ FILE_LINKS_FILE = "file_links.json"
 FILE_LINK_STATE_FILE = "file_link_states.json"
 FILE_LINK_STORAGE_ID = -1003906423952
 
-# ADDED arcade_backup.json HERE
 BACKUP_FILES = [
     CHANNELS_FILE, LANG_FILE, CONFIG_FILE, ACTIVITY_FILE, CACHE_FILE,
     UPLOADS_FILE, UPLOAD_LIMITS_FILE, DRIP_FILE, FLOOD_FILE, BANNED_FILE,
@@ -475,7 +474,7 @@ LANGUAGES = {
     "ar": {
         "welcome": "🚀 **مرحباً بك في MICHAELBBC VAULT - محمل الوسائط الشامل!**\n\n🔥 ماذا يمكنني أن أفعل:\n🎬 فيديوهات HD بدون علامة مائية!\n🎵 صوت MP3 192kbps!\n🖼️ سحب جميع الصور!\n📝 ترجمات تلقائية!\n📦 دفعات 100+ رابط!\n⚡ ذاكرة تخزين مؤقت 1 ثانية!\n💎 خزنة للأبد!\n📤 رفع الملفات!\n🔗 ملف-إلى-رابط: إنشاء روابط قابلة للمشاركة!\n\n👉 الصق رابطاً للبدء! 👇",
         "btn_video": "🎬 فيديو (MP4)", "btn_audio": "🎵 صوت (MP3)", "btn_image": "🖼️ صور", "btn_sub": "📝 ترجمات (SRT)",
-        "ask_format": "👇 **رائع! ما التنسيق الذي تريده؟ اختر أدناه!**",
+        "ask_format": "👇 **رائع! ما التنسيق الذي تريده? اختر أدناه!**",
         "fetching": "📥 **جاري جلب {}... انتظر قليلاً! ⏳✨**",
         "error_generic": "❌ عذراً! فشل! 😢 الرابط خاص/محظور. جرب رابطاً عاماً!",
         "error_50mb": "❌ كبير جداً! 😅 هذا الفيديو يتجاوز 300 ميجابايت. جرب فيديو أقصر!",
@@ -1669,7 +1668,7 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
         except: pass
 
 def resolve_short_url(url: str) -> str:
-    short_domains = ["://tiktok.com", "://tiktok.com", "youtu.be/", "t.co/", "instagr.am/", "fb.watch/", "redd.it/"]
+    short_domains = ["://tiktok.com", "://x.com", "://twitter.com", "youtu.be/", "t.co/", "instagr.am/", "fb.watch/", "redd.it/"]
     if any(d in url.lower() for d in short_domains):
         try:
             headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15'}
@@ -1699,6 +1698,7 @@ def fetch_url_metadata(url):
     return "Social Media Post", "Photo / Carousel"
 
 def extract_images_5_tier(url: str, cookiefile=None) -> list:
+    """5-Tier Fallback System for extracting images from social media"""
     url = resolve_short_url(url)
     image_urls = []
     headers = {
@@ -1710,7 +1710,7 @@ def extract_images_5_tier(url: str, cookiefile=None) -> list:
         cmd = ["gallery-dl", "--get-urls", "--no-part", url]
         if cookiefile and os.path.exists(cookiefile):
             cmd.extend(["--cookies", cookiefile])
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         if res.returncode == 0 and res.stdout.strip():
             for line in res.stdout.strip().splitlines():
                 line = line.strip()
@@ -1784,7 +1784,8 @@ def extract_images_5_tier(url: str, cookiefile=None) -> list:
     # --- TIER 4: TikWM API (TikTok Photo Mode) & Instagram Embed Fallback ---
     try:
         if "tiktok.com" in url.lower():
-            tikwm_url = f"https://tikwm.com{requests.utils.quote(url)}"
+            # FIXED: Correct TikTok API URL
+            tikwm_url = f"https://www.tikwm.com/api/?url={requests.utils.quote(url)}"
             r = requests.get(tikwm_url, headers=headers, timeout=12)
             if r.status_code == 200:
                 tdata = r.json().get("data", {})
@@ -1796,7 +1797,8 @@ def extract_images_5_tier(url: str, cookiefile=None) -> list:
             match = re.search(r'instagram\.com/(?:p|reel|tv)/([A-Za-z0-9_-]+)', url)
             if match:
                 shortcode = match.group(1)
-                embed_url = f"https://instagram.com/p/{shortcode}/embed/captioned/"
+                # FIXED: Correct Instagram embed URL
+                embed_url = f"https://www.instagram.com/p/{shortcode}/embed/"
                 r = requests.get(embed_url, headers=headers, timeout=12)
                 if r.status_code == 200:
                     embed_imgs = re.findall(r'https://scontent[^"\'\s\\]+?\.(?:jpg|jpeg|webp)[^"\'\s\\]*', r.text)
@@ -1849,7 +1851,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
     cap_bytes = cap_mb * 1024 * 1024
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
-    http_headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    http_headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'}
     
     cookiefile = None
     if "tiktok.com" in url.lower() and os.path.exists("tiktok_cookies.txt"):
@@ -3232,6 +3234,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         
         ckey = await get_canonical_key(url, chat_id, context.bot)
         cache = load_json_file(CACHE_FILE)
+        # FIXED: Check cache type matches download type
         if ckey in cache and cache[ckey].get("type") == dl_type: 
             await cached_download_and_send(context.bot, chat_id, user_id, url, dl_type, t)
             return
