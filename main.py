@@ -474,7 +474,7 @@ LANGUAGES = {
     "ar": {
         "welcome": "🚀 **مرحباً بك في MICHAELBBC VAULT - محمل الوسائط الشامل!**\n\n🔥 ماذا يمكنني أن أفعل:\n🎬 فيديوهات HD بدون علامة مائية!\n🎵 صوت MP3 192kbps!\n🖼️ سحب جميع الصور!\n📝 ترجمات تلقائية!\n📦 دفعات 100+ رابط!\n⚡ ذاكرة تخزين مؤقت 1 ثانية!\n💎 خزنة للأبد!\n📤 رفع الملفات!\n🔗 ملف-إلى-رابط: إنشاء روابط قابلة للمشاركة!\n\n👉 الصق رابطاً للبدء! 👇",
         "btn_video": "🎬 فيديو (MP4)", "btn_audio": "🎵 صوت (MP3)", "btn_image": "🖼️ صور", "btn_sub": "📝 ترجمات (SRT)",
-        "ask_format": "👇 **رائع! ما التنسيق الذي تريده? اختر أدناه!**",
+        "ask_format": "👇 **رائع! ما التنسيق الذي تريده؟ اختر أدناه!**",
         "fetching": "📥 **جاري جلب {}... انتظر قليلاً! ⏳✨**",
         "error_generic": "❌ عذراً! فشل! 😢 الرابط خاص/محظور. جرب رابطاً عاماً!",
         "error_50mb": "❌ كبير جداً! 😅 هذا الفيديو يتجاوز 300 ميجابايت. جرب فيديو أقصر!",
@@ -617,7 +617,7 @@ LANGUAGES = {
         "refill_btn": "🔓 Открыть ссылку и пополнить +1",
         "join_btn": "📢 Присоединиться к каналу", "check_btn": "💜 Проверить баланс",
         "limit_batch": "⚠️ **Лимит пакета достигнут на {} из {}**\nПосмотрите 20-сек рекламу → +1 загрузка для продолжения.",
-        "batch_start": "📦 **Пакет запущен:** {} **{} файлов**\n⏳ Обработка...",
+        "batch_start": "?? **Пакет запущен:** {} **{} файлов**\n⏳ Обработка...",
         "batch_done": "🏁 **Готово!** ✅ {} ❌ {}\n📥 {} файлов здесь.",
         "batch_done_chan": "🏁 **Готово!** ✅ {} ❌ {}\n📢 {} файлов переслано!",
         "dl_video": "📥 Загрузка видео...", "dl_audio": "📥 Извлечение аудио...", "dl_image": "📥 Скачивание изображений...", "dl_sub": "📥 Получение субтитров...",
@@ -1668,7 +1668,7 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
         except: pass
 
 def resolve_short_url(url: str) -> str:
-    short_domains = ["://tiktok.com", "://x.com", "://twitter.com", "youtu.be/", "t.co/", "instagr.am/", "fb.watch/", "redd.it/"]
+    short_domains = ["://tiktok.com", "://tiktok.com", "youtu.be/", "t.co/", "instagr.am/", "fb.watch/", "redd.it/"]
     if any(d in url.lower() for d in short_domains):
         try:
             headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15'}
@@ -1698,14 +1698,29 @@ def fetch_url_metadata(url):
     return "Social Media Post", "Photo / Carousel"
 
 def extract_images_5_tier(url: str, cookiefile=None) -> list:
-    """5-Tier Fallback System for extracting images from social media"""
+    # 1. CLEAN THE URL (Removes tracking junk that breaks scraping)
     url = resolve_short_url(url)
+    if "instagram.com" in url:
+        # Keep only the shortcode part: https://www.instagram.com/p/SHORTCODE/
+        match = re.search(r'instagram\.com/(?:p|reel|tv)/([A-Za-z0-9_-]+)', url)
+        if match: url = f"https://www.instagram.com/p/{match.group(1)}/"
+    elif "tiktok.com" in url:
+        # Remove query params for TikTok
+        url = url.split('?')[0]
+    elif "x.com" in url or "twitter.com" in url:
+        url = url.split('?')[0]
+    elif "facebook.com" in url:
+        # Facebook needs specific handling for share links
+        if "share" in url:
+            url = resolve_short_url(url)
+
     image_urls = []
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9'
     }
 
-    # --- TIER 1: gallery-dl (Best for Instagram, TikTok, X, Reddit, FB) ---
+    # --- TIER 1: gallery-dl (Best for IG, FB, X) ---
     try:
         cmd = ["gallery-dl", "--get-urls", "--no-part", url]
         if cookiefile and os.path.exists(cookiefile):
@@ -1723,31 +1738,39 @@ def extract_images_5_tier(url: str, cookiefile=None) -> list:
     except Exception as e:
         logger.warning(f"Tier 1 (gallery-dl) failed: {e}")
 
-    # --- TIER 2: Direct Platform JSON APIs (X/Twitter & Reddit) ---
+    # --- TIER 2: Direct Platform JSON APIs (X & Reddit) ---
     try:
         if "://x.com" in url.lower() or "://twitter.com" in url.lower():
-            clean_x = url.split('?')[0]
-            api_url = re.sub(r'https?://(www\.)?(twitter|x)\.com', 'https://fxtwitter.com', clean_x, flags=re.IGNORECASE)
+            api_url = re.sub(r'https?://(www\.)?(twitter|x)\.com', 'https://api.vxtwitter.com', url, flags=re.IGNORECASE)
+            # Fallback to fxtwitter if vxtwitter fails
             r = requests.get(api_url, headers=headers, timeout=12)
+            if r.status_code != 200:
+                api_url = re.sub(r'https?://(www\.)?(twitter|x)\.com', 'https://api.fxtwitter.com', url, flags=re.IGNORECASE)
+                r = requests.get(api_url, headers=headers, timeout=12)
+            
             if r.status_code == 200:
-                photos = r.json().get("tweet", {}).get("media", {}).get("photos", [])
-                for p in photos:
-                    if p.get("url") and p["url"] not in image_urls:
-                        image_urls.append(p["url"])
+                data = r.json()
+                photos = data.get("media_extended", data.get("tweet", {}).get("media", {}).get("photos", []))
+                # Handle VxTwitter format
+                if isinstance(photos, list):
+                    for p in photos:
+                        img_url = p.get("url") or p.get("media_url_https")
+                        if img_url and "video" not in p.get("type", ""):
+                            if img_url not in image_urls: image_urls.append(img_url)
+        
         elif "://reddit.com" in url.lower():
             clean_reddit = url.split('?')[0].rstrip('/') + ".json"
             r = requests.get(clean_reddit, headers={'User-Agent': 'Mozilla/5.0 (compatible; MediaVaultBot/2.0)'}, timeout=12)
             if r.status_code == 200:
-                rdata = r.json()
-                post_data = rdata[0]["data"]["children"][0]["data"]
+                post_data = r.json()[0]["data"]["children"][0]["data"]
                 if "media_metadata" in post_data:
                     for item in post_data["media_metadata"].values():
                         if item.get("status") == "valid" and "s" in item:
                             img = item["s"].get("u", "").replace("&amp;", "&")
-                            if img and img not in image_urls:
-                                image_urls.append(img)
+                            if img and img not in image_urls: image_urls.append(img)
                 elif post_data.get("url_overridden_by_dest", "").endswith((".jpg", ".jpeg", ".png", ".webp")):
                     image_urls.append(post_data["url_overridden_by_dest"])
+        
         if image_urls:
             logger.info(f"Tier 2 (JSON API) succeeded: {len(image_urls)} images")
             return image_urls[:10]
@@ -1764,54 +1787,65 @@ def extract_images_5_tier(url: str, cookiefile=None) -> list:
             if info:
                 entries = info.get('entries', [info])
                 for entry in entries:
-                    if not entry:
-                        continue
+                    if not entry: continue
                     ext = entry.get('ext', '').lower()
                     u = entry.get('url', '')
                     if ext in ('jpg', 'jpeg', 'png', 'webp') and u.startswith('http'):
-                        if u not in image_urls:
-                            image_urls.append(u)
+                        if u not in image_urls: image_urls.append(u)
                     elif entry.get('thumbnails') and len(entries) > 1:
                         best_thumb = entry['thumbnails'][-1].get('url')
-                        if best_thumb and best_thumb not in image_urls:
-                            image_urls.append(best_thumb)
+                        if best_thumb and best_thumb not in image_urls: image_urls.append(best_thumb)
         if image_urls:
             logger.info(f"Tier 3 (yt-dlp) succeeded: {len(image_urls)} images")
             return image_urls[:10]
     except Exception as e:
         logger.warning(f"Tier 3 (yt-dlp) failed: {e}")
 
-    # --- TIER 4: TikWM API (TikTok Photo Mode) & Instagram Embed Fallback ---
+    # --- TIER 4: NEW APIs (TikWM, Instagram embed, Facebook mbasic) ---
     try:
         if "tiktok.com" in url.lower():
-            # FIXED: Correct TikTok API URL
-            tikwm_url = f"https://www.tikwm.com/api/?url={requests.utils.quote(url)}"
-            r = requests.get(tikwm_url, headers=headers, timeout=12)
+            # New TikWM API endpoint
+            tikwm_url = f"https://www.tikwm.com/api/?url={requests.utils.quote(url)}&hd=1"
+            r = requests.get(tikwm_url, headers=headers, timeout=15)
             if r.status_code == 200:
                 tdata = r.json().get("data", {})
                 if "images" in tdata and isinstance(tdata["images"], list):
                     for img in tdata["images"]:
-                        if img and img not in image_urls:
-                            image_urls.append(img)
+                        if img and img not in image_urls: image_urls.append(img)
+                elif tdata.get("play"): 
+                    # If it's a video, just get the cover image as fallback
+                    pass
+        
         elif "instagram.com" in url.lower():
             match = re.search(r'instagram\.com/(?:p|reel|tv)/([A-Za-z0-9_-]+)', url)
             if match:
                 shortcode = match.group(1)
-                # FIXED: Correct Instagram embed URL
-                embed_url = f"https://www.instagram.com/p/{shortcode}/embed/"
+                # Alternative Embed API
+                embed_url = f"https://www.instagram.com/p/{shortcode}/embed/captioned/"
                 r = requests.get(embed_url, headers=headers, timeout=12)
                 if r.status_code == 200:
                     embed_imgs = re.findall(r'https://scontent[^"\'\s\\]+?\.(?:jpg|jpeg|webp)[^"\'\s\\]*', r.text)
                     for img in embed_imgs:
                         clean_img = img.replace('&amp;', '&').replace('\\u0026', '&').replace('\\/', '/')
                         if not any(bad in clean_img for bad in ["150x150", "s150x150", "240x240", "s240x240", "profile_pic"]):
-                            if clean_img not in image_urls:
-                                image_urls.append(clean_img)
+                            if clean_img not in image_urls: image_urls.append(clean_img)
+        
+        elif "facebook.com" in url.lower():
+            # Try mbasic Facebook for images
+            mb_url = url.replace("www.", "mbasic.").replace("web.", "mbasic.")
+            r = requests.get(mb_url, headers=headers, timeout=12)
+            if r.status_code == 200:
+                soup = BeautifulSoup(r.text, 'html.parser')
+                for img in soup.find_all('img'):
+                    src = img.get('src')
+                    if src and "scontent" in src and not any(bad in src for bad in ["emoji", "icon", "profile"]):
+                        if src not in image_urls: image_urls.append(src)
+
         if image_urls:
-            logger.info(f"Tier 4 (TikWM/IG Embed) succeeded: {len(image_urls)} images")
+            logger.info(f"Tier 4 (Alternative APIs) succeeded: {len(image_urls)} images")
             return image_urls[:10]
     except Exception as e:
-        logger.warning(f"Tier 4 (TikWM/IG Embed) failed: {e}")
+        logger.warning(f"Tier 4 (Alternative APIs) failed: {e}")
 
     # --- TIER 5: Deep HTML CDN Script Regex & og:image Fallback ---
     try:
@@ -1821,8 +1855,8 @@ def extract_images_5_tier(url: str, cookiefile=None) -> list:
         for match in cdn_matches:
             clean_match = match.replace('\\u0026', '&').replace('\\/', '/').replace('&amp;', '&')
             if not any(bad in clean_match for bad in ["150x150", "s150x150", "240x240", "profile_pic"]):
-                if clean_match not in image_urls:
-                    image_urls.append(clean_match)
+                if clean_match not in image_urls: image_urls.append(clean_match)
+        
         if image_urls:
             logger.info(f"Tier 5 (HTML Regex) succeeded: {len(image_urls)} images")
             return image_urls[:10]
@@ -1851,7 +1885,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
     cap_bytes = cap_mb * 1024 * 1024
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
-    http_headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'}
+    http_headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
     
     cookiefile = None
     if "tiktok.com" in url.lower() and os.path.exists("tiktok_cookies.txt"):
@@ -3234,7 +3268,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         
         ckey = await get_canonical_key(url, chat_id, context.bot)
         cache = load_json_file(CACHE_FILE)
-        # FIXED: Check cache type matches download type
         if ckey in cache and cache[ckey].get("type") == dl_type: 
             await cached_download_and_send(context.bot, chat_id, user_id, url, dl_type, t)
             return
