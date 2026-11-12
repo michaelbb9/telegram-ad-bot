@@ -15,8 +15,14 @@ import imageio_ffmpeg
 import yt_dlp
 from bs4 import BeautifulSoup
 from flask import Flask, request, jsonify
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, InputMediaVideo, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
+
+# ===== Carousel patch imports (STEP 1) =====
+import sys
+import subprocess
+from contextlib import ExitStack
+# ===========================================
 
 ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 try:
@@ -1700,6 +1706,203 @@ def get_mtproto_max_mb():
     config = load_json_file(CONFIG_FILE)
     return config.get("mtproto_max_mb", MTPROTO_MAX_MB)
 
+# ======================= BEGIN PASTE =================================
+PHOTO_EXT = {".jpg", ".jpeg", ".png", ".webp"}
+VIDEO_EXT = {".mp4", ".mov", ".m4v", ".webm", ".mkv"}
+MAX_CAROUSEL_ITEMS = 20
+
+# Only these sites are treated as carousel sources, so a YouTube playlist
+# can never turn into 100 downloads.
+CAROUSEL_DOMAINS = (
+    "instagram.com", "instagr.am", "tiktok.com", "twitter.com", "x.com",
+    "facebook.com", "fb.watch", "threads.net", "threads.com", "pinterest.",
+    "pin.it", "reddit.com", "tumblr.com", "bsky.app", "weibo.",
+    "xiaohongshu.com", "xhslink.com",
+)
+
+
+def _collect_media(folder):
+    files = []
+    for name in os.listdir(folder):
+        p = os.path.join(folder, name)
+        if os.path.splitext(name)[1].lower() in (PHOTO_EXT | VIDEO_EXT) and os.path.getsize(p) > 1000:
+            files.append(p)
+    return files
+
+
+def download_carousel(url, output_dir, cap_bytes, http_headers=None):
+    """Return [paths] (post order) for a multi-item post, else [].
+    Never uses cookies. Single posts return [] so the old logic runs."""
+    low = url.lower()
+    if not any(d in low for d in CAROUSEL_DOMAINS):
+        return []
+
+    folder = os.path.join(output_dir, f"car_{uuid.uuid4().hex[:10]}")
+    os.makedirs(folder, exist_ok=True)
+    files, ytdlp_failed = [], False
+    try:
+        # ---- 1) yt-dlp: does the post have several entries? ----
+        try:
+            base = {"quiet": True, "no_warnings": True, "noplaylist": False,
+                    "playlistend": MAX_CAROUSEL_ITEMS, "ignoreerrors": True}
+            if http_headers: base["http_headers"] = http_headers
+            with yt_dlp.YoutubeDL(dict(base, skip_download=True)) as ydl:
+                info = ydl.extract_info(url, download=False)
+            entries = [e for e in (info or {}).get("entries") or [] if e]
+            if len(entries) >= 2:
+                opts = dict(base)
+                opts.update({
+                    "outtmpl": os.path.join(folder, "%(autonumber)03d_%(id)s.%(ext)s"),
+                    "format": "bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b",
+                    "merge_output_format": "mp4",
+                    "max_filesize": cap_bytes,
+                })
+                try:
+                    import imageio_ffmpeg
+                    opts["ffmpeg_location"] = imageio_ffmpeg.get_ffmpeg_exe()
+                except Exception:
+                    pass
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    ydl.extract_info(url, download=True)
+            elif info is None:
+                ytdlp_failed = True
+        except Exception as e:
+            logger.warning(f"carousel yt-dlp: {e}")
+            ytdlp_failed = True
+
+        files = sorted(_collect_media(folder))
+
+        # ---- 2) gallery-dl fallback (photo posts / slideshows), no login ----
+        if len(files) < 2 and (ytdlp_failed or not files):
+            try:
+                subprocess.run(
+                    [sys.executable, "-m", "gallery_dl", "-D", folder, "--no-mtime",
+                     "--range", f"1-{MAX_CAROUSEL_ITEMS}", url],
+                    capture_output=True, text=True, timeout=180)
+                files = _collect_media(folder)
+                files.sort(key=os.path.getmtime)  # download order = post order
+            except Exception as e:
+                logger.warning(f"carousel gallery-dl: {e}")
+
+        files = [p for p in files if os.path.getsize(p) <= cap_bytes][:MAX_CAROUSEL_ITEMS]
+        if len(files) >= 2:
+            return files
+    except Exception as e:
+        logger.error(f"download_carousel: {e}")
+    shutil.rmtree(folder, ignore_errors=True)
+    return []
+
+
+# ---------------------------- sending ---------------------------------
+def _media(kind, src, **kw):
+    if kind == "video":
+        return InputMediaVideo(media=src, supports_streaming=True, **kw)
+    return InputMediaPhoto(media=src, **kw)
+
+
+def _item_from_msg(m):
+    mid = m.message_id
+    if getattr(m, "photo", None): return {"kind": "photo", "file_id": m.photo[-1].file_id, "message_id": mid}
+    if getattr(m, "video", None): return {"kind": "video", "file_id": m.video.file_id, "message_id": mid}
+    if getattr(m, "document", None): return {"kind": "document", "file_id": m.document.file_id, "message_id": mid}
+    return None
+
+
+async def _send_items(bot, chat_id, items, caption=None):
+    """items: [{'kind': photo|video|document, 'src': file handle OR file_id}].
+    Albums of 10. Returns [{'kind','file_id','message_id'}]."""
+    out = []
+    albumable = [i for i in items if i["kind"] in ("photo", "video")]
+    docs = [i for i in items if i["kind"] == "document"]
+    first = True
+    for s in range(0, len(albumable), 10):
+        chunk = albumable[s:s + 10]
+        cap = {"caption": caption, "parse_mode": "Markdown"} if (first and caption) else {}
+        if len(chunk) == 1:
+            it = chunk[0]
+            if it["kind"] == "video":
+                msgs = [await bot.send_video(chat_id=chat_id, video=it["src"], supports_streaming=True, **cap)]
+            else:
+                msgs = [await bot.send_photo(chat_id=chat_id, photo=it["src"], **cap)]
+        else:
+            media = [_media(it["kind"], it["src"], **(cap if j == 0 else {})) for j, it in enumerate(chunk)]
+            msgs = list(await bot.send_media_group(chat_id=chat_id, media=media))
+        out += [x for x in (_item_from_msg(m) for m in msgs) if x]
+        first = False
+        await asyncio.sleep(1)
+    for it in docs:
+        m = await bot.send_document(chat_id=chat_id, document=it["src"])
+        x = _item_from_msg(m)
+        if x: out.append(x)
+    return out
+
+
+async def send_carousel(bot, chat_id, file_paths, ckey, status_msg=None, send_video_file_fn=None):
+    """Send downloaded files. Returns list of {'kind','file_id','message_id'}."""
+    caption = f"📸 {len(file_paths)} items `{ckey}`"
+    results, big_videos = [], []
+    with ExitStack() as stack:
+        items = []
+        for p in file_paths:
+            ext, size = os.path.splitext(p)[1].lower(), os.path.getsize(p)
+            if ext in VIDEO_EXT and size <= BOT_API_LIMIT_BYTES:
+                items.append({"kind": "video", "src": stack.enter_context(open(p, "rb"))})
+            elif ext in VIDEO_EXT:
+                big_videos.append(p)
+            elif ext in PHOTO_EXT and size <= 10 * 1024 * 1024:
+                items.append({"kind": "photo", "src": stack.enter_context(open(p, "rb"))})
+            else:  # odd format or >10MB image -> as a file
+                items.append({"kind": "document", "src": stack.enter_context(open(p, "rb"))})
+        results += await _send_items(bot, chat_id, items, caption)
+    for p in big_videos:
+        if not send_video_file_fn:
+            continue
+        try:
+            m = await send_video_file_fn(bot, chat_id, chat_id, p, f"🎬 `{ckey}`", "Markdown", status_msg)
+            results.append({"kind": "video", "file_id": m.video.file_id, "message_id": m.message_id})
+        except Exception as e:
+            logger.error(f"carousel big video fail: {e}")
+    return results
+
+
+# ---------------------------- caching ---------------------------------
+async def save_carousel_cache(bot, ckey, results, size):
+    """Back up to the vault channel and store file_ids in the download cache."""
+    vault_ids = []
+    try:
+        vault_items = [{"kind": r["kind"], "src": r["file_id"]} for r in results]
+        sent = await _send_items(bot, VIDEO_VAULT_ID, vault_items, caption=None)
+        vault_ids = [s["message_id"] for s in sent]
+    except Exception as e:
+        logger.error(f"carousel vault save: {e}")
+    cache = load_json_file(CACHE_FILE)
+    cache[ckey] = {
+        "type": "carousel", "timestamp": time.time(), "hits": 0, "size": size,
+        "items": [{"kind": r["kind"], "file_id": r["file_id"]} for r in results],
+        "vault_msg_ids": vault_ids,
+    }
+    save_json_file(CACHE_FILE, cache)
+
+
+async def send_cached_carousel(bot, chat_id, entry, ckey):
+    """Instant resend from cache. Returns list of sent message ids.
+    Falls back to copying from the vault channel if file_ids stop working."""
+    caption = f"⚡ 📸 {len(entry['items'])} items `{ckey}`"
+    try:
+        items = [{"kind": i["kind"], "src": i["file_id"]} for i in entry["items"]]
+        sent = await _send_items(bot, chat_id, items, caption)
+        return [s["message_id"] for s in sent]
+    except Exception as e:
+        logger.error(f"cached carousel file_id send failed {ckey}: {e}")
+    ids = []
+    for vid in entry.get("vault_msg_ids", []):
+        m = await bot.copy_message(chat_id=chat_id, from_chat_id=VIDEO_VAULT_ID, message_id=vid)
+        ids.append(m.message_id)
+    if not ids:
+        raise RuntimeError("CAROUSEL_CACHE_EMPTY")
+    return ids
+# ======================== END PASTE ==================================
+
 def download_media_engine(url: str, download_type: str, max_mb=None):
     cap_mb = int(max_mb or get_mtproto_max_mb())
     cap_bytes = cap_mb * 1024 * 1024
@@ -1711,6 +1914,14 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
     elif os.path.exists("cookies.txt"): cookiefile = "cookies.txt"
     ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL}
     if cookiefile: ydl_opts['cookiefile'] = cookiefile
+
+    # ===== EDIT A: carousel branch (no cookies passed here) =====
+    if download_type in ('video', 'images'):
+        car = download_carousel(url, output_dir, cap_bytes, http_headers)
+        if car:
+            total = sum(os.path.getsize(p) for p in car)
+            return car, "carousel", f"{total/(1024*1024):.1f}MB"
+    # ============================================================
     
     if download_type == 'audio':
         ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
@@ -2033,6 +2244,20 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                 cache[ckey]["qualities"] = {"720p": {"file_id": cache[ckey]["file_id"], "vault_msg_id": cache[ckey].get("vault_msg_id"), "size": cache[ckey].get("size", "unknown")}}
                 del cache[ckey]["file_id"]
                 save_json_file(CACHE_FILE, cache)
+
+            # ===== EDIT D1: batch carousel cache hit =====
+            if ckey in cache and cache[ckey].get("type") == "carousel":
+                try:
+                    ids = await send_cached_carousel(bot, target_destination_id, cache[ckey], ckey)
+                    if target_destination_id == chat_id:
+                        asyncio.create_task(schedule_deletion(bot, chat_id, ids, 540))
+                    cache[ckey]["hits"] = cache[ckey].get("hits", 0) + 1
+                    save_json_file(CACHE_FILE, cache)
+                    await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+                    success_count += 1
+                    continue
+                except Exception as e: logger.error(f"Batch carousel cache fail {ckey}: {e}")
+            # =============================================
             
             if ckey in cache and cache[ckey].get("type") == "video":
                 qualities_order = ["1080p", "720p", "480p", "360p", "worst"]
@@ -2063,6 +2288,23 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             if free_mb < min_free + 150: effective_max_mb = min(effective_max_mb, 50)
                 
             file_paths, res, size = await asyncio.to_thread(download_media_engine, url, download_type, effective_max_mb)
+
+            # ===== EDIT D2: batch fresh carousel =====
+            if file_paths and res == "carousel":
+                try:
+                    results = await send_carousel(bot, target_destination_id, file_paths, ckey, status_msg, send_video_file)
+                    if results:
+                        await save_carousel_cache(bot, ckey, results, size)
+                        if target_destination_id == chat_id:
+                            asyncio.create_task(schedule_deletion(bot, chat_id, [r["message_id"] for r in results], 540))
+                finally:
+                    shutil.rmtree(os.path.dirname(file_paths[0]), ignore_errors=True)
+                await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+                success_count += 1
+                await asyncio.sleep(3)
+                continue
+            # =========================================
+
             if file_paths and os.path.exists(file_paths[0]):
                 qual_tag = f"[{res}]"
                 sent = await send_video_file(bot, chat_id, target_destination_id, file_paths[0], f"Item {index}/{len(urls)} {qual_tag} Size {size}", None, status_msg)
@@ -2565,7 +2807,22 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
         cache[ckey]["qualities"] = {"720p": {"file_id": cache[ckey]["file_id"], "vault_msg_id": cache[ckey].get("vault_msg_id"), "size": cache[ckey].get("size", "unknown")}}
         del cache[ckey]["file_id"]
         save_json_file(CACHE_FILE, cache)
-    
+
+    # ===== EDIT B: carousel cache hit (instant) =====
+    if ckey in cache and cache[ckey].get("type") == "carousel" and dl_type in ("video", "images"):
+        try:
+            kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
+            ids = await send_cached_carousel(bot, chat_id, cache[ckey], ckey)
+            warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
+            asyncio.create_task(schedule_deletion(bot, chat_id, ids + [warn.message_id], 540))
+            cache[ckey]["hits"] = cache[ckey].get("hits", 0) + 1
+            save_json_file(CACHE_FILE, cache)
+            deduct_download_counter(user_id, is_batch=False)
+            return True
+        except Exception as e:
+            logger.error(f"Carousel cache hit failed {ckey}: {e}")  # falls through to re-download
+    # =================================================
+
     if ckey in cache and cache[ckey].get("type") in ("video", "images", "audio"):
         cached_qualities = cache[ckey].get("qualities", {})
         if dl_type == 'video': qualities_order = ["1080p", "720p", "480p", "360p", "worst"]
@@ -2633,6 +2890,23 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
             
         qual_tag = f"[{res}]"
         kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
+
+        # ===== EDIT C: fresh carousel download =====
+        if res == "carousel":
+            try:
+                results = await send_carousel(bot, chat_id, file_paths, ckey, status_msg, send_video_file)
+                if not results: raise ValueError("FILE_NOT_FOUND")
+                await save_carousel_cache(bot, ckey, results, size)
+                warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
+                asyncio.create_task(schedule_deletion(bot, chat_id, [r["message_id"] for r in results] + [warn.message_id], 540))
+            finally:
+                shutil.rmtree(os.path.dirname(file_paths[0]), ignore_errors=True)
+            await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+            deduct_download_counter(user_id, is_batch=False)
+            await bot.send_message(chat_id=chat_id, text=t["download_success"], reply_markup=kb)
+            return True
+        # =============================================
+
         if dl_type == 'images':
             media_group = [InputMediaPhoto(media=open(p, 'rb')) for p in file_paths]
             sent_media = await bot.send_media_group(chat_id=chat_id, media=media_group)
