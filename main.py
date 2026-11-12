@@ -2203,7 +2203,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.error(f"Forward failed: {e1}")
         try: await context.bot.copy_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
         except Exception as e2: logger.error(f"Copy failed: {e2}")
-    await update.message.reply_text("👇 **CONTENT LOCKED 🔒**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await update.message.reply_text("👇 **CONTENT LOCKED 🔒**" + ADSTERRA_USER_GUIDE, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0):
     if not urls: return
@@ -2640,7 +2640,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 except: pass
                 bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
                 keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")]]
-                await update.message.reply_text(t["limit_reached"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+                await update.message.reply_text(t["limit_reached"] + ADSTERRA_USER_GUIDE, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 return
     if active_batch_sessions.get(user_id, False): return
     if update.message.forward_origin and getattr(update.message.forward_origin, 'type', None) == 'channel':
@@ -3082,7 +3082,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     else:
                         bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
                         reward_kb = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get +1", callback_data="verify_user")]]
-                        await query.message.reply_text(t["limit_reached"], reply_markup=InlineKeyboardMarkup(reward_kb), parse_mode="Markdown")
+                        await query.message.reply_text(t["limit_reached"] + ADSTERRA_USER_GUIDE, reply_markup=InlineKeyboardMarkup(reward_kb), parse_mode="Markdown")
                     return
                 profile["downloads_left"] = remaining - 1
                 tokens[str(user_id)] = profile; save_tokens(tokens)
@@ -3297,7 +3297,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         tokens = load_tokens()
         tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
         save_tokens(tokens)
-        await query.message.reply_text(t["monetag_fallback_prompt"], reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔓 Open Adsterra Link", url=bridge_link)], [InlineKeyboardButton("✅ Check & Get +1", callback_data="verify_user")]]))
+        await query.message.reply_text(t["monetag_fallback_prompt"] + ADSTERRA_USER_GUIDE, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔓 Open Adsterra Link", url=bridge_link)], [InlineKeyboardButton("✅ Check & Get +1", callback_data="verify_user")]]), parse_mode="Markdown")
         await query.answer(t["adsterra_ready"], show_alert=True)
         return
     if data in ("monetag_check", "adsgram_check"):
@@ -3430,6 +3430,16 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             asyncio.create_task(schedule_deletion(context.bot, user_id, fwd_ids, 540))
         except Exception as e: await query.message.reply_text(f"❌ {e}", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
 
+ADSTERRA_USER_GUIDE = (
+    "\n\n⚠️ **Adsterra not opening or visit not detected?**\n"
+    "1. Temporarily disable Private DNS, ad blockers, and ad-filtering apps.\n"
+    "2. Turn off VPN or proxy.\n"
+    "3. Tap **Open Link** and choose **Open in browser** (not inside Telegram).\n"
+    "4. Let the page load and keep it open for at least **20 seconds**.\n"
+    "5. Return here and tap **Check & Get +1**.\n\n"
+    "Detection depends on Adsterra and your browser/network; these steps do not guarantee a reward."
+)
+
 TEST_AD_TEXT = "🧪 AD PLACEMENT TEST\n\n1️⃣ User sends link\n2️⃣ User gets 4 FREE downloads\n3️⃣ LIMIT REACHED screen appears\n4️⃣ Tap Watch Ad\n5️⃣ Tap Check & Get +1\n\n👇 TRY THE AD NOW:"
 
 async def send_adsgram_test(message, user_id):
@@ -3438,7 +3448,7 @@ async def send_adsgram_test(message, user_id):
     if not kb: await message.reply_text("⚠️ Ad server not reachable.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)); return
     await message.reply_text(TEST_AD_TEXT, reply_markup=kb)
 
-ADSTERRA_TEST_TEXT = "🧪 AD PLACEMENT TEST (Adsterra)\n\n1️⃣ User sends link\n2️⃣ LIMIT REACHED screen appears\n3️⃣ Stay 20s on ad page\n4️⃣ Tap Check & Get +1\n\n👇 TRY THE AD NOW:"
+ADSTERRA_TEST_TEXT = "🧪 AD PLACEMENT TEST (Adsterra)\n\n1️⃣ User sends link\n2️⃣ LIMIT REACHED screen appears\n3️⃣ Stay 20s on ad page\n4️⃣ Tap Check & Get +1\n\n👇 TRY THE AD NOW:" + ADSTERRA_USER_GUIDE
 
 async def send_adsterra_test(message, user_id):
     tokens = load_tokens()
