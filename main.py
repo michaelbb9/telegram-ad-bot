@@ -40,6 +40,15 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
+# ===== Deno on PATH (for yt-dlp YouTube support) =====
+_DENO_BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".deno", "bin")
+if os.path.isdir(_DENO_BIN):
+    os.environ["PATH"] = _DENO_BIN + os.pathsep + os.environ.get("PATH", "")
+    logger.info(f"Deno path added: {_DENO_BIN}, found={shutil.which('deno')}")
+else:
+    logger.warning("Deno folder .deno/bin not found: YouTube may fail")
+# ======================================================
+
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
 ADMIN_ID = 6248570946
 DETECTED_CHANNEL_ID = -1004347828512
@@ -3219,7 +3228,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
     except Exception as e:
         logger.error(f"DL {ckey}: {e}")
         if user_id == ADMIN_ID:
-            try: await bot.send_message(chat_id=chat_id, text=f"🧪 DL error: {type(e).__name__}: {str(e)[:700]}")
+            try: await bot.send_message(chat_id=chat_id, text=f"🧪 DL error: {type(e).__name__}: {str(e)[:600]}\nJS runtimes: deno={shutil.which('deno')} node={shutil.which('node')}")
             except Exception: pass
         if "FILE_TOO_LARGE" in str(e): err = t["error_50mb"]
         elif "MTPROTO_OFF" in str(e): err = "⚠️ Big files need fast mode, which is offline right now."
