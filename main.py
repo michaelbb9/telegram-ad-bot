@@ -2159,6 +2159,12 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                 opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, f'%(id)s_{qual_name}.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=True)
+                    try:
+                        vf = [f for f in (info.get('formats') or []) if f.get('vcodec') not in (None, 'none') and f.get('height')]
+                        sizes = sorted({f.get('height') for f in vf})
+                        LAST_CAROUSEL_TRACE.append(f"{info.get('extractor')}: offered heights {sizes}, chosen {info.get('width')}x{info.get('height')} fmt={info.get('format_id')} tier={qual_name}")
+                    except Exception:
+                        pass
                     path = ydl.prepare_filename(info)
                     if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0]+".mp4"): path = os.path.splitext(path)[0]+".mp4"
                     if os.path.exists(path):
