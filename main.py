@@ -1874,6 +1874,11 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None):
                 info = ydl.extract_info(url, download=False)
             entries = [e for e in (info or {}).get("entries") or [] if e]
             _trace(f"yt-dlp: info={'none' if info is None else 'ok'}, entries={len(entries)}")
+            vf = [f for f in (info or {}).get("formats") or [] if f.get("vcodec") not in (None, "none")]
+            if info and not entries and vf:
+                _trace("yt-dlp: single video, not a carousel")
+                shutil.rmtree(folder, ignore_errors=True)
+                return []
             if len(entries) >= 2:
                 opts = dict(base)
                 opts.update({
@@ -2157,6 +2162,9 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
             try:
                 opts = dict(ydl_opts)
                 opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, f'%(id)s_{qual_name}.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
+                if qual_name != "worst":
+                    # sort by the SHORT side so vertical videos (e.g. 720x1280) are not rejected
+                    opts.update({'format': 'bv*+ba/b', 'format_sort': [f"res:{qual_name[:-1]}"]})
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=True)
                     try:
@@ -2172,7 +2180,8 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                             os.remove(path)
                             too_big = True
                             continue
-                        actual_height = info.get('height', 0)
+                        w, h = info.get('width') or 0, info.get('height') or 0
+                        actual_height = min(w, h) if (w and h) else max(w, h)
                         if actual_height >= 1080: best_quality = "1080p"
                         elif actual_height >= 720: best_quality = "720p"
                         elif actual_height >= 480: best_quality = "480p"
