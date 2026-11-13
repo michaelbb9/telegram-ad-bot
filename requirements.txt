@@ -9,3 +9,4 @@ pyrogram
 tgcrypto
 gallery-dl
 parth-dl
+instaloader
