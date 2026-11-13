@@ -1419,6 +1419,14 @@ def save_json_file(filename, data):
     except Exception as e:
         logger.error(f"Save {filename}: {e}")
 
+YT_ID_RE = re.compile(
+    r'(?:youtu\.be/|youtube\.com/(?:watch\?(?:[^#\s]*&)?v=|shorts/|live/|embed/)|music\.youtube\.com/watch\?(?:[^#\s]*&)?v=)'
+    r'([A-Za-z0-9_-]{11})')
+
+def youtube_id_from_url(url):
+    m = YT_ID_RE.search(url)
+    return m.group(1) if m else None
+
 async def get_canonical_key(url: str, chat_id=None, bot=None):
     original_url = url
     async def send_debug(text):
@@ -1427,6 +1435,10 @@ async def get_canonical_key(url: str, chat_id=None, bot=None):
             except: pass
 
     await send_debug(f"🔍 <b>Processing Link:</b>\n<code>{url}</code>")
+    yt_id = youtube_id_from_url(url)
+    if yt_id:
+        return f"youtube_{yt_id}"     # same key format yt-dlp produced, so old cache entries still match
+
     short_link_domains = ["vt.tiktok.com", "vm.tiktok.com", "youtu.be/", "t.co/", "instagr.am/", "fb.watch/"]
     is_short_link = any(domain in url.lower() for domain in short_link_domains)
 
@@ -1436,7 +1448,7 @@ async def get_canonical_key(url: str, chat_id=None, bot=None):
             headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15'}
             response = requests.get(url, headers=headers, allow_redirects=True, timeout=15)
             resolved_url = response.url
-            if resolved_url != original_url:
+            if resolved_url != original_url and "google.com/sorry" not in resolved_url:
                 url = resolved_url
                 await send_debug(f"✅ Resolved to:\n<code>{url}</code>")
         except Exception as e:
@@ -2128,6 +2140,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
             ("worst", "worst")
         ]
         too_big = False
+        yt_blocked = False
         last_err = None
         best_quality = "unknown"
         
@@ -2154,7 +2167,11 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                     last_err = RuntimeError("yt-dlp produced no output file")
             except Exception as e:
                 last_err = e
-                if "Unsupported URL" in str(e) or "403" in str(e):
+                msg = str(e)
+                if "not a bot" in msg or "Sign in to confirm" in msg or "HTTP Error 429" in msg:
+                    yt_blocked = True
+                    break
+                if "Unsupported URL" in msg or "403" in msg:
                     break
                 continue
 
@@ -2169,11 +2186,13 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                 shutil.rmtree(os.path.dirname(insta_files[0]), ignore_errors=True)
 
         # Last-resort independent engine. It is only called after yt-dlp tiers fail.
-        if not too_big:
+        if not too_big and not yt_blocked:
             lux_path = download_with_lux(url, output_dir, cap_bytes, cookiefile)
             if lux_path:
                 return [lux_path], "lux", f"{os.path.getsize(lux_path)/(1024*1024):.1f}MB"
 
+        if yt_blocked:
+            raise ValueError("SITE_BLOCKED")
         if too_big or last_err is None:
             raise ValueError("FILE_TOO_LARGE")
         raise last_err
@@ -3128,7 +3147,8 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
         if free_mb < min_free + 150: effective_max_mb = min(effective_max_mb, 50)
             
         LAST_CAROUSEL_TRACE.clear()
-        file_paths, res, size = await asyncio.to_thread(download_media_engine, url, dl_type, effective_max_mb)
+        file_paths, res, size = await asyncio.wait_for(
+            asyncio.to_thread(download_media_engine, url, dl_type, effective_max_mb), timeout=420)
         if user_id == ADMIN_ID and LAST_CAROUSEL_TRACE:
             try:
                 await bot.send_message(chat_id=chat_id, text="🧪 Carousel trace:\n" + "\n".join(LAST_CAROUSEL_TRACE)[:3500])
@@ -3198,9 +3218,14 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
         return True
     except Exception as e:
         logger.error(f"DL {ckey}: {e}")
+        if user_id == ADMIN_ID:
+            try: await bot.send_message(chat_id=chat_id, text=f"🧪 DL error: {type(e).__name__}: {str(e)[:700]}")
+            except Exception: pass
         if "FILE_TOO_LARGE" in str(e): err = t["error_50mb"]
         elif "MTPROTO_OFF" in str(e): err = "⚠️ Big files need fast mode, which is offline right now."
         elif "MTPROTO_PEER" in str(e): err = "⚠️ Send /start to this bot once, then send the link again."
+        elif "SITE_BLOCKED" in str(e): err = "⚠️ This site is blocking downloads from our server right now. Please try again later."
+        elif isinstance(e, (asyncio.TimeoutError, TimeoutError)): err = "⚠️ This is taking too long, so I stopped. Please try again later."
         else: err = t["error_generic"]
         kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
         try: await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=err, reply_markup=kb)
