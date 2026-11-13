@@ -25,6 +25,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 # ===== Carousel patch imports (STEP 1) =====
 import sys
 import subprocess
+import concurrent.futures
 from contextlib import ExitStack
 # ===========================================
 
@@ -1421,7 +1422,7 @@ def save_json_file(filename, data):
 async def get_canonical_key(url: str, chat_id=None, bot=None):
     original_url = url
     async def send_debug(text):
-        if chat_id and bot:
+        if chat_id and bot and chat_id == ADMIN_ID:
             try: await bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
             except: pass
 
@@ -1735,59 +1736,87 @@ def _collect_media(folder):
 
 
 
+LAST_CAROUSEL_TRACE = []   # filled by download_carousel, read by the admin message
+
+
+def _trace(msg):
+    LAST_CAROUSEL_TRACE.append(msg)
+    logger.warning(f"[carousel] {msg}")
+
+
+def _instaloader_worker(shortcode, folder, cap_bytes):
+    kwargs = dict(
+        dirname_pattern="{target}", filename_pattern="{shortcode}_{mediaid}",
+        download_comments=False, download_geotags=False,
+        download_video_thumbnails=False, save_metadata=False,
+        compress_json=False, post_metadata_txt_pattern="", quiet=True,
+        sleep=False, max_connection_attempts=1, request_timeout=20,
+    )
+    try:
+        loader = instaloader.Instaloader(fatal_status_codes=[429], **kwargs)
+    except TypeError:                       # older Instaloader version
+        loader = instaloader.Instaloader(**kwargs)
+    post = instaloader.Post.from_shortcode(loader.context, shortcode)
+    _trace(f"instaloader: post found, typename={post.typename}, items={post.mediacount}")
+    loader.download_post(post, target=folder)
+    files = sorted(_collect_media(folder))
+    return [p for p in files if os.path.getsize(p) <= cap_bytes][:MAX_CAROUSEL_ITEMS]
+
+
 def download_instagram_post(url, output_dir, cap_bytes, min_items=2):
-    """Try Instaloader for one public Instagram post/reel, including sidecar items.
-    Returns media paths only when at least one usable media file was downloaded."""
-    if instaloader is None or "instagram.com" not in url.lower() and "instagr.am" not in url.lower():
+    """Instaloader fallback with a hard 40s limit. Returns [] on any failure."""
+    low = url.lower()
+    if instaloader is None:
+        _trace("instaloader: not installed")
+        return []
+    if "instagram.com" not in low and "instagr.am" not in low:
         return []
     match = re.search(r"/(?:p|reel|tv)/([A-Za-z0-9_-]+)", url)
     if not match:
+        _trace("instaloader: no shortcode in link")
         return []
     folder = os.path.join(output_dir, f"insta_{uuid.uuid4().hex[:10]}")
     os.makedirs(folder, exist_ok=True)
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     try:
-        loader = instaloader.Instaloader(
-            dirname_pattern="{target}",
-            filename_pattern="{shortcode}_{mediaid}",
-            download_comments=False,
-            download_geotags=False,
-            download_video_thumbnails=False,
-            save_metadata=False,
-            compress_json=False,
-            post_metadata_txt_pattern="",
-            quiet=True,
-        )
-        post = instaloader.Post.from_shortcode(loader.context, match.group(1))
-        loader.download_post(post, target=folder)
-        files = sorted(_collect_media(folder))
-        files = [p for p in files if os.path.getsize(p) <= cap_bytes][:MAX_CAROUSEL_ITEMS]
+        fut = ex.submit(_instaloader_worker, match.group(1), folder, cap_bytes)
+        files = fut.result(timeout=40)
+        _trace(f"instaloader: downloaded {len(files)} file(s)")
         if len(files) >= min_items:
             return files
+    except concurrent.futures.TimeoutError:
+        _trace("instaloader: TIMEOUT after 40s (Instagram throttling/blocking)")
     except Exception as exc:
-        logger.warning(f"Instaloader fallback failed: {type(exc).__name__}: {str(exc)[:180]}")
+        _trace(f"instaloader: FAILED {type(exc).__name__}: {str(exc)[:200]}")
+    finally:
+        ex.shutdown(wait=False)
     shutil.rmtree(folder, ignore_errors=True)
     return []
 
 
 def download_carousel(url, output_dir, cap_bytes, http_headers=None):
     """Return [paths] (post order) for a multi-item post, else [].
-    Never uses cookies. Single posts return [] so the old logic runs."""
+    No cookies. Every step writes one line to LAST_CAROUSEL_TRACE."""
+    LAST_CAROUSEL_TRACE.clear()
     low = url.lower()
     if not any(d in low for d in CAROUSEL_DOMAINS):
         return []
+    _trace("start")
 
     folder = os.path.join(output_dir, f"car_{uuid.uuid4().hex[:10]}")
     os.makedirs(folder, exist_ok=True)
     files, ytdlp_failed = [], False
     try:
-        # ---- 1) yt-dlp: does the post have several entries? ----
+        # ---- 1) yt-dlp ----
         try:
             base = {"quiet": True, "no_warnings": True, "noplaylist": False,
-                    "playlistend": MAX_CAROUSEL_ITEMS, "ignoreerrors": True}
+                    "playlistend": MAX_CAROUSEL_ITEMS, "ignoreerrors": True,
+                    "socket_timeout": 15}
             if http_headers: base["http_headers"] = http_headers
             with yt_dlp.YoutubeDL(dict(base, skip_download=True)) as ydl:
                 info = ydl.extract_info(url, download=False)
             entries = [e for e in (info or {}).get("entries") or [] if e]
+            _trace(f"yt-dlp: info={'none' if info is None else 'ok'}, entries={len(entries)}")
             if len(entries) >= 2:
                 opts = dict(base)
                 opts.update({
@@ -1806,34 +1835,44 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None):
             elif info is None:
                 ytdlp_failed = True
         except Exception as e:
-            logger.warning(f"carousel yt-dlp: {e}")
+            _trace(f"yt-dlp: FAILED {type(e).__name__}: {str(e)[:150]}")
             ytdlp_failed = True
 
         files = sorted(_collect_media(folder))
+        _trace(f"after yt-dlp: {len(files)} file(s)")
 
-        # ---- 2) gallery-dl fallback (photo posts / slideshows), no login ----
+        # ---- 2) gallery-dl (45s limit, 1 retry) ----
         if len(files) < 2 and (ytdlp_failed or not files):
             try:
-                subprocess.run(
+                r = subprocess.run(
                     [sys.executable, "-m", "gallery_dl", "-D", folder, "--no-mtime",
+                     "-R", "1", "--http-timeout", "15",
                      "--range", f"1-{MAX_CAROUSEL_ITEMS}", url],
-                    capture_output=True, text=True, timeout=180)
+                    capture_output=True, text=True, timeout=45)
                 files = _collect_media(folder)
-                files.sort(key=os.path.getmtime)  # download order = post order
+                files.sort(key=os.path.getmtime)
+                err = (r.stderr or r.stdout or "").strip().replace("\n", " ")[-160:]
+                _trace(f"gallery-dl: exit={r.returncode}, files={len(files)}, msg={err}")
+            except subprocess.TimeoutExpired:
+                _trace("gallery-dl: TIMEOUT after 45s")
+                files = _collect_media(folder)
             except Exception as e:
-                logger.warning(f"carousel gallery-dl: {e}")
+                _trace(f"gallery-dl: FAILED {type(e).__name__}: {str(e)[:150]}")
 
-        # ---- 3) Instaloader fallback for Instagram posts/reels ----
+        # ---- 3) Instaloader (Instagram only) ----
         if len(files) < 2 and ("instagram.com" in low or "instagr.am" in low):
             insta_files = download_instagram_post(url, output_dir, cap_bytes)
             if len(insta_files) >= 2:
+                _trace("RESULT: carousel OK via instaloader")
                 return insta_files
 
         files = [p for p in files if os.path.getsize(p) <= cap_bytes][:MAX_CAROUSEL_ITEMS]
         if len(files) >= 2:
+            _trace(f"RESULT: carousel OK, {len(files)} items")
             return files
+        _trace("RESULT: no carousel obtained -> old single-image code will run")
     except Exception as e:
-        logger.error(f"download_carousel: {e}")
+        _trace(f"download_carousel crashed: {type(e).__name__}: {e}")
     shutil.rmtree(folder, ignore_errors=True)
     return []
 
@@ -3052,7 +3091,13 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
         effective_max_mb = get_mtproto_max_mb()
         if free_mb < min_free + 150: effective_max_mb = min(effective_max_mb, 50)
             
+        LAST_CAROUSEL_TRACE.clear()
         file_paths, res, size = await asyncio.to_thread(download_media_engine, url, dl_type, effective_max_mb)
+        if user_id == ADMIN_ID and LAST_CAROUSEL_TRACE:
+            try:
+                await bot.send_message(chat_id=chat_id, text="🧪 Carousel trace:\n" + "\n".join(LAST_CAROUSEL_TRACE)[:3500])
+            except Exception:
+                pass
         if not file_paths: raise ValueError("FILE_NOT_FOUND")
         
         cache = load_json_file(CACHE_FILE)
