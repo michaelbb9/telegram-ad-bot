@@ -13,6 +13,10 @@ import uuid
 import types
 import imageio_ffmpeg
 import yt_dlp
+try:
+    import instaloader
+except ImportError:
+    instaloader = None
 from bs4 import BeautifulSoup
 from flask import Flask, request, jsonify
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, InputMediaVideo, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
@@ -1730,6 +1734,41 @@ def _collect_media(folder):
     return files
 
 
+
+def download_instagram_post(url, output_dir, cap_bytes, min_items=2):
+    """Try Instaloader for one public Instagram post/reel, including sidecar items.
+    Returns media paths only when at least one usable media file was downloaded."""
+    if instaloader is None or "instagram.com" not in url.lower() and "instagr.am" not in url.lower():
+        return []
+    match = re.search(r"/(?:p|reel|tv)/([A-Za-z0-9_-]+)", url)
+    if not match:
+        return []
+    folder = os.path.join(output_dir, f"insta_{uuid.uuid4().hex[:10]}")
+    os.makedirs(folder, exist_ok=True)
+    try:
+        loader = instaloader.Instaloader(
+            dirname_pattern="{target}",
+            filename_pattern="{shortcode}_{mediaid}",
+            download_comments=False,
+            download_geotags=False,
+            download_video_thumbnails=False,
+            save_metadata=False,
+            compress_json=False,
+            post_metadata_txt_pattern="",
+            quiet=True,
+        )
+        post = instaloader.Post.from_shortcode(loader.context, match.group(1))
+        loader.download_post(post, target=folder)
+        files = sorted(_collect_media(folder))
+        files = [p for p in files if os.path.getsize(p) <= cap_bytes][:MAX_CAROUSEL_ITEMS]
+        if len(files) >= min_items:
+            return files
+    except Exception as exc:
+        logger.warning(f"Instaloader fallback failed: {type(exc).__name__}: {str(exc)[:180]}")
+    shutil.rmtree(folder, ignore_errors=True)
+    return []
+
+
 def download_carousel(url, output_dir, cap_bytes, http_headers=None):
     """Return [paths] (post order) for a multi-item post, else [].
     Never uses cookies. Single posts return [] so the old logic runs."""
@@ -1783,6 +1822,12 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None):
                 files.sort(key=os.path.getmtime)  # download order = post order
             except Exception as e:
                 logger.warning(f"carousel gallery-dl: {e}")
+
+        # ---- 3) Instaloader fallback for Instagram posts/reels ----
+        if len(files) < 2 and ("instagram.com" in low or "instagr.am" in low):
+            insta_files = download_instagram_post(url, output_dir, cap_bytes)
+            if len(insta_files) >= 2:
+                return insta_files
 
         files = [p for p in files if os.path.getsize(p) <= cap_bytes][:MAX_CAROUSEL_ITEMS]
         if len(files) >= 2:
@@ -1903,6 +1948,62 @@ async def send_cached_carousel(bot, chat_id, entry, ckey):
     return ids
 # ======================== END PASTE ==================================
 
+
+def download_with_lux(url, output_dir, cap_bytes, cookiefile=None):
+    """Run the optional Lux binary as a last-resort video downloader."""
+    lux_bin = os.getenv(
+        "LUX_BIN",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), ".bin", "lux")
+    )
+    if not os.path.isfile(lux_bin) or not os.access(lux_bin, os.X_OK):
+        lux_bin = shutil.which("lux")
+    if not lux_bin:
+        logger.info("Lux fallback skipped: binary is not installed.")
+        return None
+
+    folder = os.path.join(output_dir, f"lux_{uuid.uuid4().hex[:10]}")
+    os.makedirs(folder, exist_ok=True)
+    output_name = f"media_{uuid.uuid4().hex[:8]}"
+    command = [lux_bin, "-retry", "2", "-n", "4", "-o", folder, "-O", output_name]
+    if cookiefile and os.path.isfile(cookiefile):
+        command.extend(["-c", cookiefile])
+    command.append(url)
+
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=240)
+        candidates = []
+        for root, _, names in os.walk(folder):
+            for name in names:
+                path = os.path.join(root, name)
+                if os.path.isfile(path) and os.path.getsize(path) > 1000:
+                    candidates.append(path)
+        candidates.sort(key=os.path.getmtime)
+        candidates = [
+            path for path in candidates
+            if os.path.splitext(path)[1].lower() in VIDEO_EXT
+            and os.path.getsize(path) <= cap_bytes
+        ]
+        if result.returncode == 0 and candidates:
+            chosen = candidates[-1]
+            # Keep only the chosen result; remove Lux side files.
+            for path in candidates:
+                if path != chosen:
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
+            return chosen
+        detail = (result.stderr or result.stdout or "").strip().splitlines()
+        logger.warning("Lux fallback did not produce a usable video: %s",
+                       detail[-1][:200] if detail else f"exit={result.returncode}")
+    except subprocess.TimeoutExpired:
+        logger.warning("Lux fallback timed out.")
+    except Exception as exc:
+        logger.warning(f"Lux fallback failed: {type(exc).__name__}: {str(exc)[:180]}")
+    shutil.rmtree(folder, ignore_errors=True)
+    return None
+
+
 def download_media_engine(url: str, download_type: str, max_mb=None):
     cap_mb = int(max_mb or get_mtproto_max_mb())
     cap_bytes = cap_mb * 1024 * 1024
@@ -1975,12 +2076,31 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
                         elif actual_height >= 360: best_quality = "360p"
                         else: best_quality = "worst"
                         return [path], best_quality, f"{os.path.getsize(path)/(1024*1024):.1f}MB"
-                    too_big = True
+                    last_err = RuntimeError("yt-dlp produced no output file")
             except Exception as e:
-                if "Unsupported URL" in str(e) or "403" in str(e): raise e
                 last_err = e
+                if "Unsupported URL" in str(e) or "403" in str(e):
+                    break
                 continue
-        if too_big or last_err is None: raise ValueError("FILE_TOO_LARGE")
+
+        # Instagram-specific fallback for a single Reel/video after yt-dlp fails.
+        if not too_big and ("instagram.com" in url.lower() or "instagr.am" in url.lower()):
+            insta_files = download_instagram_post(url, output_dir, cap_bytes, min_items=1)
+            insta_videos = [p for p in insta_files if os.path.splitext(p)[1].lower() in VIDEO_EXT]
+            if insta_videos:
+                chosen = insta_videos[0]
+                return [chosen], "original", f"{os.path.getsize(chosen)/(1024*1024):.1f}MB"
+            if insta_files:
+                shutil.rmtree(os.path.dirname(insta_files[0]), ignore_errors=True)
+
+        # Last-resort independent engine. It is only called after yt-dlp tiers fail.
+        if not too_big:
+            lux_path = download_with_lux(url, output_dir, cap_bytes, cookiefile)
+            if lux_path:
+                return [lux_path], "lux", f"{os.path.getsize(lux_path)/(1024*1024):.1f}MB"
+
+        if too_big or last_err is None:
+            raise ValueError("FILE_TOO_LARGE")
         raise last_err
 
 def get_main_keyboard(lang_code, is_admin):
