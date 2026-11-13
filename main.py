@@ -1744,23 +1744,59 @@ def _trace(msg):
     logger.warning(f"[carousel] {msg}")
 
 
+def _fetch_media_url(url, dest_base, cap_bytes, default_ext):
+    """Download one slide to dest_base + extension. Returns the file path."""
+    ext = os.path.splitext(url.split("?")[0])[1].lower()
+    if ext not in (PHOTO_EXT | VIDEO_EXT):
+        ext = default_ext
+    path = dest_base + ext
+    with requests.get(url, headers={"User-Agent": "Mozilla/5.0"},
+                      stream=True, timeout=25) as r:
+        r.raise_for_status()
+        size = 0
+        with open(path, "wb") as f:
+            for chunk in r.iter_content(65536):
+                size += len(chunk)
+                if size > cap_bytes:
+                    f.close()
+                    os.remove(path)
+                    raise ValueError("file over size cap")
+                f.write(chunk)
+    return path
+
+
 def _instaloader_worker(shortcode, folder, cap_bytes):
-    kwargs = dict(
-        dirname_pattern="{target}", filename_pattern="{shortcode}_{mediaid}",
-        download_comments=False, download_geotags=False,
-        download_video_thumbnails=False, save_metadata=False,
-        compress_json=False, post_metadata_txt_pattern="", quiet=True,
-        sleep=False, max_connection_attempts=1, request_timeout=20,
-    )
+    kwargs = dict(quiet=True, sleep=False, max_connection_attempts=1,
+                  request_timeout=20, download_comments=False,
+                  download_geotags=False, save_metadata=False)
     try:
         loader = instaloader.Instaloader(fatal_status_codes=[429], **kwargs)
     except TypeError:                       # older Instaloader version
         loader = instaloader.Instaloader(**kwargs)
     post = instaloader.Post.from_shortcode(loader.context, shortcode)
     _trace(f"instaloader: post found, typename={post.typename}, items={post.mediacount}")
-    loader.download_post(post, target=folder)
-    files = sorted(_collect_media(folder))
-    return [p for p in files if os.path.getsize(p) <= cap_bytes][:MAX_CAROUSEL_ITEMS]
+
+    items = []   # (url, default_extension) in post order
+    if post.typename == "GraphSidecar":
+        for node in post.get_sidecar_nodes():
+            if node.is_video and node.video_url:
+                items.append((node.video_url, ".mp4"))
+            else:
+                items.append((node.display_url, ".jpg"))
+    else:
+        if post.is_video and post.video_url:
+            items.append((post.video_url, ".mp4"))
+        else:
+            items.append((post.url, ".jpg"))
+    _trace(f"instaloader: {len(items)} slide URL(s) read")
+
+    files = []
+    for i, (u, ext) in enumerate(items[:MAX_CAROUSEL_ITEMS], start=1):
+        try:
+            files.append(_fetch_media_url(u, os.path.join(folder, f"{i:03d}"), cap_bytes, ext))
+        except Exception as e:
+            _trace(f"instaloader: slide {i} failed: {type(e).__name__}: {str(e)[:120]}")
+    return files
 
 
 def download_instagram_post(url, output_dir, cap_bytes, min_items=2):
