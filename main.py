@@ -1851,18 +1851,100 @@ def download_instagram_post(url, output_dir, cap_bytes, min_items=2):
     return []
 
 
+YT_POST_RE = re.compile(r'youtube\.com/post/([A-Za-z0-9_-]+)')
+
+
+def _find_first(node, key):
+    if isinstance(node, dict):
+        if key in node:
+            return node[key]
+        for v in node.values():
+            r = _find_first(v, key)
+            if r is not None:
+                return r
+    elif isinstance(node, list):
+        for v in node:
+            r = _find_first(v, key)
+            if r is not None:
+                return r
+    return None
+
+
+def _collect_post_images(node, out):
+    """Collect the largest URL of every image in a YouTube community post, in order."""
+    if isinstance(node, dict):
+        if "backstageImageRenderer" in node:
+            thumbs = ((node["backstageImageRenderer"].get("image") or {}).get("thumbnails")) or []
+            if thumbs and thumbs[-1].get("url"):
+                out.append(thumbs[-1]["url"])
+            return
+        for v in node.values():
+            _collect_post_images(v, out)
+    elif isinstance(node, list):
+        for v in node:
+            _collect_post_images(v, out)
+
+
+def download_youtube_post(url, output_dir, cap_bytes):
+    """Download the images of a YouTube community post. No cookies. Returns [] on failure."""
+    m = YT_POST_RE.search(url)
+    if not m:
+        return []
+    post_url = f"https://www.youtube.com/post/{m.group(1)}"
+    folder = os.path.join(output_dir, f"ytpost_{uuid.uuid4().hex[:10]}")
+    os.makedirs(folder, exist_ok=True)
+    try:
+        r = requests.get(post_url, timeout=20, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+            "Accept-Language": "en-US,en;q=0.9"}, cookies={"CONSENT": "YES+1"})
+        _trace(f"yt-post: HTTP {r.status_code}, final={r.url[:60]}")
+        if "google.com/sorry" in r.url or "consent.youtube.com" in r.url:
+            _trace("yt-post: blocked by Google (sorry/consent page)")
+            return []
+        mm = re.search(r"ytInitialData\s*=\s*(\{.*?\});\s*</script>", r.text, re.DOTALL)
+        if not mm:
+            _trace("yt-post: ytInitialData not found in page")
+            return []
+        data = json.loads(mm.group(1))
+        post = _find_first(data, "backstagePostRenderer") or data   # stay inside the main post
+        urls = []
+        _collect_post_images(post, urls)
+        urls = list(dict.fromkeys(urls))[:MAX_CAROUSEL_ITEMS]        # drop duplicates, keep order
+        _trace(f"yt-post: {len(urls)} image URL(s) found")
+        files = []
+        for i, u in enumerate(urls, start=1):
+            big = re.sub(r"=s\d+", "=s2048", u, count=1)              # ask for a large version
+            try:
+                files.append(_fetch_media_url(big, os.path.join(folder, f"{i:03d}"), cap_bytes, ".jpg"))
+            except Exception:
+                try:
+                    files.append(_fetch_media_url(u, os.path.join(folder, f"{i:03d}"), cap_bytes, ".jpg"))
+                except Exception as e:
+                    _trace(f"yt-post: image {i} failed: {type(e).__name__}")
+        if files:
+            _trace(f"RESULT: youtube post OK, {len(files)} image(s)")
+            return files
+    except Exception as e:
+        _trace(f"yt-post: FAILED {type(e).__name__}: {str(e)[:150]}")
+    shutil.rmtree(folder, ignore_errors=True)
+    return []
+
+
 def download_carousel(url, output_dir, cap_bytes, http_headers=None):
-    """Return [paths] (post order) for a multi-item post, else [].
+    """Return [paths] (post order) for a multi-item OR single-photo post, else [].
     No cookies. Every step writes one line to LAST_CAROUSEL_TRACE."""
     LAST_CAROUSEL_TRACE.clear()
     low = url.lower()
+    if "youtube.com/post/" in low:
+        _trace("start (youtube post)")
+        return download_youtube_post(url, output_dir, cap_bytes)
     if not any(d in low for d in CAROUSEL_DOMAINS):
         return []
     _trace("start")
 
     folder = os.path.join(output_dir, f"car_{uuid.uuid4().hex[:10]}")
     os.makedirs(folder, exist_ok=True)
-    files, ytdlp_failed = [], False
+    files, ytdlp_failed, gallery_ran = [], False, False
     try:
         # ---- 1) yt-dlp ----
         try:
@@ -1903,9 +1985,10 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None):
         files = sorted(_collect_media(folder))
         _trace(f"after yt-dlp: {len(files)} file(s)")
 
-        # ---- 2) gallery-dl (45s limit, 1 retry) ----
+        # ---- 2) gallery-dl (45s limit, 1 retry): photo posts and slideshows ----
         if len(files) < 2 and (ytdlp_failed or not files):
             try:
+                gallery_ran = True
                 r = subprocess.run(
                     [sys.executable, "-m", "gallery_dl", "-D", folder, "--no-mtime",
                      "-R", "1", "--http-timeout", "15",
@@ -1921,16 +2004,18 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None):
             except Exception as e:
                 _trace(f"gallery-dl: FAILED {type(e).__name__}: {str(e)[:150]}")
 
-        # ---- 3) Instaloader (Instagram only) ----
-        if len(files) < 2 and ("instagram.com" in low or "instagr.am" in low):
-            insta_files = download_instagram_post(url, output_dir, cap_bytes)
-            if len(insta_files) >= 2:
-                _trace("RESULT: carousel OK via instaloader")
+        # ---- 3) Instaloader (Instagram only); a single photo is fine too ----
+        if not files and ("instagram.com" in low or "instagr.am" in low):
+            insta_files = download_instagram_post(url, output_dir, cap_bytes, min_items=1)
+            if len(insta_files) >= 1:
+                _trace(f"RESULT: OK via instaloader, {len(insta_files)} item(s)")
                 return insta_files
 
         files = [p for p in files if os.path.getsize(p) <= cap_bytes][:MAX_CAROUSEL_ITEMS]
-        if len(files) >= 2:
-            _trace(f"RESULT: carousel OK, {len(files)} items")
+        # 2+ files is a carousel. Exactly 1 file is accepted only when it came from the
+        # photo-post fallback (gallery-dl), so normal single videos are not touched.
+        if len(files) >= 2 or (len(files) == 1 and gallery_ran):
+            _trace(f"RESULT: OK, {len(files)} item(s)")
             return files
         _trace("RESULT: no carousel obtained -> old single-image code will run")
     except Exception as e:
@@ -3167,7 +3252,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
     try:
         free_mb = shutil.disk_usage(".").free // (1024*1024)
         min_free = get_min_free_disk_mb()
-        effective_max_mb = get_mtproto_max_mb()
+        effective_max_mb = mtproto_limit_mb()
         if free_mb < min_free + 150: effective_max_mb = min(effective_max_mb, 50)
             
         LAST_CAROUSEL_TRACE.clear()
@@ -3243,7 +3328,12 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
     except Exception as e:
         logger.error(f"DL {ckey}: {e}")
         if user_id == ADMIN_ID:
-            try: await bot.send_message(chat_id=chat_id, text=f"🧪 DL error: {type(e).__name__}: {str(e)[:600]}\nJS runtimes: deno={shutil.which('deno')} node={shutil.which('node')}")
+            trace_txt = ("\nTrace:\n" + "\n".join(LAST_CAROUSEL_TRACE)[:1200]) if LAST_CAROUSEL_TRACE else ""
+            try:
+                await bot.send_message(chat_id=chat_id, text=(
+                    f"🧪 DL error: {type(e).__name__}: {str(e)[:500]}\n"
+                    f"MTProto: ready={MTPROTO['ready'].is_set()} api_id={bool(API_ID)} api_hash={bool(API_HASH)}"
+                    f"{trace_txt}"))
             except Exception: pass
         if "FILE_TOO_LARGE" in str(e): err = t["error_50mb"]
         elif "MTPROTO_OFF" in str(e): err = "⚠️ Big files need fast mode, which is offline right now."
