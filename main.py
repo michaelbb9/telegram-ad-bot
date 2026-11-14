@@ -3956,17 +3956,19 @@ def run_mtproto_worker():
     if not API_ID or not API_HASH:
         print("MTProto worker skipped: API_ID or API_HASH missing.")
         return
-    try: from pyrogram import Client as PyroClient
-    except ImportError:
-        print("MTProto worker skipped: add pyrogram and tgcrypto.")
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)  # must exist BEFORE pyrogram is imported (Python 3.14)
+    try:
+        from pyrogram import Client as PyroClient
+    except Exception as e:
+        print(f"MTProto worker skipped: pyrogram import failed: {type(e).__name__}: {e}")
         return
     try:
         from pyrogram import enums as pyro_enums
         MTPROTO["no_parse"] = pyro_enums.ParseMode.DISABLED
-    except Exception: MTPROTO["no_parse"] = None
+    except Exception:
+        MTPROTO["no_parse"] = None
     import inspect
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     try:
         client = PyroClient("mtproto_web_worker", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN, in_memory=True)
         print("Starting MTProto Worker Thread...")
