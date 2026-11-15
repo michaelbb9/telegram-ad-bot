@@ -40,7 +40,8 @@ G = {}                                   # main program's globals (filled by ini
 # per-request context (set by the download wrapper, read in worker threads)
 # ---------------------------------------------------------------------
 CTX_REPORTER = contextvars.ContextVar("extras_reporter", default=None)
-CTX_QUALITY = contextvars.ContextVar("extras_quality", default=None)   # None=auto, 0=lowest, else max height
+_NO_PICK = object()  # sentinel: this call made NO picker choice (ad-retry / direct call). Different from None = user explicitly picked Auto.
+CTX_QUALITY = contextvars.ContextVar("extras_quality", default=_NO_PICK)   # _NO_PICK=no choice yet, None=Auto (explicit), 0=lowest, else max height
 CTX_PROBE = contextvars.ContextVar("extras_probe", default=None)       # (url, info) already fetched: do not ask the site twice
 
 # when a site says "sign in to confirm you are not a bot" we stop hammering it for a while
@@ -77,7 +78,7 @@ SITE_DOMAINS = {"youtube": ("youtube.com", "youtu.be"), "tiktok": ("tiktok.com",
                 "pinterest": ("pinterest.", "pin.it"), "threads": ("threads.net", "threads.com"),
                 "vimeo": ("vimeo.com",), "dailymotion": ("dailymotion.com", "dai.ly"), "twitch": ("twitch.tv",)}
 CANCEL_WORDS = ("❌ Cancel", "/cancel", "Cancel", "cancel")
-YT_ID_RE = re.compile(r'(?:youtu\.be/|youtube\.com/(?:watch\?(?:[^#\s]*&)?v=|shorts/|live/|embed/)|music\.youtube\.com/watch\?(?:[^#\s]*&)?v=)([A-Za-z0-9_-]{11})')
+YT_ID_RE = re.compile(r'(?:youtu\.be/|youtube\.com/(?:watch\?(?:[^#\s]*&)?v=|shorts/|live/|embed/))([A-Za-z0-9_-]{11})')
 
 
 # =====================================================================
@@ -381,10 +382,15 @@ async def send_refill_prompt(bot, chat_id, user_id, t, url, need, have):
         except Exception:
             pass
         bridge = f"{g['BRIDGE_URL']}?user={user_id}&start_msg=0&end_msg=0"
+        # FIX 2: show the admin's actual reward (e.g. +3), not hardcoded +1
+        try:
+            _rw = int(g["get_reward_amount"]()) if "get_reward_amount" in g else 1
+        except Exception:
+            _rw = 1
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge)],
+            [InlineKeyboardButton(f"🔓 Open Link & Watch Timer ⏰ 20s +{_rw}", url=bridge)],
             [InlineKeyboardButton("📢 Join Public Channel 💜", url=g["PUBLIC_CHANNEL_URL"])],
-            [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")]])
+            [InlineKeyboardButton(f"💜 Check & Get Files ✅ +{_rw}", callback_data="verify_user")]])
         await bot.send_message(chat_id=chat_id, text=head + g.get("ADSTERRA_USER_GUIDE", ""),
                                reply_markup=kb, parse_mode="Markdown")
     except Exception as e:
@@ -530,12 +536,20 @@ class LimitHit(Exception):
 
 
 def _remember_quality(user_id, url, cap):
+    # Single-use only: remembers the pick JUST for the immediate "watch an ad" retry
+    # of THIS download. It is consumed on first recall and cleared on success /
+    # on the next picker. It must NEVER leak into the next fresh download.
     QUALITY_MEMORY[(user_id, url)] = (cap, time.time())
     if len(QUALITY_MEMORY) > 500:
         QUALITY_MEMORY.clear()
 
 
+def _forget_quality(user_id, url):
+    QUALITY_MEMORY.pop((user_id, url), None)
+
+
 def _recall_quality(user_id, url):
+    # One-shot: pop so the same pick cannot be reused for a later download.
     hit = QUALITY_MEMORY.pop((user_id, url), None)
     if hit and time.time() - hit[1] < 1800:
         return hit[0]
@@ -548,11 +562,23 @@ def _quality_order(dl_type, cap):
     if dl_type != "video":
         return ["original"]
     order = ["1080p", "720p", "480p", "360p", "worst"]
-    if cap is None:
+    if cap is None or cap is _NO_PICK:
         return order
     if cap == 0:
         return ["worst"]
     return [q for q in order if q != "worst" and int(q[:-1]) <= cap]
+
+
+def _cache_quality_order(dl_type, site):
+    # FIX 1 - YouTube cache: ALWAYS highest cached first, ignore the requested cap.
+    # If 1080p is cached and user asks 360p, send the cached 1080p - do NOT re-download.
+    # If 720p is cached and user asks 360p, send the cached 720p.
+    # Only YouTube uses this; other sites keep the old cap-filtered behaviour.
+    if dl_type == "audio":
+        return ["audio"]
+    if dl_type != "video":
+        return ["original"]
+    return ["1080p", "720p", "480p", "360p", "worst", "original", "lux"]
 
 
 def _plan_estimate(info, cap, is_admin, site):
@@ -619,15 +645,17 @@ async def _fresh_download(bot, chat_id, user_id, url, dl_type, t, ckey, cap, sit
             await _send_block(bot, chat_id, user_id, url, site, est, lim, duration, kb)
             return False
         if d["action"] == "ads":
-            if cap is not None:
-                _remember_quality(user_id, url, cap)
             await send_refill_prompt(bot, chat_id, user_id, t, url, d["cost"], have)
             return False
         cost = d["cost"]
     elif dl_type == "audio":
         qlabel = "MP3 192kbps"
 
-
+    # FIX 3: only remember a real numeric pick (e.g. 720) for the ad-retry.
+    # Auto (None) and no-choice (_NO_PICK) are NOT remembered - Auto must be
+    # re-evaluated fresh every time, never become the old pick.
+    if isinstance(cap, int):
+        _remember_quality(user_id, url, cap)
 
     # ---- status card ----
     if dl_type in ("video", "audio"):
@@ -695,6 +723,7 @@ async def _fresh_download(bot, chat_id, user_id, url, dl_type, t, ckey, cap, sit
                 asyncio.create_task(g["schedule_deletion"](bot, chat_id, [r["message_id"] for r in results] + [warn.message_id], 540))
             finally:
                 shutil.rmtree(os.path.dirname(file_paths[0]), ignore_errors=True)
+            _forget_quality(user_id, url)  # FIX 3: success consumes the remembered pick
             await _delete_quiet(bot, chat_id, status_msg)
             await charge(user_id, 1)
             await bot.send_message(chat_id=chat_id, text=t["download_success"], reply_markup=kb)
@@ -745,6 +774,7 @@ async def _fresh_download(bot, chat_id, user_id, url, dl_type, t, ckey, cap, sit
         if duration:
             cache[ckey]["duration"] = duration
         g["save_json_file"](g["CACHE_FILE"], cache)
+        _forget_quality(user_id, url)  # FIX 3: success consumes the remembered pick
         await _delete_quiet(bot, chat_id, status_msg)
         await charge(user_id, cost)
         await bot.send_message(chat_id=chat_id, text=t["download_success"], reply_markup=kb)
@@ -766,8 +796,6 @@ async def _fresh_download(bot, chat_id, user_id, url, dl_type, t, ckey, cap, sit
         if isinstance(e, LimitHit) and e.kind == "SIZE":
             err = f"❌ This video is about {e.size_mb:.0f}MB, over the {e.limit_mb}MB limit." + (" Pick a lower quality." if site == "youtube" else "")
         elif isinstance(e, LimitHit) and e.kind == "CREDITS":
-            if cap is not None:
-                _remember_quality(user_id, url, cap)
             await show_error(bot, chat_id, status_msg, "⏳ One moment…", kb)
             await send_refill_prompt(bot, chat_id, user_id, t, url, e.need, e.have)
             return False
@@ -833,7 +861,12 @@ async def _cache_hit(bot, chat_id, user_id, url, dl_type, t, ckey, cap, site, is
     if entry.get("type") not in ("video", "images", "audio"):
         return None
     cq = entry.get("qualities", {})
-    best = next((q for q in _quality_order(dl_type, None) if q in cq), None)
+    # FIX 1: YouTube -> ignore requested cap, take highest cached. Others -> cap-filtered as before.
+    if site == "youtube" and dl_type == "video":
+        _order = _cache_quality_order(dl_type, site)
+    else:
+        _order = _quality_order(dl_type, cap)
+    best = next((q for q in _order if q in cq), None)
     if not best:
         return None
     cached = cq[best]
@@ -842,7 +875,9 @@ async def _cache_hit(bot, chat_id, user_id, url, dl_type, t, ckey, cap, site, is
         sz = parse_size_mb(cached.get("size"))
         have = await credits_left(user_id)
         d = evaluate(site, entry.get("duration"), int(sz * 1048576) if sz else None, is_admin, have)
-        if d["action"] == "block":
+        # FIX 1: cached file already exists + is sendable via file_id, so do NOT
+        # block a YouTube cache hit for size. Still charge the heavy cost if heavy.
+        if d["action"] == "block" and site != "youtube":
             await _send_block(bot, chat_id, user_id, url, site, int(sz * 1048576) if sz else None, d["limits"], entry.get("duration"), kb)
             return False
         if d["action"] == "ads":
@@ -865,6 +900,7 @@ async def _cache_hit(bot, chat_id, user_id, url, dl_type, t, ckey, cap, site, is
             asyncio.create_task(g["schedule_deletion"](bot, chat_id, [sent.message_id, warn.message_id], 540))
             entry["hits"] = entry.get("hits", 0) + 1
             g["save_json_file"](g["CACHE_FILE"], cache)
+            _forget_quality(user_id, url)  # FIX 3: cache hit consumes any remembered pick
             await charge(user_id, cost)
             return True
     except Exception as e:
@@ -877,6 +913,7 @@ async def _cache_hit(bot, chat_id, user_id, url, dl_type, t, ckey, cap, site, is
                 asyncio.create_task(g["schedule_deletion"](bot, chat_id, [fwd.message_id, warn.message_id], 540))
                 entry["hits"] = entry.get("hits", 0) + 1
                 g["save_json_file"](g["CACHE_FILE"], cache)
+                _forget_quality(user_id, url)  # FIX 3: vault fallback also consumes the remembered pick
                 await charge(user_id, cost)
                 return True
         except Exception as e2:
@@ -901,8 +938,13 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
             del c["file_id"]
             g["save_json_file"](g["CACHE_FILE"], cache)
         cap = CTX_QUALITY.get()
-        if cap is None:
+        if cap is _NO_PICK:
+            # No picker choice in this call (ad-retry / direct call from main bot).
+            # Use the single-use remembered pick for THIS download only.
             cap = _recall_quality(user_id, url)
+        # else: cap is an explicit picker choice - None = user picked Auto,
+        # int = user picked that quality. NEVER fall back to a remembered pick.
+        # Auto (None) must stay Auto, it must not silently become the old pick.
         site = site_of(url)
         handled = await _cache_hit(bot, chat_id, user_id, url, dl_type, t, ckey, cap, site, is_admin, kb, cache)
         if handled is not None:
@@ -979,6 +1021,7 @@ async def on_fmt_vid(update, context):
         if not url or not YT_ID_RE.search(url) or not _cfg().get("yt_quality_menu", True):
             return                                   # not YouTube: the normal flow continues
         user_id, chat_id = q.from_user.id, q.message.chat_id
+        _forget_quality(user_id, url)  # FIX 3: new picker = fresh choice, drop any old remembered pick
         t = G["LANGUAGES"].get(G["get_lang"](user_id), G["LANGUAGES"]["en"])
         try:
             await q.answer()                         # answer FIRST: Telegram drops taps that wait for slow lookups
@@ -998,18 +1041,11 @@ async def on_fmt_vid(update, context):
                 try: await q.message.edit_text(BLOCKED_TEXT)
                 except Exception: pass
                 raise ApplicationHandlerStop
-            # Show standard quality choices even if probe was slow so user can always pick
-            fallback_rows = [
-                [InlineKeyboardButton("⭐ Auto (best that fits)", callback_data=f"ytq_auto_{key}")],
-                [InlineKeyboardButton("🎞 1080p", callback_data=f"ytq_1080_{key}"),
-                 InlineKeyboardButton("🎞 720p", callback_data=f"ytq_720_{key}")],
-                [InlineKeyboardButton("🎞 480p", callback_data=f"ytq_480_{key}"),
-                 InlineKeyboardButton("🎞 360p", callback_data=f"ytq_360_{key}")],
-                [InlineKeyboardButton("❌ Cancel", callback_data=f"ytq_cancel_{key}")]
-            ]
-            await q.message.edit_text("🎬 YouTube Video
-
-Choose a quality:", reply_markup=InlineKeyboardMarkup(fallback_rows))
+            # no quality list available: carry on with the normal automatic download
+            G["pending_single_links"].pop(key, None)
+            try: await q.message.delete()
+            except Exception: pass
+            await _launch(context, chat_id, user_id, t, url, None)
             raise ApplicationHandlerStop
         dur = info.get("duration") or 0
         title = _clean(info.get("title"), 70)
@@ -1053,6 +1089,7 @@ async def on_ytq(update, context):
             await q.answer(f"🚫 About {fmt_mb(est)}, over the {d['limits']['max_mb']}MB limit. Pick a lower quality.", show_alert=True)
             raise ApplicationHandlerStop
     G["pending_single_links"].pop(key, None)
+    _forget_quality(user_id, url)  # FIX 3: old pick must not leak; _fresh_download will remember THIS pick for its own ad-retry
     await q.answer()
     try: await q.message.delete()
     except Exception: pass
@@ -1475,7 +1512,7 @@ def init(g):
                 if rep is not None:
                     rep.reset()
                 cap = CTX_QUALITY.get()
-                if cap is not None:
+                if isinstance(cap, int):
                     m = re.search(r"height<=(\d+)", str(self.params.get("format") or ""))
                     if m and int(m.group(1)) > cap:
                         raise yt_dlp.utils.DownloadError("TIER_SKIPPED")
