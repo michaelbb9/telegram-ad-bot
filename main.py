@@ -275,9 +275,8 @@ def deduct_for_cost(user_id, cost, is_batch=False):
     try: cost = int(cost or 1)
     except: cost = 1
     if cost < 1: cost = 1
-    for _ in range(cost):
-        try: deduct_download_counter(user_id, is_batch=is_batch)
-        except: pass
+    try: deduct_download_counter(user_id, is_batch=is_batch, count=cost)
+    except: pass
 
 def evaluate_limits(info, url, user_id, wanted_quality=None):
     plat, lim = get_limits_for_url(url)
@@ -423,6 +422,176 @@ async def check_force_join(bot, user_id):
         return (False, missing, unverifiable)
     return (True, [], unverifiable)
 
+
+
+# ============ NEW BLOCK 1: Required Channels / Media Limits / Rich Metadata (from your pasted spec) ============
+# Single source of truth: REQUIRED_CHANNELS_FILE == FORCE_JOIN_FILE, so admin panel + new helpers never drift.
+REQUIRED_CHANNELS_FILE = FORCE_JOIN_FILE
+DEFAULT_REQUIRED_CHANNELS = [
+    {"chat_id": PUBLIC_CHANNEL_USERNAME, "url": PUBLIC_CHANNEL_URL, "title": "Main Channel"}
+]
+
+def get_required_channels():
+    # Returns [{chat_id, url, title}] - normalized from get_force_join_channels()
+    chans = get_force_join_channels()
+    out = []
+    for c in chans:
+        if isinstance(c, dict):
+            out.append({"chat_id": c.get("username") or c.get("chat_id") or PUBLIC_CHANNEL_USERNAME,
+                        "url": c.get("url") or f"https://t.me/{str(c.get('username','')).lstrip('@')}",
+                        "title": c.get("title") or c.get("username") or "Channel"})
+    return out or DEFAULT_REQUIRED_CHANNELS
+
+def save_required_channels(channels):
+    # channels: [{chat_id, url, title}] -> saves in force-join format {username, url, title}
+    norm = []
+    for c in (channels or []):
+        if not isinstance(c, dict): continue
+        uname = c.get("chat_id") or c.get("username") or ""
+        uname = str(uname).strip()
+        if not uname: continue
+        if not uname.startswith("@"): uname = "@" + uname
+        norm.append({"username": uname, "url": c.get("url") or f"https://t.me/{uname.lstrip('@')}", "title": c.get("title") or uname})
+    save_json_file(FORCE_JOIN_FILE, {"channels": norm})
+    return norm
+
+def get_media_limits():
+    # Default (all-site) limits, from per-platform store. 10 min / 200MB / heavy 100MB = 3cr by default.
+    try:
+        limits = load_download_limits()
+        d = limits.get("default", {}) or {}
+        return {
+            "max_duration_sec": int(d.get("max_minutes", 10)) * 60,
+            "max_video_mb": int(d.get("max_mb", 200)),
+            "heavy_threshold_mb": int(d.get("heavy_mb", 100)),
+            "heavy_credit_cost": int(d.get("heavy_cost", 3)),
+        }
+    except Exception:
+        return {"max_duration_sec": 600, "max_video_mb": 200, "heavy_threshold_mb": 100, "heavy_credit_cost": 3}
+
+def set_media_limits(max_min=None, max_mb=None, heavy_mb=None, heavy_cost=None):
+    # Updates the DEFAULT limits (applies to every site unless that site has its own override in Download Limits panel).
+    limits = load_download_limits()
+    d = limits.get("default", {}) or {}
+    if max_min is not None: d["max_minutes"] = int(max_min)
+    if max_mb is not None: d["max_mb"] = int(max_mb)
+    if heavy_mb is not None: d["heavy_mb"] = int(heavy_mb)
+    if heavy_cost is not None: d["heavy_cost"] = int(heavy_cost)
+    limits["default"] = d
+    save_json_file(DOWNLOAD_LIMITS_FILE, limits)
+    return d
+
+async def check_all_required_channels(bot, user_id):
+    # (joined_all, missing) - wraps check_force_join so unverifiable channels do NOT block the user.
+    # FIX vs naive pasted version: any Telegram error is NOT automatically "missing" - only real left/kicked/not-member counts.
+    if user_id == ADMIN_ID:
+        return True, []
+    try:
+        ok, missing, _unver = await check_force_join(bot, user_id)
+    except Exception:
+        return True, []
+    if ok:
+        return True, []
+    out = []
+    for c in missing:
+        out.append({"chat_id": c.get("username") or c.get("chat_id"), "url": c.get("url"), "title": c.get("title") or c.get("username")})
+    return False, out
+
+def build_join_channels_markup(missing_channels, retry_cb="check_joined_channels"):
+    rows = []
+    for idx, ch in enumerate(missing_channels, 1):
+        label = ch.get("title") or f"Channel {idx}"
+        url = ch.get("url") or f"https://t.me/{str(ch.get('chat_id', '')).lstrip('@')}"
+        rows.append([InlineKeyboardButton(f"📢 Join {label}", url=url)])
+    rows.append([InlineKeyboardButton("✅ I've Joined All Channels", callback_data=retry_cb)])
+    return InlineKeyboardMarkup(rows)
+
+def fmt_num(val):
+    if val is None or val == "":
+        return "N/A"
+    try: return f"{int(val):,}"
+    except Exception: return str(val)
+
+def fetch_rich_metadata(url):
+    # Rich metadata: Author, Username, Region, Views, Likes, Comments, Shares, Description, Duration, Thumbnail, YouTube qualities.
+    # Uses fetch_full_info() underneath so we don't call yt-dlp twice in the preview path.
+    ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True}
+    is_yt = bool(youtube_id_from_url(url)) or "youtube.com" in url.lower() or "youtu.be" in url.lower()
+    meta = {
+        "title": "Media Link", "duration_sec": 0, "duration_str": "N/A",
+        "author": "Unknown", "username": "N/A", "region": "N/A",
+        "views": "N/A", "likes": "N/A", "comments": "N/A", "shares": "N/A",
+        "description": "", "thumbnail": None, "is_youtube": is_yt,
+        "qualities": {}
+    }
+    try:
+        info = fetch_full_info(url)
+        if not info: return meta
+        meta["title"] = (info.get('title') or 'Unknown')[:80]
+        dur = int(info.get('duration') or 0)
+        meta["duration_sec"] = dur
+        mins, secs = divmod(dur, 60)
+        meta["duration_str"] = f"{mins}m {secs}s" if mins else f"{secs}s"
+        meta["author"] = info.get('uploader') or info.get('channel') or info.get('creator') or "Unknown"
+        uname = info.get('uploader_id') or info.get('channel_id') or ""
+        if uname and not str(uname).startswith("@"): uname = f"@{uname}"
+        meta["username"] = uname or "N/A"
+        meta["region"] = info.get('location') or info.get('country') or info.get('language') or "Global"
+        meta["views"] = fmt_num(info.get('view_count'))
+        meta["likes"] = fmt_num(info.get('like_count'))
+        meta["comments"] = fmt_num(info.get('comment_count'))
+        meta["shares"] = fmt_num(info.get('repost_count') or info.get('share_count'))
+        desc = (info.get('description') or '').strip().replace('\n', ' ')
+        meta["description"] = (desc[:140] + "...") if len(desc) > 140 else (desc or "No description")
+        meta["thumbnail"] = info.get('thumbnail')
+        formats = info.get('formats') or []
+        best_audio_bytes = 0
+        for f in formats:
+            if f.get('acodec') not in (None, 'none') and f.get('vcodec') in (None, 'none'):
+                sz = f.get('filesize') or f.get('filesize_approx') or 0
+                if sz > best_audio_bytes: best_audio_bytes = sz
+        for target_h in [1080, 720, 480, 360]:
+            matching = [f for f in formats if f.get('vcodec') not in (None, 'none') and f.get('height') == target_h]
+            if not matching:
+                matching = [f for f in formats if f.get('vcodec') not in (None, 'none') and f.get('height') and f.get('height') <= target_h]
+            if matching:
+                best_f = max(matching, key=lambda x: (x.get('height') or 0, x.get('tbr') or 0))
+                v_bytes = best_f.get('filesize') or best_f.get('filesize_approx') or 0
+                if not v_bytes and best_f.get('tbr') and dur:
+                    v_bytes = int((best_f['tbr'] * 1000 / 8) * dur)
+                total_mb = round((v_bytes + best_audio_bytes) / (1024 * 1024), 1) if v_bytes else 0
+                meta["qualities"][f"{target_h}p"] = total_mb
+    except Exception as e:
+        logger.warning(f"fetch_rich_metadata error: {e}")
+    return meta
+
+def format_metadata_block(meta, progress_pct=None, quality_label=None):
+    limits = get_media_limits()
+    max_min = limits["max_duration_sec"] // 60
+    max_mb = limits["max_video_mb"]
+    heavy_mb = limits["heavy_threshold_mb"]
+    cost = limits["heavy_credit_cost"]
+    lines = [f"🎬 **{meta.get('title', 'Media')}**"]
+    if quality_label:
+        lines.append(f"🎞️ Quality: **{quality_label}**")
+    if progress_pct is not None:
+        filled = max(0, min(10, int(round(progress_pct / 10))))
+        bar = "■" * filled + "□" * (10 - filled)
+        lines.append(f"\n🔄 **Downloading:**\n`{bar}` ≈{int(progress_pct)}%\n")
+    lines.extend([
+        f"🎬 **Author :** {meta.get('author', 'Unknown')}",
+        f"👤 **Username :** {meta.get('username', 'N/A')}",
+        f"🌍 **Region :** {meta.get('region', 'N/A')}",
+        f"▶️ **Views :** {meta.get('views', 'N/A')}",
+        f"❤️ **Likes :** {meta.get('likes', 'N/A')}",
+        f"💬 **Comments :** {meta.get('comments', 'N/A')}",
+        f"🔗 **Shares :** {meta.get('shares', 'N/A')}",
+        f"📝 **Description :** {meta.get('description', 'N/A')}",
+        f"⚙️ **Limits:** {max_min} min / {max_mb}MB (Heavy >{heavy_mb}MB = {cost} credits)"
+    ])
+    return "\n".join(lines)
+
+# ============ END NEW BLOCK 1 ============
 
 MAX_CONCURRENT_SHORT = 3
 MIN_FREE_DISK_MB = 150
@@ -1933,7 +2102,9 @@ def is_banned(user_id):
     banned = load_json_file(BANNED_FILE)
     return str(user_id) in banned
 
-def track_user_activity(user_id, username=None):
+def track_user_activity(user_id, username=None, full_name=None):
+    # Stores username + full_name so /stats Top 10 can show ID + @username.
+    # Old entries without username still work - they show just ID.
     activity = load_json_file(ACTIVITY_FILE)
     user_str = str(user_id)
     now = time.time()
@@ -1943,6 +2114,11 @@ def track_user_activity(user_id, username=None):
     if username:
         try:
             activity[user_str]["username"] = str(username).lstrip("@")[:64]
+        except:
+            pass
+    if full_name:
+        try:
+            activity[user_str]["full_name"] = str(full_name)[:64]
         except:
             pass
     save_json_file(ACTIVITY_FILE, activity)
@@ -2524,7 +2700,7 @@ def download_with_lux(url, output_dir, cap_bytes, cookiefile=None):
     return None
 
 
-def download_media_engine(url: str, download_type: str, max_mb=None, wanted_quality=None, progress_callback=None):
+def download_media_engine(url: str, download_type: str, max_mb=None, wanted_quality=None, progress_callback=None, selected_quality=None):
     cap_mb = int(max_mb or get_mtproto_max_mb())
     cap_bytes = cap_mb * 1024 * 1024
     output_dir = "downloads"
@@ -2533,13 +2709,27 @@ def download_media_engine(url: str, download_type: str, max_mb=None, wanted_qual
     cookiefile = None
     if "tiktok.com" in url.lower() and os.path.exists("tiktok_cookies.txt"): cookiefile = "tiktok_cookies.txt"
     elif os.path.exists("cookies.txt"): cookiefile = "cookies.txt"
+    # selected_quality is an alias for wanted_quality (pasted spec uses selected_quality)
+    if selected_quality and not wanted_quality:
+        wanted_quality = selected_quality
+    _last_hook_update = [0.0]
     def _hook(d):
+        # Throttled to ~2.5s so the ■■■□□□□□□□ message edits don't flood Telegram. Users see ONLY the progress card.
+        # Admin debug is a SEPARATE message in cached_download_and_send, never in this hook.
         try:
-            if progress_callback and d.get('status') == 'downloading':
+            if not progress_callback:
+                return
+            now = time.time()
+            if d.get('status') == 'downloading':
+                if now - _last_hook_update[0] < 2.5:
+                    return
+                _last_hook_update[0] = now
                 total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
                 dl = d.get('downloaded_bytes') or 0
-                if total and total > 0:
-                    progress_callback(int(dl * 100 / total))
+                pct = (dl * 100 / total) if total and total > 0 else 0
+                progress_callback(min(99, int(pct)))
+            elif d.get('status') == 'finished':
+                progress_callback(100)
         except: pass
     ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL, 'progress_hooks': [_hook]}
     if cookiefile: ydl_opts['cookiefile'] = cookiefile
@@ -2580,6 +2770,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, wanted_qual
             ("360p", "bv*[height<=360]+ba/b[height<=360]"),
             ("worst", "worst")
         ]
+        # If selected_quality in (1080p/720p/480p/360p), try that tier first, then lower only - never higher than wanted.
         if wanted_quality:
             _wq = str(wanted_quality).lower().strip()
             _ordered = [t for t in _all_tiers if t[0] == _wq] + [t for t in _all_tiers if t[0] != _wq]
@@ -2671,6 +2862,7 @@ def get_main_keyboard(lang_code, is_admin):
     if is_admin:
         keyboard.append([KeyboardButton("/stats"), KeyboardButton("/toggleads")])
         keyboard.append([KeyboardButton("⚙️ Download Limits"), KeyboardButton("📢 Force Join Channels")])
+        keyboard.append([KeyboardButton("⚙️ Media Limits Config"), KeyboardButton("📢 Required Channels")])
         keyboard.append([KeyboardButton("/testad"), KeyboardButton("/adinfo")])
         keyboard.append([KeyboardButton("/tokencheck"), KeyboardButton("/broadcast")])
         keyboard.append([KeyboardButton("/ban"), KeyboardButton("/unban")])
@@ -2705,9 +2897,15 @@ def get_free_disk_mb():
     try: return max(0, 512 - get_downloads_usage_mb())
     except: return 512
 
-def deduct_download_counter(user_id, is_batch=False):
-    try: requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": is_batch}, headers=API_HEADERS, timeout=3)
-    except: pass
+def deduct_download_counter(user_id, is_batch=False, count=1):
+    # count=1 = original behaviour (1 POST). count=3 = heavy file, 3 POSTs.
+    # deduct_for_cost() is still the ONLY place that deducts for a download.
+    try: count = int(count or 1)
+    except: count = 1
+    if count < 1: count = 1
+    for _ in range(count):
+        try: requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": is_batch}, headers=API_HEADERS, timeout=3)
+        except: pass
 
 async def acquire_slot():
     global active_downloads
@@ -2744,7 +2942,7 @@ async def queue_processor(bot):
             await asyncio.sleep(1)
 
 async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    track_user_activity(update.message.from_user.id, getattr(update.message.from_user, "username", None))
+    track_user_activity(update.message.from_user.id, getattr(update.message.from_user, "username", None), getattr(update.message.from_user, "full_name", None))
     lang = get_lang(update.message.from_user.id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
     keyboard = [
@@ -2831,7 +3029,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
     if is_banned(user_id): await update.message.reply_text(t["banned"]); return
     try:
-        track_user_activity(user_id, getattr(update.message.from_user, "username", None))
+        track_user_activity(user_id, getattr(update.message.from_user, "username", None), getattr(update.message.from_user, "full_name", None) or ((getattr(update.message.from_user, "first_name", "") or "") + " " + (getattr(update.message.from_user, "last_name", "") or "")).strip() or None)
     except:
         track_user_activity(user_id)
     args = context.args
@@ -2847,9 +3045,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(welcome_msg, reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID), parse_mode="Markdown")
         if user_id != ADMIN_ID:
             try:
-                _ok_s, _missing_s, _u_s = await check_force_join(context.bot, user_id)
-                if not _ok_s:
-                    await update.message.reply_text("🔒 **Join All Channels To Use This Bot**\n\nYou must join every channel below, then tap Check Again:", reply_markup=force_join_keyboard(_missing_s), parse_mode="Markdown")
+                _joined_s, _missing_s = await check_all_required_channels(context.bot, user_id)
+                if not _joined_s:
+                    await update.message.reply_text("🔒 **Join All Channels To Use This Bot**\n\nYou must join every channel below, then tap Check Again:", reply_markup=build_join_channels_markup(_missing_s), parse_mode="Markdown")
             except: pass
         return
         
@@ -3107,10 +3305,19 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_id = update.message.from_user.id
     t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
     if is_banned(user_id): await update.message.reply_text(t["banned"]); return
+    # Mandatory join check (spec) - admin exempt
+    if user_id != ADMIN_ID:
+        try:
+            _joined_u, _missing_u = await check_all_required_channels(context.bot, user_id)
+            if not _joined_u:
+                await update.message.reply_text("📢 **Required Channels**\nYou must join **all** required channels below before using any bot features:", reply_markup=build_join_channels_markup(_missing_u), parse_mode="Markdown")
+                return
+        except Exception as _e_u:
+            logger.warning(f"upload join check fail: {_e_u}")
     if await file_link_add_media(update, context): return
     chat_id = update.message.chat_id
     try:
-        track_user_activity(user_id, getattr(update.message.from_user, "username", None))
+        track_user_activity(user_id, getattr(update.message.from_user, "username", None), getattr(update.message.from_user, "full_name", None) or ((getattr(update.message.from_user, "first_name", "") or "") + " " + (getattr(update.message.from_user, "last_name", "") or "")).strip() or None)
     except:
         track_user_activity(user_id)
     support_states = load_json_file(SUPPORT_STATES_FILE)
@@ -3181,7 +3388,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         flood, wait = is_flood(user_id)
         if flood: await update.message.reply_text(f"🐢 **Slow down!** You sent {FLOOD_LIMIT} links in last minute.\nWait {wait}s before next link.", parse_mode="Markdown"); return
     try:
-        track_user_activity(user_id, getattr(update.message.from_user, "username", None))
+        track_user_activity(user_id, getattr(update.message.from_user, "username", None), getattr(update.message.from_user, "full_name", None) or ((getattr(update.message.from_user, "first_name", "") or "") + " " + (getattr(update.message.from_user, "last_name", "") or "")).strip() or None)
     except:
         track_user_activity(user_id)
     lang = get_lang(user_id)
@@ -3213,7 +3420,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if text.strip() in ("❌ Cancel", "/cancel", "❌ Cancel Change Channel"):
             linking_states.pop(str(user_id), None); save_linking_states(linking_states)
             await update.message.reply_text("❌ Change channel cancelled.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
-        _cancel_kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="cancel_link_channel")]])
+        _cancel_kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel Channel Setup", callback_data="cancel_channel_link")]])
         forward_origin = getattr(update.message, "forward_origin", None)
         f_chat = None
         if forward_origin is not None:
@@ -3278,6 +3485,55 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         _kb_fj = [[InlineKeyboardButton("➕ Add Channel (send @username)", callback_data="fj_add_prompt")], [InlineKeyboardButton("📋 List / Remove", callback_data="fj_list")]]
         await update.message.reply_text("\n".join(_lines), reply_markup=InlineKeyboardMarkup(_kb_fj), parse_mode="Markdown")
         return
+
+    # --- NEW: Media Limits Config + Required Channels (aliases, from pasted spec) ---
+    if text.strip() == "⚙️ Media Limits Config" and user_id == ADMIN_ID:
+        _ml = get_media_limits()
+        _txt_ml = (f"⚙️ **Media Limits Config**\n\nCurrent (Default, all sites):\n• Max Minutes: **{_ml['max_duration_sec']//60} min**\n• Max Size: **{_ml['max_video_mb']}MB**\n• Heavy Threshold: **>{_ml['heavy_threshold_mb']}MB = {_ml['heavy_credit_cost']} credits**\n\nTo change, send:\n`/setlimits <mins> <max_mb> <heavy_mb>`\nExample: `/setlimits 10 200 100`\n\nOr use ⚙️ Download Limits for per-platform limits.")
+        await update.message.reply_text(_txt_ml, parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
+        return
+    if text.strip() == "📢 Required Channels" and user_id == ADMIN_ID:
+        _rc = get_required_channels()
+        _lines_rc = ["📢 **Required Channels**\n\nUsers must join ALL of these. Checked every time."]
+        for _i, _ch in enumerate(_rc): _lines_rc.append(f"{_i+1}. {_ch.get('title') or ''} - {_ch.get('chat_id')} - {_ch.get('url')}")
+        _lines_rc.append("\nAdd: `/addchannel @username Title`\nRemove: `/delchannel @username`")
+        await update.message.reply_text("\n".join(_lines_rc), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
+        return
+    if text.strip().startswith("/setlimits") and user_id == ADMIN_ID:
+        try:
+            _parts = text.strip().split()
+            if len(_parts) != 4: raise ValueError("usage")
+            _mins, _maxmb, _heavymb = int(_parts[1]), int(_parts[2]), int(_parts[3])
+            set_media_limits(max_min=_mins, max_mb=_maxmb, heavy_mb=_heavymb)
+            await update.message.reply_text(f"✅ Limits updated: {_mins} min / {_maxmb}MB (Heavy >{_heavymb}MB = 3 credits)", reply_markup=get_main_keyboard(lang, True))
+        except:
+            await update.message.reply_text("Usage: `/setlimits <mins> <max_mb> <heavy_mb>` e.g. `/setlimits 10 200 100`", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
+        return
+    if text.strip().startswith("/addchannel") and user_id == ADMIN_ID:
+        try:
+            _parts = text.strip().split(None, 2)
+            _uname = _parts[1].strip()
+            if not _uname.startswith("@"): _uname = "@" + _uname
+            _title = _parts[2].strip() if len(_parts) > 2 else _uname
+            _rc2 = get_required_channels()
+            if any(str(c.get("chat_id","")).lower() == _uname.lower() for c in _rc2):
+                await update.message.reply_text(f"⚠️ {_uname} already in list.", reply_markup=get_main_keyboard(lang, True)); return
+            _rc2.append({"chat_id": _uname, "url": f"https://t.me/{_uname.lstrip('@')}", "title": _title})
+            save_required_channels(_rc2)
+            await update.message.reply_text(f"✅ Added {_uname} ({_title}). Users must now join it too.", reply_markup=get_main_keyboard(lang, True))
+        except:
+            await update.message.reply_text("Usage: `/addchannel @username Title`", reply_markup=get_main_keyboard(lang, True))
+        return
+    if text.strip().startswith("/delchannel") and user_id == ADMIN_ID:
+        try:
+            _uname_del = text.strip().split()[1].strip()
+            if not _uname_del.startswith("@"): _uname_del = "@" + _uname_del
+            _rc3 = [c for c in get_required_channels() if str(c.get("chat_id","")).lower() != _uname_del.lower()]
+            save_required_channels(_rc3)
+            await update.message.reply_text(f"✅ Removed {_uname_del}.", reply_markup=get_main_keyboard(lang, True))
+        except:
+            await update.message.reply_text("Usage: `/delchannel @username`", reply_markup=get_main_keyboard(lang, True))
+        return
     if text.strip().startswith("@") and user_id == ADMIN_ID and context.user_data.get("fj_adding"):
         _u = text.strip()
         if not _u.startswith("@"): _u = "@" + _u
@@ -3300,7 +3556,8 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         linking_states = load_linking_states()
         linking_states[str(user_id)] = "waiting_for_channel"
         save_linking_states(linking_states)
-        _cc_kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="cancel_link_channel")]])
+        # Spec: Cancel button with callback cancel_channel_link (alias of cancel_link_channel) - user is never trapped
+        _cc_kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel Channel Setup", callback_data="cancel_channel_link")]])
         await update.message.reply_text(t["change_channel_prompt"] + "\n\nForward a message from the new channel, send @username, or tap Cancel.", reply_markup=_cc_kb, parse_mode="Markdown")
         # Unmissable Cancel: also show a big ReplyKeyboard Cancel button (4th image bug: user saw no Cancel button)
         try:
@@ -3535,6 +3792,15 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     user_id = update.message.from_user.id
     t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
     if is_banned(user_id): await update.message.reply_text(t["banned"]); return
+    # Mandatory join check (spec) - admin exempt, backup restore exempt
+    if user_id != ADMIN_ID:
+        try:
+            _joined_d, _missing_d = await check_all_required_channels(context.bot, user_id)
+            if not _joined_d:
+                await update.message.reply_text("📢 **Required Channels**\nYou must join **all** required channels below before using any bot features:", reply_markup=build_join_channels_markup(_missing_d), parse_mode="Markdown")
+                return
+        except Exception as _e_d:
+            logger.warning(f"doc join check fail: {_e_d}")
     
     support_states = load_json_file(SUPPORT_STATES_FILE)
     if str(user_id) in support_states and support_states[str(user_id)].get("mode") == "user_writing": await handle_user_upload(update, context); return
@@ -3607,9 +3873,19 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     sorted_users = sorted(activity.items(), key=lambda x: x[1].get("total_interactions",0), reverse=True)[:10]
     top_text = ""
     for idx,(uid,info) in enumerate(sorted_users,1):
-        _un = (info.get('username') or "").strip()
-        _un_txt = f" @{_un}" if _un else ""
-        top_text+=f"{idx}. `{uid}`{_un_txt} — {info.get('total_interactions',0)}\n"
+        uname = (info.get("username") or "").strip()
+        if not uname:
+            # Spec: try to fill missing username via get_chat, then save it
+            try:
+                chat_obj = await context.bot.get_chat(int(uid))
+                uname = (getattr(chat_obj, "username", "") or "").strip()
+                if uname:
+                    activity[uid]["username"] = uname
+                    save_json_file(ACTIVITY_FILE, activity)
+            except Exception:
+                uname = ""
+        handle_str = f" (@{uname})" if uname else ""
+        top_text += f"{idx}. `{uid}`{handle_str} — {info.get('total_interactions',0)}\n"
     if not top_text: top_text="No activity yet"
     free_mb = shutil.disk_usage(".").free // (1024*1024)
     used_mb = get_downloads_usage_mb()
@@ -3622,7 +3898,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(txt, parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    track_user_activity(update.message.from_user.id, getattr(update.message.from_user, "username", None))
+    track_user_activity(update.message.from_user.id, getattr(update.message.from_user, "username", None), getattr(update.message.from_user, "full_name", None))
     config = load_json_file(CONFIG_FILE)
     mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
     free_mb = shutil.disk_usage(".").free // (1024*1024)
@@ -3983,7 +4259,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
     if is_banned(user_id): await query.answer(t["banned"], show_alert=True); return
     try:
-        track_user_activity(user_id, getattr(query.from_user, "username", None))
+        track_user_activity(user_id, getattr(query.from_user, "username", None), getattr(query.from_user, "full_name", None) or ((getattr(query.from_user, "first_name", "") or "") + " " + (getattr(query.from_user, "last_name", "") or "")).strip() or None)
     except:
         track_user_activity(user_id)
     data = query.data
@@ -3992,7 +4268,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # --- FORCE JOIN GATE for buttons: must join ALL channels, checked every time. ---
     # NEVER block: check_join, verify_user, fj_*, lim_*, cancel, ad/monetag callbacks - those are how user fixes it.
-    _FJ_EXEMPT = ("check_join", "verify_user", "cancel_link_channel", "fj_", "lim_", "monetag_", "adsgram", "admin_sim_ad", "admin_skip_ad", "fl_")
+    _FJ_EXEMPT = ("check_join", "check_joined_channels", "verify_user", "cancel_link_channel", "cancel_channel_link", "fj_", "lim_", "monetag_", "adsgram", "admin_sim_ad", "admin_skip_ad", "fl_")
     if user_id != ADMIN_ID and not any(data == e or data.startswith(e) for e in _FJ_EXEMPT):
         try:
             _ok_b, _missing_b, _unver_b = await check_force_join(context.bot, user_id)
@@ -4006,6 +4282,28 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except Exception as _e_b:
             logger.warning(f"button force-join fail: {_e_b}")
     # --- Cancel Change Channel (was missing) ---
+    if data in ("cancel_channel_link", "cancel_link_channel"):
+        # Alias: both callbacks cancel the waiting_for_channel state
+        try:
+            _ls = load_linking_states(); _ls.pop(str(user_id), None); save_linking_states(_ls)
+        except: pass
+        await query.answer("❌ Channel linking cancelled.")
+        try: await query.message.edit_text("❌ Batch channel setup cancelled.")
+        except:
+            try: await query.message.reply_text("❌ Batch channel setup cancelled.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+            except: pass
+        return
+    if data in ("check_joined_channels", "check_join"):
+        # Alias: both callbacks re-check required channels
+        await query.answer("Checking...")
+        _ok_c, _missing_c, _unver_c = await check_force_join(context.bot, user_id)
+        if _ok_c:
+            await query.message.edit_text("✅ **All joined!** You can now use the bot. Send a link to start.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID), parse_mode="Markdown")
+        else:
+            _lines_c = ["🔒 Still missing:"]
+            for _ch in _missing_c: _lines_c.append(f"• {_ch.get('username')}")
+            await query.message.edit_text("\n".join(_lines_c), reply_markup=force_join_keyboard(_missing_c), parse_mode="Markdown")
+        return
     if data == "cancel_link_channel":
         try:
             _ls = load_linking_states(); _ls.pop(str(user_id), None); save_linking_states(_ls)
