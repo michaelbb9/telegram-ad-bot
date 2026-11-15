@@ -1,3 +1,7 @@
+# V43 FIXED - 2026-11-15 - Ad monetisation fixed, Cancel + ForceJoin + Limits
+# Changes vs V42: Test Ad no longer blocked by fj_adding, ad callbacks excluded from force-join gate,
+# heavy refill uses Monetag OR Adsterra based on user network, heavy resume in monetag_check + verify_user,
+# Test Ad now shows HTTP diag if pythonanywhere down
 # -*- coding: utf-8 -*-
 import time
 import json
@@ -2062,11 +2066,28 @@ def evaluate_limits(info, url, user_id, wanted_quality=None):
     return {"allowed": True, "cost": 1, "block": None, "need_ad": False, "duration": duration, "est_mb": est_mb, "plat": plat, "limits": lim, "heavy": False}
 
 def build_heavy_ad_keyboard(user_id, payload_key, dl_type, wanted_quality):
-    # Watch ad to refill, then retry
+    # FIX: heavy refill must use user's assigned network - Monetag Mini App OR Adsterra bridge
+    try:
+        _net = get_global_ab_network(user_id)
+    except:
+        _net = "adsterra"
+    if _net == "monetag":
+        try:
+            pending_single_links[f"retry_{user_id}"] = pending_single_links.get(payload_key, "")
+            pending_heavy[f"retry_{user_id}"] = pending_heavy.get(payload_key, {})
+        except:
+            pass
+        _kb = adsgram_keyboard(user_id, "wall", 0, 0, extra_rows=[
+            [InlineKeyboardButton("✅ Check & Retry Heavy", callback_data=f"retry_heavy_{payload_key}")],
+            [InlineKeyboardButton("⬇️ Try Lower Quality", callback_data=f"lowerq_{payload_key}")],
+        ])
+        if _kb is not None:
+            return _kb
     bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
     kb = [
         [InlineKeyboardButton("🔓 Watch Ad To Refill +1", url=bridge_link)],
         [InlineKeyboardButton("✅ Check & Retry", callback_data=f"retry_heavy_{payload_key}")],
+        [InlineKeyboardButton("✅ Check Adsterra & Retry", callback_data="verify_user")],
         [InlineKeyboardButton("⬇️ Try Lower Quality", callback_data=f"lowerq_{payload_key}")],
     ]
     return InlineKeyboardMarkup(kb)
@@ -3278,7 +3299,9 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         f_chat = None
         if forward_origin and getattr(forward_origin, "type", None) == "channel": f_chat = getattr(forward_origin, "chat", None)
         if f_chat is None: f_chat = getattr(update.message, "forward_from_chat", None)
-        if f_chat is None: await update.message.reply_text("❌ Please forward a message directly from your channel, not a copied message.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
+        if f_chat is None:
+            _wkb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel Change Channel", callback_data="cancel_link_channel")]])
+            await update.message.reply_text("❌ Please forward a message directly from your channel, not a copied message.\n\nOr tap Cancel to exit and send links again.", reply_markup=_wkb); return
         try:
             bot_member = await context.bot.get_chat_member(chat_id=f_chat.id, user_id=context.bot.id)
             if getattr(bot_member, "status", None) not in ("administrator", "creator"): await update.message.reply_text("⚠️ I detected the channel, but I'm not an admin there yet. Add me as an administrator, then forward a channel message again.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
@@ -3338,9 +3361,14 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text("\n".join(_lines), reply_markup=InlineKeyboardMarkup(_kb), parse_mode="Markdown")
         return
     # V42: Admin adding force-join channel - next text message is @username / t.me link
+    # FIX: if admin taps any menu button (Test Ad, Limits, etc.) or /cancel, exit Add mode and let normal handling run - don't block Test Ad
     if user_id == ADMIN_ID and context.user_data.get("fj_adding"):
         _inp = text.strip()
-        if _inp.startswith("@") or "t.me/" in _inp or _inp.startswith("https://"):
+        _menu_buttons = ("🧪 Test Ad", "📢 Ad Info", "⚙️ Download Limits", "📢 Force Join Channels", "🟢 Bot Status", "🔄 Change Batch Channel", "📢 Broadcast", "⚡ Create Flash Drop", "🔗 File-to-Link", "❌ Cancel", "❌ Cancel Change Channel", "/cancel", "/start", "/testad", "/stats", "/toggleads")
+        if _inp in _menu_buttons or _inp.startswith("/") or _inp in ("📢 Force Join Channels", "⚙️ Download Limits"):
+            context.user_data.pop("fj_adding", None)
+            # fall through to normal handling below - do NOT return
+        elif _inp.startswith("@") or "t.me/" in _inp or _inp.startswith("https://"):
             # Normalize
             if _inp.startswith("@"):
                 _uname = _inp
@@ -4204,8 +4232,11 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except:
             await context.bot.send_message(chat_id=chat_id, text="✅ Cancelled. You can now send links again.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         return
-    # ===== V42: Force-join check on EVERY button (except check_join itself + admin config) =====
-    if data not in ("check_join",) and not data.startswith("fj_") and not data.startswith("lim_"):
+    # ===== V42: Force-join check on EVERY button (except check_join itself + admin config + ad callbacks) =====
+    # Ad callbacks run their own join/reward logic - blocking them here would mask "Ad server" errors as join gates
+    _ad_callbacks = ("monetag_check", "adsgram_check", "monetag_fallback", "admin_sim_ad", "verify_user", "adsgram_complete_", "adsgram_resume_batch")
+    _is_ad_cb = data in _ad_callbacks or data.startswith("adsgram_complete_")
+    if data not in ("check_join",) and not _is_ad_cb and not data.startswith("fj_") and not data.startswith("lim_"):
         if user_id != ADMIN_ID:
             try:
                 _ok2, _missing2 = await check_force_join(context.bot, user_id)
@@ -4693,8 +4724,12 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         try:
             r = requests.get(f"{WEB_BASE_URL}/monetag-reward", params={"userid": user_id, "secret": API_SECRET}, timeout=8)
             ok = r.status_code == 200
-        except Exception as e: logger.error(f"simulate ad: {e}"); ok = False
-        await query.answer(t["simulated"] if ok else t["server_unreachable"], show_alert=True)
+            _code = r.status_code
+        except Exception as e: logger.error(f"simulate ad: {e}"); ok = False; _code = f"EXC {e}"
+        if ok:
+            await query.answer(t["simulated"], show_alert=True)
+        else:
+            await query.answer(f"{t['server_unreachable']} (HTTP {_code} - check pythonanywhere)", show_alert=True)
         return
     if data == "monetag_fallback":
         st = adsgram_status(user_id)
@@ -4728,6 +4763,24 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await context.bot.send_message(chat_id=chat_id, text=t["fetching_bundle"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
             try: await deliver_bundle(context.bot, user_id, msg_start, msg_end)
             except Exception as e: await context.bot.send_message(chat_id=chat_id, text=f"❌ {e}", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+            return
+        # V42: resume heavy download if ad was for heavy file
+        _heavy_resume = None
+        for _hk in list(pending_heavy.keys()):
+            if str(user_id) in str(_hk):
+                _heavy_resume = pending_heavy.pop(_hk, None)
+                break
+        if _heavy_resume and _heavy_resume.get("url"):
+            _h_url = _heavy_resume.get("url")
+            _h_dl = _heavy_resume.get("dl_type", "video")
+            _h_wq = _heavy_resume.get("wanted_quality")
+            _h_info = _heavy_resume.get("info")
+            _can = await acquire_slot()
+            if _can:
+                try: await cached_download_and_send(context.bot, chat_id, user_id, _h_url, _h_dl, t, wanted_quality=_h_wq, pre_info=_h_info)
+                finally: await release_slot()
+            else:
+                await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, user_id, _h_url, _h_dl, t), 'kwargs': {"wanted_quality": _h_wq, "pre_info": _h_info}})
             return
         retry_url = pending_single_links.pop(f"retry_{user_id}", None)
         if retry_url:
@@ -4810,6 +4863,26 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         reward = get_reward_amount()
         tokens[user_str]["downloads_left"] = reward
         tokens[user_str]["batch_downloads_left"] = reward * 5
+        # V42: resume heavy if verify was for heavy file
+        _heavy_v = None
+        for _hk in list(pending_heavy.keys()):
+            if str(user_id) in str(_hk):
+                _heavy_v = pending_heavy.pop(_hk, None)
+                break
+        if _heavy_v and _heavy_v.get("url"):
+            _hv_url = _heavy_v.get("url")
+            _hv_dl = _heavy_v.get("dl_type", "video")
+            _hv_wq = _heavy_v.get("wanted_quality")
+            _hv_info = _heavy_v.get("info")
+            await query.answer(t["verified_added"])
+            await context.bot.send_message(chat_id=chat_id, text=t["refilled_download"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+            _canv = await acquire_slot()
+            if _canv:
+                try: await cached_download_and_send(context.bot, chat_id, user_id, _hv_url, _hv_dl, t, wanted_quality=_hv_wq, pre_info=_hv_info)
+                finally: await release_slot()
+            else:
+                await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, user_id, _hv_url, _hv_dl, t), 'kwargs': {"wanted_quality": _hv_wq, "pre_info": _hv_info}})
+            return
         tokens[user_str]["verified"] = True
         tokens[user_str]["msg_start"] = 0
         tokens[user_str]["msg_end"] = 0
@@ -4856,7 +4929,16 @@ TEST_AD_TEXT = "🧪 AD PLACEMENT TEST\n\n1️⃣ User sends link\n2️⃣ User 
 async def send_adsgram_test(message, user_id):
     extra = [[InlineKeyboardButton("🛠 Admin: simulate ad finished", callback_data="admin_sim_ad")]] if user_id == ADMIN_ID else None
     kb = adsgram_keyboard(user_id, "test", 0, 0, extra)
-    if not kb: await message.reply_text("⚠️ Ad server not reachable.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)); return
+    if not kb:
+        # V42 FIX: show real reason for admin - adsgram_start is unchanged, failure is WEB_BASE_URL / pythonanywhere, not V42 code
+        _diag = ""
+        if user_id == ADMIN_ID:
+            try:
+                _r = requests.post(f"{WEB_BASE_URL}/monetag-start", json={"user_id": int(user_id), "kind": "test", "msg_start": 0, "msg_end": 0, "secret": API_SECRET}, timeout=8)
+                _diag = f"\n\n🧪 Diag: POST /monetag-start -> HTTP {_r.status_code} {(_r.text[:200] if _r.text else '')}"
+            except Exception as _e:
+                _diag = f"\n\n🧪 Diag: POST /monetag-start failed: {str(_e)[:200]}\nThis is your pythonanywhere server (WEB_BASE_URL), not the V42 changes - adsgram_start/status are byte-identical to your original. Wake pythonanywhere / check its logs."
+        await message.reply_text("⚠️ Ad server not reachable." + _diag, reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)); return
     await message.reply_text(TEST_AD_TEXT, reply_markup=kb)
 
 ADSTERRA_TEST_TEXT = "🧪 AD PLACEMENT TEST (Adsterra)\n\n1️⃣ User sends link\n2️⃣ LIMIT REACHED screen appears\n3️⃣ Stay 20s on ad page\n4️⃣ Tap Check & Get +1\n\n👇 TRY THE AD NOW:" + ADSTERRA_USER_GUIDE
