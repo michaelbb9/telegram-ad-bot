@@ -1920,11 +1920,15 @@ def format_metadata_caption(info, platform=""):
         short = desc[:280].replace("\n", " ")
         lines.append(f"📝 {_v27_escape_html(short)}")
     return "\n".join(lines)
-def check_limits_for_meta(meta, limits, user_id):
+def check_limits_for_meta(meta, limits, user_id, requested_quality=None):
     is_admin = (user_id == ADMIN_ID)
     dur = int((meta or {}).get("duration") or 0)
     est_bytes = int((meta or {}).get("estimated_bytes") or 0)
     est_mb = est_bytes / (1024*1024) if est_bytes else 0
+    # V28 FIX: estimate is for ~720p. If user already picked lower quality, scale it down, otherwise lower quality still blocks in a loop.
+    if requested_quality:
+        _scale = {"1080p": 1.4, "720p": 1.0, "480p": 0.45, "360p": 0.28, "240p": 0.15, "auto": 1.0}.get(requested_quality, 1.0)
+        est_mb = est_mb * _scale
     max_minutes = int(limits.get("max_minutes", 10))
     max_mb = int(limits.get("max_mb", 200))
     heavy_mb = int(limits.get("heavy_mb", 100))
@@ -1959,6 +1963,14 @@ def _v27_cost_for_size_mb(size_mb, limits, duration_sec=0):
     if size_mb > heavy_mb or (duration_sec and duration_sec >= max_minutes*60):
         return heavy_cost
     return normal_cost
+def _v29_quality_rank(q):
+    return {"1080p": 5, "720p": 4, "480p": 3, "360p": 2, "240p": 1, "worst": 0, "cached": 99, "auto": 99, "best": 99}.get(str(q or "").lower(), 99)
+def _v29_highest_cached(cached_qualities):
+    order = ["1080p", "720p", "480p", "360p", "240p", "worst"]
+    for q in order:
+        if q in (cached_qualities or {}):
+            return q
+    return None
 def _v27_get_user_credits(user_id):
     try:
         _toks = load_tokens()
@@ -2659,22 +2671,31 @@ def download_media_engine(url: str, download_type: str, max_mb=None, requested_q
         raise ValueError("NO_IMAGES")
     else:
         # V27 ADD-ONLY: if no quality picked, tiers are EXACTLY original. If a quality is picked, try it first then fall back to original lower tiers.
-        _orig_tiers = [
+        # V28 FIX: 240p was missing, picking 240p downloaded 1080p then got deleted as too big.
+        _orig_tiers_no240 = [
             ("1080p", "bv*[height<=1080]+ba/b[height<=1080]"),
             ("720p", "bv*[height<=720]+ba/b[height<=720]"),
             ("480p", "bv*[height<=480]+ba/b[height<=480]"),
             ("360p", "bv*[height<=360]+ba/b[height<=360]"),
             ("worst", "worst")
         ]
+        _full_tiers = [
+            ("1080p", "bv*[height<=1080]+ba/b[height<=1080]"),
+            ("720p", "bv*[height<=720]+ba/b[height<=720]"),
+            ("480p", "bv*[height<=480]+ba/b[height<=480]"),
+            ("360p", "bv*[height<=360]+ba/b[height<=360]"),
+            ("240p", "bv*[height<=240]+ba/b[height<=240]"),
+            ("worst", "worst")
+        ]
         if requested_quality and requested_quality not in ("auto", "best", "original", "lux"):
-            _wanted = [t for t in _orig_tiers if t[0] == requested_quality]
+            _wanted = [t for t in _full_tiers if t[0] == requested_quality]
             if _wanted:
-                _idx = _orig_tiers.index(_wanted[0])
-                tiers = _wanted + [t for t in _orig_tiers[_idx+1:]]
+                _idx = _full_tiers.index(_wanted[0])
+                tiers = _wanted + [t for t in _full_tiers[_idx+1:]]
             else:
-                tiers = _orig_tiers
+                tiers = _orig_tiers_no240
         else:
-            tiers = _orig_tiers
+            tiers = _orig_tiers_no240
         too_big = False
         yt_blocked = False
         last_err = None
@@ -3258,9 +3279,9 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             _ls_c.pop(str(user_id), None); save_linking_states(_ls_c)
             await update.message.reply_text("❌ Cancelled. Back to main menu.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
             return
-    # V27: Required channels gate - every message, admin bypass, Cancel/Limits/Channels/Language pass so gate never deadlocks
-    _gate_exempt = text.strip() in ("❌ Cancel", "❌ Cancel / Exit", "/cancel", "Cancel", "📏 Download Limits", "📢 Required Channels", "🌍 Language", t.get("menu_lang","🌍 Language"), "🟢 Bot Status")
-    if user_id != ADMIN_ID and not _gate_exempt and not text.strip().startswith("/addchannel"):
+    # V28 FIX: gate ONLY for links and download menus, not every message. Gating support / language / cancel deadlocked users.
+    _is_download_intent = ("http" in text.lower()) or text.strip() in ("🔄 Change Batch Channel", "🔗 File-to-Link", "📢 Broadcast", "⚡ Create Flash Drop")
+    if user_id != ADMIN_ID and _is_download_intent and not text.strip().startswith("/addchannel"):
         try:
             _joined_g, _missing_g = await check_required_channels(context.bot, user_id)
             if not _joined_g:
@@ -3804,7 +3825,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, reque
 
     if ckey in cache and cache[ckey].get("type") in ("video", "images", "audio"):
         cached_qualities = cache[ckey].get("qualities", {})
-        if dl_type == 'video': qualities_order = ["1080p", "720p", "480p", "360p", "worst"]
+        if dl_type == 'video': qualities_order = ["1080p", "720p", "480p", "360p", "240p", "worst"]
         elif dl_type == 'audio': qualities_order = ["audio"]
         else: qualities_order = ["original"]
             
@@ -3813,6 +3834,17 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, reque
             if q in cached_qualities:
                 best_cached_quality = q
                 break
+        # V29: Highest-cached rule. If user asked for LOWER quality but cache has HIGHER, give them the higher cached (do not downgrade).
+        # If user asked for HIGHER quality than anything cached, do NOT return low cached, fall through to fresh download at requested quality so cache gains the higher one.
+        if best_cached_quality and dl_type == 'video' and requested_quality and str(requested_quality).lower() not in ("auto", "best", "cached", "original", "lux"):
+            _req_rank = _v29_quality_rank(requested_quality)
+            _cached_rank = _v29_quality_rank(best_cached_quality)
+            if _req_rank > _cached_rank:
+                # Need higher than cached - skip cache hit entirely, go to fresh download below
+                best_cached_quality = None
+            else:
+                # Requested is lower or equal - keep best_cached_quality as highest cached, ignore requested
+                pass
                 
         if best_cached_quality:
             try:
@@ -3884,7 +3916,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, reque
         except:
             _v27_meta_caption = ""
     if dl_type == "video" and _v27_meta and not _v27_is_admin:
-        _v27_chk = check_limits_for_meta(_v27_meta, _v27_limits, user_id)
+        _v27_chk = check_limits_for_meta(_v27_meta, _v27_limits, user_id, requested_quality)
         if _v27_chk.get("blocked"):
             if _v27_chk.get("block_reason") == "duration":
                 await bot.send_message(chat_id=chat_id, text=f"⏱️ <b>Too long</b>\nThis video is {_v27_format_duration(_v27_chk['duration_sec'])} but the limit for {_v27_platform} is {_v27_limits['max_minutes']} mins.\nTry a shorter video.", parse_mode="HTML", reply_markup=get_main_keyboard(get_lang(user_id), False))
@@ -3922,11 +3954,11 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, reque
         LAST_CAROUSEL_TRACE.clear()
         file_paths, res, size = await asyncio.wait_for(
             asyncio.to_thread(download_media_engine, url, dl_type, effective_max_mb, requested_quality, _v27_progress_job, _v27_limits), timeout=420)
+        # V28 FIX: do NOT cancel progress here - keep it for uploading phase. Only mark downloading done, set phase to uploading.
         try:
             if _v27_progress_job and _v27_progress_job in _PROGRESS_STATES:
-                _PROGRESS_STATES[_v27_progress_job]["done"] = True
-            if _v27_progress_task:
-                _v27_progress_task.cancel()
+                _PROGRESS_STATES[_v27_progress_job]["phase"] = "uploading"
+                _PROGRESS_STATES[_v27_progress_job]["debug"] = "Download done, uploading..."
         except:
             pass
         if user_id == ADMIN_ID and LAST_CAROUSEL_TRACE:
@@ -3943,7 +3975,10 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, reque
                     for _p in file_paths:
                         try: os.remove(_p)
                         except: pass
-                    await bot.send_message(chat_id=chat_id, text=f"📦 <b>Too big after download</b>\nActual {_v27_actual_mb:.1f} MB &gt; limit {_v27_limits['max_mb']} MB. Try lower quality.", parse_mode="HTML")
+                    if requested_quality in ("240p", "360p"):
+                        await bot.send_message(chat_id=chat_id, text=f"📦 <b>Too big after download</b>\nActual {_v27_actual_mb:.1f} MB &gt; limit {_v27_limits['max_mb']} MB even at {requested_quality}. Try a shorter video.", parse_mode="HTML")
+                    else:
+                        await bot.send_message(chat_id=chat_id, text=f"📦 <b>Too big after download</b>\nActual {_v27_actual_mb:.1f} MB &gt; limit {_v27_limits['max_mb']} MB. Try lower quality.", parse_mode="HTML")
                     try: await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
                     except: pass
                     return False
@@ -3981,6 +4016,13 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, reque
                 asyncio.create_task(schedule_deletion(bot, chat_id, [r["message_id"] for r in results] + [warn.message_id], 540))
             finally:
                 shutil.rmtree(os.path.dirname(file_paths[0]), ignore_errors=True)
+            try:
+                if _v27_progress_job and _v27_progress_job in _PROGRESS_STATES:
+                    _PROGRESS_STATES[_v27_progress_job]["done"] = True
+                if _v27_progress_task:
+                    _v27_progress_task.cancel()
+            except:
+                pass
             await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
             deduct_download_counter(user_id, is_batch=False)
             await bot.send_message(chat_id=chat_id, text=t["download_success"], reply_markup=kb)
@@ -4023,6 +4065,13 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, reque
             
         cache[ckey]["hits"] = cache[ckey].get("hits", 0) + 1
         save_json_file(CACHE_FILE, cache)
+        try:
+            if _v27_progress_job and _v27_progress_job in _PROGRESS_STATES:
+                _PROGRESS_STATES[_v27_progress_job]["done"] = True
+            if _v27_progress_task:
+                _v27_progress_task.cancel()
+        except:
+            pass
         await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
         deduct_download_counter(user_id, is_batch=False)
         # V27: heavy fresh download - original deduct above paid 1, pay remaining so total is 3. Normal stays 1. Admin still pays 1 as original.
@@ -4208,11 +4257,13 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if len(_parts) == 3:
             _qual = _parts[1]
             _pk = _parts[2]
+            if _qual == "cached":
+                _qual = None
             _url2 = pending_single_links.pop(_pk, None)
             _meta2 = pending_single_links.pop(_pk + "_meta", None)
             if not _url2:
                 await query.answer(t["batch_expired"], show_alert=True); return
-            await query.answer(f"Quality {_qual} selected")
+            await query.answer(f"Quality {(_qual or 'Highest Cached')} selected")
             try: await query.message.delete()
             except: pass
             _can = await acquire_slot()
@@ -4473,23 +4524,44 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         _peek_url = pending_single_links.get(payload_key, None)
         if not _peek_url: await query.answer(t["batch_expired"], show_alert=True); return
         _peek_meta = pending_single_links.get(payload_key + "_meta", None)
-        _peek_ckey = await get_canonical_key(_peek_url, chat_id, context.bot)
+        # V29: For YouTube always show picker, but include highest cached info. Low request will still get highest cached instantly via smart logic in cached_download_and_send.
         _peek_cache = load_json_file(CACHE_FILE)
-        _is_cached = _peek_ckey in _peek_cache
-        if fmt_type == 'vid' and get_platform_key(_peek_url) == "youtube" and not _is_cached:
+        _is_cached = False
+        _highest_cached_txt = ""
+        _highest_cached_val = None
+        try:
+            _yt_id_peek = youtube_id_from_url(_peek_url) if callable(globals().get("youtube_id_from_url")) else None
+            if _yt_id_peek:
+                _ck_peek = f"youtube_{_yt_id_peek}"
+                _is_cached = _ck_peek in _peek_cache
+                if _is_cached:
+                    _cq = _peek_cache.get(_ck_peek, {}).get("qualities", {})
+                    _highest_cached_val = _v29_highest_cached(_cq)
+                    if _highest_cached_val:
+                        _highest_cached_txt = f"\n💾 Highest cached: {_highest_cached_val} - picking lower will still give you {_highest_cached_val} instantly."
+            else:
+                _is_cached = False
+        except:
+            _is_cached = False
+        if fmt_type == 'vid' and get_platform_key(_peek_url) == "youtube":
             await query.answer("Pick quality")
             try: await query.message.delete()
             except: pass
             _lim_q = get_platform_limits("youtube")
-            _qkb = [
+            _qkb = []
+            if _highest_cached_val:
+                _qkb.append([InlineKeyboardButton(f"⚡ Use Highest Cached {_highest_cached_val} - Instant", callback_data=f"qual_cached_{payload_key}")])
+            _qkb.extend([
                 [InlineKeyboardButton("🎬 1080p (largest)", callback_data=f"qual_1080p_{payload_key}")],
                 [InlineKeyboardButton("🎬 720p (HD)", callback_data=f"qual_720p_{payload_key}")],
                 [InlineKeyboardButton("🎬 480p", callback_data=f"qual_480p_{payload_key}")],
                 [InlineKeyboardButton("🎬 360p (small)", callback_data=f"qual_360p_{payload_key}")],
                 [InlineKeyboardButton("🎬 240p (smallest)", callback_data=f"qual_240p_{payload_key}")],
                 [InlineKeyboardButton("⚡ Auto (best that fits limit)", callback_data=f"qual_auto_{payload_key}")],
-            ]
+            ])
             _qtxt = f"🎬 <b>Pick YouTube quality</b>\nLimit: {_lim_q['max_minutes']} mins • {_lim_q['max_mb']} MB • over {_lim_q['heavy_mb']}MB = {_lim_q['heavy_cost']} credits\nIf your pick is too big, I will tell you to pick lower."
+            if _highest_cached_txt:
+                _qtxt += _highest_cached_txt
             if _peek_meta and _peek_meta.get("duration"):
                 _qtxt += f"\n⏱️ This video: {_v27_format_duration(_peek_meta.get('duration'))}"
             await context.bot.send_message(chat_id=chat_id, text=_qtxt, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(_qkb))
