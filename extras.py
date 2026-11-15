@@ -77,7 +77,7 @@ SITE_DOMAINS = {"youtube": ("youtube.com", "youtu.be"), "tiktok": ("tiktok.com",
                 "pinterest": ("pinterest.", "pin.it"), "threads": ("threads.net", "threads.com"),
                 "vimeo": ("vimeo.com",), "dailymotion": ("dailymotion.com", "dai.ly"), "twitch": ("twitch.tv",)}
 CANCEL_WORDS = ("❌ Cancel", "/cancel", "Cancel", "cancel")
-YT_ID_RE = re.compile(r'(?:youtu\.be/|youtube\.com/(?:watch\?(?:[^#\s]*&)?v=|shorts/|live/|embed/))([A-Za-z0-9_-]{11})')
+YT_ID_RE = re.compile(r'(?:youtu\.be/|youtube\.com/(?:watch\?(?:[^#\s]*&)?v=|shorts/|live/|embed/)|music\.youtube\.com/watch\?(?:[^#\s]*&)?v=)([A-Za-z0-9_-]{11})')
 
 
 # =====================================================================
@@ -536,7 +536,7 @@ def _remember_quality(user_id, url, cap):
 
 
 def _recall_quality(user_id, url):
-    hit = QUALITY_MEMORY.get((user_id, url))
+    hit = QUALITY_MEMORY.pop((user_id, url), None)
     if hit and time.time() - hit[1] < 1800:
         return hit[0]
     return None
@@ -619,14 +619,15 @@ async def _fresh_download(bot, chat_id, user_id, url, dl_type, t, ckey, cap, sit
             await _send_block(bot, chat_id, user_id, url, site, est, lim, duration, kb)
             return False
         if d["action"] == "ads":
+            if cap is not None:
+                _remember_quality(user_id, url, cap)
             await send_refill_prompt(bot, chat_id, user_id, t, url, d["cost"], have)
             return False
         cost = d["cost"]
     elif dl_type == "audio":
         qlabel = "MP3 192kbps"
 
-    if cap is not None:
-        _remember_quality(user_id, url, cap)
+
 
     # ---- status card ----
     if dl_type in ("video", "audio"):
@@ -765,6 +766,8 @@ async def _fresh_download(bot, chat_id, user_id, url, dl_type, t, ckey, cap, sit
         if isinstance(e, LimitHit) and e.kind == "SIZE":
             err = f"❌ This video is about {e.size_mb:.0f}MB, over the {e.limit_mb}MB limit." + (" Pick a lower quality." if site == "youtube" else "")
         elif isinstance(e, LimitHit) and e.kind == "CREDITS":
+            if cap is not None:
+                _remember_quality(user_id, url, cap)
             await show_error(bot, chat_id, status_msg, "⏳ One moment…", kb)
             await send_refill_prompt(bot, chat_id, user_id, t, url, e.need, e.have)
             return False
@@ -830,7 +833,7 @@ async def _cache_hit(bot, chat_id, user_id, url, dl_type, t, ckey, cap, site, is
     if entry.get("type") not in ("video", "images", "audio"):
         return None
     cq = entry.get("qualities", {})
-    best = next((q for q in _quality_order(dl_type, cap) if q in cq), None)
+    best = next((q for q in _quality_order(dl_type, None) if q in cq), None)
     if not best:
         return None
     cached = cq[best]
@@ -995,11 +998,18 @@ async def on_fmt_vid(update, context):
                 try: await q.message.edit_text(BLOCKED_TEXT)
                 except Exception: pass
                 raise ApplicationHandlerStop
-            # no quality list available: carry on with the normal automatic download
-            G["pending_single_links"].pop(key, None)
-            try: await q.message.delete()
-            except Exception: pass
-            await _launch(context, chat_id, user_id, t, url, None)
+            # Show standard quality choices even if probe was slow so user can always pick
+            fallback_rows = [
+                [InlineKeyboardButton("⭐ Auto (best that fits)", callback_data=f"ytq_auto_{key}")],
+                [InlineKeyboardButton("🎞 1080p", callback_data=f"ytq_1080_{key}"),
+                 InlineKeyboardButton("🎞 720p", callback_data=f"ytq_720_{key}")],
+                [InlineKeyboardButton("🎞 480p", callback_data=f"ytq_480_{key}"),
+                 InlineKeyboardButton("🎞 360p", callback_data=f"ytq_360_{key}")],
+                [InlineKeyboardButton("❌ Cancel", callback_data=f"ytq_cancel_{key}")]
+            ]
+            await q.message.edit_text("🎬 YouTube Video
+
+Choose a quality:", reply_markup=InlineKeyboardMarkup(fallback_rows))
             raise ApplicationHandlerStop
         dur = info.get("duration") or 0
         title = _clean(info.get("title"), 70)
