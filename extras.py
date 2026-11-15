@@ -19,9 +19,8 @@
 #     which quality the user picked. No second download.
 #   - Same video requested twice at the same time: the 2nd request waits for
 #     the 1st download and then gets it from the cache.
-#   - Quality picker shows EVERY time for EVERY user. Picking "Auto" no longer
-#     re-uses an older choice, and if the size lookup fails the menu still
-#     shows (without sizes) instead of silently downloading on Auto.
+#   - Picking "Auto" in the quality picker no longer re-uses an older choice.
+#     (YouTube picker itself is exactly the original.)
 #   - Reward panel: Monetag ads now give the amount set in "\U0001f381 Set Reward"
 #     (before, the ad server always gave +1). Ad buttons show the real amount.
 #
@@ -1021,32 +1020,6 @@ def _yt_menu(info, user_id, key):
     return InlineKeyboardMarkup(rows)
 
 
-def _yt_menu_plain(key):
-    """Menu without sizes, used when the size lookup fails (the user can still choose)."""
-    rows = [[InlineKeyboardButton("\u2b50 Auto (best that fits)", callback_data=f"ytq_auto_{key}")]]
-    for H in (1080, 720, 480, 360):
-        rows.append([InlineKeyboardButton(f"\U0001f39e {H}p", callback_data=f"ytq_{H}_{key}")])
-    rows.append([InlineKeyboardButton("\U0001f39e Lowest", callback_data=f"ytq_0_{key}")])
-    rows.append([InlineKeyboardButton("\u274c Cancel", callback_data=f"ytq_cancel_{key}")])
-    return InlineKeyboardMarkup(rows)
-
-
-async def _cached_note(url, chat_id, bot):
-    """'\u26a1 Already saved in 1080p\u2026' line for the quality menu, or ''."""
-    try:
-        ckey = await G["get_canonical_key"](url, chat_id, bot)
-        entry = G["load_json_file"](G["CACHE_FILE"]).get(ckey) or {}
-        if entry.get("type") != "video":
-            return ""
-        qs = sorted([q for q, v in (entry.get("qualities") or {}).items()
-                     if q not in ("audio", "original") and (v or {}).get("file_id")], key=_qrank, reverse=True)
-        if not qs:
-            return ""
-        return f"\n\u26a1 Already saved in {', '.join(qs)}: any choice sends it instantly."
-    except Exception:
-        return ""
-
-
 def _yt_button(info, site, cap, label, dur, is_admin, key):
     est = est_size(info, cap)
     d = evaluate(site, dur, est, is_admin, None)
@@ -1096,22 +1069,23 @@ async def on_fmt_vid(update, context):
             raise ApplicationHandlerStop
         try: await q.message.edit_text("\u23f3 Checking the available qualities\u2026")
         except Exception: pass
-        info = await probe(url, timeout=25)
-        note = await _cached_note(url, chat_id, context.bot)
+        info = await probe(url, timeout=15)
         if not info or not heights_available(info):
-            if user_id != _admin() and blocked_for("youtube") and not note:
+            if user_id != _admin() and blocked_for("youtube"):
                 G["pending_single_links"].pop(key, None)
                 try: await q.message.edit_text(BLOCKED_TEXT)
                 except Exception: pass
                 raise ApplicationHandlerStop
-            # sizes unavailable: STILL let the user choose (never silently fall back to Auto)
-            await q.message.edit_text("\U0001f3ac Choose a quality:\n(I couldn't read the file sizes right now)" + note,
-                                      reply_markup=_yt_menu_plain(key))
+            # no quality list available: carry on with the normal automatic download
+            G["pending_single_links"].pop(key, None)
+            try: await q.message.delete()
+            except Exception: pass
+            await _launch(context, chat_id, user_id, t, url, None)
             raise ApplicationHandlerStop
         dur = info.get("duration") or 0
         title = _clean(info.get("title"), 70)
         text = (f"\U0001f3ac {title}\n\u23f1 {int(dur // 60)}m {int(dur % 60)}s\n\n"
-                f"Choose a quality:\n\U0001f39e normal \u00b7 \u26a1 uses extra credits \u00b7 \U0001f6ab too big{note}")
+                f"Choose a quality:\n\U0001f39e normal \u00b7 \u26a1 uses extra credits \u00b7 \U0001f6ab too big")
         await q.message.edit_text(text, reply_markup=_yt_menu(info, user_id, key))
     except ApplicationHandlerStop:
         raise
@@ -1623,8 +1597,7 @@ def init(g):
     if _INITED:
         return
     _INITED = True
-    print("EXTRAS LOADED OK (v2: cache any quality + picker every time + reward fix)", flush=True)
-    logger.warning("EXTRAS LOADED OK (v2)")
+    print("EXTRAS LOADED OK (v3: original YouTube picker + cache any quality + reward fix)", flush=True)
     for name in ("cached_download_and_send", "deduct_download_counter", "get_canonical_key", "get_main_keyboard"):
         _ORIG[name] = g[name]
 
