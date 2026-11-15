@@ -18,6 +18,7 @@
 # =====================================================================
 import asyncio
 import contextvars
+import copy
 import logging
 import os
 import re
@@ -40,6 +41,27 @@ G = {}                                   # main program's globals (filled by ini
 # ---------------------------------------------------------------------
 CTX_REPORTER = contextvars.ContextVar("extras_reporter", default=None)
 CTX_QUALITY = contextvars.ContextVar("extras_quality", default=None)   # None=auto, 0=lowest, else max height
+CTX_PROBE = contextvars.ContextVar("extras_probe", default=None)       # (url, info) already fetched: do not ask the site twice
+
+# when a site says "sign in to confirm you are not a bot" we stop hammering it for a while
+_BLOCKED_UNTIL = {}
+BLOCK_SECONDS = 90
+
+
+def looks_blocked(msg):
+    m = str(msg).lower()
+    return "not a bot" in m or "sign in to confirm" in m or "site_blocked" in m or "http error 429" in m
+
+
+def mark_blocked(site):
+    _BLOCKED_UNTIL[site] = time.time() + BLOCK_SECONDS
+
+
+def blocked_for(site):
+    return max(0, int(_BLOCKED_UNTIL.get(site, 0) - time.time()))
+
+
+BLOCKED_TEXT = "⚠️ This site is blocking downloads from our server right now. Please try again in a few minutes."
 
 DEFAULT_LIMITS = {"max_minutes": 10, "max_mb": 200, "heavy_mb": 100, "heavy_cost": 3}
 LIMIT_LABELS = {"max_minutes": "⏱ Max minutes", "max_mb": "📦 Max size (MB)",
@@ -146,15 +168,23 @@ def _probe_sync(url):
     return info
 
 
-async def probe(url):
+def peek_probe(url):
+    """Cached metadata only (never touches the network)."""
+    hit = _PROBE_CACHE.get(url)
+    return hit[1] if hit and time.time() - hit[0] < 600 else None
+
+
+async def probe(url, timeout=30):
     """Metadata for a link, or None. Cached for 10 minutes."""
     now = time.time()
     hit = _PROBE_CACHE.get(url)
     if hit and now - hit[0] < 600:
         return hit[1]
     try:
-        info = await asyncio.wait_for(asyncio.to_thread(_probe_sync, url), timeout=30)
+        info = await asyncio.wait_for(asyncio.to_thread(_probe_sync, url), timeout=timeout)
     except Exception as e:
+        if looks_blocked(e):
+            mark_blocked(site_of(url))
         logger.info(f"probe failed for {url[:60]}: {type(e).__name__}")
         return None
     if info:
@@ -569,8 +599,14 @@ async def _send_block(bot, chat_id, user_id, url, site, est_bytes, lim, duration
 async def _fresh_download(bot, chat_id, user_id, url, dl_type, t, ckey, cap, site, is_admin, kb, cache):
     g = G
     info = None
+    if dl_type in ("video", "audio") and not is_admin and blocked_for(site):
+        await bot.send_message(chat_id=chat_id, text=BLOCKED_TEXT, reply_markup=kb)
+        return False
     if dl_type in ("video", "audio"):
         info = await probe(url)
+        if info is None and not is_admin and blocked_for(site):
+            await bot.send_message(chat_id=chat_id, text=BLOCKED_TEXT, reply_markup=kb)
+            return False
     duration = (info or {}).get("duration")
     est, qlabel = (None, "Auto")
     cost = 1
@@ -600,6 +636,7 @@ async def _fresh_download(bot, chat_id, user_id, url, dl_type, t, ckey, cap, sit
         rep = None
     tok_rep = CTX_REPORTER.set(rep)
     tok_q = CTX_QUALITY.set(cap)
+    tok_p = CTX_PROBE.set((url, info) if (info and dl_type == "video") else None)
     trace = g.get("LAST_CAROUSEL_TRACE")
     try:
         free_mb = shutil.disk_usage(".").free // (1024 * 1024)
@@ -737,8 +774,9 @@ async def _fresh_download(bot, chat_id, user_id, url, dl_type, t, ckey, cap, sit
                 key = f"single_{user_id}_{int(time.time())}"
                 g["pending_single_links"][key] = url
                 markup = InlineKeyboardMarkup([[InlineKeyboardButton("🎞 Choose a lower quality", callback_data=f"fmt_vid_{key}")]])
-        elif "SITE_BLOCKED" in msg:
-            err = "⚠️ This site is blocking downloads from our server right now. Please try again later."
+        elif looks_blocked(msg):
+            mark_blocked(site)
+            err = BLOCKED_TEXT
         elif "MTPROTO_OFF" in msg:
             err = "⚠️ Big files need fast mode, which is offline right now."
         elif "MTPROTO_PEER" in msg:
@@ -752,6 +790,7 @@ async def _fresh_download(bot, chat_id, user_id, url, dl_type, t, ckey, cap, sit
     finally:
         CTX_REPORTER.reset(tok_rep)
         CTX_QUALITY.reset(tok_q)
+        CTX_PROBE.reset(tok_p)
 
 
 def effective_limit(site, is_admin):
@@ -908,6 +947,27 @@ def _yt_button(info, site, cap, label, dur, is_admin, key):
     return InlineKeyboardButton(f"{icon} {label} · ~{fmt_mb(est)}{extra}", callback_data=f"ytq_{cap}_{key}")
 
 
+async def _launch(context, chat_id, user_id, t, url, cap):
+    """Start the video download exactly like the normal format buttons do (slot / queue)."""
+    lang = G["get_lang"](user_id)
+    ckey = await G["get_canonical_key"](url, chat_id, context.bot)
+    cache = G["load_json_file"](G["CACHE_FILE"])
+    if ckey in cache:
+        await run_with_quality(context.bot, chat_id, user_id, url, "video", t, cap)
+        return
+    if await G["acquire_slot"]():
+        try:
+            await run_with_quality(context.bot, chat_id, user_id, url, "video", t, cap)
+        finally:
+            await G["release_slot"]()
+    else:
+        pos = G["download_queue"].qsize() + 1
+        await G["download_queue"].put({"func": run_with_quality, "args": (context.bot, chat_id, user_id, url, "video", t, cap), "kwargs": {}})
+        free_mb = shutil.disk_usage(".").free // (1024 * 1024)
+        await context.bot.send_message(chat_id=chat_id, text=t["server_busy"].format(G["active_downloads"], G["MAX_CONCURRENT_SHORT"], free_mb, pos),
+                                       parse_mode="Markdown", reply_markup=G["get_main_keyboard"](lang, user_id == _admin()))
+
+
 async def on_fmt_vid(update, context):
     q = update.callback_query
     try:
@@ -915,20 +975,43 @@ async def on_fmt_vid(update, context):
         url = G["pending_single_links"].get(key)
         if not url or not YT_ID_RE.search(url) or not _cfg().get("yt_quality_menu", True):
             return                                   # not YouTube: the normal flow continues
-        info = await probe(url)
+        user_id, chat_id = q.from_user.id, q.message.chat_id
+        t = G["LANGUAGES"].get(G["get_lang"](user_id), G["LANGUAGES"]["en"])
+        try:
+            await q.answer()                         # answer FIRST: Telegram drops taps that wait for slow lookups
+        except Exception:
+            pass
+        if user_id != _admin() and blocked_for("youtube"):
+            G["pending_single_links"].pop(key, None)
+            try: await q.message.edit_text(BLOCKED_TEXT)
+            except Exception: pass
+            raise ApplicationHandlerStop
+        try: await q.message.edit_text("⏳ Checking the available qualities…")
+        except Exception: pass
+        info = await probe(url, timeout=15)
         if not info or not heights_available(info):
-            return
+            if user_id != _admin() and blocked_for("youtube"):
+                G["pending_single_links"].pop(key, None)
+                try: await q.message.edit_text(BLOCKED_TEXT)
+                except Exception: pass
+                raise ApplicationHandlerStop
+            # no quality list available: carry on with the normal automatic download
+            G["pending_single_links"].pop(key, None)
+            try: await q.message.delete()
+            except Exception: pass
+            await _launch(context, chat_id, user_id, t, url, None)
+            raise ApplicationHandlerStop
         dur = info.get("duration") or 0
         title = _clean(info.get("title"), 70)
         text = (f"🎬 {title}\n⏱ {int(dur // 60)}m {int(dur % 60)}s\n\n"
                 f"Choose a quality:\n🎞 normal · ⚡ uses extra credits · 🚫 too big")
-        await q.answer()
-        await q.message.edit_text(text, reply_markup=_yt_menu(info, q.from_user.id, key))
+        await q.message.edit_text(text, reply_markup=_yt_menu(info, user_id, key))
     except ApplicationHandlerStop:
         raise
     except Exception as e:
-        logger.error(f"quality menu failed, using the normal flow: {e}")
-        return
+        logger.error(f"quality menu failed: {e}")
+        try: await q.message.edit_text("⚠️ Couldn't load the qualities. Please send the link again.")
+        except Exception: pass
     raise ApplicationHandlerStop
 
 
@@ -949,38 +1032,21 @@ async def on_ytq(update, context):
         raise ApplicationHandlerStop
     url = G["pending_single_links"].get(key)
     if not url:
-        await q.answer(t.get("batch_expired", "Expired, send the link again."), show_alert=True)
+        await q.answer("Expired, please send the link again.", show_alert=True)
         raise ApplicationHandlerStop
     cap = None if capstr == "auto" else int(capstr)
-    if cap is not None and user_id != _admin():
-        info = await probe(url)
-        if info:
-            est = est_size(info, cap)
-            d = evaluate("youtube", info.get("duration"), est, False, None)
-            if d["action"] == "block":
-                await q.answer(f"🚫 About {fmt_mb(est)}, over the {d['limits']['max_mb']}MB limit. Pick a lower quality.", show_alert=True)
-                raise ApplicationHandlerStop
+    info = peek_probe(url)                           # cached copy only: no waiting on the network here
+    if cap is not None and user_id != _admin() and info:
+        est = est_size(info, cap)
+        d = evaluate("youtube", info.get("duration"), est, False, None)
+        if d["action"] == "block":
+            await q.answer(f"🚫 About {fmt_mb(est)}, over the {d['limits']['max_mb']}MB limit. Pick a lower quality.", show_alert=True)
+            raise ApplicationHandlerStop
     G["pending_single_links"].pop(key, None)
-    await q.answer(t.get("checking_vault", "Checking…"))
+    await q.answer()
     try: await q.message.delete()
     except Exception: pass
-    lang = G["get_lang"](user_id)
-    ckey = await G["get_canonical_key"](url, chat_id, context.bot)
-    cache = G["load_json_file"](G["CACHE_FILE"])
-    if ckey in cache:
-        await run_with_quality(context.bot, chat_id, user_id, url, "video", t, cap)
-        raise ApplicationHandlerStop
-    if await G["acquire_slot"]():
-        try:
-            await run_with_quality(context.bot, chat_id, user_id, url, "video", t, cap)
-        finally:
-            await G["release_slot"]()
-    else:
-        pos = G["download_queue"].qsize() + 1
-        await G["download_queue"].put({"func": run_with_quality, "args": (context.bot, chat_id, user_id, url, "video", t, cap), "kwargs": {}})
-        free_mb = shutil.disk_usage(".").free // (1024 * 1024)
-        await context.bot.send_message(chat_id=chat_id, text=t["server_busy"].format(G["active_downloads"], G["MAX_CONCURRENT_SHORT"], free_mb, pos),
-                                       parse_mode="Markdown", reply_markup=G["get_main_keyboard"](lang, user_id == _admin()))
+    await _launch(context, chat_id, user_id, t, url, cap)
     raise ApplicationHandlerStop
 
 
@@ -1403,6 +1469,14 @@ def init(g):
                     m = re.search(r"height<=(\d+)", str(self.params.get("format") or ""))
                     if m and int(m.group(1)) > cap:
                         raise yt_dlp.utils.DownloadError("TIER_SKIPPED")
+                pre = CTX_PROBE.get()
+                if pre is not None and pre[0] == url and not a and not k:
+                    try:                         # same result, but without another request to the site
+                        return self.process_ie_result(copy.deepcopy(pre[1]), download=True)
+                    except yt_dlp.utils.DownloadError:
+                        raise
+                    except Exception as e:
+                        logger.warning(f"reusing probe failed, asking the site again: {type(e).__name__}: {e}")
             return super().extract_info(url, download, *a, **k)
 
     yt_dlp.YoutubeDL = PatchedYDL
