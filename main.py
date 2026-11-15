@@ -83,6 +83,209 @@ FILE_LINKS_FILE = "file_links.json"
 FILE_LINK_STATE_FILE = "file_link_states.json"
 FILE_LINK_STORAGE_ID = -1003906423952
 FORCE_JOIN_FILE = "force_join_channels.json"
+DOWNLOAD_LIMITS_FILE = "download_limits.json"
+pending_heavy = {}
+pending_single_meta = {}
+pending_single_links = {}
+
+def detect_platform(url):
+    try: u = (url or "").lower()
+    except: return "other"
+    if "youtube.com" in u or "youtu.be" in u: return "youtube"
+    if "tiktok.com" in u or "vt.tiktok" in u: return "tiktok"
+    if "instagram.com" in u or "instagr.am" in u: return "instagram"
+    if "facebook.com" in u or "fb.watch" in u or "fb.gg" in u: return "facebook"
+    if "twitter.com" in u or "x.com" in u: return "twitter"
+    if "threads.net" in u or "threads.com" in u: return "threads"
+    if "pinterest" in u or "pin.it" in u: return "pinterest"
+    if "reddit.com" in u or "redd.it" in u: return "reddit"
+    if "snapchat.com" in u: return "snapchat"
+    if "twitch.tv" in u: return "twitch"
+    if "vimeo.com" in u: return "vimeo"
+    if "dailymotion.com" in u: return "dailymotion"
+    return "other"
+
+PLATFORM_LABELS = {"default": "🌐 Default (All Sites)", "youtube": "▶️ YouTube", "tiktok": "🎵 TikTok", "instagram": "📸 Instagram", "facebook": "📘 Facebook", "twitter": "🐦 Twitter / X", "threads": "🧵 Threads", "pinterest": "📌 Pinterest", "reddit": "👽 Reddit", "snapchat": "👻 Snapchat", "twitch": "🎮 Twitch", "vimeo": "🎞️ Vimeo", "dailymotion": "📺 Dailymotion", "other": "🔗 Other Sites"}
+
+def _default_limit_entry():
+    return {"max_minutes": 10, "max_mb": 200, "heavy_mb": 100, "heavy_cost": 3}
+
+def load_download_limits():
+    d = load_json_file(DOWNLOAD_LIMITS_FILE)
+    if not isinstance(d, dict) or not d:
+        d = {"default": _default_limit_entry()}
+        for k in ["youtube","tiktok","instagram","facebook","twitter","threads","pinterest","reddit","snapchat","twitch","vimeo","dailymotion","other"]:
+            d[k] = dict(_default_limit_entry())
+        try: save_json_file(DOWNLOAD_LIMITS_FILE, d)
+        except: pass
+        return d
+    if "default" not in d: d["default"] = _default_limit_entry()
+    return d
+
+def get_limits_for_url(url):
+    limits = load_download_limits()
+    plat = detect_platform(url)
+    base = limits.get("default", _default_limit_entry())
+    over = limits.get(plat, {})
+    if not isinstance(over, dict): over = {}
+    merged = {**_default_limit_entry(), **base, **over}
+    try:
+        merged["max_minutes"] = int(merged.get("max_minutes", 10))
+        merged["max_mb"] = float(merged.get("max_mb", 200))
+        merged["heavy_mb"] = float(merged.get("heavy_mb", 100))
+        merged["heavy_cost"] = int(merged.get("heavy_cost", 3))
+    except: pass
+    return plat, merged
+
+def fetch_full_info(url):
+    ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True}
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if info and isinstance(info, dict) and 'entries' in info and info.get('entries'):
+                for e in info['entries']:
+                    if e: info = e; break
+            return info or {}
+    except Exception as e:
+        logger.warning(f"fetch_full_info fail {url}: {e}")
+        return {}
+
+def estimate_size_mb(info, wanted_quality=None):
+    try:
+        if not info or not isinstance(info, dict): return None
+        for k in ("filesize", "filesize_approx"):
+            v = info.get(k)
+            if v:
+                try: return float(v) / (1024*1024)
+                except: pass
+        fmts = info.get("formats") or []
+        if fmts and wanted_quality:
+            try: target_h = int(str(wanted_quality).replace("p","").replace("worst","0"))
+            except: target_h = 720
+            cands = []
+            for f in fmts:
+                try:
+                    h = f.get("height") or 0
+                    if h and h <= target_h and f.get("vcodec") not in (None, "none"): cands.append(f)
+                except: continue
+            if cands:
+                cands.sort(key=lambda x: ((x.get("height") or 0), (x.get("filesize_approx") or x.get("filesize") or 0)))
+                best = cands[-1]
+                sz = best.get("filesize") or best.get("filesize_approx")
+                if sz: return float(sz) / (1024*1024)
+        return None
+    except: return None
+
+def get_user_credits(user_id):
+    try:
+        tokens = load_tokens()
+        prof = tokens.get(str(user_id), {})
+        if isinstance(prof, dict): return int(prof.get("downloads_left", get_free_amount()) or 0)
+        return get_free_amount()
+    except: return get_free_amount()
+
+def deduct_credits_amount(user_id, amount):
+    if user_id == ADMIN_ID: return
+    try:
+        tokens = load_tokens()
+        prof = tokens.get(str(user_id))
+        if not isinstance(prof, dict): prof = {"user_id": int(user_id), "downloads_left": get_free_amount(), "batch_downloads_left": get_free_amount()*5, "last_reset": time.time()}
+        prof["downloads_left"] = max(0, int(prof.get("downloads_left", 0)) - int(amount))
+        tokens[str(user_id)] = prof
+        save_tokens(tokens)
+    except Exception as e: logger.warning(f"deduct_credits_amount fail: {e}")
+
+def evaluate_limits(info, url, user_id, wanted_quality=None):
+    plat, lim = get_limits_for_url(url)
+    max_sec = int(lim.get("max_minutes", 10)) * 60
+    max_mb = float(lim.get("max_mb", 200))
+    heavy_mb = float(lim.get("heavy_mb", 100))
+    heavy_cost = int(lim.get("heavy_cost", 3))
+    duration = 0; est_mb = None
+    if info and isinstance(info, dict):
+        try: duration = int(info.get("duration") or 0)
+        except: duration = 0
+        est_mb = estimate_size_mb(info, wanted_quality)
+    if user_id == ADMIN_ID:
+        return {"allowed": True, "cost": 0, "block": None, "need_ad": False, "duration": duration, "est_mb": est_mb, "plat": plat, "limits": lim, "heavy": False}
+    if duration > max_sec and est_mb is not None and est_mb > max_mb:
+        return {"allowed": False, "cost": 0, "block": "both", "need_ad": False, "duration": duration, "est_mb": est_mb, "plat": plat, "limits": lim, "heavy": False}
+    if duration > max_sec:
+        cost = heavy_cost; credits = get_user_credits(user_id)
+        return {"allowed": credits >= cost, "cost": cost, "block": None if credits >= cost else "need_credits_duration", "need_ad": credits < cost, "duration": duration, "est_mb": est_mb, "plat": plat, "limits": lim, "heavy": True}
+    if est_mb is not None and est_mb > max_mb:
+        return {"allowed": False, "cost": 0, "block": "size", "need_ad": False, "duration": duration, "est_mb": est_mb, "plat": plat, "limits": lim, "heavy": False}
+    if est_mb is not None and est_mb > heavy_mb:
+        cost = heavy_cost; credits = get_user_credits(user_id)
+        return {"allowed": credits >= cost, "cost": cost, "block": None if credits >= cost else "need_credits_heavy", "need_ad": credits < cost, "duration": duration, "est_mb": est_mb, "plat": plat, "limits": lim, "heavy": True}
+    return {"allowed": True, "cost": 1, "block": None, "need_ad": False, "duration": duration, "est_mb": est_mb, "plat": plat, "limits": lim, "heavy": False}
+
+def build_heavy_ad_keyboard(user_id, payload_key, dl_type, wanted_quality):
+    bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
+    kb = [[InlineKeyboardButton("🔓 Watch Ad To Refill +1", url=bridge_link)], [InlineKeyboardButton("✅ Check & Retry", callback_data=f"retry_heavy_{payload_key}")], [InlineKeyboardButton("⬇️ Try Lower Quality", callback_data=f"lowerq_{payload_key}")]]
+    return InlineKeyboardMarkup(kb)
+
+def download_limits_admin_keyboard():
+    limits = load_download_limits()
+    kb = []
+    for p in ["default","youtube","tiktok","instagram","facebook","twitter","threads","other"]:
+        entry = limits.get(p, _default_limit_entry())
+        label = PLATFORM_LABELS.get(p, p)
+        kb.append([InlineKeyboardButton(f"{label} - {entry.get('max_minutes',10)} min / {entry.get('max_mb',200):.0f}MB / Heavy {entry.get('heavy_mb',100):.0f}MB = {entry.get('heavy_cost',3)}cr", callback_data=f"lim_edit_{p}")])
+    kb.append([InlineKeyboardButton("⬅ Back", callback_data="lim_back")])
+    return InlineKeyboardMarkup(kb)
+
+def download_limits_edit_keyboard(platform):
+    limits = load_download_limits()
+    entry = limits.get(platform, _default_limit_entry())
+    kb = [[InlineKeyboardButton(f"⏱️ Minutes: {entry.get('max_minutes',10)}", callback_data=f"lim_minutes_{platform}")], [InlineKeyboardButton(f"💾 Max Size: {entry.get('max_mb',200):.0f}MB", callback_data=f"lim_maxmb_{platform}")], [InlineKeyboardButton(f"⚖️ Heavy From: {entry.get('heavy_mb',100):.0f}MB", callback_data=f"lim_heavymb_{platform}")], [InlineKeyboardButton(f"💳 Heavy Cost: {entry.get('heavy_cost',3)} credits", callback_data=f"lim_heavycost_{platform}")], [InlineKeyboardButton("⬅ Back to Limits", callback_data="lim_list")]]
+    return InlineKeyboardMarkup(kb)
+
+# --- PROGRESS + METADATA (from V42, safe port - does NOT touch ad/deduction) ---
+def progress_bar(pct):
+    try: pct = int(max(0, min(100, pct)))
+    except: pct = 0
+    filled = int(round(pct / 10))
+    return "■" * filled + "□" * (10 - filled) + f" ≈{pct}%"
+
+def format_progress_text(title, quality, pct, stage="Preparing the file"):
+    safe_title = (title or "Video")[:60]
+    qline = f"\n🎬 {quality}" if quality else ""
+    return f"🎬 {safe_title}{qline}\n\n🔄 {stage}:\n{progress_bar(pct)}"
+
+def format_number(n):
+    try: return f"{int(n):,}"
+    except: return str(n) if n is not None else "0"
+
+def format_metadata_caption(info, url=None):
+    if not info or not isinstance(info, dict): return ""
+    author = info.get("uploader") or info.get("channel") or info.get("uploader_id") or info.get("artist") or "Unknown"
+    username_raw = info.get("uploader_id") or info.get("channel_id") or info.get("uploader") or ""
+    username = ""
+    if username_raw:
+        username = str(username_raw).strip()
+        if username and not username.startswith("@"): username = "@" + username
+    region = info.get("location") or info.get("region") or info.get("country") or info.get("language") or "—"
+    if region == "—":
+        for k in ("country_code", "region_code"):
+            if info.get(k): region = info.get(k); break
+    views = info.get("view_count") or info.get("views") or 0
+    likes = info.get("like_count") or info.get("likes") or 0
+    comments = info.get("comment_count") or info.get("comments") or 0
+    shares = info.get("repost_count") or info.get("share_count") or info.get("shares") or info.get("repost") or 0
+    desc = (info.get("description") or "").strip().replace("\n", " ")
+    if len(desc) > 300: desc = desc[:300] + "..."
+    lines = []
+    lines.append(f"🎬 Author : {author}")
+    if username: lines.append(f"👤 Username : {username}")
+    lines.append(f"🌍 Region : {region}")
+    if views: lines.append(f"▶️ Views : {format_number(views)}")
+    if likes: lines.append(f"❤️ Likes : {format_number(likes)}")
+    lines.append(f"💬 Comments : {format_number(comments)}")
+    if shares: lines.append(f"🔗 Shares : {format_number(shares)}")
+    if desc: lines.append(f"📝 Description : {desc}")
+    return "\n".join(lines)
+
 
 def get_force_join_channels():
     # Channels shown in Join Channel button + checked in verify_user. Defaults to the 1 channel from top of file.
@@ -2386,6 +2589,7 @@ def get_main_keyboard(lang_code, is_admin):
     ]
     if is_admin:
         keyboard.append([KeyboardButton("/stats"), KeyboardButton("/toggleads")])
+        keyboard.append([KeyboardButton("⚙️ Download Limits")])
         keyboard.append([KeyboardButton("📢 Force Join Channels")])
         keyboard.append([KeyboardButton("/testad"), KeyboardButton("/adinfo")])
         keyboard.append([KeyboardButton("/tokencheck"), KeyboardButton("/broadcast")])
@@ -2632,6 +2836,22 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)]]
             await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             break
+        # HEAVY batch pre-check: skip over-limit / need-ad items before downloading
+        try:
+            if user_id != ADMIN_ID and download_type in ("video", "audio"):
+                _b_info = await asyncio.to_thread(fetch_full_info, url)
+                if not isinstance(_b_info, dict): _b_info = {}
+                _b_eval = evaluate_limits(_b_info, url, user_id, None)
+                if _b_eval.get("block") in ("size", "both"):
+                    await bot.send_message(chat_id=chat_id, text=f"❌ [{index}/{len(urls)}] Skipped - Over Limit\n🎬 {(_b_info.get('title') or 'Video')[:60]}\nLimits: {_b_eval['limits'].get('max_minutes')} min / {_b_eval['limits'].get('max_mb'):.0f}MB - Pick lower quality / shorter video.")
+                    fail_count += 1
+                    continue
+                if _b_eval.get("need_ad"):
+                    await bot.send_message(chat_id=chat_id, text=f"💳 [{index}/{len(urls)}] Needs {_b_eval.get('cost')} credits (Heavy)\n🎬 {(_b_info.get('title') or 'Video')[:60]}\nYou have {get_user_credits(user_id)} credits. Watch ad to refill, then resend batch.")
+                    fail_count += 1
+                    continue
+        except Exception as _be:
+            logger.warning(f"batch heavy check fail: {_be}")
         status_msg = await bot.send_message(chat_id=chat_id, text=f"📥 [{index}/{len(urls)}] {t['dl_video']}")
         try:
             ckey = await get_canonical_key(url, chat_id, bot)
@@ -3043,6 +3263,9 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             context.user_data.pop("fj_adding", None); return
         else:
             await update.message.reply_text("Send @username or https://t.me/... to add, or tap Cancel.", reply_markup=get_main_keyboard(lang, True)); return
+    if text.strip() == "⚙️ Download Limits" and user_id == ADMIN_ID:
+        await update.message.reply_text("⚙️ **Download Limits - Per Platform**\n\nDefault: 10 min / 200MB / Heavy 100MB = 3 credits\nTap a platform to change its minutes / MB / heavy cost.", reply_markup=download_limits_admin_keyboard(), parse_mode="Markdown")
+        return
     if text == "🟢 Bot Status": await status_command(update, context); return
     if text.strip() in ("🧪 Test Ad", "📢 Ad Info"):
         if user_id != ADMIN_ID: await update.message.reply_text("✅ Menu updated.", reply_markup=get_main_keyboard(lang, False)); return
@@ -3167,12 +3390,31 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     url = extracted_urls[0]
     status_preview = await update.message.reply_text("🔍 Checking link...")
     title, dur = fetch_url_metadata(url)
+    # Rich metadata extractor (V42) - Author / Username / Region / Views / Likes / Comments / Shares / Description
+    _rich_info = {}
+    try:
+        _rich_info = await asyncio.to_thread(fetch_full_info, url)
+        if not isinstance(_rich_info, dict): _rich_info = {}
+        if _rich_info:
+            pending_single_meta[url] = _rich_info
+            pending_single_meta[f"single_{user_id}"] = _rich_info
+            if _rich_info.get("title"): title = str(_rich_info.get("title"))[:60]
+    except Exception as _me:
+        logger.warning(f"rich metadata fail: {_me}")
+        _rich_info = {}
     try: await status_preview.delete()
     except: pass
     payload_key = f"single_{user_id}_{int(time.time())}"
     pending_single_links[payload_key] = url
+    pending_single_meta[payload_key] = _rich_info
     keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"fmt_vid_{payload_key}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"fmt_aud_{payload_key}")],[InlineKeyboardButton(t["btn_image"], callback_data=f"fmt_img_{payload_key}")]]
-    await update.message.reply_text(f"🎬 {title}\n⏱️ {dur}\n\n{t['ask_format']}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    _meta_txt = format_metadata_caption(_rich_info, url) if _rich_info else ""
+    _plat_pv, _lim_pv = get_limits_for_url(url)
+    _limit_hint = f"\n⚙️ Limits: {_lim_pv.get('max_minutes')} min / {_lim_pv.get('max_mb'):.0f}MB (Heavy over {_lim_pv.get('heavy_mb'):.0f}MB = {_lim_pv.get('heavy_cost')} credits)"
+    _preview = f"🎬 {title}\n⏱️ {dur}"
+    if _meta_txt: _preview += f"\n\n{_meta_txt}"
+    _preview += _limit_hint + f"\n\n{t['ask_format']}"
+    await update.message.reply_text(_preview, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
@@ -3358,7 +3600,7 @@ async def set_mtproto_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(f"✅ MTProto max upload size set to **{value}MB**", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
     except ValueError: await update.message.reply_text("❌ Invalid number.", reply_markup=get_main_keyboard("en", True))
 
-async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
+async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, pre_cost=None):
     cache = load_json_file(CACHE_FILE)
     ckey = await get_canonical_key(url, chat_id, bot)
     
@@ -3434,7 +3676,24 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
                         del cache[ckey]["qualities"][best_cached_quality]
                         save_json_file(CACHE_FILE, cache)
 
-    status_msg = await bot.send_message(chat_id=chat_id, text=t["fetching"].format(dl_type) + f"\n`{ckey}`", parse_mode="Markdown")
+    # Animated progress: shows title + bar that moves while downloading (fake 0->90%, then 100% when done)
+    _meta_anim = pending_single_meta.get(url) or {}
+    _title_anim = ((_meta_anim.get("title") or "Video")[:60] if isinstance(_meta_anim, dict) else "Video")
+    _qual_anim = "Video" if dl_type == "video" else ("Audio MP3" if dl_type == "audio" else "Images")
+    status_msg = await bot.send_message(chat_id=chat_id, text=format_progress_text(_title_anim, _qual_anim, 0, "Preparing the file"))
+    _anim_state = {"pct": 0, "stop": False, "last": ""}
+    async def _anim_poller():
+        while not _anim_state["stop"]:
+            await asyncio.sleep(2)
+            if _anim_state["stop"]: break
+            try:
+                if _anim_state["pct"] < 90: _anim_state["pct"] += 7
+                _txt = format_progress_text(_title_anim, _qual_anim, _anim_state["pct"], "Downloading")
+                if _txt != _anim_state["last"]:
+                    _anim_state["last"] = _txt
+                    await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=_txt)
+            except: break
+    _anim_task = asyncio.create_task(_anim_poller())
     try:
         free_mb = shutil.disk_usage(".").free // (1024*1024)
         min_free = get_min_free_disk_mb()
@@ -3444,6 +3703,45 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
         LAST_CAROUSEL_TRACE.clear()
         file_paths, res, size = await asyncio.wait_for(
             asyncio.to_thread(download_media_engine, url, dl_type, effective_max_mb), timeout=420)
+        try:
+            _anim_state["stop"] = True
+            try: _anim_task.cancel()
+            except: pass
+            await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=format_progress_text(_title_anim, _qual_anim, 100, "Preparing the file"))
+        except: pass
+        # HEAVY post-size check: estimate may have been None, so actual size is truth. If >200MB block, if >100MB and not already paid heavy, need 3 credits.
+        try:
+            if file_paths and user_id != ADMIN_ID and dl_type in ("video", "audio"):
+                _plat_ps, _lim_ps = get_limits_for_url(url)
+                _actual_mb_ps = 0.0
+                try: _actual_mb_ps = sum(os.path.getsize(_fp) for _fp in file_paths) / (1024*1024)
+                except: _actual_mb_ps = 0.0
+                if _actual_mb_ps > float(_lim_ps.get("max_mb", 200)):
+                    for _fp in file_paths:
+                        try: os.remove(_fp)
+                        except: pass
+                    await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ Too Big\n\n💾 Actual: {_actual_mb_ps:.1f}MB (limit {_lim_ps.get('max_mb'):.0f}MB)\n\nPick a lower quality - the file is too large.")
+                    return False
+                if _actual_mb_ps > float(_lim_ps.get("heavy_mb", 100)) and (pre_cost or 1) == 1:
+                    _need_ps = int(_lim_ps.get("heavy_cost", 3))
+                    if get_user_credits(user_id) < _need_ps:
+                        for _fp in file_paths:
+                            try: os.remove(_fp)
+                            except: pass
+                        _payload_ps = f"heavy_{user_id}_{int(time.time())}"
+                        pending_single_links[_payload_ps] = url
+                        pending_heavy[_payload_ps] = {"cost": _need_ps, "url": url, "dl_type": dl_type, "wanted_quality": None, "info": None}
+                        await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"💳 This Video Needs {_need_ps} Credits (Heavy File)\n\n💾 Actual: {_actual_mb_ps:.1f}MB (heavy over {_lim_ps.get('heavy_mb'):.0f}MB)\n💰 You have: {get_user_credits(user_id)} credits\n\nWatch an ad to refill, then tap Check & Retry.", reply_markup=build_heavy_ad_keyboard(user_id, _payload_ps, dl_type, None))
+                        return False
+                    # Has enough - will deduct extra 2 after successful send (see below, handled by caller via pre_cost==1 path - we mark it here)
+                    context_heavy_extra = _need_ps - 1
+                else:
+                    context_heavy_extra = 0
+            else:
+                context_heavy_extra = 0
+        except Exception as _ps_e:
+            logger.warning(f"post-size check fail: {_ps_e}")
+            context_heavy_extra = 0
         if user_id == ADMIN_ID and LAST_CAROUSEL_TRACE:
             try:
                 await bot.send_message(chat_id=chat_id, text="🧪 Carousel trace:\n" + "\n".join(LAST_CAROUSEL_TRACE)[:3500])
@@ -3493,7 +3791,11 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
             except: cache[ckey]["qualities"]["audio"] = {"file_id": sent_media.audio.file_id, "size": size}
             os.remove(file_paths[0])
         else:
-            sent_media = await send_video_file(bot, chat_id, chat_id, file_paths[0], f"✨ {qual_tag} Size {size} `{ckey}`", "Markdown", status_msg)
+            _meta_cap = format_metadata_caption(_meta_anim, url) if _meta_anim else ""
+            _cap_txt = f"🎬 {_title_anim}\n{qual_tag} Size {size}"
+            if _meta_cap: _cap_txt += f"\n\n{_meta_cap}"
+            _cap_txt += f"\n`{ckey}`"
+            sent_media = await send_video_file(bot, chat_id, chat_id, file_paths[0], _cap_txt, "Markdown", status_msg)
             warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
             asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
             try:
@@ -3508,10 +3810,19 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
         save_json_file(CACHE_FILE, cache)
         await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
         deduct_download_counter(user_id, is_batch=False)
+        try:
+            if 'context_heavy_extra' in locals() and context_heavy_extra and user_id != ADMIN_ID:
+                deduct_credits_amount(user_id, int(context_heavy_extra))
+        except: pass
         
         await bot.send_message(chat_id=chat_id, text=t["download_success"], reply_markup=kb)
         return True
     except Exception as e:
+        try:
+            _anim_state["stop"] = True
+            try: _anim_task.cancel()
+            except: pass
+        except: pass
         logger.error(f"DL {ckey}: {e}")
         if user_id == ADMIN_ID:
             trace_txt = ("\nTrace:\n" + "\n".join(LAST_CAROUSEL_TRACE)[:1200]) if LAST_CAROUSEL_TRACE else ""
@@ -3796,16 +4107,61 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         
         ckey = await get_canonical_key(url, chat_id, context.bot)
         cache = load_json_file(CACHE_FILE)
+        # HEAVY pre-check: 10 min / 200MB / 100MB=3cr - before downloading, so user sees block / ad prompt, not a wasted download
+        _pre_cost = 1
+        _heavy_eval = None
+        if dl_type in ("video", "audio") and user_id != ADMIN_ID and ckey not in cache:
+            try:
+                _info_fmt = await asyncio.to_thread(fetch_full_info, url)
+                if not isinstance(_info_fmt, dict): _info_fmt = {}
+                pending_single_meta[url] = _info_fmt
+                _heavy_eval = evaluate_limits(_info_fmt, url, user_id, None)
+                _pre_cost = int(_heavy_eval.get("cost", 1) or 1)
+                if _heavy_eval.get("block") in ("size", "both"):
+                    _dur_m = (_heavy_eval.get("duration", 0) or 0) / 60
+                    _est = _heavy_eval.get("est_mb")
+                    _est_txt = f"{_est:.1f}MB" if _est else "unknown size"
+                    _lim_fmt = _heavy_eval.get("limits", {})
+                    if _heavy_eval.get("block") == "both":
+                        _msg = f"❌ Too Big + Too Long\n\n🎬 {(_info_fmt.get('title') or 'Video')[:60]}\n⏱️ Duration: {_dur_m:.1f} min (limit {_lim_fmt.get('max_minutes')} min)\n💾 Estimated: {_est_txt} (limit {_lim_fmt.get('max_mb'):.0f}MB)\n\nThis video is over BOTH limits. Try a shorter video or a lower quality."
+                    else:
+                        _msg = f"⚠️ Too Big For This Quality\n\n🎬 {(_info_fmt.get('title') or 'Video')[:60]}\n💾 Estimated: {_est_txt} (limit {_lim_fmt.get('max_mb'):.0f}MB)\n⏱️ Duration: {_dur_m:.1f} min\n\nPick a lower quality - the file is too large."
+                    _payload_fmt = f"heavy_{user_id}_{int(time.time())}"
+                    pending_single_links[_payload_fmt] = url
+                    pending_heavy[_payload_fmt] = {"cost": 0, "url": url, "dl_type": dl_type, "wanted_quality": None, "info": _info_fmt}
+                    await context.bot.send_message(chat_id=chat_id, text=_msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎵 Try Audio Only", callback_data=f"fmt_aud_{_payload_fmt}")], [InlineKeyboardButton("⬇️ Try Lower Quality", callback_data=f"lowerq_{_payload_fmt}")]]))
+                    return
+                if _heavy_eval.get("need_ad"):
+                    _payload_fmt2 = f"heavy_{user_id}_{int(time.time())}"
+                    pending_single_links[_payload_fmt2] = url
+                    pending_heavy[_payload_fmt2] = {"cost": _pre_cost, "url": url, "dl_type": dl_type, "wanted_quality": None, "info": _info_fmt}
+                    _est2 = _heavy_eval.get("est_mb")
+                    _est_txt2 = f"{_est2:.1f}MB" if _est2 else "over 100MB"
+                    _lim2 = _heavy_eval.get("limits", {})
+                    _msg2 = f"💳 This Video Needs {_pre_cost} Credits (Heavy File)\n\n🎬 {(_info_fmt.get('title') or 'Video')[:60]}\n💾 Size: {_est_txt2} (heavy over {_lim2.get('heavy_mb'):.0f}MB)\n💰 You have: {get_user_credits(user_id)} credits\n\nYou need {_pre_cost} credits for this download. Watch an ad to refill, then tap Check & Retry."
+                    await context.bot.send_message(chat_id=chat_id, text=_msg2, reply_markup=build_heavy_ad_keyboard(user_id, _payload_fmt2, dl_type, None))
+                    return
+            except Exception as _he:
+                logger.warning(f"heavy pre-check fail: {_he}")
+                _pre_cost = 1
         if ckey in cache: 
-            await cached_download_and_send(context.bot, chat_id, user_id, url, dl_type, t)
+            await cached_download_and_send(context.bot, chat_id, user_id, url, dl_type, t, pre_cost=_pre_cost)
+            # If heavy and cache hit, cached_download already deducted 1 via server, deduct extra here
+            if _pre_cost and _pre_cost > 1 and user_id != ADMIN_ID:
+                try: deduct_credits_amount(user_id, int(_pre_cost - 1))
+                except: pass
             return
         can_dl = await acquire_slot()
         if can_dl:
-            try: await cached_download_and_send(context.bot, chat_id, user_id, url, dl_type, t)
+            try:
+                _ok_dl = await cached_download_and_send(context.bot, chat_id, user_id, url, dl_type, t, pre_cost=_pre_cost)
+                if _ok_dl and _pre_cost and _pre_cost > 1 and user_id != ADMIN_ID:
+                    try: deduct_credits_amount(user_id, int(_pre_cost - 1))
+                    except: pass
             finally: await release_slot()
         else:
             pos = download_queue.qsize()+1
-            await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, user_id, url, dl_type, t), 'kwargs': {}})
+            await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, user_id, url, dl_type, t), 'kwargs': {'pre_cost': _pre_cost}})
             free_mb = shutil.disk_usage(".").free // (1024*1024)
             await context.bot.send_message(chat_id=chat_id, text=t["server_busy"].format(active_downloads, MAX_CONCURRENT_SHORT, free_mb, pos), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         return
@@ -3955,6 +4311,112 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         context.user_data.pop("fj_adding", None)
         await query.answer("✅ Cancelled" if _was else "✅ Nothing to cancel", show_alert=True)
         await context.bot.send_message(chat_id=chat_id, text="✅ Cancelled. Send a link to start.", reply_markup=get_main_keyboard(lang, False))
+        return
+    if data.startswith("retry_heavy_"):
+        _payload_r = data.replace("retry_heavy_", "")
+        _heavy_r = pending_heavy.get(_payload_r)
+        if not _heavy_r:
+            _url_r = pending_single_links.get(_payload_r)
+            if not _url_r:
+                await query.answer(t["batch_expired"], show_alert=True); return
+            _heavy_r = {"url": _url_r, "dl_type": "video", "wanted_quality": None, "info": pending_single_meta.get(_url_r)}
+        _url_r = _heavy_r.get("url"); _dl_r = _heavy_r.get("dl_type", "video"); _wq_r = _heavy_r.get("wanted_quality"); _info_r = _heavy_r.get("info") or pending_single_meta.get(_url_r) or {}
+        await query.answer("Checking credits...")
+        try: await query.message.delete()
+        except: pass
+        # Re-check limits now - user may have watched ad and now has enough
+        _eval_r = evaluate_limits(_info_r, _url_r, user_id, _wq_r)
+        if _eval_r.get("block") in ("size", "both"):
+            await context.bot.send_message(chat_id=chat_id, text=f"❌ Still over limit - pick lower quality.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
+        if _eval_r.get("need_ad"):
+            await context.bot.send_message(chat_id=chat_id, text=f"💳 Still need {_eval_r.get('cost')} credits. You have {get_user_credits(user_id)}. Watch another ad.", reply_markup=build_heavy_ad_keyboard(user_id, _payload_r, _dl_r, _wq_r)); return
+        _cost_r = int(_eval_r.get("cost", 1) or 1)
+        can_dl_r = await acquire_slot()
+        if can_dl_r:
+            try:
+                _ok_r = await cached_download_and_send(context.bot, chat_id, user_id, _url_r, _dl_r, t, pre_cost=_cost_r)
+                if _ok_r and _cost_r > 1 and user_id != ADMIN_ID:
+                    try: deduct_credits_amount(user_id, int(_cost_r - 1))
+                    except: pass
+            finally: await release_slot()
+        else:
+            await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, user_id, _url_r, _dl_r, t), 'kwargs': {'pre_cost': _cost_r}})
+        return
+    if data.startswith("lowerq_"):
+        _payload_l = data.replace("lowerq_", "")
+        _url_l = pending_single_links.get(_payload_l)
+        if not _url_l:
+            await query.answer(t["batch_expired"], show_alert=True); return
+        await query.answer("Pick lower quality")
+        _kb_l = InlineKeyboardMarkup([[InlineKeyboardButton("🎬 480p / Lower", callback_data=f"fmt_vid_{_payload_l}"), InlineKeyboardButton("🎵 Audio Only", callback_data=f"fmt_aud_{_payload_l}")]])
+        await context.bot.send_message(chat_id=chat_id, text="👇 Pick a lower quality:", reply_markup=_kb_l)
+        return
+    if data == "lim_list" and user_id == ADMIN_ID:
+        await query.answer("Limits")
+        await query.message.edit_text("⚙️ **Download Limits - Per Platform**\n\nTap a platform to edit.", reply_markup=download_limits_admin_keyboard(), parse_mode="Markdown")
+        return
+    if data == "lim_back" and user_id == ADMIN_ID:
+        await query.answer("Back")
+        try: await query.message.delete()
+        except: pass
+        await context.bot.send_message(chat_id=chat_id, text="⚙️ Limits panel closed.", reply_markup=get_main_keyboard(lang, True))
+        return
+    if data.startswith("lim_edit_") and user_id == ADMIN_ID:
+        _plat_e = data.replace("lim_edit_", "")
+        await query.answer(f"{_plat_e}")
+        await query.message.edit_text(f"⚙️ **{PLATFORM_LABELS.get(_plat_e, _plat_e)}**\n\nTap what to change:", reply_markup=download_limits_edit_keyboard(_plat_e), parse_mode="Markdown")
+        return
+    if data.startswith("lim_minutes_") and user_id == ADMIN_ID:
+        _plat_m = data.replace("lim_minutes_", "")
+        _kb_m = [[InlineKeyboardButton(f"{m} min", callback_data=f"lim_set_minutes_{_plat_m}_{m}") for m in [5, 10, 15, 20, 30, 60]]]
+        _kb_m.append([InlineKeyboardButton("⬅ Back", callback_data=f"lim_edit_{_plat_m}")])
+        await query.answer("Pick minutes")
+        await query.message.edit_text(f"⏱️ Pick max minutes for **{PLATFORM_LABELS.get(_plat_m, _plat_m)}**:", reply_markup=InlineKeyboardMarkup(_kb_m), parse_mode="Markdown")
+        return
+    if data.startswith("lim_maxmb_") and user_id == ADMIN_ID:
+        _plat_mb = data.replace("lim_maxmb_", "")
+        _kb_mb = [[InlineKeyboardButton(f"{m}MB", callback_data=f"lim_set_maxmb_{_plat_mb}_{m}") for m in [50, 100, 200, 300, 500]]]
+        _kb_mb.append([InlineKeyboardButton("⬅ Back", callback_data=f"lim_edit_{_plat_mb}")])
+        await query.answer("Pick max MB")
+        await query.message.edit_text(f"💾 Pick max MB for **{PLATFORM_LABELS.get(_plat_mb, _plat_mb)}**:", reply_markup=InlineKeyboardMarkup(_kb_mb), parse_mode="Markdown")
+        return
+    if data.startswith("lim_heavymb_") and user_id == ADMIN_ID:
+        _plat_h = data.replace("lim_heavymb_", "")
+        _kb_h = [[InlineKeyboardButton(f"{m}MB", callback_data=f"lim_set_heavymb_{_plat_h}_{m}") for m in [50, 100, 150, 200]]]
+        _kb_h.append([InlineKeyboardButton("⬅ Back", callback_data=f"lim_edit_{_plat_h}")])
+        await query.answer("Pick heavy MB")
+        await query.message.edit_text(f"⚖️ Heavy starts from (MB) for **{PLATFORM_LABELS.get(_plat_h, _plat_h)}**:", reply_markup=InlineKeyboardMarkup(_kb_h), parse_mode="Markdown")
+        return
+    if data.startswith("lim_heavycost_") and user_id == ADMIN_ID:
+        _plat_c = data.replace("lim_heavycost_", "")
+        _kb_c = [[InlineKeyboardButton(f"{m} credits", callback_data=f"lim_set_heavycost_{_plat_c}_{m}") for m in [2, 3, 5]]]
+        _kb_c.append([InlineKeyboardButton("⬅ Back", callback_data=f"lim_edit_{_plat_c}")])
+        await query.answer("Pick heavy cost")
+        await query.message.edit_text(f"💳 Heavy cost (credits) for **{PLATFORM_LABELS.get(_plat_c, _plat_c)}**:", reply_markup=InlineKeyboardMarkup(_kb_c), parse_mode="Markdown")
+        return
+    if data.startswith("lim_set_minutes_") and user_id == ADMIN_ID:
+        _rest = data.replace("lim_set_minutes_", ""); _plat_s, _val_s = _rest.rsplit("_", 1)
+        _lims = load_download_limits(); _lims.setdefault(_plat_s, _default_limit_entry())["max_minutes"] = int(_val_s); save_json_file(DOWNLOAD_LIMITS_FILE, _lims)
+        await query.answer(f"✅ {_plat_s} minutes = {_val_s}", show_alert=True)
+        await query.message.edit_text(f"✅ **{PLATFORM_LABELS.get(_plat_s, _plat_s)}** max minutes = **{_val_s} min**", reply_markup=download_limits_edit_keyboard(_plat_s), parse_mode="Markdown")
+        return
+    if data.startswith("lim_set_maxmb_") and user_id == ADMIN_ID:
+        _rest = data.replace("lim_set_maxmb_", ""); _plat_s, _val_s = _rest.rsplit("_", 1)
+        _lims = load_download_limits(); _lims.setdefault(_plat_s, _default_limit_entry())["max_mb"] = float(_val_s); save_json_file(DOWNLOAD_LIMITS_FILE, _lims)
+        await query.answer(f"✅ {_plat_s} max = {_val_s}MB", show_alert=True)
+        await query.message.edit_text(f"✅ **{PLATFORM_LABELS.get(_plat_s, _plat_s)}** max size = **{_val_s}MB**", reply_markup=download_limits_edit_keyboard(_plat_s), parse_mode="Markdown")
+        return
+    if data.startswith("lim_set_heavymb_") and user_id == ADMIN_ID:
+        _rest = data.replace("lim_set_heavymb_", ""); _plat_s, _val_s = _rest.rsplit("_", 1)
+        _lims = load_download_limits(); _lims.setdefault(_plat_s, _default_limit_entry())["heavy_mb"] = float(_val_s); save_json_file(DOWNLOAD_LIMITS_FILE, _lims)
+        await query.answer(f"✅ Heavy from {_val_s}MB", show_alert=True)
+        await query.message.edit_text(f"✅ **{PLATFORM_LABELS.get(_plat_s, _plat_s)}** heavy from = **{_val_s}MB**", reply_markup=download_limits_edit_keyboard(_plat_s), parse_mode="Markdown")
+        return
+    if data.startswith("lim_set_heavycost_") and user_id == ADMIN_ID:
+        _rest = data.replace("lim_set_heavycost_", ""); _plat_s, _val_s = _rest.rsplit("_", 1)
+        _lims = load_download_limits(); _lims.setdefault(_plat_s, _default_limit_entry())["heavy_cost"] = int(_val_s); save_json_file(DOWNLOAD_LIMITS_FILE, _lims)
+        await query.answer(f"✅ Heavy cost = {_val_s}", show_alert=True)
+        await query.message.edit_text(f"✅ **{PLATFORM_LABELS.get(_plat_s, _plat_s)}** heavy cost = **{_val_s} credits**", reply_markup=download_limits_edit_keyboard(_plat_s), parse_mode="Markdown")
         return
     if data == "verify_user":
         # FIX: original checked only 1 channel and treated ANY error (bot not in channel, Telegram slow) as "not joined" - so users who DID join still got blocked.
