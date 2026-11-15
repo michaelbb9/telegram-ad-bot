@@ -1638,8 +1638,11 @@ def save_tokens(tokens):
 
 def adsgram_start(user_id, kind="wall", msg_start=0, msg_end=0):
     try:
-        reward = get_reward_amount()
-        r = requests.post(f"{WEB_BASE_URL}/monetag-start", json={"user_id": int(user_id), "kind": kind, "msg_start": int(msg_start), "msg_end": int(msg_end), "reward": reward, "reward_amount": reward, "secret": API_SECRET}, timeout=8)
+        # FIX 2: tell the ad server what the admin set (e.g. +3), so it can credit
+        # that amount instead of its hardcoded +1. Server may ignore the extra fields.
+        try: _rw = int(get_reward_amount())
+        except Exception: _rw = 1
+        r = requests.post(f"{WEB_BASE_URL}/monetag-start", json={"user_id": int(user_id), "kind": kind, "msg_start": int(msg_start), "msg_end": int(msg_end), "secret": API_SECRET, "reward": _rw, "reward_amount": _rw}, timeout=8)
         if r.status_code == 200: return r.json().get("nonce")
         logger.error(f"adsgram_start HTTP {r.status_code}: {r.text[:200]}")
     except Exception as e: logger.error(f"adsgram_start: {e}")
@@ -1656,10 +1659,13 @@ def adsgram_keyboard(user_id, kind="wall", msg_start=0, msg_end=0, extra_rows=No
     nonce = adsgram_start(user_id, kind, msg_start, msg_end)
     if not nonce: return None
     url = f"{WEB_BASE_URL}/monetag?n={nonce}&k={kind}"
+    # FIX 2: show admin's actual reward, not hardcoded +1
+    try: _rw = int(get_reward_amount())
+    except Exception: _rw = 1
     rows = [
-        [InlineKeyboardButton("📺 Watch Monetag Ad +1", web_app=WebAppInfo(url=url))],
+        [InlineKeyboardButton(f"📺 Watch Monetag Ad +{_rw}", web_app=WebAppInfo(url=url))],
         [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
-        [InlineKeyboardButton("✅ Check & Get +1", callback_data="monetag_check")],
+        [InlineKeyboardButton(f"✅ Check & Get +{_rw}", callback_data="monetag_check")],
         [InlineKeyboardButton("↪️ Use Adsterra fallback (after 2 failures)", callback_data="monetag_fallback")],
     ]
     if extra_rows: rows.extend(extra_rows)
@@ -2342,22 +2348,12 @@ def get_reward_amount():
     try: return int(load_json_file(CONFIG_FILE).get("reward_amount", 1))
     except: return 1
 def set_reward_amount(val):
-    val = int(val)
-    cfg = load_json_file(CONFIG_FILE); cfg["reward_amount"] = val; save_json_file(CONFIG_FILE, cfg)
-    try:
-        requests.post(f"{WEB_BASE_URL}/set-reward", json={"reward": val, "reward_amount": val, "secret": API_SECRET}, headers=API_HEADERS, timeout=5)
-    except Exception as e:
-        logger.warning(f"Sync reward_amount to web failed: {e}")
+    cfg = load_json_file(CONFIG_FILE); cfg["reward_amount"] = int(val); save_json_file(CONFIG_FILE, cfg)
 def get_free_amount():
     try: return int(load_json_file(CONFIG_FILE).get("free_amount", 4))
     except: return 4
 def set_free_amount(val):
-    val = int(val)
-    cfg = load_json_file(CONFIG_FILE); cfg["free_amount"] = val; save_json_file(CONFIG_FILE, cfg)
-    try:
-        requests.post(f"{WEB_BASE_URL}/set-free", json={"free": val, "free_amount": val, "secret": API_SECRET}, headers=API_HEADERS, timeout=5)
-    except Exception as e:
-        logger.warning(f"Sync free_amount to web failed: {e}")
+    cfg = load_json_file(CONFIG_FILE); cfg["free_amount"] = int(val); save_json_file(CONFIG_FILE, cfg)
 def get_free_disk_mb():
     try: return max(0, 512 - get_downloads_usage_mb())
     except: return 512
@@ -2522,7 +2518,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if assigned_network == "monetag":
         extra = [[InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")]] if user_id == ADMIN_ID else None
         kb = adsgram_keyboard(user_id, "wall", msg_start, msg_end, extra)
-        if kb: await update.message.reply_text("📺 **Sponsor**\nTap **Watch Ad**, finish the ad in the Mini App, then tap **Check & Get +1**.", reply_markup=kb, parse_mode="Markdown")
+        if kb: await update.message.reply_text(f"📺 **Sponsor**\nTap **Watch Ad**, finish the ad in the Mini App, then tap **Check & Get +{get_reward_amount()}**.", reply_markup=kb, parse_mode="Markdown")
         else: await update.message.reply_text("⚠️ Ad server busy, try again in a moment.")
         return
     bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
@@ -2560,14 +2556,14 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             if assigned_network == "monetag":
                 paused_batches[user_id] = {"urls": urls, "next_index": index-1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
                 kb = adsgram_keyboard(user_id, "wall", 0, 0)
-                await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=kb, parse_mode="Markdown")
+                await bot.send_message(chat_id=chat_id, text=t["limit_batch"].replace("+1", f"+{get_reward_amount()}").format(index, len(urls)), reply_markup=kb, parse_mode="Markdown")
                 break
             bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
             tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
             save_tokens(tokens)
             paused_batches[user_id] = {"urls": urls, "next_index": index-1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
-            keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)]]
-            await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            keyboard = [[InlineKeyboardButton(t["refill_btn"].replace("+1", f"+{get_reward_amount()}"), url=bridge_link)]]
+            await bot.send_message(chat_id=chat_id, text=t["limit_batch"].replace("+1", f"+{get_reward_amount()}").format(index, len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             break
         status_msg = await bot.send_message(chat_id=chat_id, text=f"📥 [{index}/{len(urls)}] {t['dl_video']}")
         try:
@@ -2594,7 +2590,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             # =============================================
             
             if ckey in cache and cache[ckey].get("type") == "video":
-                qualities_order = ["1080p", "720p", "480p", "360p", "worst"]
+                qualities_order = ["1080p", "720p", "480p", "360p", "worst", "original", "lux"]
                 cached_qualities = cache[ckey].get("qualities", {})
                 best_cached_quality = None
                 for q in qualities_order:
@@ -2964,7 +2960,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             assigned_network = get_global_ab_network(user_id)
             if assigned_network == "monetag":
                 kb = adsgram_keyboard(user_id, "wall", msg_start, msg_end)
-                if kb: await update.message.reply_text(t["limit_reached"], reply_markup=kb, parse_mode="Markdown")
+                if kb: await update.message.reply_text(t["limit_reached"].replace("+1", f"+{get_reward_amount()}"), reply_markup=kb, parse_mode="Markdown")
                 else: await update.message.reply_text("⚠️ Ad server busy, try again in a moment.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
                 return
             else:
@@ -2973,8 +2969,8 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                     await asyncio.sleep(0.2)
                 except: pass
                 bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
-                keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")]]
-                await update.message.reply_text(t["limit_reached"] + ADSTERRA_USER_GUIDE, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+                keyboard = [[InlineKeyboardButton(f"🔓 Open Link & Watch Timer ⏰ 20s +{get_reward_amount()}", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(f"💜 Check & Get Files ✅ +{get_reward_amount()}", callback_data="verify_user")]]
+                await update.message.reply_text(t["limit_reached"].replace("+1", f"+{get_reward_amount()}") + ADSTERRA_USER_GUIDE, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 return
     if active_batch_sessions.get(user_id, False): return
     if update.message.forward_origin and getattr(update.message.forward_origin, 'type', None) == 'channel':
@@ -3093,7 +3089,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
     free_mb = shutil.disk_usage(".").free // (1024*1024)
     cache = load_json_file(CACHE_FILE)
-    await update.message.reply_text(f"🟢 **Status V38 Monetag**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown", reply_markup=get_main_keyboard(get_lang(update.message.from_user.id), update.message.from_user.id == ADMIN_ID))
+    await update.message.reply_text(f"🟢 **Status V38 Monetag**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +{get_reward_amount()} per ad\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown", reply_markup=get_main_keyboard(get_lang(update.message.from_user.id), update.message.from_user.id == ADMIN_ID))
 
 async def restore_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_user.id != ADMIN_ID: return
@@ -3105,7 +3101,7 @@ async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     config = load_json_file(CONFIG_FILE)
     mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
     keyboard = [[InlineKeyboardButton("🔄 Auto", callback_data="set_ad_auto")],[InlineKeyboardButton("📺 Monetag", callback_data="set_ad_monetag")],[InlineKeyboardButton("🌐 Adsterra", callback_data="set_ad_adsterra")]]
-    await update.message.reply_text(f"Ad Panel: {mode}\nReward: +1 optimum", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await update.message.reply_text(f"Ad Panel: {mode}\nReward: +{get_reward_amount()} per ad", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID: return
@@ -3209,7 +3205,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
 
     if ckey in cache and cache[ckey].get("type") in ("video", "images", "audio"):
         cached_qualities = cache[ckey].get("qualities", {})
-        if dl_type == 'video': qualities_order = ["1080p", "720p", "480p", "360p", "worst"]
+        if dl_type == 'video': qualities_order = ["1080p", "720p", "480p", "360p", "worst", "original", "lux"]
         elif dl_type == 'audio': qualities_order = ["audio"]
         else: qualities_order = ["original"]
             
@@ -3428,12 +3424,12 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     assigned_network = get_global_ab_network(user_id)
                     if assigned_network == "monetag":
                         kb = adsgram_keyboard(user_id, "wall", 0, 0)
-                        if kb: await query.message.reply_text(t["limit_reached"], reply_markup=kb, parse_mode="Markdown")
+                        if kb: await query.message.reply_text(t["limit_reached"].replace("+1", f"+{get_reward_amount()}"), reply_markup=kb, parse_mode="Markdown")
                         else: await query.message.reply_text(t["fl_ad_busy"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
                     else:
                         bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
-                        reward_kb = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get +1", callback_data="verify_user")]]
-                        await query.message.reply_text(t["limit_reached"] + ADSTERRA_USER_GUIDE, reply_markup=InlineKeyboardMarkup(reward_kb), parse_mode="Markdown")
+                        reward_kb = [[InlineKeyboardButton(f"🔓 Open Link & Watch Timer ⏰ 20s +{get_reward_amount()}", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(f"💜 Check & Get +{get_reward_amount()}", callback_data="verify_user")]]
+                        await query.message.reply_text(t["limit_reached"].replace("+1", f"+{get_reward_amount()}") + ADSTERRA_USER_GUIDE, reply_markup=InlineKeyboardMarkup(reward_kb), parse_mode="Markdown")
                     return
                 profile["downloads_left"] = remaining - 1
                 tokens[str(user_id)] = profile; save_tokens(tokens)
@@ -3639,7 +3635,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             r = requests.get(f"{WEB_BASE_URL}/monetag-reward", params={"userid": user_id, "secret": API_SECRET}, timeout=8)
             ok = r.status_code == 200
         except Exception as e: logger.error(f"simulate ad: {e}"); ok = False
-        await query.answer(t["simulated"] if ok else t["server_unreachable"], show_alert=True)
+        await query.answer(t["simulated"].replace("+1", f"+{get_reward_amount()}") if ok else t["server_unreachable"], show_alert=True)
         return
     if data == "monetag_fallback":
         st = adsgram_status(user_id)
@@ -3648,28 +3644,40 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         tokens = load_tokens()
         tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
         save_tokens(tokens)
-        await query.message.reply_text(t["monetag_fallback_prompt"] + ADSTERRA_USER_GUIDE, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔓 Open Adsterra Link", url=bridge_link)], [InlineKeyboardButton("✅ Check & Get +1", callback_data="verify_user")]]), parse_mode="Markdown")
+        await query.message.reply_text(t["monetag_fallback_prompt"] + ADSTERRA_USER_GUIDE, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔓 Open Adsterra Link", url=bridge_link)], [InlineKeyboardButton(f"✅ Check & Get +{get_reward_amount()}", callback_data="verify_user")]]), parse_mode="Markdown")
         await query.answer(t["adsterra_ready"], show_alert=True)
         return
     if data in ("monetag_check", "adsgram_check"):
+        # FIX 2: remember balance BEFORE the check, so we can top-up if the server only credited +1
+        try:
+            _old_toks = load_tokens()
+            _old_left = int((_old_toks.get(str(user_id)) or {}).get("downloads_left", 0) or 0)
+        except Exception:
+            _old_left = 0
         st = adsgram_status(user_id)
         if st.get("status") == "pending": await query.answer(t["finish_monetag"], show_alert=True); return
         if st.get("status") == "fallback_available": await query.answer(t["monetag_failed_use_adsterra"], show_alert=True); return
         if st.get("status") != "done": await query.answer(t["ad_link_expired"], show_alert=True); return
-        configured_reward = get_reward_amount()
-        server_reward = int(st.get("reward", 1) or 1)
-        reward = configured_reward if (configured_reward > 1 and server_reward == 1) else server_reward
-        if reward > server_reward:
+        # FIX 2: admin panel is the source of truth, NOT the server's hardcoded 1.
+        reward = get_reward_amount()
+        if st.get("kind") != "test":
+            # Server may already have credited +1 (old behaviour). Top-up the difference
+            # so this ad credits exactly `reward` in total. If server already credited
+            # `reward`, this adds 0. If it credited 0, this adds the full reward.
             try:
-                tokens = load_tokens()
-                u_prof = tokens.get(str(user_id), {"user_id": int(user_id), "downloads_left": 0, "batch_downloads_left": 0})
-                diff = reward - server_reward
-                u_prof["downloads_left"] = int(u_prof.get("downloads_left", 0) or 0) + diff
-                u_prof["batch_downloads_left"] = int(u_prof.get("batch_downloads_left", 0) or 0) + (diff * 5)
-                tokens[str(user_id)] = u_prof
-                save_tokens(tokens)
+                _after = load_tokens()
+                _new_left = int((_after.get(str(user_id)) or {}).get("downloads_left", 0) or 0)
+                _credited = _new_left - _old_left
+                if _credited < reward:
+                    _need = int(reward) - max(0, int(_credited))
+                    _toks = load_tokens()
+                    _prof = _toks.get(str(user_id)) or {"user_id": int(user_id), "downloads_left": _new_left, "batch_downloads_left": 0, "last_reset": time.time(), "msg_start": 0, "msg_end": 0, "clicked_ad": True, "verified": True, "expires": time.time() + 600}
+                    _prof["downloads_left"] = int(_prof.get("downloads_left", _new_left) or 0) + _need
+                    _prof["batch_downloads_left"] = int(_prof.get("batch_downloads_left", 0) or 0) + _need * 5
+                    _toks[str(user_id)] = _prof
+                    save_tokens(_toks)
             except Exception as e:
-                logger.warning(f"Monetag extra reward top-up failed: {e}")
+                logger.error(f"reward top-up failed: {e}")
         try: await query.message.delete()
         except: pass
         if st.get("kind") == "test":
@@ -3754,28 +3762,28 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             reward = get_reward_amount()
             tokens[user_str] = {"user_id": int(user_id), "downloads_left": reward, "batch_downloads_left": reward * 5, "last_reset": time.time(), "msg_start": 0, "msg_end": 0, "clicked_ad": True, "verified": True, "expires": time.time() + 600}
             save_tokens(tokens)
-            await query.answer(t["test_ad_verified"], show_alert=True)
-            await query.message.reply_text(t["test_ad_verified_msg"], parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+            await query.answer(t["test_ad_verified"].replace("+1", f"+{reward}"), show_alert=True)
+            await query.message.reply_text(t["test_ad_verified_msg"].replace("+1", f"+{reward}"), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
             return
         token_data = tokens[user_str]
         if not token_data.get("verified", False): await query.answer(t["finish_timer_first"], show_alert=True); return
         msg_start, msg_end = token_data.get("msg_start",0), token_data.get("msg_end",0)
         reward = get_reward_amount()
-        cur_dl = max(0, int(tokens[user_str].get("downloads_left", 0) or 0))
-        cur_batch = max(0, int(tokens[user_str].get("batch_downloads_left", 0) or 0))
-        tokens[user_str]["downloads_left"] = cur_dl + reward
-        tokens[user_str]["batch_downloads_left"] = cur_batch + (reward * 5)
+        # FIX 2: ADD, do not overwrite. +3 means +3 on top of what they already have.
+        # Old code did "= reward" so a 2nd ad reset them to 3 instead of adding 3.
+        tokens[user_str]["downloads_left"] = int(tokens[user_str].get("downloads_left", 0) or 0) + int(reward)
+        tokens[user_str]["batch_downloads_left"] = int(tokens[user_str].get("batch_downloads_left", 0) or 0) + int(reward) * 5
         tokens[user_str]["verified"] = True
         tokens[user_str]["msg_start"] = 0
         tokens[user_str]["msg_end"] = 0
         save_tokens(tokens)
-        await query.answer(t["ad_verified_added"].format(reward))
+        await query.answer(t["verified_added"].replace("+1", f"+{reward}"))
         if user_id in paused_batches:
             keyboard = [[InlineKeyboardButton(f"▶️ Resume Batch +{reward}", callback_data="resume_batch")]]
-            await query.message.reply_text(t["refilled_send_again"].format(reward), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            await query.message.reply_text(t["resume_prompt"].replace("+1", f"+{reward}"), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             return
         if msg_start==0: 
-            await query.message.reply_text(t["refilled_send_again"].format(reward), reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+            await query.message.reply_text(t["refilled_download"].replace("+1", f"+{reward}"), reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
             return
         await query.message.reply_text(t["fetching_bundle"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         fwd_ids=[]
@@ -3802,11 +3810,11 @@ ADSTERRA_USER_GUIDE = (
     "2. Turn off VPN or proxy.\n"
     "3. Tap **Open Link** and choose **Open in browser** (not inside Telegram).\n"
     "4. Let the page load and keep it open for at least **20 seconds**.\n"
-    "5. Return here and tap **Check & Get +1**.\n\n"
+    "5. Return here and tap **Check & Get**.\n\n"
     "Detection depends on Adsterra and your browser/network; these steps do not guarantee a reward."
 )
 
-TEST_AD_TEXT = "🧪 AD PLACEMENT TEST\n\n1️⃣ User sends link\n2️⃣ User gets 4 FREE downloads\n3️⃣ LIMIT REACHED screen appears\n4️⃣ Tap Watch Ad\n5️⃣ Tap Check & Get +1\n\n👇 TRY THE AD NOW:"
+TEST_AD_TEXT = "🧪 AD PLACEMENT TEST\n\n1️⃣ User sends link\n2️⃣ User gets 4 FREE downloads\n3️⃣ LIMIT REACHED screen appears\n4️⃣ Tap Watch Ad\n5️⃣ Tap Check & Get\n\n👇 TRY THE AD NOW:"
 
 async def send_adsgram_test(message, user_id):
     extra = [[InlineKeyboardButton("🛠 Admin: simulate ad finished", callback_data="admin_sim_ad")]] if user_id == ADMIN_ID else None
@@ -3814,7 +3822,7 @@ async def send_adsgram_test(message, user_id):
     if not kb: await message.reply_text("⚠️ Ad server not reachable.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)); return
     await message.reply_text(TEST_AD_TEXT, reply_markup=kb)
 
-ADSTERRA_TEST_TEXT = "🧪 AD PLACEMENT TEST (Adsterra)\n\n1️⃣ User sends link\n2️⃣ LIMIT REACHED screen appears\n3️⃣ Stay 20s on ad page\n4️⃣ Tap Check & Get +1\n\n👇 TRY THE AD NOW:" + ADSTERRA_USER_GUIDE
+ADSTERRA_TEST_TEXT = "🧪 AD PLACEMENT TEST (Adsterra)\n\n1️⃣ User sends link\n2️⃣ LIMIT REACHED screen appears\n3️⃣ Stay 20s on ad page\n4️⃣ Tap Check & Get\n\n👇 TRY THE AD NOW:" + ADSTERRA_USER_GUIDE
 
 async def send_adsterra_test(message, user_id):
     tokens = load_tokens()
@@ -3826,7 +3834,7 @@ async def send_adsterra_test(message, user_id):
         tokens[uid] = {"user_id": int(user_id), "downloads_left": free, "batch_downloads_left": free * 5, "last_reset": now, "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": now + 600}
     save_tokens(tokens)
     bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
-    keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")]]
+    keyboard = [[InlineKeyboardButton(f"🔓 Open Link & Watch Timer ⏰ 20s +{get_reward_amount()}", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(f"💜 Check & Get Files ✅ +{get_reward_amount()}", callback_data="verify_user")]]
     await message.reply_text(ADSTERRA_TEST_TEXT, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def send_test_ad(message, user_id):
@@ -3835,14 +3843,15 @@ async def send_test_ad(message, user_id):
 
 def build_ad_info_text(user_id):
     mode = load_json_file(CONFIG_FILE).get("ad_mode", "auto")
-    monetag = "• Monetag: LIMIT REACHED screen -> Watch Ad Mini App -> Check & Get +1\n"
-    adsterra = "• Adsterra: LIMIT REACHED screen -> Open Link 20s -> Check & Get +1\n"
+    _rw = get_reward_amount()
+    monetag = f"• Monetag: LIMIT REACHED screen -> Watch Ad Mini App -> Check & Get +{_rw}\n"
+    adsterra = f"• Adsterra: LIMIT REACHED screen -> Open Link 20s -> Check & Get +{_rw}\n"
     if mode in ("monetag", "adsgram"): head, body = "Mode: MONETAG only", monetag
     elif mode == "adsterra": head, body = "Mode: ADSTERRA only", adsterra
     else:
         net = "Monetag" if get_global_ab_network(user_id) == "monetag" else "Adsterra"
         head, body = f"Mode: AUTO (you currently get {net})", monetag + adsterra
-    return ("📢 AD INFO\n\nBot: @Michaelbbcvaultbot\n" + head + "\n\n📍 Exact ad placement:\n" + body + "\n• Reward: +1 download per completed ad\n\n🧪 To test: tap 🧪 Test Ad or send /testad")
+    return ("📢 AD INFO\n\nBot: @Michaelbbcvaultbot\n" + head + "\n\n📍 Exact ad placement:\n" + body + f"\n• Reward: +{get_reward_amount()} download(s) per completed ad\n\n🧪 To test: tap 🧪 Test Ad or send /testad")
 
 async def test_ad_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
