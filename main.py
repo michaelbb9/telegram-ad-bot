@@ -1638,7 +1638,8 @@ def save_tokens(tokens):
 
 def adsgram_start(user_id, kind="wall", msg_start=0, msg_end=0):
     try:
-        r = requests.post(f"{WEB_BASE_URL}/monetag-start", json={"user_id": int(user_id), "kind": kind, "msg_start": int(msg_start), "msg_end": int(msg_end), "secret": API_SECRET}, timeout=8)
+        reward = get_reward_amount()
+        r = requests.post(f"{WEB_BASE_URL}/monetag-start", json={"user_id": int(user_id), "kind": kind, "msg_start": int(msg_start), "msg_end": int(msg_end), "reward": reward, "reward_amount": reward, "secret": API_SECRET}, timeout=8)
         if r.status_code == 200: return r.json().get("nonce")
         logger.error(f"adsgram_start HTTP {r.status_code}: {r.text[:200]}")
     except Exception as e: logger.error(f"adsgram_start: {e}")
@@ -2341,12 +2342,22 @@ def get_reward_amount():
     try: return int(load_json_file(CONFIG_FILE).get("reward_amount", 1))
     except: return 1
 def set_reward_amount(val):
-    cfg = load_json_file(CONFIG_FILE); cfg["reward_amount"] = int(val); save_json_file(CONFIG_FILE, cfg)
+    val = int(val)
+    cfg = load_json_file(CONFIG_FILE); cfg["reward_amount"] = val; save_json_file(CONFIG_FILE, cfg)
+    try:
+        requests.post(f"{WEB_BASE_URL}/set-reward", json={"reward": val, "reward_amount": val, "secret": API_SECRET}, headers=API_HEADERS, timeout=5)
+    except Exception as e:
+        logger.warning(f"Sync reward_amount to web failed: {e}")
 def get_free_amount():
     try: return int(load_json_file(CONFIG_FILE).get("free_amount", 4))
     except: return 4
 def set_free_amount(val):
-    cfg = load_json_file(CONFIG_FILE); cfg["free_amount"] = int(val); save_json_file(CONFIG_FILE, cfg)
+    val = int(val)
+    cfg = load_json_file(CONFIG_FILE); cfg["free_amount"] = val; save_json_file(CONFIG_FILE, cfg)
+    try:
+        requests.post(f"{WEB_BASE_URL}/set-free", json={"free": val, "free_amount": val, "secret": API_SECRET}, headers=API_HEADERS, timeout=5)
+    except Exception as e:
+        logger.warning(f"Sync free_amount to web failed: {e}")
 def get_free_disk_mb():
     try: return max(0, 512 - get_downloads_usage_mb())
     except: return 512
@@ -3645,7 +3656,20 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if st.get("status") == "pending": await query.answer(t["finish_monetag"], show_alert=True); return
         if st.get("status") == "fallback_available": await query.answer(t["monetag_failed_use_adsterra"], show_alert=True); return
         if st.get("status") != "done": await query.answer(t["ad_link_expired"], show_alert=True); return
-        reward = st.get("reward", 1)
+        configured_reward = get_reward_amount()
+        server_reward = int(st.get("reward", 1) or 1)
+        reward = configured_reward if (configured_reward > 1 and server_reward == 1) else server_reward
+        if reward > server_reward:
+            try:
+                tokens = load_tokens()
+                u_prof = tokens.get(str(user_id), {"user_id": int(user_id), "downloads_left": 0, "batch_downloads_left": 0})
+                diff = reward - server_reward
+                u_prof["downloads_left"] = int(u_prof.get("downloads_left", 0) or 0) + diff
+                u_prof["batch_downloads_left"] = int(u_prof.get("batch_downloads_left", 0) or 0) + (diff * 5)
+                tokens[str(user_id)] = u_prof
+                save_tokens(tokens)
+            except Exception as e:
+                logger.warning(f"Monetag extra reward top-up failed: {e}")
         try: await query.message.delete()
         except: pass
         if st.get("kind") == "test":
@@ -3737,19 +3761,21 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if not token_data.get("verified", False): await query.answer(t["finish_timer_first"], show_alert=True); return
         msg_start, msg_end = token_data.get("msg_start",0), token_data.get("msg_end",0)
         reward = get_reward_amount()
-        tokens[user_str]["downloads_left"] = reward
-        tokens[user_str]["batch_downloads_left"] = reward * 5
+        cur_dl = max(0, int(tokens[user_str].get("downloads_left", 0) or 0))
+        cur_batch = max(0, int(tokens[user_str].get("batch_downloads_left", 0) or 0))
+        tokens[user_str]["downloads_left"] = cur_dl + reward
+        tokens[user_str]["batch_downloads_left"] = cur_batch + (reward * 5)
         tokens[user_str]["verified"] = True
         tokens[user_str]["msg_start"] = 0
         tokens[user_str]["msg_end"] = 0
         save_tokens(tokens)
-        await query.answer(t["verified_added"])
+        await query.answer(t["ad_verified_added"].format(reward))
         if user_id in paused_batches:
-            keyboard = [[InlineKeyboardButton("▶️ Resume Batch +1", callback_data="resume_batch")]]
-            await query.message.reply_text(t["resume_prompt"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            keyboard = [[InlineKeyboardButton(f"▶️ Resume Batch +{reward}", callback_data="resume_batch")]]
+            await query.message.reply_text(t["refilled_send_again"].format(reward), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             return
         if msg_start==0: 
-            await query.message.reply_text(t["refilled_download"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+            await query.message.reply_text(t["refilled_send_again"].format(reward), reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
             return
         await query.message.reply_text(t["fetching_bundle"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         fwd_ids=[]
