@@ -3203,24 +3203,44 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             admin_states.pop(str(user_id), None); save_json_file(ADMIN_STATES_FILE, admin_states)
             return
         if mode == "edit_site_limits":
+            key = admin_state.get("site", "default")
+            current = get_site_limits(key)
             try:
-                duration, max_mb = [int(x) for x in re.split(r"[ ,]+", text.strip())[:2]]
-                if duration < 1 or duration > 240 or max_mb < 1 or max_mb > 2000:
+                values = [int(x) for x in re.split(r"[ ,]+", text.strip()) if x]
+                if len(values) == 2:
+                    # Backward compatibility: update duration and size only.
+                    duration, max_mb = values
+                    heavy_mb, heavy_credits = current["heavy_mb"], current["heavy_credits"]
+                elif len(values) == 4:
+                    duration, max_mb, heavy_mb, heavy_credits = values
+                else:
+                    raise ValueError
+                if (duration < 1 or duration > 240 or max_mb < 1 or max_mb > 2000
+                        or heavy_mb < 1 or heavy_mb > max_mb or heavy_credits < 1 or heavy_credits > 100):
                     raise ValueError
             except Exception:
-                await update.message.reply_text("Invalid values. Send two numbers: duration_minutes max_size_MB (example: 10 200).", reply_markup=get_main_keyboard(lang, True))
+                await update.message.reply_text(
+                    "Invalid values. Send FOUR whole numbers in this order:\n"
+                    "duration_minutes max_size_MB heavy_threshold_MB heavy_cost_credits\n"
+                    "Example: 10 200 100 3\n"
+                    "Limits: duration 1–240, max size 1–2000MB, heavy threshold 1–max size, cost 1–100 credits.",
+                    reply_markup=get_main_keyboard(lang, True))
                 return
             config = load_json_file(CONFIG_FILE)
             site_limits = config.get("site_limits", {}) if isinstance(config.get("site_limits", {}), dict) else {}
-            key = admin_state.get("site", "default")
-            current = get_site_limits(key)
-            current["duration_minutes"] = duration
-            current["size_mb"] = max_mb
+            current.update({"duration_minutes": duration, "size_mb": max_mb,
+                            "heavy_mb": heavy_mb, "heavy_credits": heavy_credits})
             site_limits[key] = current
             config["site_limits"] = site_limits
             save_json_file(CONFIG_FILE, config)
             admin_states.pop(str(user_id), None); save_json_file(ADMIN_STATES_FILE, admin_states)
-            await update.message.reply_text(f"✅ {key.title()} limits updated: {duration} minutes / {max_mb}MB. Heavy files over {current['heavy_mb']}MB still cost {current['heavy_credits']} credits.", reply_markup=get_main_keyboard(lang, True))
+            await update.message.reply_text(
+                f"✅ {key.title()} settings saved:\n"
+                f"• Maximum duration: {duration} minutes\n"
+                f"• Maximum file size: {max_mb}MB\n"
+                f"• Heavy threshold: over {heavy_mb}MB\n"
+                f"• Heavy-download cost: {heavy_credits} credits",
+                reply_markup=get_main_keyboard(lang, True))
             return
 
     fl_states = load_json_file(FILE_LINK_STATE_FILE)
@@ -3272,8 +3292,13 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         rows = []
         for key in DOWNLOAD_LIMIT_SITES:
             lim = get_site_limits(key)
-            rows.append([InlineKeyboardButton(f"{key.title()}: {lim['duration_minutes']}m / {lim['size_mb']}MB", callback_data=f"limits_site_{key}")])
-        await update.message.reply_text("⚙️ **Per-site Download Limits**\nChoose a platform to edit. Heavy downloads remain over 100MB = 3 credits.", reply_markup=InlineKeyboardMarkup(rows), parse_mode="Markdown")
+            rows.append([InlineKeyboardButton(
+                f"{key.title()}: {lim['duration_minutes']}m / {lim['size_mb']}MB | >{lim['heavy_mb']}MB={lim['heavy_credits']}cr",
+                callback_data=f"limits_site_{key}")])
+        await update.message.reply_text(
+            "⚙️ **Per-site Download Settings**\nChoose a platform. Each platform has independent settings.\n\n"
+            "You can edit maximum duration, maximum size, heavy threshold and heavy-download credit cost.",
+            reply_markup=InlineKeyboardMarkup(rows), parse_mode="Markdown")
         return
     if text == "💾 Disk Config" and user_id == ADMIN_ID:
         current = get_min_free_disk_mb()
@@ -4002,7 +4027,18 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         lim = get_site_limits(key)
         states = load_json_file(ADMIN_STATES_FILE); states[str(user_id)] = {"mode": "edit_site_limits", "site": key}; save_json_file(ADMIN_STATES_FILE, states)
         await query.answer()
-        await query.message.reply_text(f"Current {key.title()} limits: {lim['duration_minutes']} minutes / {lim['size_mb']}MB.\nSend two numbers: duration_minutes max_size_MB (example: 10 200). Heavy threshold: {lim['heavy_mb']}MB; heavy cost: {lim['heavy_credits']} credits.")
+        await query.message.reply_text(
+            f"⚙️ Edit {key.title()} settings\n\n"
+            f"Current values:\n"
+            f"1. Maximum duration: {lim['duration_minutes']} minutes\n"
+            f"2. Maximum file size: {lim['size_mb']}MB\n"
+            f"3. Heavy threshold: {lim['heavy_mb']}MB\n"
+            f"4. Heavy-download cost: {lim['heavy_credits']} credits\n\n"
+            "Send FOUR whole numbers in this exact order:\n"
+            "duration_minutes max_size_MB heavy_threshold_MB heavy_cost_credits\n\n"
+            "Example: 10 200 100 3\n"
+            "This changes this platform only. Threshold means files OVER that size cost the heavy-download price."
+        )
         return
 
     if data.startswith("fl_"):
