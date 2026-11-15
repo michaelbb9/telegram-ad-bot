@@ -2742,6 +2742,66 @@ def download_media_engine(url: str, download_type: str, max_mb=None, requested_q
                     break
                 continue
 
+        # V31 FIX: If picked quality tiers all failed, retry with ORIGINAL tiers (1080,720,480,360,worst) so picking a quality can never break a download that would have worked without picking.
+        if requested_quality and requested_quality not in ("auto", "best", "original", "lux", "cached") and not too_big and not yt_blocked:
+            _orig_retry = [
+                ("1080p", "bv*[height<=1080]+ba/b[height<=1080]"),
+                ("720p", "bv*[height<=720]+ba/b[height<=720]"),
+                ("480p", "bv*[height<=480]+ba/b[height<=480]"),
+                ("360p", "bv*[height<=360]+ba/b[height<=360]"),
+                ("worst", "worst"),
+            ]
+            for qual_name, fmt in _orig_retry:
+                # Skip tiers we already tried in the picked run to avoid double work, except worst which is the safest fallback
+                if qual_name != "worst" and qual_name in [t[0] for t in tiers]:
+                    continue
+                try:
+                    opts = dict(ydl_opts)
+                    opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, f'%(id)s_{qual_name}.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
+                    if qual_name != "worst":
+                        opts.update({'format': 'bv*+ba/b', 'format_sort': [f"res:{qual_name[:-1]}"]})
+                    # V31: also try plain best as final safety net if bv*+ba fails
+                    with yt_dlp.YoutubeDL(opts) as ydl:
+                        info = ydl.extract_info(url, download=True)
+                        path = ydl.prepare_filename(info)
+                        if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0]+".mp4"): path = os.path.splitext(path)[0]+".mp4"
+                        if os.path.exists(path):
+                            if os.path.getsize(path) > cap_bytes:
+                                os.remove(path)
+                                too_big = True
+                                continue
+                            w, h = info.get('width') or 0, info.get('height') or 0
+                            actual_height = min(w, h) if (w and h) else max(w, h)
+                            if actual_height >= 1080: best_quality = "1080p"
+                            elif actual_height >= 720: best_quality = "720p"
+                            elif actual_height >= 480: best_quality = "480p"
+                            elif actual_height >= 360: best_quality = "360p"
+                            else: best_quality = "worst"
+                            return [path], best_quality, f"{os.path.getsize(path)/(1024*1024):.1f}MB"
+                except Exception as e:
+                    last_err = e
+                    _m = str(e)
+                    if "not a bot" in _m or "Sign in to confirm" in _m or "HTTP Error 429" in _m:
+                        yt_blocked = True
+                        break
+                    if "Unsupported URL" in _m or "403" in _m:
+                        break
+                    continue
+            # Final safety net: try plain best, no sort, no height filter. This is what yt-dlp would do with no format specified.
+            if not too_big and not yt_blocked:
+                try:
+                    opts = dict(ydl_opts)
+                    opts.update({'format': 'best', 'outtmpl': os.path.join(output_dir, '%(id)s_best.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
+                    with yt_dlp.YoutubeDL(opts) as ydl:
+                        info = ydl.extract_info(url, download=True)
+                        path = ydl.prepare_filename(info)
+                        if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0]+".mp4"): path = os.path.splitext(path)[0]+".mp4"
+                        if os.path.exists(path) and os.path.getsize(path) <= cap_bytes:
+                            return [path], "best", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
+                        elif os.path.exists(path):
+                            os.remove(path)
+                except Exception as e:
+                    last_err = e
         # Instagram-specific fallback for a single Reel/video after yt-dlp fails.
         if not too_big and ("instagram.com" in url.lower() or "instagr.am" in url.lower()):
             insta_files = download_instagram_post(url, output_dir, cap_bytes, min_items=1)
@@ -3952,8 +4012,21 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, reque
         if free_mb < min_free + 150: effective_max_mb = min(effective_max_mb, 50)
             
         LAST_CAROUSEL_TRACE.clear()
-        file_paths, res, size = await asyncio.wait_for(
-            asyncio.to_thread(download_media_engine, url, dl_type, effective_max_mb, requested_quality, _v27_progress_job, _v27_limits), timeout=420)
+        # V31: try picked quality first, if it fails with format not available, auto-retry with original (no quality) so picking can never break download
+        try:
+            file_paths, res, size = await asyncio.wait_for(
+                asyncio.to_thread(download_media_engine, url, dl_type, effective_max_mb, requested_quality, _v27_progress_job, _v27_limits), timeout=420)
+        except Exception as _dl_e:
+            _dl_msg = str(_dl_e)
+            if requested_quality and ("Requested format" in _dl_msg or "format is not available" in _dl_msg or "No video formats" in _dl_msg):
+                try:
+                    await bot.send_message(chat_id=chat_id, text=f"⚠️ Picked quality {requested_quality} not available for this video, retrying with original best quality...")
+                except:
+                    pass
+                file_paths, res, size = await asyncio.wait_for(
+                    asyncio.to_thread(download_media_engine, url, dl_type, effective_max_mb, None, _v27_progress_job, _v27_limits), timeout=420)
+            else:
+                raise
         # V28 FIX: do NOT cancel progress here - keep it for uploading phase. Only mark downloading done, set phase to uploading.
         try:
             if _v27_progress_job and _v27_progress_job in _PROGRESS_STATES:
