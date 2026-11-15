@@ -79,11 +79,6 @@ CACHE_FILE = "download_cache.json"
 FLOOD_FILE = "flood_control.json"
 BANNED_FILE = "banned_users.json"
 REWARD_FILE = "reward_config.json"
-LIMITS_FILE = "download_limits.json"
-REQUIRED_CHANNELS_FILE = "required_channels.json"
-MEMBERSHIP_CACHE_TTL = 45
-_membership_cache = {}
-SELECTED_QUALITY_BY_URL = {}
 FILE_LINKS_FILE = "file_links.json"
 FILE_LINK_STATE_FILE = "file_link_states.json"
 FILE_LINK_STORAGE_ID = -1003906423952
@@ -2243,9 +2238,6 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
             ("360p", "bv*[height<=360]+ba/b[height<=360]"),
             ("worst", "worst")
         ]
-        selected_quality = SELECTED_QUALITY_BY_URL.get(url)
-        if selected_quality and selected_quality != 'auto':
-            tiers = [x for x in tiers if x[0] == f"{selected_quality}p"] + [x for x in tiers if x[0] == "worst"]
         too_big = False
         yt_blocked = False
         last_err = None
@@ -2314,147 +2306,6 @@ def download_media_engine(url: str, download_type: str, max_mb=None):
             raise ValueError("FILE_TOO_LARGE")
         raise last_err
 
-
-# ===== DOWNLOAD UX / LIMITS / REQUIRED CHANNELS PATCH =====
-DEFAULT_SITE_LIMITS = {"max_minutes": 10, "max_mb": 200, "heavy_from_mb": 100, "heavy_cost": 3}
-SITE_LABELS = {"youtube":"YouTube", "tiktok":"TikTok", "instagram":"Instagram", "facebook":"Facebook", "x":"X", "reddit":"Reddit", "other":"Other", "default":"Default"}
-
-def site_key_from_url(url):
-    host = re.sub(r'^www\\.', '', __import__('urllib.parse').parse.urlparse(url).netloc.lower())
-    if 'youtu' in host: return 'youtube'
-    if 'tiktok' in host: return 'tiktok'
-    if 'instagram' in host: return 'instagram'
-    if 'facebook' in host or 'fb.watch' in host: return 'facebook'
-    if host in ('x.com','twitter.com') or host.endswith('.x.com') or host.endswith('.twitter.com'): return 'x'
-    if 'reddit' in host or 'redd.it' in host: return 'reddit'
-    return 'other'
-
-def get_site_limits(url_or_site='default'):
-    cfg = load_json_file(LIMITS_FILE)
-    site = site_key_from_url(url_or_site) if '://' in str(url_or_site) else str(url_or_site)
-    base = dict(DEFAULT_SITE_LIMITS); base.update(cfg.get('default', {})); base.update(cfg.get(site, {}))
-    for k in DEFAULT_SITE_LIMITS:
-        try: base[k] = int(base[k])
-        except: base[k] = DEFAULT_SITE_LIMITS[k]
-    return base
-
-def save_site_limits(site, values):
-    cfg=load_json_file(LIMITS_FILE); cfg[str(site)]={**get_site_limits(site), **values}; save_json_file(LIMITS_FILE,cfg)
-
-def get_required_channels():
-    data=load_json_file(REQUIRED_CHANNELS_FILE)
-    rows=data.get('channels', []) if isinstance(data,dict) else []
-    return [r for r in rows if isinstance(r,dict) and r.get('id')]
-
-def save_required_channels(rows): save_json_file(REQUIRED_CHANNELS_FILE, {'channels': rows})
-
-async def check_required_channels(bot, user_id, force=False):
-    if user_id == ADMIN_ID: return True, []
-    now=time.time(); cached=_membership_cache.get(user_id)
-    if not force and cached and now-cached[0] < MEMBERSHIP_CACHE_TTL: return cached[1], cached[2]
-    missing=[]
-    for row in get_required_channels():
-        try:
-            m=await bot.get_chat_member(row['id'], user_id)
-            if getattr(m,'status',None) not in ('member','administrator','creator','owner'): missing.append(row)
-        except Exception as exc:
-            logger.warning('Required channel check skipped for %s: %s', row.get('id'), exc)
-            try: await bot.send_message(ADMIN_ID, f"⚠️ Required-channel check failed for {row.get('title') or row.get('id')}: {exc}")
-            except: pass
-    ok=not missing; _membership_cache[user_id]=(now,ok,missing); return ok,missing
-
-def required_channels_keyboard(missing):
-    rows=[]
-    for r in missing:
-        url=r.get('url') or (f"https://t.me/{str(r.get('username','')).lstrip('@')}" if r.get('username') else None)
-        if url: rows.append([InlineKeyboardButton(f"📢 Join {r.get('title') or r.get('username') or r.get('id')}", url=url)])
-    rows.append([InlineKeyboardButton('✅ I joined, check again', callback_data='req_check')])
-    return InlineKeyboardMarkup(rows)
-
-async def enforce_required_channels(message_or_query, bot, user_id):
-    ok,missing=await check_required_channels(bot,user_id)
-    if ok: return True
-    text='🔒 Join every required channel before using the bot. Membership is checked regularly.'
-    kb=required_channels_keyboard(missing)
-    try:
-        if hasattr(message_or_query,'answer') and hasattr(message_or_query,'message'):
-            await message_or_query.answer('Join the required channels first.', show_alert=True); await message_or_query.message.reply_text(text,reply_markup=kb)
-        else: await message_or_query.reply_text(text,reply_markup=kb)
-    except: pass
-    return False
-
-def human_mb(n):
-    if not n: return 'unknown'
-    try: return f"{int(n)/(1024*1024):.1f}MB"
-    except: return 'unknown'
-
-def progress_bar(percent):
-    pct=max(0,min(100,int(percent or 0))); filled=min(10,pct//10)
-    return '■'*filled + '□'*(10-filled) + f' ≈{pct}%'
-
-def clean_text(v, limit=700):
-    return re.sub(r'\\s+',' ',str(v or '')).strip()[:limit]
-
-def extract_public_metadata(url):
-    opts={'quiet':True,'no_warnings':True,'skip_download':True,'noplaylist':True,'socket_timeout':20}
-    if PROXY_URL: opts['proxy']=PROXY_URL
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl: info=ydl.extract_info(url,download=False)
-    except Exception: return {'title':'Media download','duration':0,'filesize':0,'formats':[]}
-    if info.get('entries'): info=next((x for x in info['entries'] if x),info)
-    size=info.get('filesize') or info.get('filesize_approx') or 0
-    return {'title':clean_text(info.get('title') or 'Media download',180),'thumbnail':info.get('thumbnail'),'duration':int(info.get('duration') or 0),'filesize':int(size or 0),'author':clean_text(info.get('uploader') or info.get('channel'),120),'username':clean_text(info.get('uploader_id') or info.get('channel_id'),120),'region':clean_text(info.get('location') or info.get('release_country'),80),'views':info.get('view_count'),'likes':info.get('like_count'),'comments':info.get('comment_count'),'shares':info.get('repost_count') or info.get('share_count'),'description':clean_text(info.get('description'),700),'formats':info.get('formats') or []}
-
-def details_caption(meta):
-    parts=[]
-    labels=(('👤 Author','author'),('🔗 Username','username'),('🌍 Region','region'),('👁 Views','views'),('❤ Likes','likes'),('💬 Comments','comments'),('↗ Shares','shares'))
-    for label,key in labels:
-        if meta.get(key) not in (None,''): parts.append(f"{label}: {meta[key]}")
-    if meta.get('description'): parts.append(f"📝 {meta['description']}")
-    return '\\n'.join(parts)[:900]
-
-def media_cost(meta, limits):
-    mb=(meta.get('filesize') or 0)/(1024*1024); minutes=(meta.get('duration') or 0)/60
-    if mb > limits['max_mb']: return None
-    if mb > limits['heavy_from_mb'] or minutes >= limits['max_minutes']: return limits['heavy_cost']
-    return 1
-
-def available_credits(user_id):
-    if user_id==ADMIN_ID: return 10**9
-    return int(load_tokens().get(str(user_id),{}).get('downloads_left',get_free_amount()) or 0)
-
-def ad_refill_keyboard(user_id):
-    if get_global_ab_network(user_id)=='monetag': return adsgram_keyboard(user_id,'wall',0,0)
-    return InlineKeyboardMarkup([[InlineKeyboardButton('📺 Watch ad to refill +1',url=f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0")],[InlineKeyboardButton('✅ Check reward',callback_data='verify_user')]])
-
-async def show_credit_prompt(bot,chat_id,user_id,needed,have,url=None):
-    if url: pending_single_links[f'retry_{user_id}']=url
-    await bot.send_message(chat_id,text=f"⚡ This download needs {needed} credits, but you have {have}. Watch ads until you have enough.",reply_markup=ad_refill_keyboard(user_id))
-
-def choose_youtube_formats(meta, limits):
-    choices=[]
-    for h in (1080,720,480,360):
-        fs=[]
-        for f in meta.get('formats',[]):
-            if f.get('vcodec') not in (None,'none') and int(f.get('height') or 0)==h:
-                fs.append(int(f.get('filesize') or f.get('filesize_approx') or 0))
-        estimate=max(fs) if fs else 0; m=estimate/(1024*1024)
-        blocked=bool(estimate and m>limits['max_mb']); heavy=bool(estimate and m>limits['heavy_from_mb'])
-        choices.append((h,estimate,blocked,limits['heavy_cost'] if heavy else 1))
-    return choices
-
-async def show_youtube_quality_picker(query,url,payload_key):
-    meta=await asyncio.to_thread(extract_public_metadata,url); limits=get_site_limits(url); rows=[]
-    for h,size,blocked,cost in choose_youtube_formats(meta,limits):
-        icon='🚫' if blocked else ('⚡' if cost>1 else '🎞'); suffix=f" · ~{human_mb(size)}" if size else ''
-        if cost>1 and not blocked: suffix+=f" · {cost} credits"
-        rows.append([InlineKeyboardButton(f"{icon} {h}p{suffix}",callback_data=f"ytq_{h}_{payload_key}")])
-    rows.append([InlineKeyboardButton('✨ Auto best that fits',callback_data=f"ytq_auto_{payload_key}")])
-    pending_single_links[payload_key]=url
-    await query.message.edit_text(f"🎬 {meta.get('title')}\\nChoose YouTube quality:",reply_markup=InlineKeyboardMarkup(rows))
-
-# ==============================================================
-
 def get_main_keyboard(lang_code, is_admin):
     t = LANGUAGES.get(lang_code, LANGUAGES["en"])
     keyboard = [
@@ -2474,7 +2325,6 @@ def get_main_keyboard(lang_code, is_admin):
         keyboard.append([KeyboardButton(t["menu_uploads"]), KeyboardButton("⚡ Create Flash Drop")])
         keyboard.append([KeyboardButton("🎁 Set Reward (1/2/3/5)"), KeyboardButton("📦 Set Free DL (2/3/4/5)")])
         keyboard.append([KeyboardButton(t["menu_edit_welcome"])])
-        keyboard.append([KeyboardButton("📏 Limits"), KeyboardButton("📢 Required Channels")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_downloads_usage_mb():
@@ -2909,29 +2759,24 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     linking_states = load_linking_states()
     if linking_states.get(str(user_id)) == "waiting_for_channel":
-        if text == "❌ Cancel" or re.search(r'https?://', text) or text.startswith('/') or text in ("🔄 Change Batch Channel", "📏 Limits", "📢 Required Channels"):
-            linking_states.pop(str(user_id), None); save_linking_states(linking_states)
-            if text == "❌ Cancel":
-                await update.message.reply_text("✅ Channel change cancelled.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
-        else:
-            forward_origin = getattr(update.message, "forward_origin", None)
-            f_chat = None
-            if forward_origin and getattr(forward_origin, "type", None) == "channel": f_chat = getattr(forward_origin, "chat", None)
-            if f_chat is None: f_chat = getattr(update.message, "forward_from_chat", None)
-            if f_chat is None: await update.message.reply_text("❌ Please forward a message directly from your channel, not a copied message.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
-            try:
-                bot_member = await context.bot.get_chat_member(chat_id=f_chat.id, user_id=context.bot.id)
-                if getattr(bot_member, "status", None) not in ("administrator", "creator"): await update.message.reply_text("⚠️ I detected the channel, but I'm not an admin there yet. Add me as an administrator, then forward a channel message again.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
-            except Exception as exc:
-                logger.warning(f"Could not verify bot admin status in channel {getattr(f_chat, 'id', 'unknown')}: {exc}")
-                await update.message.reply_text("⚠️ I couldn't verify my admin access. Please check my admin status and forward another channel message.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
-            user_channels = load_user_channels()
-            user_channels[str(user_id)] = f_chat.id
-            save_user_channels(user_channels)
-            linking_states.pop(str(user_id), None)
-            save_linking_states(linking_states)
-            await update.message.reply_text(f"✅ Linked {getattr(f_chat, 'title', 'your channel')} successfully. You can now use batch downloads to that channel.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            return
+        forward_origin = getattr(update.message, "forward_origin", None)
+        f_chat = None
+        if forward_origin and getattr(forward_origin, "type", None) == "channel": f_chat = getattr(forward_origin, "chat", None)
+        if f_chat is None: f_chat = getattr(update.message, "forward_from_chat", None)
+        if f_chat is None: await update.message.reply_text("❌ Please forward a message directly from your channel, not a copied message.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
+        try:
+            bot_member = await context.bot.get_chat_member(chat_id=f_chat.id, user_id=context.bot.id)
+            if getattr(bot_member, "status", None) not in ("administrator", "creator"): await update.message.reply_text("⚠️ I detected the channel, but I'm not an admin there yet. Add me as an administrator, then forward a channel message again.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
+        except Exception as exc:
+            logger.warning(f"Could not verify bot admin status in channel {getattr(f_chat, 'id', 'unknown')}: {exc}")
+            await update.message.reply_text("⚠️ I couldn't verify my admin access. Please check my admin status and forward another channel message.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
+        user_channels = load_user_channels()
+        user_channels[str(user_id)] = f_chat.id
+        save_user_channels(user_channels)
+        linking_states.pop(str(user_id), None)
+        save_linking_states(linking_states)
+        await update.message.reply_text(f"✅ Linked {getattr(f_chat, 'title', 'your channel')} successfully. You can now use batch downloads to that channel.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+        return
     fl_states = load_json_file(FILE_LINK_STATE_FILE)
     fl_state = fl_states.get(str(user_id))
     if fl_state and fl_state.get("mode") == "file_link_password":
@@ -2944,16 +2789,8 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if record.get("max_clicks", 0) and record.get("clicks", 0) >= record["max_clicks"]: await update.message.reply_text(t["link_limit_reached"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
         await send_file_link_payload(update, context, token, record)
         return
-    menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🔗 File-to-Link", "🟢 Bot Status", "🔄 Change Batch Channel", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel", t.get("menu_edit_welcome", "✏️ Edit Welcome Msg"), "❌ Cancel", "📏 Limits", "📢 Required Channels"]
+    menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🔗 File-to-Link", "🟢 Bot Status", "🔄 Change Batch Channel", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel", t.get("menu_edit_welcome", "✏️ Edit Welcome Msg")]
     if text in menu_texts:
-
-        if text == "📏 Limits" and user_id == ADMIN_ID:
-            rows=[[InlineKeyboardButton(SITE_LABELS[k],callback_data=f"lim_{k}")] for k in ("default","youtube","tiktok","instagram","facebook","x","reddit","other")]
-            await update.message.reply_text("📏 Choose a site to configure limits:",reply_markup=InlineKeyboardMarkup(rows)); return
-        if text == "📢 Required Channels" and user_id == ADMIN_ID:
-            rows=get_required_channels(); lines=[f"• {r.get('title') or r.get('username') or r.get('id')}" for r in rows]
-            kb=InlineKeyboardMarkup([[InlineKeyboardButton("➕ Add channel",callback_data="req_add")],[InlineKeyboardButton("🗑 Clear all",callback_data="req_clear")]])
-            await update.message.reply_text("📢 Required channels\n"+("\n".join(lines) if lines else "None configured"),reply_markup=kb); return
         if text != t["menu_upload"]:
             context.user_data.pop("admin_vault_upload_mode", None)
         support_states = load_json_file(SUPPORT_STATES_FILE)
@@ -3411,12 +3248,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
                         del cache[ckey]["qualities"][best_cached_quality]
                         save_json_file(CACHE_FILE, cache)
 
-    meta = await asyncio.to_thread(extract_public_metadata, url)
-    quality = SELECTED_QUALITY_BY_URL.get(url, "Auto")
-    status_msg = await bot.send_message(chat_id=chat_id, text=f"📥 {meta.get('title','Media download')}\n🎞 Quality: {quality}\n{progress_bar(10)}")
-    if user_id == ADMIN_ID:
-        try: await bot.send_message(chat_id=chat_id, text=f"🆔 `{ckey}`", parse_mode="Markdown")
-        except: pass
+    status_msg = await bot.send_message(chat_id=chat_id, text=t["fetching"].format(dl_type) + f"\n`{ckey}`", parse_mode="Markdown")
     try:
         free_mb = shutil.disk_usage(".").free // (1024*1024)
         min_free = get_min_free_disk_mb()
@@ -3426,22 +3258,6 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
         LAST_CAROUSEL_TRACE.clear()
         file_paths, res, size = await asyncio.wait_for(
             asyncio.to_thread(download_media_engine, url, dl_type, effective_max_mb), timeout=420)
-        actual_mb=sum(os.path.getsize(x) for x in file_paths if os.path.exists(x))/(1024*1024)
-        limits=get_site_limits(url)
-        if user_id != ADMIN_ID and actual_mb > limits['max_mb']:
-            for x in file_paths:
-                try: os.remove(x)
-                except: pass
-            raise ValueError('FILE_TOO_LARGE')
-        actual_cost=limits['heavy_cost'] if (actual_mb > limits['heavy_from_mb'] or (meta.get('duration') or 0)/60 >= limits['max_minutes']) else 1
-        have=available_credits(user_id)
-        if user_id != ADMIN_ID and have < actual_cost:
-            for x in file_paths:
-                try: os.remove(x)
-                except: pass
-            await show_credit_prompt(bot,chat_id,user_id,actual_cost,have,url); return False
-        try: await bot.edit_message_text(chat_id=chat_id,message_id=status_msg.message_id,text=f"📥 {meta.get('title','Media download')}\n🎞 Quality: {quality}\n{progress_bar(100)}\nSending to Telegram…")
-        except: pass
         if user_id == ADMIN_ID and LAST_CAROUSEL_TRACE:
             try:
                 await bot.send_message(chat_id=chat_id, text="🧪 Carousel trace:\n" + "\n".join(LAST_CAROUSEL_TRACE)[:3500])
@@ -3482,7 +3298,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
             except: cache[ckey]["qualities"]["original"] = {"file_id": sent_media[0].photo[-1].file_id, "size": size}
             for p in file_paths: os.remove(p)
         elif dl_type == 'audio':
-            sent_media = await send_audio_file(bot, chat_id, file_paths[0], f"🎵 Size {size}\n{details_caption(meta)}", "Markdown", status_msg)
+            sent_media = await send_audio_file(bot, chat_id, file_paths[0], f"🎵 Size {size} `{ckey}`", "Markdown", status_msg)
             warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
             asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
             try:
@@ -3491,7 +3307,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
             except: cache[ckey]["qualities"]["audio"] = {"file_id": sent_media.audio.file_id, "size": size}
             os.remove(file_paths[0])
         else:
-            sent_media = await send_video_file(bot, chat_id, chat_id, file_paths[0], f"✨ {qual_tag} Size {size}\n{details_caption(meta)}", "Markdown", status_msg)
+            sent_media = await send_video_file(bot, chat_id, chat_id, file_paths[0], f"✨ {qual_tag} Size {size} `{ckey}`", "Markdown", status_msg)
             warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
             asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
             try:
@@ -3505,7 +3321,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
         cache[ckey]["hits"] = cache[ckey].get("hits", 0) + 1
         save_json_file(CACHE_FILE, cache)
         await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
-        for _ in range(actual_cost if user_id != ADMIN_ID else 1): deduct_download_counter(user_id, is_batch=False)
+        deduct_download_counter(user_id, is_batch=False)
         
         await bot.send_message(chat_id=chat_id, text=t["download_success"], reply_markup=kb)
         return True
@@ -3537,18 +3353,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if is_banned(user_id): await query.answer(t["banned"], show_alert=True); return
     track_user_activity(user_id)
     data = query.data
-    if data == "req_check":
-        ok, missing = await check_required_channels(context.bot, user_id, force=True)
-        if ok:
-            await query.answer("✅ Membership confirmed", show_alert=True)
-            try: await query.message.delete()
-            except: pass
-        else:
-            await query.answer("You still need to join every channel.", show_alert=True)
-            try: await query.message.edit_reply_markup(required_channels_keyboard(missing))
-            except: pass
-        return
-    if not await enforce_required_channels(query, context.bot, user_id): return
     chat_id = query.message.chat_id
     lang = get_lang(user_id)
     
@@ -3785,38 +3589,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.message.delete()
         except: pass
         return
-    if data == "cancel_change_channel":
-        st=load_linking_states(); st.pop(str(user_id),None); save_linking_states(st)
-        await query.answer("Cancelled");
-        try: await query.message.delete()
-        except: pass
-        return
-    if data == "req_clear" and user_id == ADMIN_ID:
-        save_required_channels([]); _membership_cache.clear(); await query.answer("Required channels cleared",show_alert=True); return
-    if data == "req_add" and user_id == ADMIN_ID:
-        context.user_data['admin_add_required_channel']=True
-        await query.answer(); await query.message.reply_text("Forward a post from the channel, or send its @username / numeric ID. The bot must be an admin there."); return
-    if data.startswith("lim_") and user_id == ADMIN_ID:
-        site=data[4:]; context.user_data['limit_site']=site; cur=get_site_limits(site)
-        await query.answer(); await query.message.reply_text(f"📏 {SITE_LABELS.get(site,site)}\\nCurrent: {cur['max_minutes']} min, {cur['max_mb']}MB max, heavy from {cur['heavy_from_mb']}MB, cost {cur['heavy_cost']}\\nSend four numbers: minutes maxMB heavyFromMB heavyCost"); return
-    if data.startswith("ytq_"):
-        _,quality,payload_key=data.split('_',2); url=pending_single_links.pop(payload_key,None)
-        if not url: await query.answer("This button expired. Send the link again.",show_alert=True); return
-        meta=await asyncio.to_thread(extract_public_metadata,url); limits=get_site_limits(url)
-        selected=next((x for x in choose_youtube_formats(meta,limits) if str(x[0])==quality),None)
-        if selected and selected[2]: await query.answer("That quality is over the size limit. Pick a lower quality.",show_alert=True); pending_single_links[payload_key]=url; return
-        SELECTED_QUALITY_BY_URL[url]=quality
-        cost=media_cost(meta,limits)
-        if user_id!=ADMIN_ID and cost is None: await query.answer(f"Video is over {limits['max_mb']}MB. Pick a lower quality.",show_alert=True); return
-        cost=cost or 1; have=available_credits(user_id)
-        if user_id!=ADMIN_ID and have<cost: await query.answer(); await show_credit_prompt(context.bot,chat_id,user_id,cost,have,url); return
-        await query.answer("Starting download"); await query.message.delete()
-        can_dl=await acquire_slot()
-        if can_dl:
-            try: await cached_download_and_send(context.bot,chat_id,user_id,url,'video',t)
-            finally: await release_slot()
-        else: await download_queue.put({'func':cached_download_and_send,'args':(context.bot,chat_id,user_id,url,'video',t),'kwargs':{}})
-        return
     if data.startswith("batchtype_"):
         parts = data.split("_",2); dl_type = parts[1]; payload_key = parts[2]
         urls = pending_batch_payloads.get(payload_key)
@@ -3827,11 +3599,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     if data.startswith("fmt_"):
         parts = data.split("_",2); fmt_type, payload_key = parts[1], parts[2]
-        url = pending_single_links.get(payload_key)
+        url = pending_single_links.pop(payload_key, None)
         if not url: await query.answer(t["batch_expired"], show_alert=True); return
-        if fmt_type == 'vid' and youtube_id_from_url(url):
-            await query.answer(); await show_youtube_quality_picker(query,url,payload_key); return
-        pending_single_links.pop(payload_key, None)
         await query.answer(t["checking_vault"])
         await query.message.delete()
         dl_type = 'video'
@@ -3947,7 +3716,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         linking_states[str(user_id)]="waiting_for_channel"
         save_linking_states(linking_states)
         await query.answer(t["batch_mode_activated"])
-        await query.message.reply_text(t["batch_change_dest"], parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="cancel_change_channel")]]))
+        await query.message.reply_text(t["batch_change_dest"], parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         return
     if data == "verify_user":
         try:
@@ -4073,6 +3842,9 @@ def run_telegram_bot():
     async def start_bot():
         clean_downloads_startup()
         app = Application.builder().token(BOT_TOKEN).build()
+        import extras
+        extras.init(globals())
+        extras.register(app)
         try:
             from telegram import BotCommand
             await app.bot.set_my_commands([BotCommand("start", "Start bot"), BotCommand("filetolink", "Create a File-to-Link"), BotCommand("language", "Choose language"), BotCommand("stats", "View download balance")])
