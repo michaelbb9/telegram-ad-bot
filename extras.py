@@ -7,10 +7,10 @@
 #      likes, comments, shares, description) when the site provides them
 #   3. YouTube quality picker
 #   4. Per-site limits (max minutes / max MB / heavy MB / heavy cost),
-#      configurable by the admin ("ðŸ“ Limits" button)
+#      configurable by the admin ("\U0001f4cf Limits" button)
 #   5. Heavy downloads cost extra credits, with a "watch ads" refill prompt
 #   6. Forced channel membership, checked on EVERY use, configurable by the
-#      admin ("ðŸ“¢ Required Channels" button)
+#      admin ("\U0001f4e2 Required Channels" button)
 #   7. "Change Batch Channel" now has a Cancel button and no longer traps links
 #
 # UPDATE (cache / quality picker / reward fix)
@@ -22,7 +22,7 @@
 #   - Quality picker shows EVERY time for EVERY user. Picking "Auto" no longer
 #     re-uses an older choice, and if the size lookup fails the menu still
 #     shows (without sizes) instead of silently downloading on Auto.
-#   - Reward panel: Monetag ads now give the amount set in "ðŸŽ Set Reward"
+#   - Reward panel: Monetag ads now give the amount set in "\U0001f381 Set Reward"
 #     (before, the ad server always gave +1). Ad buttons show the real amount.
 #
 # It is wired in with init(globals()) and register(app); see the patch notes.
@@ -74,11 +74,11 @@ def blocked_for(site):
     return max(0, int(_BLOCKED_UNTIL.get(site, 0) - time.time()))
 
 
-BLOCKED_TEXT = "âš ï¸ This site is blocking downloads from our server right now. Please try again in a few minutes."
+BLOCKED_TEXT = "\u26a0\ufe0f This site is blocking downloads from our server right now. Please try again in a few minutes."
 
 DEFAULT_LIMITS = {"max_minutes": 10, "max_mb": 200, "heavy_mb": 100, "heavy_cost": 3}
-LIMIT_LABELS = {"max_minutes": "â± Max minutes", "max_mb": "ðŸ“¦ Max size (MB)",
-                "heavy_mb": "âš¡ Heavy from (MB)", "heavy_cost": "ðŸŽŸ Heavy cost (credits)"}
+LIMIT_LABELS = {"max_minutes": "\u23f1 Max minutes", "max_mb": "\U0001f4e6 Max size (MB)",
+                "heavy_mb": "\u26a1 Heavy from (MB)", "heavy_cost": "\U0001f39f Heavy cost (credits)"}
 LIMIT_RANGES = {"max_minutes": (1, 600), "max_mb": (10, 2000), "heavy_mb": (1, 2000), "heavy_cost": (1, 20)}
 SITES = [("default", "Default (all other sites)"), ("youtube", "YouTube"), ("tiktok", "TikTok"),
          ("instagram", "Instagram"), ("facebook", "Facebook"), ("twitter", "X / Twitter"),
@@ -89,7 +89,7 @@ SITE_DOMAINS = {"youtube": ("youtube.com", "youtu.be"), "tiktok": ("tiktok.com",
                 "twitter": ("twitter.com", "x.com", "t.co"), "reddit": ("reddit.com", "redd.it"),
                 "pinterest": ("pinterest.", "pin.it"), "threads": ("threads.net", "threads.com"),
                 "vimeo": ("vimeo.com",), "dailymotion": ("dailymotion.com", "dai.ly"), "twitch": ("twitch.tv",)}
-CANCEL_WORDS = ("âŒ Cancel", "/cancel", "Cancel", "cancel")
+CANCEL_WORDS = ("\u274c Cancel", "/cancel", "Cancel", "cancel")
 YT_ID_RE = re.compile(r'(?:youtu\.be/|youtube\.com/(?:watch\?(?:[^#\s]*&)?v=|shorts/|live/|embed/))([A-Za-z0-9_-]{11})')
 
 
@@ -280,7 +280,7 @@ def _clean(s, limit=None):
     s = re.sub(r"[*_`\[\]]", "", str(s or ""))
     s = re.sub(r"\s+", " ", s).strip()
     if limit and len(s) > limit:
-        s = s[:limit - 1].rstrip() + "â€¦"
+        s = s[:limit - 1].rstrip() + "\u2026"
     return s
 
 
@@ -312,15 +312,15 @@ def build_meta(info, max_len=640):
     lines = []
     author = info.get("creators") and ", ".join(info["creators"][:2]) or info.get("channel") or info.get("uploader") or info.get("creator")
     if author:
-        lines.append(f"ðŸŽ¥ Author : {_clean(author, 60)}")
+        lines.append(f"\U0001f3a5 Author : {_clean(author, 60)}")
     uname = _username(info)
     if uname:
-        lines.append(f"ðŸ‘¤ Username : @{_clean(uname, 40)}")
+        lines.append(f"\U0001f464 Username : @{_clean(uname, 40)}")
     region = info.get("region") or info.get("country") or info.get("location")
     if region:
-        lines.append(f"ðŸŒ Region : {_clean(region, 40)}")
-    for key, label in (("view_count", "â–¶ï¸ Views"), ("like_count", "ðŸ‘ Likes"),
-                       ("comment_count", "ðŸ’¬ Comments"), ("repost_count", "ðŸ”— Shares")):
+        lines.append(f"\U0001f30d Region : {_clean(region, 40)}")
+    for key, label in (("view_count", "\u25b6\ufe0f Views"), ("like_count", "\U0001f44d Likes"),
+                       ("comment_count", "\U0001f4ac Comments"), ("repost_count", "\U0001f517 Shares")):
         v = _num(info.get(key))
         if v is not None:
             lines.append(f"{label} : {v}")
@@ -328,7 +328,7 @@ def build_meta(info, max_len=640):
     head = "\n".join(lines)
     if desc:
         room = max(60, max_len - len(head) - 20)
-        lines.append(f"ðŸ“ Description : {_clean(desc, room)}")
+        lines.append(f"\U0001f4dd Description : {_clean(desc, room)}")
     return "\n".join(lines)[:max_len]
 
 
@@ -377,15 +377,15 @@ async def send_refill_prompt(bot, chat_id, user_id, t, url, need, have):
     g = G
     try:
         g["pending_single_links"][f"retry_{user_id}"] = url
-        head = (f"âš¡ **This download needs {need} credits** and you have {have}.\n"
-                f"Watch an ad to refill, then I'll continue automatically. ðŸ‘‡")
+        head = (f"\u26a1 **This download needs {need} credits** and you have {have}.\n"
+                f"Watch an ad to refill, then I'll continue automatically. \U0001f447")
         network = g["get_global_ab_network"](user_id)
         if network == "monetag":
             kb = await asyncio.to_thread(g["adsgram_keyboard"], user_id, "wall", 0, 0)
             if kb:
                 await bot.send_message(chat_id=chat_id, text=head, reply_markup=kb, parse_mode="Markdown")
             else:
-                await bot.send_message(chat_id=chat_id, text="âš ï¸ Ad server busy, try again in a moment.")
+                await bot.send_message(chat_id=chat_id, text="\u26a0\ufe0f Ad server busy, try again in a moment.")
             return
         try:
             await bot.forward_message(chat_id=chat_id, from_chat_id=g["PRIVATE_CHANNEL_ID"],
@@ -396,14 +396,14 @@ async def send_refill_prompt(bot, chat_id, user_id, t, url, need, have):
         bridge = f"{g['BRIDGE_URL']}?user={user_id}&start_msg=0&end_msg=0"
         r = _reward_target()
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton(f"ðŸ”“ Open Link & Watch Timer â° 20s +{r}", url=bridge)],
-            [InlineKeyboardButton("ðŸ“¢ Join Public Channel ðŸ’œ", url=g["PUBLIC_CHANNEL_URL"])],
-            [InlineKeyboardButton(f"ðŸ’œ Check & Get Files âœ… +{r}", callback_data="verify_user")]])
+            [InlineKeyboardButton(f"\U0001f513 Open Link & Watch Timer \u23f0 20s +{r}", url=bridge)],
+            [InlineKeyboardButton("\U0001f4e2 Join Public Channel \U0001f49c", url=g["PUBLIC_CHANNEL_URL"])],
+            [InlineKeyboardButton(f"\U0001f49c Check & Get Files \u2705 +{r}", callback_data="verify_user")]])
         await bot.send_message(chat_id=chat_id, text=head + g.get("ADSTERRA_USER_GUIDE", ""),
                                reply_markup=kb, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"refill prompt failed: {e}")
-        await bot.send_message(chat_id=chat_id, text=f"âš¡ This download needs {need} credits and you have {have}. "
+        await bot.send_message(chat_id=chat_id, text=f"\u26a1 This download needs {need} credits and you have {have}. "
                                                    f"Please refill with the ad button in the menu.")
 
 
@@ -420,16 +420,16 @@ class Reporter:
     def reset(self):
         self.finished, self.seen = 0, set()
 
-    def text(self, pct, stage="ðŸ”„ Preparing the file:"):
-        head = f"ðŸŽ¬ {self.title}\n\nðŸŽž {self.quality}"
+    def text(self, pct, stage="\U0001f504 Preparing the file:"):
+        head = f"\U0001f3ac {self.title}\n\n\U0001f39e {self.quality}"
         if self.size_label:
-            head += f"   ðŸ“¦ {self.size_label}"
+            head += f"   \U0001f4e6 {self.size_label}"
         if pct is None:
             tail = f"\n\n{stage}"
         else:
             filled = max(0, min(10, int(pct / 10)))
-            bar = "â– " * filled + "â–¡" * (10 - filled)
-            tail = f"\n\n{stage}\n{bar} â‰ˆ{pct}%"
+            bar = "\u25a0" * filled + "\u25a1" * (10 - filled)
+            tail = f"\n\n{stage}\n{bar} \u2248{pct}%"
         return head + tail + (f"\n\n{self.extra}" if self.extra else "")
 
     def hook(self, d):                       # runs inside yt-dlp's worker thread
@@ -499,7 +499,7 @@ def thumb_candidates(info):
 async def start_status(bot, chat_id, user_id, info, quality_label, size_label, ckey):
     """Send the progress card. Returns (message, reporter)."""
     title = _clean((info or {}).get("title") or "Your download", 80)
-    extra = f"ðŸ†” {ckey}" if user_id == _admin() else ""
+    extra = f"\U0001f194 {ckey}" if user_id == _admin() else ""
     rep = Reporter(bot, chat_id, None, "text", asyncio.get_running_loop(), title, quality_label, size_label, extra)
     text = rep.text(0)
     msg, kind = None, "text"
@@ -612,7 +612,7 @@ def _plan_estimate(info, cap, is_admin, site):
 
 def _block_text(site, est_bytes, lim, duration):
     minutes = f" ({int((duration or 0) // 60)} min)" if duration else ""
-    base = f"âŒ This video{minutes} is about {fmt_mb(est_bytes)}, over the {lim['max_mb']}MB limit."
+    base = f"\u274c This video{minutes} is about {fmt_mb(est_bytes)}, over the {lim['max_mb']}MB limit."
     return base + (" Pick a lower quality." if site == "youtube" else " Try a shorter video.")
 
 
@@ -622,7 +622,7 @@ async def _send_block(bot, chat_id, user_id, url, site, est_bytes, lim, duration
     if site == "youtube" and YT_ID_RE.search(url):
         key = f"single_{user_id}_{int(time.time())}"
         G["pending_single_links"][key] = url
-        markup = InlineKeyboardMarkup([[InlineKeyboardButton("ðŸŽž Choose a lower quality", callback_data=f"fmt_vid_{key}")]])
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton("\U0001f39e Choose a lower quality", callback_data=f"fmt_vid_{key}")]])
     await bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
 
 
@@ -681,7 +681,7 @@ async def _fresh_download(bot, chat_id, user_id, url, dl_type, t, ckey, cap, sit
             asyncio.to_thread(g["download_media_engine"], url, dl_type, effective), timeout=600)
         if is_admin and trace:
             try:
-                await bot.send_message(chat_id=chat_id, text="ðŸ§ª Carousel trace:\n" + "\n".join(trace)[:3500])
+                await bot.send_message(chat_id=chat_id, text="\U0001f9ea Carousel trace:\n" + "\n".join(trace)[:3500])
             except Exception:
                 pass
         if not file_paths:
@@ -704,7 +704,7 @@ async def _fresh_download(bot, chat_id, user_id, url, dl_type, t, ckey, cap, sit
                 raise LimitHit("CREDITS", need=d2["cost"], have=have2 or 0)
             cost = max(cost, d2["cost"])
         if rep:
-            await rep.stage("ðŸ“¤ Sending to Telegramâ€¦")
+            await rep.stage("\U0001f4e4 Sending to Telegram\u2026")
 
         cache = g["load_json_file"](g["CACHE_FILE"])
         if ckey not in cache:
@@ -743,7 +743,7 @@ async def _fresh_download(bot, chat_id, user_id, url, dl_type, t, ckey, cap, sit
                 try: os.remove(p)
                 except Exception: pass
         elif dl_type == "audio":
-            sent_media = await g["send_audio_file"](bot, chat_id, file_paths[0], f"ðŸŽµ Size {size} `{ckey}`{meta_block}", "Markdown", status_msg)
+            sent_media = await g["send_audio_file"](bot, chat_id, file_paths[0], f"\U0001f3b5 Size {size} `{ckey}`{meta_block}", "Markdown", status_msg)
             warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
             asyncio.create_task(g["schedule_deletion"](bot, chat_id, [sent_media.message_id, warn.message_id], 540))
             fid = sent_media.audio.file_id
@@ -754,7 +754,7 @@ async def _fresh_download(bot, chat_id, user_id, url, dl_type, t, ckey, cap, sit
                 cache[ckey]["qualities"]["audio"] = {"file_id": fid, "size": size}
             os.remove(file_paths[0])
         else:
-            sent_media = await g["send_video_file"](bot, chat_id, chat_id, file_paths[0], f"âœ¨ {qual_tag} Size {size} `{ckey}`{meta_block}", "Markdown", status_msg)
+            sent_media = await g["send_video_file"](bot, chat_id, chat_id, file_paths[0], f"\u2728 {qual_tag} Size {size} `{ckey}`{meta_block}", "Markdown", status_msg)
             warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
             asyncio.create_task(g["schedule_deletion"](bot, chat_id, [sent_media.message_id, warn.message_id], 540))
             fid = sent_media.video.file_id
@@ -786,33 +786,33 @@ async def _fresh_download(bot, chat_id, user_id, url, dl_type, t, ckey, cap, sit
             mt = g.get("MTPROTO", {}).get("ready")
             try:
                 await bot.send_message(chat_id=chat_id, text=(
-                    f"ðŸ§ª DL error: {type(e).__name__}: {str(e)[:500]}\n"
+                    f"\U0001f9ea DL error: {type(e).__name__}: {str(e)[:500]}\n"
                     f"MTProto: ready={mt.is_set() if mt else '?'} api_id={bool(g.get('API_ID'))} api_hash={bool(g.get('API_HASH'))}{tr}"))
             except Exception:
                 pass
         msg = str(e)
         markup = kb
         if isinstance(e, LimitHit) and e.kind == "SIZE":
-            err = f"âŒ This video is about {e.size_mb:.0f}MB, over the {e.limit_mb}MB limit." + (" Pick a lower quality." if site == "youtube" else "")
+            err = f"\u274c This video is about {e.size_mb:.0f}MB, over the {e.limit_mb}MB limit." + (" Pick a lower quality." if site == "youtube" else "")
         elif isinstance(e, LimitHit) and e.kind == "CREDITS":
-            await show_error(bot, chat_id, status_msg, "â³ One momentâ€¦", kb)
+            await show_error(bot, chat_id, status_msg, "\u23f3 One moment\u2026", kb)
             await send_refill_prompt(bot, chat_id, user_id, t, url, e.need, e.have)
             return False
         elif "FILE_TOO_LARGE" in msg:
-            err = f"âŒ Too big! ðŸ˜… The limit is {effective_limit(site, is_admin)}MB per file." + (" Pick a lower quality." if site == "youtube" else " Try a shorter one!")
+            err = f"\u274c Too big! \U0001f605 The limit is {effective_limit(site, is_admin)}MB per file." + (" Pick a lower quality." if site == "youtube" else " Try a shorter one!")
             if site == "youtube" and YT_ID_RE.search(url) and dl_type == "video":
                 key = f"single_{user_id}_{int(time.time())}"
                 g["pending_single_links"][key] = url
-                markup = InlineKeyboardMarkup([[InlineKeyboardButton("ðŸŽž Choose a lower quality", callback_data=f"fmt_vid_{key}")]])
+                markup = InlineKeyboardMarkup([[InlineKeyboardButton("\U0001f39e Choose a lower quality", callback_data=f"fmt_vid_{key}")]])
         elif looks_blocked(msg):
             mark_blocked(site)
             err = BLOCKED_TEXT
         elif "MTPROTO_OFF" in msg:
-            err = "âš ï¸ Big files need fast mode, which is offline right now."
+            err = "\u26a0\ufe0f Big files need fast mode, which is offline right now."
         elif "MTPROTO_PEER" in msg:
-            err = "âš ï¸ Send /start to this bot once, then send the link again."
+            err = "\u26a0\ufe0f Send /start to this bot once, then send the link again."
         elif isinstance(e, (asyncio.TimeoutError, TimeoutError)):
-            err = "âš ï¸ This is taking too long, so I stopped. Please try again later."
+            err = "\u26a0\ufe0f This is taking too long, so I stopped. Please try again later."
         else:
             err = t["error_generic"]
         await show_error(bot, chat_id, status_msg, err, markup)
@@ -886,7 +886,7 @@ async def _cache_hit(bot, chat_id, user_id, url, dl_type, t, ckey, cap, site, is
             req_est = est_size(info, cap) if info else None
             req = evaluate(site, entry.get("duration"), req_est, is_admin, None)
             cost = min(cost, req["cost"])
-            note = f"âš¡ Already saved in {best}, sent instantly."
+            note = f"\u26a1 Already saved in {best}, sent instantly."
     else:
         best = next((q for q in _quality_order(dl_type, cap) if q in cq), None)
         if not best:
@@ -959,7 +959,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
         if ev is not None:
             wait_msg = None
             try:
-                wait_msg = await bot.send_message(chat_id=chat_id, text="â³ This video is already downloading. I'll send it as soon as it's readyâ€¦")
+                wait_msg = await bot.send_message(chat_id=chat_id, text="\u23f3 This video is already downloading. I'll send it as soon as it's ready\u2026")
             except Exception:
                 pass
             try:
@@ -1007,7 +1007,7 @@ def _yt_menu(info, user_id, key):
     is_admin = user_id == _admin()
     hs = heights_available(info)
     dur = info.get("duration")
-    rows, seen = [[InlineKeyboardButton("â­ Auto (best that fits)", callback_data=f"ytq_auto_{key}")]], set()
+    rows, seen = [[InlineKeyboardButton("\u2b50 Auto (best that fits)", callback_data=f"ytq_auto_{key}")]], set()
     for H in (1080, 720, 480, 360):
         under = [h for h in hs if h <= H]
         if not under or max(under) in seen:
@@ -1017,22 +1017,22 @@ def _yt_menu(info, user_id, key):
         rows.append([_yt_button(info, "youtube", H, f"{actual}p", dur, is_admin, key)])
     if hs and min(hs) < 360 and min(hs) not in seen:
         rows.append([_yt_button(info, "youtube", 0, f"{min(hs)}p (lowest)", dur, is_admin, key)])
-    rows.append([InlineKeyboardButton("âŒ Cancel", callback_data=f"ytq_cancel_{key}")])
+    rows.append([InlineKeyboardButton("\u274c Cancel", callback_data=f"ytq_cancel_{key}")])
     return InlineKeyboardMarkup(rows)
 
 
 def _yt_menu_plain(key):
     """Menu without sizes, used when the size lookup fails (the user can still choose)."""
-    rows = [[InlineKeyboardButton("â­ Auto (best that fits)", callback_data=f"ytq_auto_{key}")]]
+    rows = [[InlineKeyboardButton("\u2b50 Auto (best that fits)", callback_data=f"ytq_auto_{key}")]]
     for H in (1080, 720, 480, 360):
-        rows.append([InlineKeyboardButton(f"ðŸŽž {H}p", callback_data=f"ytq_{H}_{key}")])
-    rows.append([InlineKeyboardButton("ðŸŽž Lowest", callback_data=f"ytq_0_{key}")])
-    rows.append([InlineKeyboardButton("âŒ Cancel", callback_data=f"ytq_cancel_{key}")])
+        rows.append([InlineKeyboardButton(f"\U0001f39e {H}p", callback_data=f"ytq_{H}_{key}")])
+    rows.append([InlineKeyboardButton("\U0001f39e Lowest", callback_data=f"ytq_0_{key}")])
+    rows.append([InlineKeyboardButton("\u274c Cancel", callback_data=f"ytq_cancel_{key}")])
     return InlineKeyboardMarkup(rows)
 
 
 async def _cached_note(url, chat_id, bot):
-    """'âš¡ Already saved in 1080pâ€¦' line for the quality menu, or ''."""
+    """'\u26a1 Already saved in 1080p\u2026' line for the quality menu, or ''."""
     try:
         ckey = await G["get_canonical_key"](url, chat_id, bot)
         entry = G["load_json_file"](G["CACHE_FILE"]).get(ckey) or {}
@@ -1042,7 +1042,7 @@ async def _cached_note(url, chat_id, bot):
                      if q not in ("audio", "original") and (v or {}).get("file_id")], key=_qrank, reverse=True)
         if not qs:
             return ""
-        return f"\nâš¡ Already saved in {', '.join(qs)}: any choice sends it instantly."
+        return f"\n\u26a1 Already saved in {', '.join(qs)}: any choice sends it instantly."
     except Exception:
         return ""
 
@@ -1050,9 +1050,9 @@ async def _cached_note(url, chat_id, bot):
 def _yt_button(info, site, cap, label, dur, is_admin, key):
     est = est_size(info, cap)
     d = evaluate(site, dur, est, is_admin, None)
-    icon = "ðŸš«" if d["action"] == "block" else ("âš¡" if d["heavy"] and not is_admin else "ðŸŽž")
-    extra = f" Â· {d['cost']} credits" if (d["heavy"] and not is_admin and d["action"] != "block") else ""
-    return InlineKeyboardButton(f"{icon} {label} Â· ~{fmt_mb(est)}{extra}", callback_data=f"ytq_{cap}_{key}")
+    icon = "\U0001f6ab" if d["action"] == "block" else ("\u26a1" if d["heavy"] and not is_admin else "\U0001f39e")
+    extra = f" \u00b7 {d['cost']} credits" if (d["heavy"] and not is_admin and d["action"] != "block") else ""
+    return InlineKeyboardButton(f"{icon} {label} \u00b7 ~{fmt_mb(est)}{extra}", callback_data=f"ytq_{cap}_{key}")
 
 
 async def _launch(context, chat_id, user_id, t, url, cap):
@@ -1094,7 +1094,7 @@ async def on_fmt_vid(update, context):
             try: await q.message.edit_text(BLOCKED_TEXT)
             except Exception: pass
             raise ApplicationHandlerStop
-        try: await q.message.edit_text("â³ Checking the available qualitiesâ€¦")
+        try: await q.message.edit_text("\u23f3 Checking the available qualities\u2026")
         except Exception: pass
         info = await probe(url, timeout=25)
         note = await _cached_note(url, chat_id, context.bot)
@@ -1105,19 +1105,19 @@ async def on_fmt_vid(update, context):
                 except Exception: pass
                 raise ApplicationHandlerStop
             # sizes unavailable: STILL let the user choose (never silently fall back to Auto)
-            await q.message.edit_text("ðŸŽ¬ Choose a quality:\n(I couldn't read the file sizes right now)" + note,
+            await q.message.edit_text("\U0001f3ac Choose a quality:\n(I couldn't read the file sizes right now)" + note,
                                       reply_markup=_yt_menu_plain(key))
             raise ApplicationHandlerStop
         dur = info.get("duration") or 0
         title = _clean(info.get("title"), 70)
-        text = (f"ðŸŽ¬ {title}\nâ± {int(dur // 60)}m {int(dur % 60)}s\n\n"
-                f"Choose a quality:\nðŸŽž normal Â· âš¡ uses extra credits Â· ðŸš« too big{note}")
+        text = (f"\U0001f3ac {title}\n\u23f1 {int(dur // 60)}m {int(dur % 60)}s\n\n"
+                f"Choose a quality:\n\U0001f39e normal \u00b7 \u26a1 uses extra credits \u00b7 \U0001f6ab too big{note}")
         await q.message.edit_text(text, reply_markup=_yt_menu(info, user_id, key))
     except ApplicationHandlerStop:
         raise
     except Exception as e:
         logger.error(f"quality menu failed: {e}")
-        try: await q.message.edit_text("âš ï¸ Couldn't load the qualities. Please send the link again.")
+        try: await q.message.edit_text("\u26a0\ufe0f Couldn't load the qualities. Please send the link again.")
         except Exception: pass
     raise ApplicationHandlerStop
 
@@ -1147,7 +1147,7 @@ async def on_ytq(update, context):
         est = est_size(info, cap)
         d = evaluate("youtube", info.get("duration"), est, False, None)
         if d["action"] == "block":
-            await q.answer(f"ðŸš« About {fmt_mb(est)}, over the {d['limits']['max_mb']}MB limit. Pick a lower quality.", show_alert=True)
+            await q.answer(f"\U0001f6ab About {fmt_mb(est)}, over the {d['limits']['max_mb']}MB limit. Pick a lower quality.", show_alert=True)
             raise ApplicationHandlerStop
     G["pending_single_links"].pop(key, None)
     await q.answer()
@@ -1172,7 +1172,7 @@ async def _notify_admin_once(bot, ch, err):
     _ADMIN_WARNED[ch.get("id")] = now
     try:
         await bot.send_message(chat_id=_admin(), text=(
-            f"âš ï¸ I can't check membership for â€œ{ch.get('title')}â€ ({err}).\n"
+            f"\u26a0\ufe0f I can't check membership for \u201c{ch.get('title')}\u201d ({err}).\n"
             f"Make sure I am an ADMIN in that channel. Until then users are NOT blocked by it."))
     except Exception:
         pass
@@ -1212,9 +1212,9 @@ async def missing_channels(bot, uid, chans, use_cache=True):
 
 def join_keyboard(chans, missing):
     miss_ids = {c["id"] for c in missing}
-    rows = [[InlineKeyboardButton(("ðŸ“¢ Join " if c["id"] in miss_ids else "âœ… ") + _clean(c.get("title"), 30), url=c.get("url") or "https://t.me/")]
+    rows = [[InlineKeyboardButton(("\U0001f4e2 Join " if c["id"] in miss_ids else "\u2705 ") + _clean(c.get("title"), 30), url=c.get("url") or "https://t.me/")]
             for c in chans]
-    rows.append([InlineKeyboardButton("âœ… I've joined", callback_data="extras_checkjoin")])
+    rows.append([InlineKeyboardButton("\u2705 I've joined", callback_data="extras_checkjoin")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -1242,11 +1242,11 @@ async def gate(update, context):
             try: await context.bot.delete_message(chat_id=old[0], message_id=old[1])
             except Exception: pass
         if update.callback_query is not None:
-            try: await update.callback_query.answer("ðŸ”’ Please join our channels first.", show_alert=False)
+            try: await update.callback_query.answer("\U0001f512 Please join our channels first.", show_alert=False)
             except Exception: pass
         sent = await context.bot.send_message(chat_id=chat_id, reply_markup=join_keyboard(chans, missing), text=(
-            "ðŸ”’ Please join our channels to use this bot.\n\n"
-            "Join every channel below, then tap â€œâœ… I've joinedâ€.\n"
+            "\U0001f512 Please join our channels to use this bot.\n\n"
+            "Join every channel below, then tap \u201c\u2705 I've joined\u201d.\n"
             "I check this every time, so please stay subscribed."))
         _PROMPT_MSG[user.id] = (chat_id, sent.message_id)
     except ApplicationHandlerStop:
@@ -1264,16 +1264,16 @@ async def on_checkjoin(update, context):
     missing = await missing_channels(context.bot, uid, chans, use_cache=False) if chans else []
     if missing:
         names = ", ".join(_clean(c.get("title"), 25) for c in missing)
-        await q.answer(f"âŒ You still need to join: {names}", show_alert=True)
+        await q.answer(f"\u274c You still need to join: {names}", show_alert=True)
         try: await q.message.edit_reply_markup(reply_markup=join_keyboard(chans, missing))
         except Exception: pass
         raise ApplicationHandlerStop
-    await q.answer("âœ… Verified! Welcome.")
+    await q.answer("\u2705 Verified! Welcome.")
     try: await q.message.delete()
     except Exception: pass
     _PROMPT_MSG.pop(uid, None)
     lang = G["get_lang"](uid)
-    await context.bot.send_message(chat_id=q.message.chat_id, text="âœ… You're in! Paste a link to start. ðŸ‘‡",
+    await context.bot.send_message(chat_id=q.message.chat_id, text="\u2705 You're in! Paste a link to start. \U0001f447",
                                    reply_markup=G["get_main_keyboard"](lang, uid == _admin()))
     raise ApplicationHandlerStop
 
@@ -1282,7 +1282,7 @@ async def on_checkjoin(update, context):
 # 9. admin panels: required channels + limits
 # =====================================================================
 def _cancel_kb():
-    return ReplyKeyboardMarkup([[KeyboardButton("âŒ Cancel")]], resize_keyboard=True)
+    return ReplyKeyboardMarkup([[KeyboardButton("\u274c Cancel")]], resize_keyboard=True)
 
 
 def _main_kb(uid):
@@ -1292,11 +1292,11 @@ def _main_kb(uid):
 async def channels_home(bot, chat_id):
     chans = required_channels()
     lines = [f"{i + 1}. {_clean(c.get('title'), 40)}  ({c['id']})" for i, c in enumerate(chans)]
-    text = ("ðŸ“¢ Required channels (users must join ALL before using the bot)\n\n" +
+    text = ("\U0001f4e2 Required channels (users must join ALL before using the bot)\n\n" +
             ("\n".join(lines) if lines else "None yet. Users can use the bot freely.") +
             "\n\nI check membership on every message, so users who leave are blocked again.")
-    rows = [[InlineKeyboardButton(f"âŒ Remove: {_clean(c.get('title'), 28)}", callback_data=f"extras_reqdel_{i}")] for i, c in enumerate(chans)]
-    rows.append([InlineKeyboardButton("âž• Add channel", callback_data="extras_reqadd")])
+    rows = [[InlineKeyboardButton(f"\u274c Remove: {_clean(c.get('title'), 28)}", callback_data=f"extras_reqdel_{i}")] for i, c in enumerate(chans)]
+    rows.append([InlineKeyboardButton("\u2795 Add channel", callback_data="extras_reqadd")])
     await bot.send_message(chat_id=chat_id, text=text, reply_markup=InlineKeyboardMarkup(rows))
 
 
@@ -1304,7 +1304,7 @@ def _lim_home_markup():
     rows, row = [], []
     for site, name in SITES:
         l = get_limits(site)
-        row.append(InlineKeyboardButton(f"{name.split(' (')[0]} Â· {l['max_minutes']}m/{l['max_mb']}MB", callback_data=f"extras_limsite_{site}"))
+        row.append(InlineKeyboardButton(f"{name.split(' (')[0]} \u00b7 {l['max_minutes']}m/{l['max_mb']}MB", callback_data=f"extras_limsite_{site}"))
         if len(row) == 2:
             rows.append(row); row = []
     if row:
@@ -1312,7 +1312,7 @@ def _lim_home_markup():
     return InlineKeyboardMarkup(rows)
 
 
-LIM_HOME_TEXT = ("ðŸ“ Download limits\n\nTap a site to change its limits. â€œDefaultâ€ applies to every site that has no "
+LIM_HOME_TEXT = ("\U0001f4cf Download limits\n\nTap a site to change its limits. \u201cDefault\u201d applies to every site that has no "
                  "own setting.\nButton shows: max minutes / max size.")
 
 
@@ -1320,16 +1320,16 @@ def _site_view(site):
     name = dict(SITES).get(site, site)
     l = get_limits(site)
     own = (_cfg().get("site_limits", {}).get(site) or {}) if site != "default" else (_cfg().get("site_limits", {}).get("default") or {})
-    text = (f"ðŸ“ {name}\n\nâ± Max length: {l['max_minutes']} min\nðŸ“¦ Max size: {l['max_mb']} MB\n"
-            f"âš¡ Heavy from: {l['heavy_mb']} MB\nðŸŽŸ Heavy cost: {l['heavy_cost']} credits\n\n"
-            f"Rules\nâ€¢ Bigger than {l['max_mb']}MB â†’ blocked (you are exempt)\n"
-            f"â€¢ Over {l['heavy_mb']}MB or longer than {l['max_minutes']} min â†’ {l['heavy_cost']} credits\n"
-            f"â€¢ Otherwise 1 credit\n"
-            f"{'â€¢ Using its own settings' if own else 'â€¢ Using the default settings'}")
+    text = (f"\U0001f4cf {name}\n\n\u23f1 Max length: {l['max_minutes']} min\n\U0001f4e6 Max size: {l['max_mb']} MB\n"
+            f"\u26a1 Heavy from: {l['heavy_mb']} MB\n\U0001f39f Heavy cost: {l['heavy_cost']} credits\n\n"
+            f"Rules\n\u2022 Bigger than {l['max_mb']}MB \u2192 blocked (you are exempt)\n"
+            f"\u2022 Over {l['heavy_mb']}MB or longer than {l['max_minutes']} min \u2192 {l['heavy_cost']} credits\n"
+            f"\u2022 Otherwise 1 credit\n"
+            f"\u2022 {'Using its own settings' if own else 'Using the default settings'}")
     rows = [[InlineKeyboardButton(f"{LIMIT_LABELS[f]}: {l[f]}", callback_data=f"extras_limset_{site}_{f}")] for f in DEFAULT_LIMITS]
     if site != "default":
-        rows.append([InlineKeyboardButton("â™»ï¸ Reset to default", callback_data=f"extras_limreset_{site}")])
-    rows.append([InlineKeyboardButton("â¬… Back", callback_data="extras_limhome")])
+        rows.append([InlineKeyboardButton("\u267b\ufe0f Reset to default", callback_data=f"extras_limreset_{site}")])
+    rows.append([InlineKeyboardButton("\u2b05 Back", callback_data="extras_limhome")])
     return text, InlineKeyboardMarkup(rows)
 
 
@@ -1356,15 +1356,15 @@ async def on_admin_cb(update, context):
         lo, hi = LIMIT_RANGES[field]
         context.user_data["extras_state"] = {"mode": "lim_edit", "site": site, "field": field}
         await context.bot.send_message(chat_id=chat_id, reply_markup=_cancel_kb(), text=(
-            f"âœï¸ {dict(SITES).get(site, site)} Â· {LIMIT_LABELS[field]}\n"
-            f"Current: {get_limits(site)[field]}\nSend the new number ({lo} to {hi}), or âŒ Cancel."))
+            f"\u270f\ufe0f {dict(SITES).get(site, site)} \u00b7 {LIMIT_LABELS[field]}\n"
+            f"Current: {get_limits(site)[field]}\nSend the new number ({lo} to {hi}), or \u274c Cancel."))
     elif data == "extras_reqhome":
         await channels_home(context.bot, chat_id)
     elif data == "extras_reqadd":
         context.user_data["extras_state"] = {"mode": "req_add"}
         await context.bot.send_message(chat_id=chat_id, reply_markup=_cancel_kb(), text=(
-            "âž• Add a required channel\n\nForward any message from the channel, or send its @username / t.me link / -100â€¦ ID.\n"
-            "I must be an ADMIN in that channel so I can check members.\nSend âŒ Cancel to stop."))
+            "\u2795 Add a required channel\n\nForward any message from the channel, or send its @username / t.me link / -100\u2026 ID.\n"
+            "I must be an ADMIN in that channel so I can check members.\nSend \u274c Cancel to stop."))
     elif data.startswith("extras_reqdel_"):
         try:
             idx = int(data[len("extras_reqdel_"):])
@@ -1372,7 +1372,7 @@ async def on_admin_cb(update, context):
             gone = chans.pop(idx)
             save_required_channels(chans)
             _JOIN_OK.clear()
-            await q.message.edit_text(f"ðŸ—‘ Removed â€œ{_clean(gone.get('title'), 40)}â€.")
+            await q.message.edit_text(f"\U0001f5d1 Removed \u201c{_clean(gone.get('title'), 40)}\u201d.")
         except Exception:
             await q.message.edit_text("That channel is already gone.")
         await channels_home(context.bot, chat_id)
@@ -1392,7 +1392,7 @@ async def _resolve_channel(bot, message, text):
         elif re.fullmatch(r"-100\d{5,}", (text or "").strip()):
             ident = int(text.strip())
     if ident is None:
-        return None, "I couldn't read that. Forward a message from the channel, or send @username / -100â€¦ ID."
+        return None, "I couldn't read that. Forward a message from the channel, or send @username / -100\u2026 ID."
     try:
         full = await bot.get_chat(ident)
     except Exception as e:
@@ -1420,11 +1420,11 @@ async def admin_router(update, context):
         context.user_data.pop("extras_state", None)
         await msg.reply_text("Cancelled.", reply_markup=_main_kb(uid))
         raise ApplicationHandlerStop
-    if text in ("ðŸ“ Limits", "/limits"):
+    if text in ("\U0001f4cf Limits", "/limits"):
         context.user_data.pop("extras_state", None)
         await msg.reply_text(LIM_HOME_TEXT, reply_markup=_lim_home_markup())
         raise ApplicationHandlerStop
-    if text in ("ðŸ“¢ Required Channels", "/channels"):
+    if text in ("\U0001f4e2 Required Channels", "/channels"):
         context.user_data.pop("extras_state", None)
         await channels_home(context.bot, msg.chat_id)
         raise ApplicationHandlerStop
@@ -1441,18 +1441,18 @@ async def admin_router(update, context):
             if not lo <= val <= hi:
                 raise ValueError
         except Exception:
-            await msg.reply_text(f"Please send a whole number between {LIMIT_RANGES[st['field']][0]} and {LIMIT_RANGES[st['field']][1]}, or âŒ Cancel.", reply_markup=_cancel_kb())
+            await msg.reply_text(f"Please send a whole number between {LIMIT_RANGES[st['field']][0]} and {LIMIT_RANGES[st['field']][1]}, or \u274c Cancel.", reply_markup=_cancel_kb())
             raise ApplicationHandlerStop
         set_limit(st["site"], st["field"], val)
         context.user_data.pop("extras_state", None)
-        await msg.reply_text("âœ… Saved.", reply_markup=_main_kb(uid))
+        await msg.reply_text("\u2705 Saved.", reply_markup=_main_kb(uid))
         stext, skb = _site_view(st["site"])
         await msg.reply_text(stext, reply_markup=skb)
         raise ApplicationHandlerStop
     if mode == "req_add":
         full, err = await _resolve_channel(context.bot, msg, text)
         if err:
-            await msg.reply_text("âŒ " + err, reply_markup=_cancel_kb())
+            await msg.reply_text("\u274c " + err, reply_markup=_cancel_kb())
             raise ApplicationHandlerStop
         chans = required_channels()
         if any(c["id"] == full.id for c in chans):
@@ -1465,25 +1465,25 @@ async def admin_router(update, context):
                 url = await context.bot.export_chat_invite_link(full.id)
             except Exception:
                 context.user_data["extras_state"] = {"mode": "req_add_link", "id": full.id, "title": full.title or str(full.id)}
-                await msg.reply_text("This channel is private. Send me its invite link (https://t.me/+â€¦).", reply_markup=_cancel_kb())
+                await msg.reply_text("This channel is private. Send me its invite link (https://t.me/+\u2026).", reply_markup=_cancel_kb())
                 raise ApplicationHandlerStop
         chans.append({"id": full.id, "title": full.title or str(full.id), "url": url})
         save_required_channels(chans)
         _JOIN_OK.clear()
         context.user_data.pop("extras_state", None)
-        await msg.reply_text(f"âœ… Added â€œ{_clean(full.title, 40)}â€.", reply_markup=_main_kb(uid))
+        await msg.reply_text(f"\u2705 Added \u201c{_clean(full.title, 40)}\u201d.", reply_markup=_main_kb(uid))
         await channels_home(context.bot, msg.chat_id)
         raise ApplicationHandlerStop
     if mode == "req_add_link":
         if "t.me/" not in text:
-            await msg.reply_text("Please send a t.me invite link, or âŒ Cancel.", reply_markup=_cancel_kb())
+            await msg.reply_text("Please send a t.me invite link, or \u274c Cancel.", reply_markup=_cancel_kb())
             raise ApplicationHandlerStop
         chans = required_channels()
         chans.append({"id": st["id"], "title": st["title"], "url": text})
         save_required_channels(chans)
         _JOIN_OK.clear()
         context.user_data.pop("extras_state", None)
-        await msg.reply_text(f"âœ… Added â€œ{_clean(st['title'], 40)}â€.", reply_markup=_main_kb(uid))
+        await msg.reply_text(f"\u2705 Added \u201c{_clean(st['title'], 40)}\u201d.", reply_markup=_main_kb(uid))
         await channels_home(context.bot, msg.chat_id)
         raise ApplicationHandlerStop
 
@@ -1492,9 +1492,9 @@ async def admin_router(update, context):
 # 10. "Change Batch Channel": cancel button, and links are never trapped
 # =====================================================================
 def _menu_texts():
-    s = {"ðŸ”— File-to-Link", "ðŸŸ¢ Bot Status", "ðŸ”„ Change Batch Channel", "ðŸ“¢ Broadcast", "âš¡ Create Flash Drop",
-         "âš™ï¸ Ad Toggle Panel", "ðŸ“ Limits", "ðŸ“¢ Required Channels", "ðŸ’¾ Disk Config", "âš¡ MTProto Config",
-         "ðŸ§ª Test Ad", "ðŸ“¢ Ad Info"}
+    s = {"\U0001f517 File-to-Link", "\U0001f7e2 Bot Status", "\U0001f504 Change Batch Channel", "\U0001f4e2 Broadcast", "\u26a1 Create Flash Drop",
+         "\u2699\ufe0f Ad Toggle Panel", "\U0001f4cf Limits", "\U0001f4e2 Required Channels", "\U0001f4be Disk Config", "\u26a1 MTProto Config",
+         "\U0001f9ea Test Ad", "\U0001f4e2 Ad Info"}
     for lang in G["LANGUAGES"].values():
         for k, v in lang.items():
             if k.startswith("menu_") and isinstance(v, str):
@@ -1510,7 +1510,7 @@ async def batch_channel_router(update, context):
     text = (msg.text or "").strip()
     lang = G["get_lang"](uid)
     t = G["LANGUAGES"].get(lang, G["LANGUAGES"]["en"])
-    if text == "ðŸ”„ Change Batch Channel":
+    if text == "\U0001f504 Change Batch Channel":
         states = G["load_linking_states"]()
         states[str(uid)] = "waiting_for_channel"
         G["save_linking_states"](states)
@@ -1524,7 +1524,7 @@ async def batch_channel_router(update, context):
         G["save_linking_states"](states)
     if text in CANCEL_WORDS:
         _clear()
-        await msg.reply_text("âœ… Cancelled.", reply_markup=_main_kb(uid))
+        await msg.reply_text("\u2705 Cancelled.", reply_markup=_main_kb(uid))
         raise ApplicationHandlerStop
     fo = getattr(msg, "forward_origin", None)
     is_channel_forward = (fo is not None and getattr(fo, "type", None) == "channel") or getattr(msg, "forward_from_chat", None) is not None
@@ -1533,13 +1533,13 @@ async def batch_channel_router(update, context):
     if re.search(r"https?://", text) or text in _menu_texts():
         _clear()                                         # the user moved on: process their link/button normally
         return
-    await msg.reply_text("âŒ Please forward a message directly from your channel (not a copied message), or tap âŒ Cancel.",
+    await msg.reply_text("\u274c Please forward a message directly from your channel (not a copied message), or tap \u274c Cancel.",
                          reply_markup=_cancel_kb())
     raise ApplicationHandlerStop
 
 
 # =====================================================================
-# 10b. reward fix: Monetag ads give the amount set in "ðŸŽ Set Reward"
+# 10b. reward fix: Monetag ads give the amount set in "\U0001f381 Set Reward"
 # =====================================================================
 # The ad server (/monetag-reward) does not know the bot's reward setting
 # (it lives in bot_config.json), so it always credited +1. After the server
@@ -1682,14 +1682,14 @@ def init(g):
         if not is_admin:
             return kb
         rows = [list(r) for r in kb.keyboard]
-        rows.append([KeyboardButton("ðŸ“ Limits"), KeyboardButton("ðŸ“¢ Required Channels")])
+        rows.append([KeyboardButton("\U0001f4cf Limits"), KeyboardButton("\U0001f4e2 Required Channels")])
         return ReplyKeyboardMarkup(rows, resize_keyboard=True)
     g["get_main_keyboard"] = kb_with_admin_buttons
 
     async def tell_uploading(status_msg, path):
         if status_msg is None:
             return
-        text = f"ðŸ“¤ Uploading {os.path.getsize(path) / (1024 * 1024):.0f}MB in fast modeâ€¦"
+        text = f"\U0001f4e4 Uploading {os.path.getsize(path) / (1024 * 1024):.0f}MB in fast mode\u2026"
         rep = CTX_REPORTER.get()
         if rep is not None:
             await rep.stage(text)
