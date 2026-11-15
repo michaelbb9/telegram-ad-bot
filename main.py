@@ -109,50 +109,50 @@ FLOOD_COOLDOWN = 30
 # --- 100% COMPLETE 10-LANGUAGE DICTIONARY ---
 LANGUAGES = {
     "en": {
-        "welcome": "🚀 **WELCOME TO MICHAELBBC VAULT - ALL MEDIA DOWNLOADER!**\n\n🔥 WHAT I CAN DO:\n🎬 VIDEOS HD No Watermark!\n🎵 AUDIO MP3 192kbps!\n🖼️ IMAGES Scrape ALL!\n📝 SUBTITLES Auto!\n📦 BATCH 100+ Links!\n⚡ CACHE 1 Sec!\n💎 VAULT Forever!\n📤 UPLOAD FILES!\n🔗 FILE-TO-LINK: Create shareable links!\n\n👉 PASTE LINK TO START! 👇",
-        "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Images", "btn_sub": "📝 Subtitles (SRT)",
-        "ask_format": "👇 **AWESOME! What format you want? Pick below!**",
-        "fetching": "📥 **Fetching your {}... Hang tight! ⏳✨**",
-        "error_generic": "❌ Oops! Failed! 😢 Link private/blocked. Try public link!",
-        "error_50mb": "❌ Too Big! 😅 This video is over 300MB. Try a shorter one!", 
-        "error_no_img": "❌ No images found! 😢 Try another link!",
-        "images_received": "⏳ **{} Images received.**",
-        "select_lang": "🌍 Select your language! Choose below! 👇", 
-        "lang_set": "✅ Language set! Enjoy! 🎉✨",
-        "batch_detected": "📦 **Batch Detected ({} links)**\nWhat format?",
-        "batch_dest": "📦 **Where to send?**",
-        "btn_chat": "📥 In Chat", "btn_chan": "📢 To Channel",
-        "limit_reached": "⚠️ **Limit Reached!** You used 4 FREE! Watch 20s ad → Get +1 download!",
-        "refill_btn": "🔓 Open Link & Refill +1",
-        "join_btn": "📢 Join Channel", "check_btn": "💜 Check Balance",
-        "limit_batch": "⚠️ **Batch Limit Reached at {} of {}**\nWatch 20s ad → +1 download to continue.",
-        "batch_start": "📦 **Batch Started:** {} **{} files**\n⏳ Processing...",
-        "batch_done": "🏁 **Done!** ✅ {} ❌ {}\n📥 {} files here.",
-        "batch_done_chan": "🏁 **Done!** ✅ {} ❌ {}\n📢 {} files forwarded!",
-        "dl_video": "📥 Downloading video...", "dl_audio": "📥 Extracting audio...", "dl_image": "📥 Scraping images...", "dl_sub": "📥 Fetching subtitles...",
-        "failed_50": "❌ >300MB", "failed_blocked": "❌ Blocked/private", "failed_generic": "❌ Failed",
-        "menu_lang": "🌍 Language", "menu_stats": "📊 My Stats", "menu_help": "💬 Support / FAQ", "menu_join": "📢 Join Channel",
-        "menu_uploads": "🍿 Fan Uploads", "menu_upload": "📤 Upload File",
-        "admin_upload_prompt": "📂 **Fan Uploads Inbox**",
-        "user_upload_prompt": "📤 **Upload File**\nSend video/image/file to Admin. Limit 5/24h.",
-        "upload_success_user": "✅ Sent to Admin!",
-        "upload_limit_reached": "⚠️ Upload limit 5/24h reached.",
-        "no_uploads": "📭 No uploads yet.",
-        "stats_msg": "📊 **Your Stats:**\n• Downloads Left: {}\n• Batch Left: {}",
-        "change_channel_prompt": "🔄 **Change Batch Channel**\n1. Make sure I am an admin in the new channel.\n2. Forward any message from that channel here.",
-        "disk_config_prompt": "💾 **Disk Config**\nCurrent min free disk: **{}MB**\nTo change: `/setdisk <value>`",
-        "mtproto_config_prompt": "⚡ **MTProto Config**\nCurrent max upload: **{}MB**\nTo change: `/setmtproto <value>`",
-        "free_panel_prompt": "📦 FREE DOWNLOADS\nCurrent free per day: {}",
-        "reward_panel_prompt": "🎁 REWARD PANEL\nCurrent: +{} download per 20s ad",
-        "ad_panel_prompt": "⚙️ Ad Panel\nCurrent: {}",
-        "password_saved": "🔐 Password saved.",
+        "welcome": "ðŸš€ **WELCOME TO MICHAELBBC VAULT - ALL MEDIA DOWNLOADER!**\n\nðŸ”¥ WHAT I CAN DO:\nðŸŽ¬ VIDEOS HD No Watermark!\nðŸŽµ AUDIO MP3 192kbps!\nðŸ–¼ï¸ IMAGES Scrape ALL!\nðŸ“ SUBTITLES Auto!\nðŸ“¦ BATCH 100+ Links!\nâš¡ CACHE 1 Sec!\nðŸ’Ž VAULT Forever!\nðŸ“¤ UPLOAD FILES!\nðŸ”— FILE-TO-LINK: Create shareable links!\n\nðŸ‘‰ PASTE LINK TO START! ðŸ‘‡",
+        "btn_video": "ðŸŽ¬ Video (MP4)", "btn_audio": "ðŸŽµ Audio (MP3)", "btn_image": "ðŸ–¼ï¸ Images", "btn_sub": "ðŸ“ Subtitles (SRT)",
+        "ask_format": "ðŸ‘‡ **AWESOME! What format you want? Pick below!**",
+        "fetching": "ðŸ“¥ **Fetching your {}... Hang tight! â³âœ¨**",
+        "error_generic": "âŒ Oops! Failed! ðŸ˜¢ Link private/blocked. Try public link!",
+        "error_50mb": "âŒ Too Big! ðŸ˜… This video is over 300MB. Try a shorter one!", 
+        "error_no_img": "âŒ No images found! ðŸ˜¢ Try another link!",
+        "images_received": "â³ **{} Images received.**",
+        "select_lang": "ðŸŒ Select your language! Choose below! ðŸ‘‡", 
+        "lang_set": "âœ… Language set! Enjoy! ðŸŽ‰âœ¨",
+        "batch_detected": "ðŸ“¦ **Batch Detected ({} links)**\nWhat format?",
+        "batch_dest": "ðŸ“¦ **Where to send?**",
+        "btn_chat": "ðŸ“¥ In Chat", "btn_chan": "ðŸ“¢ To Channel",
+        "limit_reached": "âš ï¸ **Limit Reached!** You used 4 FREE! Watch 20s ad â†’ Get +1 download!",
+        "refill_btn": "ðŸ”“ Open Link & Refill +1",
+        "join_btn": "ðŸ“¢ Join Channel", "check_btn": "ðŸ’œ Check Balance",
+        "limit_batch": "âš ï¸ **Batch Limit Reached at {} of {}**\nWatch 20s ad â†’ +1 download to continue.",
+        "batch_start": "ðŸ“¦ **Batch Started:** {} **{} files**\nâ³ Processing...",
+        "batch_done": "ðŸ **Done!** âœ… {} âŒ {}\nðŸ“¥ {} files here.",
+        "batch_done_chan": "ðŸ **Done!** âœ… {} âŒ {}\nðŸ“¢ {} files forwarded!",
+        "dl_video": "ðŸ“¥ Downloading video...", "dl_audio": "ðŸ“¥ Extracting audio...", "dl_image": "ðŸ“¥ Scraping images...", "dl_sub": "ðŸ“¥ Fetching subtitles...",
+        "failed_50": "âŒ >300MB", "failed_blocked": "âŒ Blocked/private", "failed_generic": "âŒ Failed",
+        "menu_lang": "ðŸŒ Language", "menu_stats": "ðŸ“Š My Stats", "menu_help": "ðŸ’¬ Support / FAQ", "menu_join": "ðŸ“¢ Join Channel",
+        "menu_uploads": "ðŸ¿ Fan Uploads", "menu_upload": "ðŸ“¤ Upload File",
+        "admin_upload_prompt": "ðŸ“‚ **Fan Uploads Inbox**",
+        "user_upload_prompt": "ðŸ“¤ **Upload File**\nSend video/image/file to Admin. Limit 5/24h.",
+        "upload_success_user": "âœ… Sent to Admin!",
+        "upload_limit_reached": "âš ï¸ Upload limit 5/24h reached.",
+        "no_uploads": "ðŸ“­ No uploads yet.",
+        "stats_msg": "ðŸ“Š **Your Stats:**\nâ€¢ Downloads Left: {}\nâ€¢ Batch Left: {}",
+        "change_channel_prompt": "ðŸ”„ **Change Batch Channel**\n1. Make sure I am an admin in the new channel.\n2. Forward any message from that channel here.",
+        "disk_config_prompt": "ðŸ’¾ **Disk Config**\nCurrent min free disk: **{}MB**\nTo change: `/setdisk <value>`",
+        "mtproto_config_prompt": "âš¡ **MTProto Config**\nCurrent max upload: **{}MB**\nTo change: `/setmtproto <value>`",
+        "free_panel_prompt": "ðŸ“¦ FREE DOWNLOADS\nCurrent free per day: {}",
+        "reward_panel_prompt": "ðŸŽ REWARD PANEL\nCurrent: +{} download per 20s ad",
+        "ad_panel_prompt": "âš™ï¸ Ad Panel\nCurrent: {}",
+        "password_saved": "ðŸ” Password saved.",
         "password_too_long": "Password must be 64 chars or fewer.",
-        "file_to_link_prompt": "🔗 **File-to-Link**\nSend the file(s) you want to share.",
-        "link_invalid_expired": "❌ This link is invalid or expired.",
-        "link_limit_reached": "⛔ This link reached its usage limit.",
-        "link_password_protected": "🔐 This link is password protected. Send the password.",
-        "files_sent": "✅ Your files have been sent.",
-        "file_added": "📥 Added file #{}. Send more, or tap Create Link.",
+        "file_to_link_prompt": "ðŸ”— **File-to-Link**\nSend the file(s) you want to share.",
+        "link_invalid_expired": "âŒ This link is invalid or expired.",
+        "link_limit_reached": "â›” This link reached its usage limit.",
+        "link_password_protected": "ðŸ” This link is password protected. Send the password.",
+        "files_sent": "âœ… Your files have been sent.",
+        "file_added": "ðŸ“¥ Added file #{}. Send more, or tap Create Link.",
         "fl_cancelled": "File-to-Link cancelled",
         "fl_start_again": "Start File-to-Link again with /filetolink",
         "fl_choose_expiry": "Choose link expiry:",
@@ -161,766 +161,766 @@ LANGUAGES = {
         "fl_uses_updated": "Usage limit updated",
         "fl_set_password": "Send a password, or /clearpassword to remove.",
         "fl_link_created": "Link created",
-        "fl_link_ready": "🔗 Your link is ready:\n{}\nFiles: {}\nCost: 1 free daily download",
+        "fl_link_ready": "ðŸ”— Your link is ready:\n{}\nFiles: {}\nCost: 1 free daily download",
         "fl_daily_limit": "Daily free limit reached. Watch an ad to earn more.",
-        "fl_ad_busy": "⚠️ Ad server busy.",
-        "admin_skipped": "✅ Skipped!",
-        "admin_bypassed": "✅ Bypassed",
-        "free_set": "✅ Free set to {}!",
-        "free_updated": "✅ Free Downloads updated to {}!",
-        "reward_set": "✅ Reward set to +{}!",
-        "reward_updated": "✅ Reward updated to +{}!",
-        "mode_updated": "✅ Mode: {}",
-        "support_opened": "✍️ Send message/photo/video/file below.",
-        "admin_reply_mode": "✍️ Reply to {}:",
-        "user_reply_mode": "✍️ Type follow-up below",
-        "support_closed": "🔒 Closed",
-        "drop_cancelled": "❌ Cancelled",
-        "drop_no_items": "⚠️ No items!",
+        "fl_ad_busy": "âš ï¸ Ad server busy.",
+        "admin_skipped": "âœ… Skipped!",
+        "admin_bypassed": "âœ… Bypassed",
+        "free_set": "âœ… Free set to {}!",
+        "free_updated": "âœ… Free Downloads updated to {}!",
+        "reward_set": "âœ… Reward set to +{}!",
+        "reward_updated": "âœ… Reward updated to +{}!",
+        "mode_updated": "âœ… Mode: {}",
+        "support_opened": "âœï¸ Send message/photo/video/file below.",
+        "admin_reply_mode": "âœï¸ Reply to {}:",
+        "user_reply_mode": "âœï¸ Type follow-up below",
+        "support_closed": "ðŸ”’ Closed",
+        "drop_cancelled": "âŒ Cancelled",
+        "drop_no_items": "âš ï¸ No items!",
         "drop_timer_set": "{} set!",
-        "drop_broadcasting": "🚀 Broadcasting {} items to {}...",
-        "drop_flash_text": "🚨 FLASH DROP!\nAuto-deletes in {}\nTap to claim:",
-        "drop_done": "✅ Broadcast done to {}",
-        "age_expired": "⏳ Expired!",
-        "age_claimed": "❌ Already claimed!",
+        "drop_broadcasting": "ðŸš€ Broadcasting {} items to {}...",
+        "drop_flash_text": "ðŸš¨ FLASH DROP!\nAuto-deletes in {}\nTap to claim:",
+        "drop_done": "âœ… Broadcast done to {}",
+        "age_expired": "â³ Expired!",
+        "age_claimed": "âŒ Already claimed!",
         "age_verified": "Verified!",
-        "age_denied": "❌ Denied. Must be 18+",
+        "age_denied": "âŒ Denied. Must be 18+",
         "lang_updated": "Updated!",
         "batch_expired": "Expired",
         "batch_loading": "Loading...",
         "batch_no_channel": "No channel linked!",
-        "batch_setup_prompt": "📦 Setup: Make bot admin in channel and forward a message here",
+        "batch_setup_prompt": "ðŸ“¦ Setup: Make bot admin in channel and forward a message here",
         "batch_mode_activated": "Mode activated!",
-        "batch_change_dest": "🔄 **Change Destination Channel**\nMake bot admin in new channel, then forward a message here.",
-        "join_channel_first_alert": "Join channel first! 📢 Must join!",
-        "join_channel_first": "Join channel first! 📢",
-        "watch_timer_first": "⏰ Open the link and watch the 20s timer first!",
-        "test_ad_verified": "✅ Test Ad Verified! +1",
-        "test_ad_verified_msg": "✅ **TEST AD VERIFIED!**\nReward: +1 download refilled!",
-        "finish_timer_first": "⏰ Finish 20s timer first!",
+        "batch_change_dest": "ðŸ”„ **Change Destination Channel**\nMake bot admin in new channel, then forward a message here.",
+        "join_channel_first_alert": "Join channel first! ðŸ“¢ Must join!",
+        "join_channel_first": "Join channel first! ðŸ“¢",
+        "watch_timer_first": "â° Open the link and watch the 20s timer first!",
+        "test_ad_verified": "âœ… Test Ad Verified! +1",
+        "test_ad_verified_msg": "âœ… **TEST AD VERIFIED!**\nReward: +1 download refilled!",
+        "finish_timer_first": "â° Finish 20s timer first!",
         "verified_added": "Verified! +1 added",
-        "resume_prompt": "✅ Verified! Refilled +1. Resume?",
-        "refilled_download": "✅ Refilled +1! Download again.",
-        "fetching_bundle": "✅ Verified! Fetching bundle...",
+        "resume_prompt": "âœ… Verified! Refilled +1. Resume?",
+        "refilled_download": "âœ… Refilled +1! Download again.",
+        "fetching_bundle": "âœ… Verified! Fetching bundle...",
         "outdated_button": "This button is outdated. Send your link again.",
         "stopping": "Stopping...",
-        "stopped": "🛑 Stopped",
+        "stopped": "ðŸ›‘ Stopped",
         "resuming": "Resuming...",
         "checking_vault": "Checking vault & server load...",
-        "server_busy": "⏳ **Server Busy**\nActive: {}/{}\nFree: {}MB\nQueue: #{}\nWill start auto!",
-        "simulated": "🛠 Simulated! Now tap Check & Get +1",
-        "server_unreachable": "❌ Server unreachable",
+        "server_busy": "â³ **Server Busy**\nActive: {}/{}\nFree: {}MB\nQueue: #{}\nWill start auto!",
+        "simulated": "ðŸ›  Simulated! Now tap Check & Get +1",
+        "server_unreachable": "âŒ Server unreachable",
         "monetag_failed_twice": "Complete two failed Monetag attempts first.",
-        "monetag_fallback_prompt": "🌐 Monetag failed twice. Continue with Adsterra:",
+        "monetag_fallback_prompt": "ðŸŒ Monetag failed twice. Continue with Adsterra:",
         "adsterra_ready": "Adsterra fallback ready",
-        "finish_monetag": "📺 Finish the Monetag ad in Mini App, then check again.",
+        "finish_monetag": "ðŸ“º Finish the Monetag ad in Mini App, then check again.",
         "monetag_failed_use_adsterra": "Monetag failed twice. Use Adsterra fallback below.",
         "ad_link_expired": "Ad link expired. Send your link again.",
-        "ad_verified_added": "✅ Ad verified! +{} added",
-        "test_ad_completed": "✅ TEST AD VERIFIED\nReward credited: +{} download.",
-        "sponsor_viewed": "✅ Sponsor viewed! +{} added",
-        "refilled_send_again": "✅ Refilled +{}! Send your link again.",
-        "queued": "⏳ Queued #{}",
-        "banned": "🚫 You are banned.",
-        "no_links": "❌ No links found.",
-        "batch_count": "📦 Batch {} links",
-        "restore_invalid_json": "❌ Restore failed: **{}** is not valid JSON.",
-        "restore_failed": "❌ Restore failed: {}",
-        "restore_success": "✅ **Restore Successful!**\nFile: **{}**\nRestored **{}** entries.",
-        "admin_edit_welcome_prompt": "✏️ Send the new Welcome Message. Use `{bot_name}` for bot username.",
-        "admin_welcome_updated": "✅ Welcome message updated!",
-        "menu_edit_welcome": "✏️ Edit Welcome Msg",
-        "cached_instant_video": "⚡ Cached Instant [{}] {} {}",
-        "cached_instant_audio": "⚡ **Cached Instant** `{}`",
-        "cached_instant_image": "⚡ **Cached Instant** `{}`",
-        "auto_delete_9m": "⏳ Auto-deletes in 9 mins",
-        "download_success": "✅ Download successful!"
+        "ad_verified_added": "âœ… Ad verified! +{} added",
+        "test_ad_completed": "âœ… TEST AD VERIFIED\nReward credited: +{} download.",
+        "sponsor_viewed": "âœ… Sponsor viewed! +{} added",
+        "refilled_send_again": "âœ… Refilled +{}! Send your link again.",
+        "queued": "â³ Queued #{}",
+        "banned": "ðŸš« You are banned.",
+        "no_links": "âŒ No links found.",
+        "batch_count": "ðŸ“¦ Batch {} links",
+        "restore_invalid_json": "âŒ Restore failed: **{}** is not valid JSON.",
+        "restore_failed": "âŒ Restore failed: {}",
+        "restore_success": "âœ… **Restore Successful!**\nFile: **{}**\nRestored **{}** entries.",
+        "admin_edit_welcome_prompt": "âœï¸ Send the new Welcome Message. Use `{bot_name}` for bot username.",
+        "admin_welcome_updated": "âœ… Welcome message updated!",
+        "menu_edit_welcome": "âœï¸ Edit Welcome Msg",
+        "cached_instant_video": "âš¡ Cached Instant [{}] {} {}",
+        "cached_instant_audio": "âš¡ **Cached Instant** `{}`",
+        "cached_instant_image": "âš¡ **Cached Instant** `{}`",
+        "auto_delete_9m": "â³ Auto-deletes in 9 mins",
+        "download_success": "âœ… Download successful!"
     },
     "hi": {
-        "welcome": "🚀 **MICHAELBBC VAULT में स्वागत है - ऑल मीडिया डाउनलोडर!**\n\n🔥 मैं क्या कर सकता हूँ:\n🎬 वीडियो HD नो वॉटरमार्क!\n🎵 ऑडियो MP3 192kbps!\n🖼️ इमेजेस स्क्रेप ALL!\n📝 सबटाइटल्स ऑटो!\n📦 बैच 100+ लिंक्स!\n⚡ कैश 1 सेकंड!\n💎 वॉल्ट फॉरेवर!\n📤 फाइलें अपलोड करें!\n🔗 फाइल-टू-लिंक: शेयर लिंक बनाएं!\n\n👉 शुरू करने के लिए लिंक पेस्ट करें! 👇",
-        "btn_video": "🎬 वीडियो (MP4)", "btn_audio": "🎵 ऑडियो (MP3)", "btn_image": "🖼️ इमेजेस", "btn_sub": "📝 सबटाइटल्स (SRT)",
-        "ask_format": "👇 **शानदार! कौन सा फॉर्मेट चाहते हैं? नीचे चुनें!**",
-        "fetching": "📥 **आपका {} लाया जा रहा है... रुके रहें! ⏳✨**",
-        "error_generic": "❌ ओह! विफल! 😢 लिंक प्राइवेट/ब्लॉक है। पब्लिक लिंक आज़माएं!",
-        "error_50mb": "❌ बहुत बड़ा! 😅 यह वीडियो 300MB से अधिक है। छोटा वाला आज़माएं!", 
-        "error_no_img": "❌ कोई इमेज नहीं मिली! 😢 दूसरा लिंक आज़माएं!",
-        "images_received": "⏳ **{} इमेजेस प्राप्त हुईं।**",
-        "select_lang": "🌍 अपनी भाषा चुनें! नीचे चुनें! 👇", 
-        "lang_set": "✅ भाषा सेट हो गई! आनंद लें! 🎉✨",
-        "batch_detected": "📦 **बैच डिटेक्ट हुआ ({} लिंक्स)**\nकौन सा फॉर्मेट?",
-        "batch_dest": "📦 **कहाँ भेजें?**",
-        "btn_chat": "📥 चैट में", "btn_chan": "📢 चैनल में",
-        "limit_reached": "⚠️ **लिमिट पूरी हो गई!** आपने 4 फ्री इस्तेमाल कर लिए! 20 सेकंड का विज्ञापन देखें → +1 डाउनलोड पाएं!",
-        "refill_btn": "🔓 लिंक खोलें और +1 रिफिल करें",
-        "join_btn": "📢 चैनल जॉइन करें", "check_btn": "💜 बैलेंस चेक करें",
-        "limit_batch": "⚠️ **बैच लिमिट {} में से {} पर पहुँच गई**\nजारी रखने के लिए 20 सेकंड का विज्ञापन देखें → +1 डाउनलोड।",
-        "batch_start": "📦 **बैच शुरू:** {} **{} फाइलें**\n⏳ प्रोसेसिंग...",
-        "batch_done": "🏁 **हो गया!** ✅ {} ❌ {}\n📥 {} फाइलें यहाँ हैं।",
-        "batch_done_chan": "🏁 **हो गया!** ✅ {} ❌ {}\n📢 {} फाइलें फॉरवर्ड की गईं!",
-        "dl_video": "📥 वीडियो डाउनलोड हो रहा है...", "dl_audio": "📥 ऑडियो निकाला जा रहा है...", "dl_image": "📥 इमेजेस स्क्रेप हो रही हैं...", "dl_sub": "📥 सबटाइटल्स लाए जा रहे हैं...",
-        "failed_50": "❌ >300MB", "failed_blocked": "❌ ब्लॉक/प्राइवेट", "failed_generic": "❌ विफल",
-        "menu_lang": "🌍 भाषा", "menu_stats": "📊 मेरे आंकड़े", "menu_help": "💬 सपोर्ट / FAQ", "menu_join": "📢 चैनल जॉइन करें",
-        "menu_uploads": "🍿 फैन अपलोड्स", "menu_upload": "📤 फाइल अपलोड करें",
-        "admin_upload_prompt": "📂 **फैन अपलोड्स इनबॉक्स**",
-        "user_upload_prompt": "📤 **फाइल अपलोड करें**\nएडमिन को वीडियो/इमेज/फाइल भेजें। लिमिट 5/24घंटे।",
-        "upload_success_user": "✅ एडमिन को भेज दिया गया!",
-        "upload_limit_reached": "⚠️ अपलोड लिमिट 5/24घंटे पूरी हो गई।",
-        "no_uploads": "📭 अभी तक कोई अपलोड नहीं।",
-        "stats_msg": "📊 **आपके आंकड़े:**\n• डाउनलोड बचे: {}\n• बैच बचे: {}",
-        "change_channel_prompt": "🔄 **बैच चैनल बदलें**\n1. सुनिश्चित करें कि मैं नए चैनल में एडमिन हूँ।\n2. उस चैनल से कोई भी मैसेज यहाँ फॉरवर्ड करें।",
-        "disk_config_prompt": "💾 **डिस्क कॉन्फ़िगरेशन**\nवर्तमान न्यूनतम फ्री डिस्क: **{}MB**\nबदलने के लिए: `/setdisk <value>`",
-        "mtproto_config_prompt": "⚡ **MTProto कॉन्फ़िगरेशन**\nवर्तमान अधिकतम अपलोड: **{}MB**\nबदलने के लिए: `/setmtproto <value>`",
-        "free_panel_prompt": "📦 फ्री डाउनलोड्स\nवर्तमान फ्री प्रति दिन: {}",
-        "reward_panel_prompt": "🎁 रिवॉर्ड पैनल\nवर्तमान: +{} डाउनलोड प्रति 20 सेकंड विज्ञापन",
-        "ad_panel_prompt": "⚙️ विज्ञापन पैनल\nवर्तमान: {}",
-        "password_saved": "🔐 पासवर्ड सेव हो गया।",
-        "password_too_long": "पासवर्ड 64 अक्षरों से कम होना चाहिए।",
-        "file_to_link_prompt": "🔗 **फाइल-टू-लिंक**\nवह फाइल(ें) भेजें जिन्हें आप शेयर करना चाहते हैं।",
-        "link_invalid_expired": "❌ यह लिंक अमान्य है या समाप्त हो गया है।",
-        "link_limit_reached": "⛔ इस लिंक ने अपनी उपयोग सीमा पार कर ली है।",
-        "link_password_protected": "🔐 यह लिंक पासवर्ड से सुरक्षित है। पासवर्ड भेजें।",
-        "files_sent": "✅ आपकी फाइलें भेज दी गई हैं।",
-        "file_added": "📥 फाइल #{} जोड़ी गई। और भेजें, या 'Create Link' टैप करें।",
-        "fl_cancelled": "फाइल-टू-लिंक रद्द किया गया",
-        "fl_start_again": "/filetolink के साथ फिर से शुरू करें",
-        "fl_choose_expiry": "लिंक समाप्ति चुनें:",
-        "fl_expiry_updated": "समाप्ति अपडेट हो गई",
-        "fl_choose_max_uses": "अधिकतम सफल डिलीवरी चुनें:",
-        "fl_uses_updated": "उपयोग सीमा अपडेट हो गई",
-        "fl_set_password": "पासवर्ड भेजें, या हटाने के लिए /clearpassword भेजें।",
-        "fl_link_created": "लिंक बनाया गया",
-        "fl_link_ready": "🔗 आपका लिंक तैयार है:\n{}\nफाइलें: {}\nलागत: 1 फ्री दैनिक डाउनलोड",
-        "fl_daily_limit": "दैनिक फ्री लिमिट पूरी हो गई। अधिक कमाने के लिए विज्ञापन देखें।",
-        "fl_ad_busy": "⚠️ विज्ञापन सर्वर व्यस्त है।",
-        "admin_skipped": "✅ छोड़ दिया गया!",
-        "admin_bypassed": "✅ बायपास किया गया",
-        "free_set": "✅ फ्री {} पर सेट किया गया!",
-        "free_updated": "✅ फ्री डाउनलोड्स {} पर अपडेट किए गए!",
-        "reward_set": "✅ रिवॉर्ड +{} पर सेट किया गया!",
-        "reward_updated": "✅ रिवॉर्ड +{} पर अपडेट किया गया!",
-        "mode_updated": "✅ मोड: {}",
-        "support_opened": "✍️ नीचे मैसेज/फोटो/वीडियो/फाइल भेजें।",
-        "admin_reply_mode": "✍️ {} को रिप्लाई करें:",
-        "user_reply_mode": "✍️ नीचे फॉलो-अप टाइप करें",
-        "support_closed": "🔒 बंद किया गया",
-        "drop_cancelled": "❌ रद्द किया गया",
-        "drop_no_items": "⚠️ कोई आइटम नहीं!",
-        "drop_timer_set": "{} सेट किया गया!",
-        "drop_broadcasting": "🚀 {} आइटम {} को ब्रॉडकास्ट किया जा रहा है...",
-        "drop_flash_text": "🚨 फ्लैश ड्रॉप!\n{} में ऑटो-डिलीट होगा\nक्लेम करने के लिए टैप करें:",
-        "drop_done": "✅ {} को ब्रॉडकास्ट हो गया",
-        "age_expired": "⏳ समाप्त हो गया!",
-        "age_claimed": "❌ पहले ही क्लेम किया जा चुका है!",
-        "age_verified": "सत्यापित!",
-        "age_denied": "❌ अस्वीकृत। 18+ होना चाहिए",
-        "lang_updated": "अपडेट किया गया!",
-        "batch_expired": "समाप्त हो गया",
-        "batch_loading": "लोड हो रहा है...",
-        "batch_no_channel": "कोई चैनल लिंक नहीं किया गया!",
-        "batch_setup_prompt": "📦 सेटअप: चैनल में बॉट को एडमिन बनाएं और यहाँ एक मैसेज फॉरवर्ड करें",
-        "batch_mode_activated": "मोड सक्रिय किया गया!",
-        "batch_change_dest": "🔄 **डेस्टिनेशन चैनल बदलें**\nनए चैनल में बॉट को एडमिन बनाएं, फिर यहाँ मैसेज फॉरवर्ड करें।",
-        "join_channel_first_alert": "पहले चैनल जॉइन करें! 📢 जॉइन करना आवश्यक है!",
-        "join_channel_first": "पहले चैनल जॉइन करें! 📢",
-        "watch_timer_first": "⏰ पहले लिंक खोलें और 20 सेकंड का टाइमर देखें!",
-        "test_ad_verified": "✅ टेस्ट विज्ञापन सत्यापित! +1",
-        "test_ad_verified_msg": "✅ **टेस्ट विज्ञापन सत्यापित!**\nरिवॉर्ड: +1 डाउनलोड रिफिल किया गया!",
-        "finish_timer_first": "⏰ पहले 20 सेकंड का टाइमर पूरा करें!",
-        "verified_added": "सत्यापित! +1 जोड़ा गया",
-        "resume_prompt": "✅ सत्यापित! +1 रिफिल किया गया। फिर से शुरू करें?",
-        "refilled_download": "✅ +1 रिफिल किया गया! फिर से डाउनलोड करें।",
-        "fetching_bundle": "✅ सत्यापित! बंडल लाया जा रहा है...",
-        "outdated_button": "यह बटन पुराना है। अपना लिंक फिर से भेजें।",
-        "stopping": "रोका जा रहा है...",
-        "stopped": "🛑 रुक गया",
-        "resuming": "फिर से शुरू हो रहा है...",
-        "checking_vault": "वॉल्ट और सर्वर लोड चेक किया जा रहा है...",
-        "server_busy": "⏳ **सर्वर व्यस्त है**\nसक्रिय: {}/{}\nफ्री: {}MB\nकतार: #{}\nऑटो शुरू होगा!",
-        "simulated": "🛠 सिम्युलेट किया गया! अब चेक करें और +1 प्राप्त करें",
-        "server_unreachable": "❌ सर्वर पहुँच से बाहर है",
-        "monetag_failed_twice": "पहले दो विफल Monetag प्रयास पूरे करें।",
-        "monetag_fallback_prompt": "🌐 Monetag दो बार विफल रहा। Adsterra के साथ जारी रखें:",
-        "adsterra_ready": "Adsterra फॉलबैक तैयार है",
-        "finish_monetag": "📺 Mini App में Monetag विज्ञापन पूरा करें, फिर चेक करें।",
-        "monetag_failed_use_adsterra": "Monetag दो बार विफल रहा। नीचे दिए गए Adsterra फॉलबैक का उपयोग करें।",
-        "ad_link_expired": "विज्ञापन लिंक समाप्त हो गया है। अपना लिंक फिर से भेजें।",
-        "ad_verified_added": "✅ विज्ञापन सत्यापित! +{} जोड़ा गया",
-        "test_ad_completed": "✅ टेस्ट विज्ञापन सत्यापित\nरिवॉर्ड जमा किया गया: +{} डाउनलोड।",
-        "sponsor_viewed": "✅ स्पॉन्सर देखा गया! +{} जोड़ा गया",
-        "refilled_send_again": "✅ +{} रिफिल किया गया! अपना लिंक फिर से भेजें।",
-        "queued": "⏳ कतार #{}",
-        "banned": "🚫 आप बैन कर दिए गए हैं।",
-        "no_links": "❌ कोई लिंक नहीं मिला।",
-        "batch_count": "📦 बैच {} लिंक्स",
-        "restore_invalid_json": "❌ रिस्टोर विफल: **{}** मान्य JSON नहीं है।",
-        "restore_failed": "❌ रिस्टोर विफल: {}",
-        "restore_success": "✅ **रिस्टोर सफल!**\nफाइल: **{}**\n**{}** एंट्रीज रिस्टोर की गईं।",
-        "admin_edit_welcome_prompt": "✏️ नया वेलकम मैसेज भेजें। बॉट यूजरनेम के लिए `{bot_name}` का उपयोग करें।",
-        "admin_welcome_updated": "✅ वेलकम मैसेज अपडेट हो गया!",
-        "menu_edit_welcome": "✏️ वेलकम मैसेज एडिट करें",
-        "cached_instant_video": "⚡ कैश किया गया तात्कालिक [{}] {} {}",
-        "cached_instant_audio": "⚡ **कैश किया गया तात्कालिक** `{}`",
-        "cached_instant_image": "⚡ **कैश किया गया तात्कालिक** `{}`",
-        "auto_delete_9m": "⏳ 9 मिनट में ऑटो-डिलीट",
-        "download_success": "✅ डाउनलोड सफल!"
+        "welcome": "ðŸš€ **MICHAELBBC VAULT à¤®à¥‡à¤‚ à¤¸à¥à¤µà¤¾à¤—à¤¤ à¤¹à¥ˆ - à¤‘à¤² à¤®à¥€à¤¡à¤¿à¤¯à¤¾ à¤¡à¤¾à¤‰à¤¨à¤²à¥‹à¤¡à¤°!**\n\nðŸ”¥ à¤®à¥ˆà¤‚ à¤•à¥à¤¯à¤¾ à¤•à¤° à¤¸à¤•à¤¤à¤¾ à¤¹à¥‚à¤:\nðŸŽ¬ à¤µà¥€à¤¡à¤¿à¤¯à¥‹ HD à¤¨à¥‹ à¤µà¥‰à¤Ÿà¤°à¤®à¤¾à¤°à¥à¤•!\nðŸŽµ à¤‘à¤¡à¤¿à¤¯à¥‹ MP3 192kbps!\nðŸ–¼ï¸ à¤‡à¤®à¥‡à¤œà¥‡à¤¸ à¤¸à¥à¤•à¥à¤°à¥‡à¤ª ALL!\nðŸ“ à¤¸à¤¬à¤Ÿà¤¾à¤‡à¤Ÿà¤²à¥à¤¸ à¤‘à¤Ÿà¥‹!\nðŸ“¦ à¤¬à¥ˆà¤š 100+ à¤²à¤¿à¤‚à¤•à¥à¤¸!\nâš¡ à¤•à¥ˆà¤¶ 1 à¤¸à¥‡à¤•à¤‚à¤¡!\nðŸ’Ž à¤µà¥‰à¤²à¥à¤Ÿ à¤«à¥‰à¤°à¥‡à¤µà¤°!\nðŸ“¤ à¤«à¤¾à¤‡à¤²à¥‡à¤‚ à¤…à¤ªà¤²à¥‹à¤¡ à¤•à¤°à¥‡à¤‚!\nðŸ”— à¤«à¤¾à¤‡à¤²-à¤Ÿà¥‚-à¤²à¤¿à¤‚à¤•: à¤¶à¥‡à¤¯à¤° à¤²à¤¿à¤‚à¤• à¤¬à¤¨à¤¾à¤à¤‚!\n\nðŸ‘‰ à¤¶à¥à¤°à¥‚ à¤•à¤°à¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤ à¤²à¤¿à¤‚à¤• à¤ªà¥‡à¤¸à¥à¤Ÿ à¤•à¤°à¥‡à¤‚! ðŸ‘‡",
+        "btn_video": "ðŸŽ¬ à¤µà¥€à¤¡à¤¿à¤¯à¥‹ (MP4)", "btn_audio": "ðŸŽµ à¤‘à¤¡à¤¿à¤¯à¥‹ (MP3)", "btn_image": "ðŸ–¼ï¸ à¤‡à¤®à¥‡à¤œà¥‡à¤¸", "btn_sub": "ðŸ“ à¤¸à¤¬à¤Ÿà¤¾à¤‡à¤Ÿà¤²à¥à¤¸ (SRT)",
+        "ask_format": "ðŸ‘‡ **à¤¶à¤¾à¤¨à¤¦à¤¾à¤°! à¤•à¥Œà¤¨ à¤¸à¤¾ à¤«à¥‰à¤°à¥à¤®à¥‡à¤Ÿ à¤šà¤¾à¤¹à¤¤à¥‡ à¤¹à¥ˆà¤‚? à¤¨à¥€à¤šà¥‡ à¤šà¥à¤¨à¥‡à¤‚!**",
+        "fetching": "ðŸ“¥ **à¤†à¤ªà¤•à¤¾ {} à¤²à¤¾à¤¯à¤¾ à¤œà¤¾ à¤°à¤¹à¤¾ à¤¹à¥ˆ... à¤°à¥à¤•à¥‡ à¤°à¤¹à¥‡à¤‚! â³âœ¨**",
+        "error_generic": "âŒ à¤“à¤¹! à¤µà¤¿à¤«à¤²! ðŸ˜¢ à¤²à¤¿à¤‚à¤• à¤ªà¥à¤°à¤¾à¤‡à¤µà¥‡à¤Ÿ/à¤¬à¥à¤²à¥‰à¤• à¤¹à¥ˆà¥¤ à¤ªà¤¬à¥à¤²à¤¿à¤• à¤²à¤¿à¤‚à¤• à¤†à¤œà¤¼à¤®à¤¾à¤à¤‚!",
+        "error_50mb": "âŒ à¤¬à¤¹à¥à¤¤ à¤¬à¤¡à¤¼à¤¾! ðŸ˜… à¤¯à¤¹ à¤µà¥€à¤¡à¤¿à¤¯à¥‹ 300MB à¤¸à¥‡ à¤…à¤§à¤¿à¤• à¤¹à¥ˆà¥¤ à¤›à¥‹à¤Ÿà¤¾ à¤µà¤¾à¤²à¤¾ à¤†à¤œà¤¼à¤®à¤¾à¤à¤‚!", 
+        "error_no_img": "âŒ à¤•à¥‹à¤ˆ à¤‡à¤®à¥‡à¤œ à¤¨à¤¹à¥€à¤‚ à¤®à¤¿à¤²à¥€! ðŸ˜¢ à¤¦à¥‚à¤¸à¤°à¤¾ à¤²à¤¿à¤‚à¤• à¤†à¤œà¤¼à¤®à¤¾à¤à¤‚!",
+        "images_received": "â³ **{} à¤‡à¤®à¥‡à¤œà¥‡à¤¸ à¤ªà¥à¤°à¤¾à¤ªà¥à¤¤ à¤¹à¥à¤ˆà¤‚à¥¤**",
+        "select_lang": "ðŸŒ à¤…à¤ªà¤¨à¥€ à¤­à¤¾à¤·à¤¾ à¤šà¥à¤¨à¥‡à¤‚! à¤¨à¥€à¤šà¥‡ à¤šà¥à¤¨à¥‡à¤‚! ðŸ‘‡", 
+        "lang_set": "âœ… à¤­à¤¾à¤·à¤¾ à¤¸à¥‡à¤Ÿ à¤¹à¥‹ à¤—à¤ˆ! à¤†à¤¨à¤‚à¤¦ à¤²à¥‡à¤‚! ðŸŽ‰âœ¨",
+        "batch_detected": "ðŸ“¦ **à¤¬à¥ˆà¤š à¤¡à¤¿à¤Ÿà¥‡à¤•à¥à¤Ÿ à¤¹à¥à¤† ({} à¤²à¤¿à¤‚à¤•à¥à¤¸)**\nà¤•à¥Œà¤¨ à¤¸à¤¾ à¤«à¥‰à¤°à¥à¤®à¥‡à¤Ÿ?",
+        "batch_dest": "ðŸ“¦ **à¤•à¤¹à¤¾à¤ à¤­à¥‡à¤œà¥‡à¤‚?**",
+        "btn_chat": "ðŸ“¥ à¤šà¥ˆà¤Ÿ à¤®à¥‡à¤‚", "btn_chan": "ðŸ“¢ à¤šà¥ˆà¤¨à¤² à¤®à¥‡à¤‚",
+        "limit_reached": "âš ï¸ **à¤²à¤¿à¤®à¤¿à¤Ÿ à¤ªà¥‚à¤°à¥€ à¤¹à¥‹ à¤—à¤ˆ!** à¤†à¤ªà¤¨à¥‡ 4 à¤«à¥à¤°à¥€ à¤‡à¤¸à¥à¤¤à¥‡à¤®à¤¾à¤² à¤•à¤° à¤²à¤¿à¤! 20 à¤¸à¥‡à¤•à¤‚à¤¡ à¤•à¤¾ à¤µà¤¿à¤œà¥à¤žà¤¾à¤ªà¤¨ à¤¦à¥‡à¤–à¥‡à¤‚ â†’ +1 à¤¡à¤¾à¤‰à¤¨à¤²à¥‹à¤¡ à¤ªà¤¾à¤à¤‚!",
+        "refill_btn": "ðŸ”“ à¤²à¤¿à¤‚à¤• à¤–à¥‹à¤²à¥‡à¤‚ à¤”à¤° +1 à¤°à¤¿à¤«à¤¿à¤² à¤•à¤°à¥‡à¤‚",
+        "join_btn": "ðŸ“¢ à¤šà¥ˆà¤¨à¤² à¤œà¥‰à¤‡à¤¨ à¤•à¤°à¥‡à¤‚", "check_btn": "ðŸ’œ à¤¬à¥ˆà¤²à¥‡à¤‚à¤¸ à¤šà¥‡à¤• à¤•à¤°à¥‡à¤‚",
+        "limit_batch": "âš ï¸ **à¤¬à¥ˆà¤š à¤²à¤¿à¤®à¤¿à¤Ÿ {} à¤®à¥‡à¤‚ à¤¸à¥‡ {} à¤ªà¤° à¤ªà¤¹à¥à¤à¤š à¤—à¤ˆ**\nà¤œà¤¾à¤°à¥€ à¤°à¤–à¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤ 20 à¤¸à¥‡à¤•à¤‚à¤¡ à¤•à¤¾ à¤µà¤¿à¤œà¥à¤žà¤¾à¤ªà¤¨ à¤¦à¥‡à¤–à¥‡à¤‚ â†’ +1 à¤¡à¤¾à¤‰à¤¨à¤²à¥‹à¤¡à¥¤",
+        "batch_start": "ðŸ“¦ **à¤¬à¥ˆà¤š à¤¶à¥à¤°à¥‚:** {} **{} à¤«à¤¾à¤‡à¤²à¥‡à¤‚**\nâ³ à¤ªà¥à¤°à¥‹à¤¸à¥‡à¤¸à¤¿à¤‚à¤—...",
+        "batch_done": "ðŸ **à¤¹à¥‹ à¤—à¤¯à¤¾!** âœ… {} âŒ {}\nðŸ“¥ {} à¤«à¤¾à¤‡à¤²à¥‡à¤‚ à¤¯à¤¹à¤¾à¤ à¤¹à¥ˆà¤‚à¥¤",
+        "batch_done_chan": "ðŸ **à¤¹à¥‹ à¤—à¤¯à¤¾!** âœ… {} âŒ {}\nðŸ“¢ {} à¤«à¤¾à¤‡à¤²à¥‡à¤‚ à¤«à¥‰à¤°à¤µà¤°à¥à¤¡ à¤•à¥€ à¤—à¤ˆà¤‚!",
+        "dl_video": "ðŸ“¥ à¤µà¥€à¤¡à¤¿à¤¯à¥‹ à¤¡à¤¾à¤‰à¤¨à¤²à¥‹à¤¡ à¤¹à¥‹ à¤°à¤¹à¤¾ à¤¹à¥ˆ...", "dl_audio": "ðŸ“¥ à¤‘à¤¡à¤¿à¤¯à¥‹ à¤¨à¤¿à¤•à¤¾à¤²à¤¾ à¤œà¤¾ à¤°à¤¹à¤¾ à¤¹à¥ˆ...", "dl_image": "ðŸ“¥ à¤‡à¤®à¥‡à¤œà¥‡à¤¸ à¤¸à¥à¤•à¥à¤°à¥‡à¤ª à¤¹à¥‹ à¤°à¤¹à¥€ à¤¹à¥ˆà¤‚...", "dl_sub": "ðŸ“¥ à¤¸à¤¬à¤Ÿà¤¾à¤‡à¤Ÿà¤²à¥à¤¸ à¤²à¤¾à¤ à¤œà¤¾ à¤°à¤¹à¥‡ à¤¹à¥ˆà¤‚...",
+        "failed_50": "âŒ >300MB", "failed_blocked": "âŒ à¤¬à¥à¤²à¥‰à¤•/à¤ªà¥à¤°à¤¾à¤‡à¤µà¥‡à¤Ÿ", "failed_generic": "âŒ à¤µà¤¿à¤«à¤²",
+        "menu_lang": "ðŸŒ à¤­à¤¾à¤·à¤¾", "menu_stats": "ðŸ“Š à¤®à¥‡à¤°à¥‡ à¤†à¤‚à¤•à¤¡à¤¼à¥‡", "menu_help": "ðŸ’¬ à¤¸à¤ªà¥‹à¤°à¥à¤Ÿ / FAQ", "menu_join": "ðŸ“¢ à¤šà¥ˆà¤¨à¤² à¤œà¥‰à¤‡à¤¨ à¤•à¤°à¥‡à¤‚",
+        "menu_uploads": "ðŸ¿ à¤«à¥ˆà¤¨ à¤…à¤ªà¤²à¥‹à¤¡à¥à¤¸", "menu_upload": "ðŸ“¤ à¤«à¤¾à¤‡à¤² à¤…à¤ªà¤²à¥‹à¤¡ à¤•à¤°à¥‡à¤‚",
+        "admin_upload_prompt": "ðŸ“‚ **à¤«à¥ˆà¤¨ à¤…à¤ªà¤²à¥‹à¤¡à¥à¤¸ à¤‡à¤¨à¤¬à¥‰à¤•à¥à¤¸**",
+        "user_upload_prompt": "ðŸ“¤ **à¤«à¤¾à¤‡à¤² à¤…à¤ªà¤²à¥‹à¤¡ à¤•à¤°à¥‡à¤‚**\nà¤à¤¡à¤®à¤¿à¤¨ à¤•à¥‹ à¤µà¥€à¤¡à¤¿à¤¯à¥‹/à¤‡à¤®à¥‡à¤œ/à¤«à¤¾à¤‡à¤² à¤­à¥‡à¤œà¥‡à¤‚à¥¤ à¤²à¤¿à¤®à¤¿à¤Ÿ 5/24à¤˜à¤‚à¤Ÿà¥‡à¥¤",
+        "upload_success_user": "âœ… à¤à¤¡à¤®à¤¿à¤¨ à¤•à¥‹ à¤­à¥‡à¤œ à¤¦à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾!",
+        "upload_limit_reached": "âš ï¸ à¤…à¤ªà¤²à¥‹à¤¡ à¤²à¤¿à¤®à¤¿à¤Ÿ 5/24à¤˜à¤‚à¤Ÿà¥‡ à¤ªà¥‚à¤°à¥€ à¤¹à¥‹ à¤—à¤ˆà¥¤",
+        "no_uploads": "ðŸ“­ à¤…à¤­à¥€ à¤¤à¤• à¤•à¥‹à¤ˆ à¤…à¤ªà¤²à¥‹à¤¡ à¤¨à¤¹à¥€à¤‚à¥¤",
+        "stats_msg": "ðŸ“Š **à¤†à¤ªà¤•à¥‡ à¤†à¤‚à¤•à¤¡à¤¼à¥‡:**\nâ€¢ à¤¡à¤¾à¤‰à¤¨à¤²à¥‹à¤¡ à¤¬à¤šà¥‡: {}\nâ€¢ à¤¬à¥ˆà¤š à¤¬à¤šà¥‡: {}",
+        "change_channel_prompt": "ðŸ”„ **à¤¬à¥ˆà¤š à¤šà¥ˆà¤¨à¤² à¤¬à¤¦à¤²à¥‡à¤‚**\n1. à¤¸à¥à¤¨à¤¿à¤¶à¥à¤šà¤¿à¤¤ à¤•à¤°à¥‡à¤‚ à¤•à¤¿ à¤®à¥ˆà¤‚ à¤¨à¤ à¤šà¥ˆà¤¨à¤² à¤®à¥‡à¤‚ à¤à¤¡à¤®à¤¿à¤¨ à¤¹à¥‚à¤à¥¤\n2. à¤‰à¤¸ à¤šà¥ˆà¤¨à¤² à¤¸à¥‡ à¤•à¥‹à¤ˆ à¤­à¥€ à¤®à¥ˆà¤¸à¥‡à¤œ à¤¯à¤¹à¤¾à¤ à¤«à¥‰à¤°à¤µà¤°à¥à¤¡ à¤•à¤°à¥‡à¤‚à¥¤",
+        "disk_config_prompt": "ðŸ’¾ **à¤¡à¤¿à¤¸à¥à¤• à¤•à¥‰à¤¨à¥à¤«à¤¼à¤¿à¤—à¤°à¥‡à¤¶à¤¨**\nà¤µà¤°à¥à¤¤à¤®à¤¾à¤¨ à¤¨à¥à¤¯à¥‚à¤¨à¤¤à¤® à¤«à¥à¤°à¥€ à¤¡à¤¿à¤¸à¥à¤•: **{}MB**\nà¤¬à¤¦à¤²à¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤: `/setdisk <value>`",
+        "mtproto_config_prompt": "âš¡ **MTProto à¤•à¥‰à¤¨à¥à¤«à¤¼à¤¿à¤—à¤°à¥‡à¤¶à¤¨**\nà¤µà¤°à¥à¤¤à¤®à¤¾à¤¨ à¤…à¤§à¤¿à¤•à¤¤à¤® à¤…à¤ªà¤²à¥‹à¤¡: **{}MB**\nà¤¬à¤¦à¤²à¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤: `/setmtproto <value>`",
+        "free_panel_prompt": "ðŸ“¦ à¤«à¥à¤°à¥€ à¤¡à¤¾à¤‰à¤¨à¤²à¥‹à¤¡à¥à¤¸\nà¤µà¤°à¥à¤¤à¤®à¤¾à¤¨ à¤«à¥à¤°à¥€ à¤ªà¥à¤°à¤¤à¤¿ à¤¦à¤¿à¤¨: {}",
+        "reward_panel_prompt": "ðŸŽ à¤°à¤¿à¤µà¥‰à¤°à¥à¤¡ à¤ªà¥ˆà¤¨à¤²\nà¤µà¤°à¥à¤¤à¤®à¤¾à¤¨: +{} à¤¡à¤¾à¤‰à¤¨à¤²à¥‹à¤¡ à¤ªà¥à¤°à¤¤à¤¿ 20 à¤¸à¥‡à¤•à¤‚à¤¡ à¤µà¤¿à¤œà¥à¤žà¤¾à¤ªà¤¨",
+        "ad_panel_prompt": "âš™ï¸ à¤µà¤¿à¤œà¥à¤žà¤¾à¤ªà¤¨ à¤ªà¥ˆà¤¨à¤²\nà¤µà¤°à¥à¤¤à¤®à¤¾à¤¨: {}",
+        "password_saved": "ðŸ” à¤ªà¤¾à¤¸à¤µà¤°à¥à¤¡ à¤¸à¥‡à¤µ à¤¹à¥‹ à¤—à¤¯à¤¾à¥¤",
+        "password_too_long": "à¤ªà¤¾à¤¸à¤µà¤°à¥à¤¡ 64 à¤…à¤•à¥à¤·à¤°à¥‹à¤‚ à¤¸à¥‡ à¤•à¤® à¤¹à¥‹à¤¨à¤¾ à¤šà¤¾à¤¹à¤¿à¤à¥¤",
+        "file_to_link_prompt": "ðŸ”— **à¤«à¤¾à¤‡à¤²-à¤Ÿà¥‚-à¤²à¤¿à¤‚à¤•**\nà¤µà¤¹ à¤«à¤¾à¤‡à¤²(à¥‡à¤‚) à¤­à¥‡à¤œà¥‡à¤‚ à¤œà¤¿à¤¨à¥à¤¹à¥‡à¤‚ à¤†à¤ª à¤¶à¥‡à¤¯à¤° à¤•à¤°à¤¨à¤¾ à¤šà¤¾à¤¹à¤¤à¥‡ à¤¹à¥ˆà¤‚à¥¤",
+        "link_invalid_expired": "âŒ à¤¯à¤¹ à¤²à¤¿à¤‚à¤• à¤…à¤®à¤¾à¤¨à¥à¤¯ à¤¹à¥ˆ à¤¯à¤¾ à¤¸à¤®à¤¾à¤ªà¥à¤¤ à¤¹à¥‹ à¤—à¤¯à¤¾ à¤¹à¥ˆà¥¤",
+        "link_limit_reached": "â›” à¤‡à¤¸ à¤²à¤¿à¤‚à¤• à¤¨à¥‡ à¤…à¤ªà¤¨à¥€ à¤‰à¤ªà¤¯à¥‹à¤— à¤¸à¥€à¤®à¤¾ à¤ªà¤¾à¤° à¤•à¤° à¤²à¥€ à¤¹à¥ˆà¥¤",
+        "link_password_protected": "ðŸ” à¤¯à¤¹ à¤²à¤¿à¤‚à¤• à¤ªà¤¾à¤¸à¤µà¤°à¥à¤¡ à¤¸à¥‡ à¤¸à¥à¤°à¤•à¥à¤·à¤¿à¤¤ à¤¹à¥ˆà¥¤ à¤ªà¤¾à¤¸à¤µà¤°à¥à¤¡ à¤­à¥‡à¤œà¥‡à¤‚à¥¤",
+        "files_sent": "âœ… à¤†à¤ªà¤•à¥€ à¤«à¤¾à¤‡à¤²à¥‡à¤‚ à¤­à¥‡à¤œ à¤¦à¥€ à¤—à¤ˆ à¤¹à¥ˆà¤‚à¥¤",
+        "file_added": "ðŸ“¥ à¤«à¤¾à¤‡à¤² #{} à¤œà¥‹à¤¡à¤¼à¥€ à¤—à¤ˆà¥¤ à¤”à¤° à¤­à¥‡à¤œà¥‡à¤‚, à¤¯à¤¾ 'Create Link' à¤Ÿà¥ˆà¤ª à¤•à¤°à¥‡à¤‚à¥¤",
+        "fl_cancelled": "à¤«à¤¾à¤‡à¤²-à¤Ÿà¥‚-à¤²à¤¿à¤‚à¤• à¤°à¤¦à¥à¤¦ à¤•à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾",
+        "fl_start_again": "/filetolink à¤•à¥‡ à¤¸à¤¾à¤¥ à¤«à¤¿à¤° à¤¸à¥‡ à¤¶à¥à¤°à¥‚ à¤•à¤°à¥‡à¤‚",
+        "fl_choose_expiry": "à¤²à¤¿à¤‚à¤• à¤¸à¤®à¤¾à¤ªà¥à¤¤à¤¿ à¤šà¥à¤¨à¥‡à¤‚:",
+        "fl_expiry_updated": "à¤¸à¤®à¤¾à¤ªà¥à¤¤à¤¿ à¤…à¤ªà¤¡à¥‡à¤Ÿ à¤¹à¥‹ à¤—à¤ˆ",
+        "fl_choose_max_uses": "à¤…à¤§à¤¿à¤•à¤¤à¤® à¤¸à¤«à¤² à¤¡à¤¿à¤²à¥€à¤µà¤°à¥€ à¤šà¥à¤¨à¥‡à¤‚:",
+        "fl_uses_updated": "à¤‰à¤ªà¤¯à¥‹à¤— à¤¸à¥€à¤®à¤¾ à¤…à¤ªà¤¡à¥‡à¤Ÿ à¤¹à¥‹ à¤—à¤ˆ",
+        "fl_set_password": "à¤ªà¤¾à¤¸à¤µà¤°à¥à¤¡ à¤­à¥‡à¤œà¥‡à¤‚, à¤¯à¤¾ à¤¹à¤Ÿà¤¾à¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤ /clearpassword à¤­à¥‡à¤œà¥‡à¤‚à¥¤",
+        "fl_link_created": "à¤²à¤¿à¤‚à¤• à¤¬à¤¨à¤¾à¤¯à¤¾ à¤—à¤¯à¤¾",
+        "fl_link_ready": "ðŸ”— à¤†à¤ªà¤•à¤¾ à¤²à¤¿à¤‚à¤• à¤¤à¥ˆà¤¯à¤¾à¤° à¤¹à¥ˆ:\n{}\nà¤«à¤¾à¤‡à¤²à¥‡à¤‚: {}\nà¤²à¤¾à¤—à¤¤: 1 à¤«à¥à¤°à¥€ à¤¦à¥ˆà¤¨à¤¿à¤• à¤¡à¤¾à¤‰à¤¨à¤²à¥‹à¤¡",
+        "fl_daily_limit": "à¤¦à¥ˆà¤¨à¤¿à¤• à¤«à¥à¤°à¥€ à¤²à¤¿à¤®à¤¿à¤Ÿ à¤ªà¥‚à¤°à¥€ à¤¹à¥‹ à¤—à¤ˆà¥¤ à¤…à¤§à¤¿à¤• à¤•à¤®à¤¾à¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤ à¤µà¤¿à¤œà¥à¤žà¤¾à¤ªà¤¨ à¤¦à¥‡à¤–à¥‡à¤‚à¥¤",
+        "fl_ad_busy": "âš ï¸ à¤µà¤¿à¤œà¥à¤žà¤¾à¤ªà¤¨ à¤¸à¤°à¥à¤µà¤° à¤µà¥à¤¯à¤¸à¥à¤¤ à¤¹à¥ˆà¥¤",
+        "admin_skipped": "âœ… à¤›à¥‹à¤¡à¤¼ à¤¦à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾!",
+        "admin_bypassed": "âœ… à¤¬à¤¾à¤¯à¤ªà¤¾à¤¸ à¤•à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾",
+        "free_set": "âœ… à¤«à¥à¤°à¥€ {} à¤ªà¤° à¤¸à¥‡à¤Ÿ à¤•à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾!",
+        "free_updated": "âœ… à¤«à¥à¤°à¥€ à¤¡à¤¾à¤‰à¤¨à¤²à¥‹à¤¡à¥à¤¸ {} à¤ªà¤° à¤…à¤ªà¤¡à¥‡à¤Ÿ à¤•à¤¿à¤ à¤—à¤!",
+        "reward_set": "âœ… à¤°à¤¿à¤µà¥‰à¤°à¥à¤¡ +{} à¤ªà¤° à¤¸à¥‡à¤Ÿ à¤•à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾!",
+        "reward_updated": "âœ… à¤°à¤¿à¤µà¥‰à¤°à¥à¤¡ +{} à¤ªà¤° à¤…à¤ªà¤¡à¥‡à¤Ÿ à¤•à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾!",
+        "mode_updated": "âœ… à¤®à¥‹à¤¡: {}",
+        "support_opened": "âœï¸ à¤¨à¥€à¤šà¥‡ à¤®à¥ˆà¤¸à¥‡à¤œ/à¤«à¥‹à¤Ÿà¥‹/à¤µà¥€à¤¡à¤¿à¤¯à¥‹/à¤«à¤¾à¤‡à¤² à¤­à¥‡à¤œà¥‡à¤‚à¥¤",
+        "admin_reply_mode": "âœï¸ {} à¤•à¥‹ à¤°à¤¿à¤ªà¥à¤²à¤¾à¤ˆ à¤•à¤°à¥‡à¤‚:",
+        "user_reply_mode": "âœï¸ à¤¨à¥€à¤šà¥‡ à¤«à¥‰à¤²à¥‹-à¤…à¤ª à¤Ÿà¤¾à¤‡à¤ª à¤•à¤°à¥‡à¤‚",
+        "support_closed": "ðŸ”’ à¤¬à¤‚à¤¦ à¤•à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾",
+        "drop_cancelled": "âŒ à¤°à¤¦à¥à¤¦ à¤•à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾",
+        "drop_no_items": "âš ï¸ à¤•à¥‹à¤ˆ à¤†à¤‡à¤Ÿà¤® à¤¨à¤¹à¥€à¤‚!",
+        "drop_timer_set": "{} à¤¸à¥‡à¤Ÿ à¤•à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾!",
+        "drop_broadcasting": "ðŸš€ {} à¤†à¤‡à¤Ÿà¤® {} à¤•à¥‹ à¤¬à¥à¤°à¥‰à¤¡à¤•à¤¾à¤¸à¥à¤Ÿ à¤•à¤¿à¤¯à¤¾ à¤œà¤¾ à¤°à¤¹à¤¾ à¤¹à¥ˆ...",
+        "drop_flash_text": "ðŸš¨ à¤«à¥à¤²à¥ˆà¤¶ à¤¡à¥à¤°à¥‰à¤ª!\n{} à¤®à¥‡à¤‚ à¤‘à¤Ÿà¥‹-à¤¡à¤¿à¤²à¥€à¤Ÿ à¤¹à¥‹à¤—à¤¾\nà¤•à¥à¤²à¥‡à¤® à¤•à¤°à¤¨à¥‡ à¤•à¥‡ à¤²à¤¿à¤ à¤Ÿà¥ˆà¤ª à¤•à¤°à¥‡à¤‚:",
+        "drop_done": "âœ… {} à¤•à¥‹ à¤¬à¥à¤°à¥‰à¤¡à¤•à¤¾à¤¸à¥à¤Ÿ à¤¹à¥‹ à¤—à¤¯à¤¾",
+        "age_expired": "â³ à¤¸à¤®à¤¾à¤ªà¥à¤¤ à¤¹à¥‹ à¤—à¤¯à¤¾!",
+        "age_claimed": "âŒ à¤ªà¤¹à¤²à¥‡ à¤¹à¥€ à¤•à¥à¤²à¥‡à¤® à¤•à¤¿à¤¯à¤¾ à¤œà¤¾ à¤šà¥à¤•à¤¾ à¤¹à¥ˆ!",
+        "age_verified": "à¤¸à¤¤à¥à¤¯à¤¾à¤ªà¤¿à¤¤!",
+        "age_denied": "âŒ à¤…à¤¸à¥à¤µà¥€à¤•à¥ƒà¤¤à¥¤ 18+ à¤¹à¥‹à¤¨à¤¾ à¤šà¤¾à¤¹à¤¿à¤",
+        "lang_updated": "à¤…à¤ªà¤¡à¥‡à¤Ÿ à¤•à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾!",
+        "batch_expired": "à¤¸à¤®à¤¾à¤ªà¥à¤¤ à¤¹à¥‹ à¤—à¤¯à¤¾",
+        "batch_loading": "à¤²à¥‹à¤¡ à¤¹à¥‹ à¤°à¤¹à¤¾ à¤¹à¥ˆ...",
+        "batch_no_channel": "à¤•à¥‹à¤ˆ à¤šà¥ˆà¤¨à¤² à¤²à¤¿à¤‚à¤• à¤¨à¤¹à¥€à¤‚ à¤•à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾!",
+        "batch_setup_prompt": "ðŸ“¦ à¤¸à¥‡à¤Ÿà¤…à¤ª: à¤šà¥ˆà¤¨à¤² à¤®à¥‡à¤‚ à¤¬à¥‰à¤Ÿ à¤•à¥‹ à¤à¤¡à¤®à¤¿à¤¨ à¤¬à¤¨à¤¾à¤à¤‚ à¤”à¤° à¤¯à¤¹à¤¾à¤ à¤à¤• à¤®à¥ˆà¤¸à¥‡à¤œ à¤«à¥‰à¤°à¤µà¤°à¥à¤¡ à¤•à¤°à¥‡à¤‚",
+        "batch_mode_activated": "à¤®à¥‹à¤¡ à¤¸à¤•à¥à¤°à¤¿à¤¯ à¤•à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾!",
+        "batch_change_dest": "ðŸ”„ **à¤¡à¥‡à¤¸à¥à¤Ÿà¤¿à¤¨à¥‡à¤¶à¤¨ à¤šà¥ˆà¤¨à¤² à¤¬à¤¦à¤²à¥‡à¤‚**\nà¤¨à¤ à¤šà¥ˆà¤¨à¤² à¤®à¥‡à¤‚ à¤¬à¥‰à¤Ÿ à¤•à¥‹ à¤à¤¡à¤®à¤¿à¤¨ à¤¬à¤¨à¤¾à¤à¤‚, à¤«à¤¿à¤° à¤¯à¤¹à¤¾à¤ à¤®à¥ˆà¤¸à¥‡à¤œ à¤«à¥‰à¤°à¤µà¤°à¥à¤¡ à¤•à¤°à¥‡à¤‚à¥¤",
+        "join_channel_first_alert": "à¤ªà¤¹à¤²à¥‡ à¤šà¥ˆà¤¨à¤² à¤œà¥‰à¤‡à¤¨ à¤•à¤°à¥‡à¤‚! ðŸ“¢ à¤œà¥‰à¤‡à¤¨ à¤•à¤°à¤¨à¤¾ à¤†à¤µà¤¶à¥à¤¯à¤• à¤¹à¥ˆ!",
+        "join_channel_first": "à¤ªà¤¹à¤²à¥‡ à¤šà¥ˆà¤¨à¤² à¤œà¥‰à¤‡à¤¨ à¤•à¤°à¥‡à¤‚! ðŸ“¢",
+        "watch_timer_first": "â° à¤ªà¤¹à¤²à¥‡ à¤²à¤¿à¤‚à¤• à¤–à¥‹à¤²à¥‡à¤‚ à¤”à¤° 20 à¤¸à¥‡à¤•à¤‚à¤¡ à¤•à¤¾ à¤Ÿà¤¾à¤‡à¤®à¤° à¤¦à¥‡à¤–à¥‡à¤‚!",
+        "test_ad_verified": "âœ… à¤Ÿà¥‡à¤¸à¥à¤Ÿ à¤µà¤¿à¤œà¥à¤žà¤¾à¤ªà¤¨ à¤¸à¤¤à¥à¤¯à¤¾à¤ªà¤¿à¤¤! +1",
+        "test_ad_verified_msg": "âœ… **à¤Ÿà¥‡à¤¸à¥à¤Ÿ à¤µà¤¿à¤œà¥à¤žà¤¾à¤ªà¤¨ à¤¸à¤¤à¥à¤¯à¤¾à¤ªà¤¿à¤¤!**\nà¤°à¤¿à¤µà¥‰à¤°à¥à¤¡: +1 à¤¡à¤¾à¤‰à¤¨à¤²à¥‹à¤¡ à¤°à¤¿à¤«à¤¿à¤² à¤•à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾!",
+        "finish_timer_first": "â° à¤ªà¤¹à¤²à¥‡ 20 à¤¸à¥‡à¤•à¤‚à¤¡ à¤•à¤¾ à¤Ÿà¤¾à¤‡à¤®à¤° à¤ªà¥‚à¤°à¤¾ à¤•à¤°à¥‡à¤‚!",
+        "verified_added": "à¤¸à¤¤à¥à¤¯à¤¾à¤ªà¤¿à¤¤! +1 à¤œà¥‹à¤¡à¤¼à¤¾ à¤—à¤¯à¤¾",
+        "resume_prompt": "âœ… à¤¸à¤¤à¥à¤¯à¤¾à¤ªà¤¿à¤¤! +1 à¤°à¤¿à¤«à¤¿à¤² à¤•à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾à¥¤ à¤«à¤¿à¤° à¤¸à¥‡ à¤¶à¥à¤°à¥‚ à¤•à¤°à¥‡à¤‚?",
+        "refilled_download": "âœ… +1 à¤°à¤¿à¤«à¤¿à¤² à¤•à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾! à¤«à¤¿à¤° à¤¸à¥‡ à¤¡à¤¾à¤‰à¤¨à¤²à¥‹à¤¡ à¤•à¤°à¥‡à¤‚à¥¤",
+        "fetching_bundle": "âœ… à¤¸à¤¤à¥à¤¯à¤¾à¤ªà¤¿à¤¤! à¤¬à¤‚à¤¡à¤² à¤²à¤¾à¤¯à¤¾ à¤œà¤¾ à¤°à¤¹à¤¾ à¤¹à¥ˆ...",
+        "outdated_button": "à¤¯à¤¹ à¤¬à¤Ÿà¤¨ à¤ªà¥à¤°à¤¾à¤¨à¤¾ à¤¹à¥ˆà¥¤ à¤…à¤ªà¤¨à¤¾ à¤²à¤¿à¤‚à¤• à¤«à¤¿à¤° à¤¸à¥‡ à¤­à¥‡à¤œà¥‡à¤‚à¥¤",
+        "stopping": "à¤°à¥‹à¤•à¤¾ à¤œà¤¾ à¤°à¤¹à¤¾ à¤¹à¥ˆ...",
+        "stopped": "ðŸ›‘ à¤°à¥à¤• à¤—à¤¯à¤¾",
+        "resuming": "à¤«à¤¿à¤° à¤¸à¥‡ à¤¶à¥à¤°à¥‚ à¤¹à¥‹ à¤°à¤¹à¤¾ à¤¹à¥ˆ...",
+        "checking_vault": "à¤µà¥‰à¤²à¥à¤Ÿ à¤”à¤° à¤¸à¤°à¥à¤µà¤° à¤²à¥‹à¤¡ à¤šà¥‡à¤• à¤•à¤¿à¤¯à¤¾ à¤œà¤¾ à¤°à¤¹à¤¾ à¤¹à¥ˆ...",
+        "server_busy": "â³ **à¤¸à¤°à¥à¤µà¤° à¤µà¥à¤¯à¤¸à¥à¤¤ à¤¹à¥ˆ**\nà¤¸à¤•à¥à¤°à¤¿à¤¯: {}/{}\nà¤«à¥à¤°à¥€: {}MB\nà¤•à¤¤à¤¾à¤°: #{}\nà¤‘à¤Ÿà¥‹ à¤¶à¥à¤°à¥‚ à¤¹à¥‹à¤—à¤¾!",
+        "simulated": "ðŸ›  à¤¸à¤¿à¤®à¥à¤¯à¥à¤²à¥‡à¤Ÿ à¤•à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾! à¤…à¤¬ à¤šà¥‡à¤• à¤•à¤°à¥‡à¤‚ à¤”à¤° +1 à¤ªà¥à¤°à¤¾à¤ªà¥à¤¤ à¤•à¤°à¥‡à¤‚",
+        "server_unreachable": "âŒ à¤¸à¤°à¥à¤µà¤° à¤ªà¤¹à¥à¤à¤š à¤¸à¥‡ à¤¬à¤¾à¤¹à¤° à¤¹à¥ˆ",
+        "monetag_failed_twice": "à¤ªà¤¹à¤²à¥‡ à¤¦à¥‹ à¤µà¤¿à¤«à¤² Monetag à¤ªà¥à¤°à¤¯à¤¾à¤¸ à¤ªà¥‚à¤°à¥‡ à¤•à¤°à¥‡à¤‚à¥¤",
+        "monetag_fallback_prompt": "ðŸŒ Monetag à¤¦à¥‹ à¤¬à¤¾à¤° à¤µà¤¿à¤«à¤² à¤°à¤¹à¤¾à¥¤ Adsterra à¤•à¥‡ à¤¸à¤¾à¤¥ à¤œà¤¾à¤°à¥€ à¤°à¤–à¥‡à¤‚:",
+        "adsterra_ready": "Adsterra à¤«à¥‰à¤²à¤¬à¥ˆà¤• à¤¤à¥ˆà¤¯à¤¾à¤° à¤¹à¥ˆ",
+        "finish_monetag": "ðŸ“º Mini App à¤®à¥‡à¤‚ Monetag à¤µà¤¿à¤œà¥à¤žà¤¾à¤ªà¤¨ à¤ªà¥‚à¤°à¤¾ à¤•à¤°à¥‡à¤‚, à¤«à¤¿à¤° à¤šà¥‡à¤• à¤•à¤°à¥‡à¤‚à¥¤",
+        "monetag_failed_use_adsterra": "Monetag à¤¦à¥‹ à¤¬à¤¾à¤° à¤µà¤¿à¤«à¤² à¤°à¤¹à¤¾à¥¤ à¤¨à¥€à¤šà¥‡ à¤¦à¤¿à¤ à¤—à¤ Adsterra à¤«à¥‰à¤²à¤¬à¥ˆà¤• à¤•à¤¾ à¤‰à¤ªà¤¯à¥‹à¤— à¤•à¤°à¥‡à¤‚à¥¤",
+        "ad_link_expired": "à¤µà¤¿à¤œà¥à¤žà¤¾à¤ªà¤¨ à¤²à¤¿à¤‚à¤• à¤¸à¤®à¤¾à¤ªà¥à¤¤ à¤¹à¥‹ à¤—à¤¯à¤¾ à¤¹à¥ˆà¥¤ à¤…à¤ªà¤¨à¤¾ à¤²à¤¿à¤‚à¤• à¤«à¤¿à¤° à¤¸à¥‡ à¤­à¥‡à¤œà¥‡à¤‚à¥¤",
+        "ad_verified_added": "âœ… à¤µà¤¿à¤œà¥à¤žà¤¾à¤ªà¤¨ à¤¸à¤¤à¥à¤¯à¤¾à¤ªà¤¿à¤¤! +{} à¤œà¥‹à¤¡à¤¼à¤¾ à¤—à¤¯à¤¾",
+        "test_ad_completed": "âœ… à¤Ÿà¥‡à¤¸à¥à¤Ÿ à¤µà¤¿à¤œà¥à¤žà¤¾à¤ªà¤¨ à¤¸à¤¤à¥à¤¯à¤¾à¤ªà¤¿à¤¤\nà¤°à¤¿à¤µà¥‰à¤°à¥à¤¡ à¤œà¤®à¤¾ à¤•à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾: +{} à¤¡à¤¾à¤‰à¤¨à¤²à¥‹à¤¡à¥¤",
+        "sponsor_viewed": "âœ… à¤¸à¥à¤ªà¥‰à¤¨à¥à¤¸à¤° à¤¦à¥‡à¤–à¤¾ à¤—à¤¯à¤¾! +{} à¤œà¥‹à¤¡à¤¼à¤¾ à¤—à¤¯à¤¾",
+        "refilled_send_again": "âœ… +{} à¤°à¤¿à¤«à¤¿à¤² à¤•à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾! à¤…à¤ªà¤¨à¤¾ à¤²à¤¿à¤‚à¤• à¤«à¤¿à¤° à¤¸à¥‡ à¤­à¥‡à¤œà¥‡à¤‚à¥¤",
+        "queued": "â³ à¤•à¤¤à¤¾à¤° #{}",
+        "banned": "ðŸš« à¤†à¤ª à¤¬à¥ˆà¤¨ à¤•à¤° à¤¦à¤¿à¤ à¤—à¤ à¤¹à¥ˆà¤‚à¥¤",
+        "no_links": "âŒ à¤•à¥‹à¤ˆ à¤²à¤¿à¤‚à¤• à¤¨à¤¹à¥€à¤‚ à¤®à¤¿à¤²à¤¾à¥¤",
+        "batch_count": "ðŸ“¦ à¤¬à¥ˆà¤š {} à¤²à¤¿à¤‚à¤•à¥à¤¸",
+        "restore_invalid_json": "âŒ à¤°à¤¿à¤¸à¥à¤Ÿà¥‹à¤° à¤µà¤¿à¤«à¤²: **{}** à¤®à¤¾à¤¨à¥à¤¯ JSON à¤¨à¤¹à¥€à¤‚ à¤¹à¥ˆà¥¤",
+        "restore_failed": "âŒ à¤°à¤¿à¤¸à¥à¤Ÿà¥‹à¤° à¤µà¤¿à¤«à¤²: {}",
+        "restore_success": "âœ… **à¤°à¤¿à¤¸à¥à¤Ÿà¥‹à¤° à¤¸à¤«à¤²!**\nà¤«à¤¾à¤‡à¤²: **{}**\n**{}** à¤à¤‚à¤Ÿà¥à¤°à¥€à¤œ à¤°à¤¿à¤¸à¥à¤Ÿà¥‹à¤° à¤•à¥€ à¤—à¤ˆà¤‚à¥¤",
+        "admin_edit_welcome_prompt": "âœï¸ à¤¨à¤¯à¤¾ à¤µà¥‡à¤²à¤•à¤® à¤®à¥ˆà¤¸à¥‡à¤œ à¤­à¥‡à¤œà¥‡à¤‚à¥¤ à¤¬à¥‰à¤Ÿ à¤¯à¥‚à¤œà¤°à¤¨à¥‡à¤® à¤•à¥‡ à¤²à¤¿à¤ `{bot_name}` à¤•à¤¾ à¤‰à¤ªà¤¯à¥‹à¤— à¤•à¤°à¥‡à¤‚à¥¤",
+        "admin_welcome_updated": "âœ… à¤µà¥‡à¤²à¤•à¤® à¤®à¥ˆà¤¸à¥‡à¤œ à¤…à¤ªà¤¡à¥‡à¤Ÿ à¤¹à¥‹ à¤—à¤¯à¤¾!",
+        "menu_edit_welcome": "âœï¸ à¤µà¥‡à¤²à¤•à¤® à¤®à¥ˆà¤¸à¥‡à¤œ à¤à¤¡à¤¿à¤Ÿ à¤•à¤°à¥‡à¤‚",
+        "cached_instant_video": "âš¡ à¤•à¥ˆà¤¶ à¤•à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾ à¤¤à¤¾à¤¤à¥à¤•à¤¾à¤²à¤¿à¤• [{}] {} {}",
+        "cached_instant_audio": "âš¡ **à¤•à¥ˆà¤¶ à¤•à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾ à¤¤à¤¾à¤¤à¥à¤•à¤¾à¤²à¤¿à¤•** `{}`",
+        "cached_instant_image": "âš¡ **à¤•à¥ˆà¤¶ à¤•à¤¿à¤¯à¤¾ à¤—à¤¯à¤¾ à¤¤à¤¾à¤¤à¥à¤•à¤¾à¤²à¤¿à¤•** `{}`",
+        "auto_delete_9m": "â³ 9 à¤®à¤¿à¤¨à¤Ÿ à¤®à¥‡à¤‚ à¤‘à¤Ÿà¥‹-à¤¡à¤¿à¤²à¥€à¤Ÿ",
+        "download_success": "âœ… à¤¡à¤¾à¤‰à¤¨à¤²à¥‹à¤¡ à¤¸à¤«à¤²!"
     },
     "es": {
-        "welcome": "🚀 **BIENVENIDO A MICHAELBBC VAULT - DESCARGADOR DE MEDIOS!**\n\n🔥 QUÉ PUEDO HACER:\n🎬 VIDEOS HD Sin Marca de Agua!\n🎵 AUDIO MP3 192kbps!\n🖼️ IMÁGENES Scraping TOTAL!\n📝 SUBTÍTULOS Auto!\n📦 LOTES 100+ Enlaces!\n⚡ CACHE 1 Seg!\n💎 VAULT Para Siempre!\n📤 SUBIR ARCHIVOS!\n🔗 ARCHIVO-A-ENLACE: Crea enlaces compartibles!\n\n👉 PEGA UN ENLACE PARA EMPEZAR! 👇",
-        "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Imágenes", "btn_sub": "📝 Subtítulos (SRT)",
-        "ask_format": "👇 **GENIAL! ¿Qué formato quieres? Elige abajo!**",
-        "fetching": "📥 **Obteniendo tu {}... Espera un momento! ⏳✨**",
-        "error_generic": "❌ Ups! Falló! 😢 Enlace privado/bloqueado. Prueba un enlace público!",
-        "error_50mb": "❌ Demasiado grande! 😅 Este video supera los 300MB. Prueba uno más corto!", 
-        "error_no_img": "❌ No se encontraron imágenes! 😢 Prueba otro enlace!",
-        "images_received": "⏳ **{} Imágenes recibidas.**",
-        "select_lang": "🌍 Selecciona tu idioma! Elige abajo! 👇", 
-        "lang_set": "✅ Idioma configurado! Disfruta! 🎉✨",
-        "batch_detected": "📦 **Lote Detectado ({} enlaces)**\n¿Qué formato?",
-        "batch_dest": "📦 **Dónde enviar?**",
-        "btn_chat": "📥 En Chat", "btn_chan": "📢 Al Canal",
-        "limit_reached": "⚠️ **Límite Alcanzado!** Usaste 4 GRATIS! Mira un anuncio de 20s → Obtén +1 descarga!",
-        "refill_btn": "🔓 Abrir Enlace y Recargar +1",
-        "join_btn": "📢 Unirse al Canal", "check_btn": "💜 Verificar Saldo",
-        "limit_batch": "⚠️ **Límite de Lote Alcanzado en {} de {}**\nMira un anuncio de 20s → +1 descarga para continuar.",
-        "batch_start": "📦 **Lote Iniciado:** {} **{} archivos**\n⏳ Procesando...",
-        "batch_done": "🏁 **Listo!** ✅ {} ❌ {}\n📥 {} archivos aquí.",
-        "batch_done_chan": "🏁 **Listo!** ✅ {} ❌ {}\n📢 {} archivos reenviados!",
-        "dl_video": "📥 Descargando video...", "dl_audio": "📥 Extrayendo audio...", "dl_image": "📥 Obteniendo imágenes...", "dl_sub": "📥 Obteniendo subtítulos...",
-        "failed_50": "❌ >300MB", "failed_blocked": "❌ Bloqueado/privado", "failed_generic": "❌ Falló",
-        "menu_lang": "🌍 Idioma", "menu_stats": "📊 Mis Estadísticas", "menu_help": "💬 Soporte / FAQ", "menu_join": "📢 Unirse al Canal",
-        "menu_uploads": "🍿 Subidas de Fans", "menu_upload": "📤 Subir Archivo",
-        "admin_upload_prompt": "📂 **Bandeja de Subidas de Fans**",
-        "user_upload_prompt": "📤 **Subir Archivo**\nEnvía video/imagen/archivo al Admin. Límite 5/24h.",
-        "upload_success_user": "✅ Enviado al Admin!",
-        "upload_limit_reached": "⚠️ Límite de subidas 5/24h alcanzado.",
-        "no_uploads": "📭 Aún no hay subidas.",
-        "stats_msg": "📊 **Tus Estadísticas:**\n• Descargas Restantes: {}\n• Lotes Restantes: {}",
-        "change_channel_prompt": "🔄 **Cambiar Canal de Lotes**\n1. Asegúrate de que soy admin en el nuevo canal.\n2. Reenvía cualquier mensaje de ese canal aquí.",
-        "disk_config_prompt": "💾 **Config de Disco**\nMin disco libre actual: **{}MB**\nPara cambiar: `/setdisk <valor>`",
-        "mtproto_config_prompt": "⚡ **Config MTProto**\nMax subida actual: **{}MB**\nPara cambiar: `/setmtproto <valor>`",
-        "free_panel_prompt": "📦 DESCARGAS GRATIS\nGratis actuales por día: {}",
-        "reward_panel_prompt": "🎁 PANEL DE RECOMPENSAS\nActual: +{} descarga por anuncio de 20s",
-        "ad_panel_prompt": "⚙️ Panel de Anuncios\nActual: {}",
-        "password_saved": "🔐 Contraseña guardada.",
-        "password_too_long": "La contraseña debe tener 64 caracteres o menos.",
-        "file_to_link_prompt": "🔗 **Archivo-a-Enlace**\nEnvía el/los archivo(s) que quieres compartir.",
-        "link_invalid_expired": "❌ Este enlace es inválido o expiró.",
-        "link_limit_reached": "⛔ Este enlace alcanzó su límite de uso.",
-        "link_password_protected": "🔐 Este enlace está protegido con contraseña. Envía la contraseña.",
-        "files_sent": "✅ Tus archivos han sido enviados.",
-        "file_added": "📥 Archivo #{} añadido. Envía más o toca Crear Enlace.",
+        "welcome": "ðŸš€ **BIENVENIDO A MICHAELBBC VAULT - DESCARGADOR DE MEDIOS!**\n\nðŸ”¥ QUÃ‰ PUEDO HACER:\nðŸŽ¬ VIDEOS HD Sin Marca de Agua!\nðŸŽµ AUDIO MP3 192kbps!\nðŸ–¼ï¸ IMÃGENES Scraping TOTAL!\nðŸ“ SUBTÃTULOS Auto!\nðŸ“¦ LOTES 100+ Enlaces!\nâš¡ CACHE 1 Seg!\nðŸ’Ž VAULT Para Siempre!\nðŸ“¤ SUBIR ARCHIVOS!\nðŸ”— ARCHIVO-A-ENLACE: Crea enlaces compartibles!\n\nðŸ‘‰ PEGA UN ENLACE PARA EMPEZAR! ðŸ‘‡",
+        "btn_video": "ðŸŽ¬ Video (MP4)", "btn_audio": "ðŸŽµ Audio (MP3)", "btn_image": "ðŸ–¼ï¸ ImÃ¡genes", "btn_sub": "ðŸ“ SubtÃ­tulos (SRT)",
+        "ask_format": "ðŸ‘‡ **GENIAL! Â¿QuÃ© formato quieres? Elige abajo!**",
+        "fetching": "ðŸ“¥ **Obteniendo tu {}... Espera un momento! â³âœ¨**",
+        "error_generic": "âŒ Ups! FallÃ³! ðŸ˜¢ Enlace privado/bloqueado. Prueba un enlace pÃºblico!",
+        "error_50mb": "âŒ Demasiado grande! ðŸ˜… Este video supera los 300MB. Prueba uno mÃ¡s corto!", 
+        "error_no_img": "âŒ No se encontraron imÃ¡genes! ðŸ˜¢ Prueba otro enlace!",
+        "images_received": "â³ **{} ImÃ¡genes recibidas.**",
+        "select_lang": "ðŸŒ Selecciona tu idioma! Elige abajo! ðŸ‘‡", 
+        "lang_set": "âœ… Idioma configurado! Disfruta! ðŸŽ‰âœ¨",
+        "batch_detected": "ðŸ“¦ **Lote Detectado ({} enlaces)**\nÂ¿QuÃ© formato?",
+        "batch_dest": "ðŸ“¦ **DÃ³nde enviar?**",
+        "btn_chat": "ðŸ“¥ En Chat", "btn_chan": "ðŸ“¢ Al Canal",
+        "limit_reached": "âš ï¸ **LÃ­mite Alcanzado!** Usaste 4 GRATIS! Mira un anuncio de 20s â†’ ObtÃ©n +1 descarga!",
+        "refill_btn": "ðŸ”“ Abrir Enlace y Recargar +1",
+        "join_btn": "ðŸ“¢ Unirse al Canal", "check_btn": "ðŸ’œ Verificar Saldo",
+        "limit_batch": "âš ï¸ **LÃ­mite de Lote Alcanzado en {} de {}**\nMira un anuncio de 20s â†’ +1 descarga para continuar.",
+        "batch_start": "ðŸ“¦ **Lote Iniciado:** {} **{} archivos**\nâ³ Procesando...",
+        "batch_done": "ðŸ **Listo!** âœ… {} âŒ {}\nðŸ“¥ {} archivos aquÃ­.",
+        "batch_done_chan": "ðŸ **Listo!** âœ… {} âŒ {}\nðŸ“¢ {} archivos reenviados!",
+        "dl_video": "ðŸ“¥ Descargando video...", "dl_audio": "ðŸ“¥ Extrayendo audio...", "dl_image": "ðŸ“¥ Obteniendo imÃ¡genes...", "dl_sub": "ðŸ“¥ Obteniendo subtÃ­tulos...",
+        "failed_50": "âŒ >300MB", "failed_blocked": "âŒ Bloqueado/privado", "failed_generic": "âŒ FallÃ³",
+        "menu_lang": "ðŸŒ Idioma", "menu_stats": "ðŸ“Š Mis EstadÃ­sticas", "menu_help": "ðŸ’¬ Soporte / FAQ", "menu_join": "ðŸ“¢ Unirse al Canal",
+        "menu_uploads": "ðŸ¿ Subidas de Fans", "menu_upload": "ðŸ“¤ Subir Archivo",
+        "admin_upload_prompt": "ðŸ“‚ **Bandeja de Subidas de Fans**",
+        "user_upload_prompt": "ðŸ“¤ **Subir Archivo**\nEnvÃ­a video/imagen/archivo al Admin. LÃ­mite 5/24h.",
+        "upload_success_user": "âœ… Enviado al Admin!",
+        "upload_limit_reached": "âš ï¸ LÃ­mite de subidas 5/24h alcanzado.",
+        "no_uploads": "ðŸ“­ AÃºn no hay subidas.",
+        "stats_msg": "ðŸ“Š **Tus EstadÃ­sticas:**\nâ€¢ Descargas Restantes: {}\nâ€¢ Lotes Restantes: {}",
+        "change_channel_prompt": "ðŸ”„ **Cambiar Canal de Lotes**\n1. AsegÃºrate de que soy admin en el nuevo canal.\n2. ReenvÃ­a cualquier mensaje de ese canal aquÃ­.",
+        "disk_config_prompt": "ðŸ’¾ **Config de Disco**\nMin disco libre actual: **{}MB**\nPara cambiar: `/setdisk <valor>`",
+        "mtproto_config_prompt": "âš¡ **Config MTProto**\nMax subida actual: **{}MB**\nPara cambiar: `/setmtproto <valor>`",
+        "free_panel_prompt": "ðŸ“¦ DESCARGAS GRATIS\nGratis actuales por dÃ­a: {}",
+        "reward_panel_prompt": "ðŸŽ PANEL DE RECOMPENSAS\nActual: +{} descarga por anuncio de 20s",
+        "ad_panel_prompt": "âš™ï¸ Panel de Anuncios\nActual: {}",
+        "password_saved": "ðŸ” ContraseÃ±a guardada.",
+        "password_too_long": "La contraseÃ±a debe tener 64 caracteres o menos.",
+        "file_to_link_prompt": "ðŸ”— **Archivo-a-Enlace**\nEnvÃ­a el/los archivo(s) que quieres compartir.",
+        "link_invalid_expired": "âŒ Este enlace es invÃ¡lido o expirÃ³.",
+        "link_limit_reached": "â›” Este enlace alcanzÃ³ su lÃ­mite de uso.",
+        "link_password_protected": "ðŸ” Este enlace estÃ¡ protegido con contraseÃ±a. EnvÃ­a la contraseÃ±a.",
+        "files_sent": "âœ… Tus archivos han sido enviados.",
+        "file_added": "ðŸ“¥ Archivo #{} aÃ±adido. EnvÃ­a mÃ¡s o toca Crear Enlace.",
         "fl_cancelled": "Archivo-a-Enlace cancelado",
         "fl_start_again": "Inicia Archivo-a-Enlace de nuevo con /filetolink",
-        "fl_choose_expiry": "Elige la expiración del enlace:",
-        "fl_expiry_updated": "Expiración actualizada",
-        "fl_choose_max_uses": "Elige el máximo de entregas exitosas:",
-        "fl_uses_updated": "Límite de uso actualizado",
-        "fl_set_password": "Envía una contraseña, o /clearpassword para eliminar.",
+        "fl_choose_expiry": "Elige la expiraciÃ³n del enlace:",
+        "fl_expiry_updated": "ExpiraciÃ³n actualizada",
+        "fl_choose_max_uses": "Elige el mÃ¡ximo de entregas exitosas:",
+        "fl_uses_updated": "LÃ­mite de uso actualizado",
+        "fl_set_password": "EnvÃ­a una contraseÃ±a, o /clearpassword para eliminar.",
         "fl_link_created": "Enlace creado",
-        "fl_link_ready": "🔗 Tu enlace está listo:\n{}\nArchivos: {}\nCosto: 1 descarga diaria gratis",
-        "fl_daily_limit": "Límite diario gratis alcanzado. Mira un anuncio para ganar más.",
-        "fl_ad_busy": "⚠️ Servidor de anuncios ocupado.",
-        "admin_skipped": "✅ Omitido!",
-        "admin_bypassed": "✅ Omitido",
-        "free_set": "✅ Gratis configurado a {}!",
-        "free_updated": "✅ Descargas Gratis actualizadas a {}!",
-        "reward_set": "✅ Recompensa configurada a +{}!",
-        "reward_updated": "✅ Recompensa actualizada a +{}!",
-        "mode_updated": "✅ Modo: {}",
-        "support_opened": "✍️ Envía mensaje/foto/video/archivo abajo.",
-        "admin_reply_mode": "✍️ Responder a {}:",
-        "user_reply_mode": "✍️ Escribe el seguimiento abajo",
-        "support_closed": "🔒 Cerrado",
-        "drop_cancelled": "❌ Cancelado",
-        "drop_no_items": "⚠️ Sin elementos!",
+        "fl_link_ready": "ðŸ”— Tu enlace estÃ¡ listo:\n{}\nArchivos: {}\nCosto: 1 descarga diaria gratis",
+        "fl_daily_limit": "LÃ­mite diario gratis alcanzado. Mira un anuncio para ganar mÃ¡s.",
+        "fl_ad_busy": "âš ï¸ Servidor de anuncios ocupado.",
+        "admin_skipped": "âœ… Omitido!",
+        "admin_bypassed": "âœ… Omitido",
+        "free_set": "âœ… Gratis configurado a {}!",
+        "free_updated": "âœ… Descargas Gratis actualizadas a {}!",
+        "reward_set": "âœ… Recompensa configurada a +{}!",
+        "reward_updated": "âœ… Recompensa actualizada a +{}!",
+        "mode_updated": "âœ… Modo: {}",
+        "support_opened": "âœï¸ EnvÃ­a mensaje/foto/video/archivo abajo.",
+        "admin_reply_mode": "âœï¸ Responder a {}:",
+        "user_reply_mode": "âœï¸ Escribe el seguimiento abajo",
+        "support_closed": "ðŸ”’ Cerrado",
+        "drop_cancelled": "âŒ Cancelado",
+        "drop_no_items": "âš ï¸ Sin elementos!",
         "drop_timer_set": "{} configurado!",
-        "drop_broadcasting": "🚀 Transmitiendo {} elementos a {}...",
-        "drop_flash_text": "🚨 FLASH DROP!\nAuto-elimina en {}\nToca para reclamar:",
-        "drop_done": "✅ Transmisión hecha a {}",
-        "age_expired": "⏳ Expirado!",
-        "age_claimed": "❌ Ya reclamado!",
+        "drop_broadcasting": "ðŸš€ Transmitiendo {} elementos a {}...",
+        "drop_flash_text": "ðŸš¨ FLASH DROP!\nAuto-elimina en {}\nToca para reclamar:",
+        "drop_done": "âœ… TransmisiÃ³n hecha a {}",
+        "age_expired": "â³ Expirado!",
+        "age_claimed": "âŒ Ya reclamado!",
         "age_verified": "Verificado!",
-        "age_denied": "❌ Denegado. Debe ser 18+",
+        "age_denied": "âŒ Denegado. Debe ser 18+",
         "lang_updated": "Actualizado!",
         "batch_expired": "Expirado",
         "batch_loading": "Cargando...",
-        "batch_no_channel": "Ningún canal vinculado!",
-        "batch_setup_prompt": "📦 Configuración: Haz bot admin en el canal y reenvía un mensaje aquí",
+        "batch_no_channel": "NingÃºn canal vinculado!",
+        "batch_setup_prompt": "ðŸ“¦ ConfiguraciÃ³n: Haz bot admin en el canal y reenvÃ­a un mensaje aquÃ­",
         "batch_mode_activated": "Modo activado!",
-        "batch_change_dest": "🔄 **Cambiar Canal de Destino**\nHaz bot admin en el nuevo canal, luego reenvía un mensaje aquí.",
-        "join_channel_first_alert": "Únete al canal primero! 📢 Debes unirte!",
-        "join_channel_first": "Únete al canal primero! 📢",
-        "watch_timer_first": "⏰ Abre el enlace y mira el temporizador de 20s primero!",
-        "test_ad_verified": "✅ Anuncio de Prueba Verificado! +1",
-        "test_ad_verified_msg": "✅ **ANUNCIO DE PRUEBA VERIFICADO!**\nRecompensa: +1 descarga recargada!",
-        "finish_timer_first": "⏰ Termina el temporizador de 20s primero!",
-        "verified_added": "Verificado! +1 añadido",
-        "resume_prompt": "✅ Verificado! Recargado +1. ¿Reanudar?",
-        "refilled_download": "✅ Recargado +1! Descarga de nuevo.",
-        "fetching_bundle": "✅ Verificado! Obteniendo paquete...",
-        "outdated_button": "Este botón está desactualizado. Envía tu enlace de nuevo.",
+        "batch_change_dest": "ðŸ”„ **Cambiar Canal de Destino**\nHaz bot admin en el nuevo canal, luego reenvÃ­a un mensaje aquÃ­.",
+        "join_channel_first_alert": "Ãšnete al canal primero! ðŸ“¢ Debes unirte!",
+        "join_channel_first": "Ãšnete al canal primero! ðŸ“¢",
+        "watch_timer_first": "â° Abre el enlace y mira el temporizador de 20s primero!",
+        "test_ad_verified": "âœ… Anuncio de Prueba Verificado! +1",
+        "test_ad_verified_msg": "âœ… **ANUNCIO DE PRUEBA VERIFICADO!**\nRecompensa: +1 descarga recargada!",
+        "finish_timer_first": "â° Termina el temporizador de 20s primero!",
+        "verified_added": "Verificado! +1 aÃ±adido",
+        "resume_prompt": "âœ… Verificado! Recargado +1. Â¿Reanudar?",
+        "refilled_download": "âœ… Recargado +1! Descarga de nuevo.",
+        "fetching_bundle": "âœ… Verificado! Obteniendo paquete...",
+        "outdated_button": "Este botÃ³n estÃ¡ desactualizado. EnvÃ­a tu enlace de nuevo.",
         "stopping": "Deteniendo...",
-        "stopped": "🛑 Detenido",
+        "stopped": "ðŸ›‘ Detenido",
         "resuming": "Reanudando...",
         "checking_vault": "Verificando vault y carga del servidor...",
-        "server_busy": "⏳ **Servidor Ocupado**\nActivos: {}/{}\nLibre: {}MB\nCola: #{}\nIniciará auto!",
-        "simulated": "🛠 Simulado! Ahora toca Verificar y Obtener +1",
-        "server_unreachable": "❌ Servidor inalcanzable",
+        "server_busy": "â³ **Servidor Ocupado**\nActivos: {}/{}\nLibre: {}MB\nCola: #{}\nIniciarÃ¡ auto!",
+        "simulated": "ðŸ›  Simulado! Ahora toca Verificar y Obtener +1",
+        "server_unreachable": "âŒ Servidor inalcanzable",
         "monetag_failed_twice": "Completa dos intentos fallidos de Monetag primero.",
-        "monetag_fallback_prompt": "🌐 Monetag falló dos veces. Continúa con Adsterra:",
+        "monetag_fallback_prompt": "ðŸŒ Monetag fallÃ³ dos veces. ContinÃºa con Adsterra:",
         "adsterra_ready": "Fallback de Adsterra listo",
-        "finish_monetag": "📺 Termina el anuncio de Monetag en Mini App, luego verifica.",
-        "monetag_failed_use_adsterra": "Monetag falló dos veces. Usa el fallback de Adsterra abajo.",
-        "ad_link_expired": "Enlace de anuncio expirado. Envía tu enlace de nuevo.",
-        "ad_verified_added": "✅ Anuncio verificado! +{} añadido",
-        "test_ad_completed": "✅ ANUNCIO DE PRUEBA VERIFICADO\nRecompensa acreditada: +{} descarga.",
-        "sponsor_viewed": "✅ Patrocinador visto! +{} añadido",
-        "refilled_send_again": "✅ Recargado +{}! Envía tu enlace de nuevo.",
-        "queued": "⏳ En cola #{}",
-        "banned": "🚫 Estás prohibido.",
-        "no_links": "❌ No se encontraron enlaces.",
-        "batch_count": "📦 Lote {} enlaces",
-        "restore_invalid_json": "❌ Restauración fallida: **{}** no es JSON válido.",
-        "restore_failed": "❌ Restauración fallida: {}",
-        "restore_success": "✅ **Restauración Exitosa!**\nArchivo: **{}**\nRestauradas **{}** entradas.",
-        "admin_edit_welcome_prompt": "✏️ Envía el nuevo Mensaje de Bienvenida. Usa `{bot_name}` para el nombre de usuario.",
-        "admin_welcome_updated": "✅ Mensaje de bienvenida actualizado!",
-        "menu_edit_welcome": "✏️ Editar Mensaje de Bienvenida",
-        "cached_instant_video": "⚡ Caché Instantánea [{}] {} {}",
-        "cached_instant_audio": "⚡ **Caché Instantánea** `{}`",
-        "cached_instant_image": "⚡ **Caché Instantánea** `{}`",
-        "auto_delete_9m": "⏳ Auto-elimina en 9 mins",
-        "download_success": "✅ ¡Descarga exitosa!"
+        "finish_monetag": "ðŸ“º Termina el anuncio de Monetag en Mini App, luego verifica.",
+        "monetag_failed_use_adsterra": "Monetag fallÃ³ dos veces. Usa el fallback de Adsterra abajo.",
+        "ad_link_expired": "Enlace de anuncio expirado. EnvÃ­a tu enlace de nuevo.",
+        "ad_verified_added": "âœ… Anuncio verificado! +{} aÃ±adido",
+        "test_ad_completed": "âœ… ANUNCIO DE PRUEBA VERIFICADO\nRecompensa acreditada: +{} descarga.",
+        "sponsor_viewed": "âœ… Patrocinador visto! +{} aÃ±adido",
+        "refilled_send_again": "âœ… Recargado +{}! EnvÃ­a tu enlace de nuevo.",
+        "queued": "â³ En cola #{}",
+        "banned": "ðŸš« EstÃ¡s prohibido.",
+        "no_links": "âŒ No se encontraron enlaces.",
+        "batch_count": "ðŸ“¦ Lote {} enlaces",
+        "restore_invalid_json": "âŒ RestauraciÃ³n fallida: **{}** no es JSON vÃ¡lido.",
+        "restore_failed": "âŒ RestauraciÃ³n fallida: {}",
+        "restore_success": "âœ… **RestauraciÃ³n Exitosa!**\nArchivo: **{}**\nRestauradas **{}** entradas.",
+        "admin_edit_welcome_prompt": "âœï¸ EnvÃ­a el nuevo Mensaje de Bienvenida. Usa `{bot_name}` para el nombre de usuario.",
+        "admin_welcome_updated": "âœ… Mensaje de bienvenida actualizado!",
+        "menu_edit_welcome": "âœï¸ Editar Mensaje de Bienvenida",
+        "cached_instant_video": "âš¡ CachÃ© InstantÃ¡nea [{}] {} {}",
+        "cached_instant_audio": "âš¡ **CachÃ© InstantÃ¡nea** `{}`",
+        "cached_instant_image": "âš¡ **CachÃ© InstantÃ¡nea** `{}`",
+        "auto_delete_9m": "â³ Auto-elimina en 9 mins",
+        "download_success": "âœ… Â¡Descarga exitosa!"
     },
     "ar": {
-        "welcome": "🚀 **مرحباً بك في MICHAELBBC VAULT - محمل الوسائط الشامل!**\n\n🔥 ماذا يمكنني أن أفعل:\n🎬 فيديوهات HD بدون علامة مائية!\n🎵 صوت MP3 192kbps!\n🖼️ سحب جميع الصور!\n📝 ترجمات تلقائية!\n📦 دفعات 100+ رابط!\n⚡ ذاكرة تخزين مؤقت 1 ثانية!\n💎 خزنة للأبد!\n📤 رفع الملفات!\n🔗 ملف-إلى-رابط: إنشاء روابط قابلة للمشاركة!\n\n👉 الصق رابطاً للبدء! 👇",
-        "btn_video": "🎬 فيديو (MP4)", "btn_audio": "🎵 صوت (MP3)", "btn_image": "🖼️ صور", "btn_sub": "📝 ترجمات (SRT)",
-        "ask_format": "👇 **رائع! ما التنسيق الذي تريده؟ اختر أدناه!**",
-        "fetching": "📥 **جاري جلب {}... انتظر قليلاً! ⏳✨**",
-        "error_generic": "❌ عذراً! فشل! 😢 الرابط خاص/محظور. جرب رابطاً عاماً!",
-        "error_50mb": "❌ كبير جداً! 😅 هذا الفيديو يتجاوز 300 ميجابايت. جرب فيديو أقصر!", 
-        "error_no_img": "❌ لم يتم العثور على صور! 😢 جرب رابطاً آخر!",
-        "images_received": "⏳ **تم استلام {} صورة.**",
-        "select_lang": "🌍 اختر لغتك! اختر أدناه! 👇", 
-        "lang_set": "✅ تم تعيين اللغة! استمتع! 🎉✨",
-        "batch_detected": "📦 **تم اكتشاف دفعة ({} روابط)**\nما التنسيق؟",
-        "batch_dest": "📦 **أين نرسل؟**",
-        "btn_chat": "📥 في الدردشة", "btn_chan": "📢 إلى القناة",
-        "limit_reached": "⚠️ **تم الوصول للحد الأقصى!** استخدمت 4 مجاناً! شاهد إعلان 20 ثانية → احصل على +1 تحميل!",
-        "refill_btn": "🔓 افتح الرابط وأعد التعبئة +1",
-        "join_btn": "📢 انضم للقناة", "check_btn": "💜 تحقق من الرصيد",
-        "limit_batch": "⚠️ **تم الوصول لحد الدفعة عند {} من {}**\nشاهد إعلان 20 ثانية → +1 تحميل للمتابعة.",
-        "batch_start": "📦 **بدأت الدفعة:** {} **{} ملفات**\n⏳ جاري المعالجة...",
-        "batch_done": "🏁 **تم!** ✅ {} ❌ {}\n📥 {} ملفات هنا.",
-        "batch_done_chan": "🏁 **تم!** ✅ {} ❌ {}\n📢 تم إعادة توجيه {} ملفات!",
-        "dl_video": "📥 جاري تحميل الفيديو...", "dl_audio": "📥 جاري استخراج الصوت...", "dl_image": "📥 جاري سحب الصور...", "dl_sub": "📥 جاري جلب الترجمات...",
-        "failed_50": "❌ >300MB", "failed_blocked": "❌ محظور/خاص", "failed_generic": "❌ فشل",
-        "menu_lang": "🌍 اللغة", "menu_stats": "📊 إحصائياتي", "menu_help": "💬 الدعم / الأسئلة الشائعة", "menu_join": "📢 انضم للقناة",
-        "menu_uploads": "🍿 رفع المعجبين", "menu_upload": "📤 رفع ملف",
-        "admin_upload_prompt": "📂 **صندوق وارد رفع المعجبين**",
-        "user_upload_prompt": "📤 **رفع ملف**\nأرسل فيديو/صورة/ملف للمسؤول. الحد 5/24 ساعة.",
-        "upload_success_user": "✅ تم الإرسال للمسؤول!",
-        "upload_limit_reached": "⚠️ تم الوصول لحد الرفع 5/24 ساعة.",
-        "no_uploads": "📭 لا توجد عمليات رفع بعد.",
-        "stats_msg": "📊 **إحصائياتك:**\n• التحميلات المتبقية: {}\n• الدفعات المتبقية: {}",
-        "change_channel_prompt": "🔄 **تغيير قناة الدفعات**\n1. تأكد من أنني مسؤول في القناة الجديدة.\n2. أعد توجيه أي رسالة من تلك القناة إلى هنا.",
-        "disk_config_prompt": "💾 **إعدادات القرص**\nالحد الأدنى الحالي للمساحة الحرة: **{} ميجابايت**\nللتغيير: `/setdisk <value>`",
-        "mtproto_config_prompt": "⚡ **إعدادات MTProto**\nالحد الأقصى الحالي للرفع: **{} ميجابايت**\nللتغيير: `/setmtproto <value>`",
-        "free_panel_prompt": "📦 التحميلات المجانية\nالمجاني الحالي يومياً: {}",
-        "reward_panel_prompt": "🎁 لوحة المكافآت\nالحالي: +{} تحميل لكل إعلان 20 ثانية",
-        "ad_panel_prompt": "⚙️ لوحة الإعلانات\nالحالي: {}",
-        "password_saved": "🔐 تم حفظ كلمة المرور.",
-        "password_too_long": "يجب أن تكون كلمة المرور 64 حرفاً أو أقل.",
-        "file_to_link_prompt": "🔗 **ملف-إلى-رابط**\nأرسل الملف(ات) التي تريد مشاركتها.",
-        "link_invalid_expired": "❌ هذا الرابط غير صالح أو منتهي الصلاحية.",
-        "link_limit_reached": "⛔ وصل هذا الرابط إلى حد الاستخدام.",
-        "link_password_protected": "🔐 هذا الرابط محمي بكلمة مرور. أرسل كلمة المرور.",
-        "files_sent": "✅ تم إرسال ملفاتك.",
-        "file_added": "📥 تمت إضافة الملف #{}. أرسل المزيد، أو اضغط على إنشاء رابط.",
-        "fl_cancelled": "تم إلغاء ملف-إلى-رابط",
-        "fl_start_again": "ابدأ ملف-إلى-رابط مرة أخرى باستخدام /filetolink",
-        "fl_choose_expiry": "اختر انتهاء صلاحية الرابط:",
-        "fl_expiry_updated": "تم تحديث الانتهاء",
-        "fl_choose_max_uses": "اختر الحد الأقصى للتسليمات الناجحة:",
-        "fl_uses_updated": "تم تحديث حد الاستخدام",
-        "fl_set_password": "أرسل كلمة مرور، أو /clearpassword للإزالة.",
-        "fl_link_created": "تم إنشاء الرابط",
-        "fl_link_ready": "🔗 رابطك جاهز:\n{}\nالملفات: {}\nالتكلفة: 1 تحميل يومي مجاني",
-        "fl_daily_limit": "تم الوصول للحد اليومي المجاني. شاهد إعلاناً لكسب المزيد.",
-        "fl_ad_busy": "⚠️ خادم الإعلانات مشغول.",
-        "admin_skipped": "✅ تم التخطي!",
-        "admin_bypassed": "✅ تم التجاوز",
-        "free_set": "✅ تم تعيين المجاني إلى {}!",
-        "free_updated": "✅ تم تحديث التحميلات المجانية إلى {}!",
-        "reward_set": "✅ تم تعيين المكافأة إلى +{}!",
-        "reward_updated": "✅ تم تحديث المكافأة إلى +{}!",
-        "mode_updated": "✅ الوضع: {}",
-        "support_opened": "✍️ أرسل رسالة/صورة/فيديو/ملف أدناه.",
-        "admin_reply_mode": "✍️ الرد على {}:",
-        "user_reply_mode": "✍️ اكتب المتابعة أدناه",
-        "support_closed": "🔒 مغلق",
-        "drop_cancelled": "❌ ملغي",
-        "drop_no_items": "⚠️ لا توجد عناصر!",
-        "drop_timer_set": "تم تعيين {}!",
-        "drop_broadcasting": "🚀 جاري البث {} عناصر إلى {}...",
-        "drop_flash_text": "🚨 FLASH DROP!\nحذف تلقائي في {}\nاضغط للمطالبة:",
-        "drop_done": "✅ تم البث إلى {}",
-        "age_expired": "⏳ منتهي الصلاحية!",
-        "age_claimed": "❌ تمت المطالبة به بالفعل!",
-        "age_verified": "تم التحقق!",
-        "age_denied": "❌ مرفوض. يجب أن يكون 18+",
-        "lang_updated": "تم التحديث!",
-        "batch_expired": "منتهي الصلاحية",
-        "batch_loading": "جاري التحميل...",
-        "batch_no_channel": "لا توجد قناة مرتبطة!",
-        "batch_setup_prompt": "📦 الإعداد: اجعل البوت مسؤولاً في القناة وأعد توجيه رسالة إلى هنا",
-        "batch_mode_activated": "تم تفعيل الوضع!",
-        "batch_change_dest": "🔄 **تغيير قناة الوجهة**\nاجعل البوت مسؤولاً في القناة الجديدة، ثم أعد توجيه رسالة إلى هنا.",
-        "join_channel_first_alert": "انضم للقناة أولاً! 📢 يجب الانضمام!",
-        "join_channel_first": "انضم للقناة أولاً! 📢",
-        "watch_timer_first": "⏰ افتح الرابط وشاهد المؤقت لمدة 20 ثانية أولاً!",
-        "test_ad_verified": "✅ تم التحقق من إعلان الاختبار! +1",
-        "test_ad_verified_msg": "✅ **تم التحقق من إعلان الاختبار!**\nالمكافأة: تم إعادة تعبئة +1 تحميل!",
-        "finish_timer_first": "⏰ أنهٍ مؤقت 20 ثانية أولاً!",
-        "verified_added": "تم التحقق! تمت إضافة +1",
-        "resume_prompt": "✅ تم التحقق! تمت إعادة التعبئة +1. استئناف؟",
-        "refilled_download": "✅ تمت إعادة التعبئة +1! حمل مرة أخرى.",
-        "fetching_bundle": "✅ تم التحقق! جاري جلب الحزمة...",
-        "outdated_button": "هذا الزر قديم. أرسل رابطك مرة أخرى.",
-        "stopping": "جاري الإيقاف...",
-        "stopped": "🛑 تم الإيقاف",
-        "resuming": "جاري الاستئناف...",
-        "checking_vault": "جاري فحص الخزنة وحمل الخادم...",
-        "server_busy": "⏳ **الخادم مشغول**\nنشط: {}/{}\nحر: {} ميجابايت\nقائمة الانتظار: #{}\nسيبدأ تلقائياً!",
-        "simulated": "🛠 تمت المحاكاة! اضغط الآن على تحقق واحصل على +1",
-        "server_unreachable": "❌ الخادم غير متاح",
-        "monetag_failed_twice": "أكمل محاولتين فاشلتين لـ Monetag أولاً.",
-        "monetag_fallback_prompt": "🌐 فشل Monetag مرتين. تابع مع Adsterra:",
-        "adsterra_ready": "بديل Adsterra جاهز",
-        "finish_monetag": "📺 أنهٍ إعلان Monetag في التطبيق المصغر، ثم تحقق مرة أخرى.",
-        "monetag_failed_use_adsterra": "فشل Monetag مرتين. استخدم بديل Adsterra أدناه.",
-        "ad_link_expired": "انتهت صلاحية رابط الإعلان. أرسل رابطك مرة أخرى.",
-        "ad_verified_added": "✅ تم التحقق من الإعلان! تمت إضافة +{}",
-        "test_ad_completed": "✅ تم التحقق من إعلان الاختبار\nتم اعتماد المكافأة: +{} تحميل.",
-        "sponsor_viewed": "✅ تمت مشاهدة الراعي! تمت إضافة +{}",
-        "refilled_send_again": "✅ تمت إعادة التعبئة +{}! أرسل رابطك مرة أخرى.",
-        "queued": "⏳ في قائمة الانتظار #{}",
-        "banned": "🚫 أنت محظور.",
-        "no_links": "❌ لم يتم العثور على روابط.",
-        "batch_count": "📦 دفعة {} روابط",
-        "restore_invalid_json": "❌ فشل الاستعادة: **{}** ليس JSON صالحاً.",
-        "restore_failed": "❌ فشل الاستعادة: {}",
-        "restore_success": "✅ **نجاح الاستعادة!**\nالملف: **{}**\nتمت استعادة **{}** إدخالات.",
-        "admin_edit_welcome_prompt": "✏️ أرسل رسالة الترحيب الجديدة. استخدم `{bot_name}` لاسم مستخدم البوت.",
-        "admin_welcome_updated": "✅ تم تحديث رسالة الترحيب!",
-        "menu_edit_welcome": "✏️ تحرير رسالة الترحيب",
-        "cached_instant_video": "⚡ ذاكرة تخزين مؤقت فورية [{}] {} {}",
-        "cached_instant_audio": "⚡ **ذاكرة تخزين مؤقت فورية** `{}`",
-        "cached_instant_image": "⚡ **ذاكرة تخزين مؤقت فورية** `{}`",
-        "auto_delete_9m": "⏳ حذف تلقائي في 9 دقائق",
-        "download_success": "✅ تم التحميل بنجاح!"
+        "welcome": "ðŸš€ **Ù…Ø±Ø­Ø¨Ø§Ù‹ Ø¨Ùƒ ÙÙŠ MICHAELBBC VAULT - Ù…Ø­Ù…Ù„ Ø§Ù„ÙˆØ³Ø§Ø¦Ø· Ø§Ù„Ø´Ø§Ù…Ù„!**\n\nðŸ”¥ Ù…Ø§Ø°Ø§ ÙŠÙ…ÙƒÙ†Ù†ÙŠ Ø£Ù† Ø£ÙØ¹Ù„:\nðŸŽ¬ ÙÙŠØ¯ÙŠÙˆÙ‡Ø§Øª HD Ø¨Ø¯ÙˆÙ† Ø¹Ù„Ø§Ù…Ø© Ù…Ø§Ø¦ÙŠØ©!\nðŸŽµ ØµÙˆØª MP3 192kbps!\nðŸ–¼ï¸ Ø³Ø­Ø¨ Ø¬Ù…ÙŠØ¹ Ø§Ù„ØµÙˆØ±!\nðŸ“ ØªØ±Ø¬Ù…Ø§Øª ØªÙ„Ù‚Ø§Ø¦ÙŠØ©!\nðŸ“¦ Ø¯ÙØ¹Ø§Øª 100+ Ø±Ø§Ø¨Ø·!\nâš¡ Ø°Ø§ÙƒØ±Ø© ØªØ®Ø²ÙŠÙ† Ù…Ø¤Ù‚Øª 1 Ø«Ø§Ù†ÙŠØ©!\nðŸ’Ž Ø®Ø²Ù†Ø© Ù„Ù„Ø£Ø¨Ø¯!\nðŸ“¤ Ø±ÙØ¹ Ø§Ù„Ù…Ù„ÙØ§Øª!\nðŸ”— Ù…Ù„Ù-Ø¥Ù„Ù‰-Ø±Ø§Ø¨Ø·: Ø¥Ù†Ø´Ø§Ø¡ Ø±ÙˆØ§Ø¨Ø· Ù‚Ø§Ø¨Ù„Ø© Ù„Ù„Ù…Ø´Ø§Ø±ÙƒØ©!\n\nðŸ‘‰ Ø§Ù„ØµÙ‚ Ø±Ø§Ø¨Ø·Ø§Ù‹ Ù„Ù„Ø¨Ø¯Ø¡! ðŸ‘‡",
+        "btn_video": "ðŸŽ¬ ÙÙŠØ¯ÙŠÙˆ (MP4)", "btn_audio": "ðŸŽµ ØµÙˆØª (MP3)", "btn_image": "ðŸ–¼ï¸ ØµÙˆØ±", "btn_sub": "ðŸ“ ØªØ±Ø¬Ù…Ø§Øª (SRT)",
+        "ask_format": "ðŸ‘‡ **Ø±Ø§Ø¦Ø¹! Ù…Ø§ Ø§Ù„ØªÙ†Ø³ÙŠÙ‚ Ø§Ù„Ø°ÙŠ ØªØ±ÙŠØ¯Ù‡ØŸ Ø§Ø®ØªØ± Ø£Ø¯Ù†Ø§Ù‡!**",
+        "fetching": "ðŸ“¥ **Ø¬Ø§Ø±ÙŠ Ø¬Ù„Ø¨ {}... Ø§Ù†ØªØ¸Ø± Ù‚Ù„ÙŠÙ„Ø§Ù‹! â³âœ¨**",
+        "error_generic": "âŒ Ø¹Ø°Ø±Ø§Ù‹! ÙØ´Ù„! ðŸ˜¢ Ø§Ù„Ø±Ø§Ø¨Ø· Ø®Ø§Øµ/Ù…Ø­Ø¸ÙˆØ±. Ø¬Ø±Ø¨ Ø±Ø§Ø¨Ø·Ø§Ù‹ Ø¹Ø§Ù…Ø§Ù‹!",
+        "error_50mb": "âŒ ÙƒØ¨ÙŠØ± Ø¬Ø¯Ø§Ù‹! ðŸ˜… Ù‡Ø°Ø§ Ø§Ù„ÙÙŠØ¯ÙŠÙˆ ÙŠØªØ¬Ø§ÙˆØ² 300 Ù…ÙŠØ¬Ø§Ø¨Ø§ÙŠØª. Ø¬Ø±Ø¨ ÙÙŠØ¯ÙŠÙˆ Ø£Ù‚ØµØ±!", 
+        "error_no_img": "âŒ Ù„Ù… ÙŠØªÙ… Ø§Ù„Ø¹Ø«ÙˆØ± Ø¹Ù„Ù‰ ØµÙˆØ±! ðŸ˜¢ Ø¬Ø±Ø¨ Ø±Ø§Ø¨Ø·Ø§Ù‹ Ø¢Ø®Ø±!",
+        "images_received": "â³ **ØªÙ… Ø§Ø³ØªÙ„Ø§Ù… {} ØµÙˆØ±Ø©.**",
+        "select_lang": "ðŸŒ Ø§Ø®ØªØ± Ù„ØºØªÙƒ! Ø§Ø®ØªØ± Ø£Ø¯Ù†Ø§Ù‡! ðŸ‘‡", 
+        "lang_set": "âœ… ØªÙ… ØªØ¹ÙŠÙŠÙ† Ø§Ù„Ù„ØºØ©! Ø§Ø³ØªÙ…ØªØ¹! ðŸŽ‰âœ¨",
+        "batch_detected": "ðŸ“¦ **ØªÙ… Ø§ÙƒØªØ´Ø§Ù Ø¯ÙØ¹Ø© ({} Ø±ÙˆØ§Ø¨Ø·)**\nÙ…Ø§ Ø§Ù„ØªÙ†Ø³ÙŠÙ‚ØŸ",
+        "batch_dest": "ðŸ“¦ **Ø£ÙŠÙ† Ù†Ø±Ø³Ù„ØŸ**",
+        "btn_chat": "ðŸ“¥ ÙÙŠ Ø§Ù„Ø¯Ø±Ø¯Ø´Ø©", "btn_chan": "ðŸ“¢ Ø¥Ù„Ù‰ Ø§Ù„Ù‚Ù†Ø§Ø©",
+        "limit_reached": "âš ï¸ **ØªÙ… Ø§Ù„ÙˆØµÙˆÙ„ Ù„Ù„Ø­Ø¯ Ø§Ù„Ø£Ù‚ØµÙ‰!** Ø§Ø³ØªØ®Ø¯Ù…Øª 4 Ù…Ø¬Ø§Ù†Ø§Ù‹! Ø´Ø§Ù‡Ø¯ Ø¥Ø¹Ù„Ø§Ù† 20 Ø«Ø§Ù†ÙŠØ© â†’ Ø§Ø­ØµÙ„ Ø¹Ù„Ù‰ +1 ØªØ­Ù…ÙŠÙ„!",
+        "refill_btn": "ðŸ”“ Ø§ÙØªØ­ Ø§Ù„Ø±Ø§Ø¨Ø· ÙˆØ£Ø¹Ø¯ Ø§Ù„ØªØ¹Ø¨Ø¦Ø© +1",
+        "join_btn": "ðŸ“¢ Ø§Ù†Ø¶Ù… Ù„Ù„Ù‚Ù†Ø§Ø©", "check_btn": "ðŸ’œ ØªØ­Ù‚Ù‚ Ù…Ù† Ø§Ù„Ø±ØµÙŠØ¯",
+        "limit_batch": "âš ï¸ **ØªÙ… Ø§Ù„ÙˆØµÙˆÙ„ Ù„Ø­Ø¯ Ø§Ù„Ø¯ÙØ¹Ø© Ø¹Ù†Ø¯ {} Ù…Ù† {}**\nØ´Ø§Ù‡Ø¯ Ø¥Ø¹Ù„Ø§Ù† 20 Ø«Ø§Ù†ÙŠØ© â†’ +1 ØªØ­Ù…ÙŠÙ„ Ù„Ù„Ù…ØªØ§Ø¨Ø¹Ø©.",
+        "batch_start": "ðŸ“¦ **Ø¨Ø¯Ø£Øª Ø§Ù„Ø¯ÙØ¹Ø©:** {} **{} Ù…Ù„ÙØ§Øª**\nâ³ Ø¬Ø§Ø±ÙŠ Ø§Ù„Ù…Ø¹Ø§Ù„Ø¬Ø©...",
+        "batch_done": "ðŸ **ØªÙ…!** âœ… {} âŒ {}\nðŸ“¥ {} Ù…Ù„ÙØ§Øª Ù‡Ù†Ø§.",
+        "batch_done_chan": "ðŸ **ØªÙ…!** âœ… {} âŒ {}\nðŸ“¢ ØªÙ… Ø¥Ø¹Ø§Ø¯Ø© ØªÙˆØ¬ÙŠÙ‡ {} Ù…Ù„ÙØ§Øª!",
+        "dl_video": "ðŸ“¥ Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø§Ù„ÙÙŠØ¯ÙŠÙˆ...", "dl_audio": "ðŸ“¥ Ø¬Ø§Ø±ÙŠ Ø§Ø³ØªØ®Ø±Ø§Ø¬ Ø§Ù„ØµÙˆØª...", "dl_image": "ðŸ“¥ Ø¬Ø§Ø±ÙŠ Ø³Ø­Ø¨ Ø§Ù„ØµÙˆØ±...", "dl_sub": "ðŸ“¥ Ø¬Ø§Ø±ÙŠ Ø¬Ù„Ø¨ Ø§Ù„ØªØ±Ø¬Ù…Ø§Øª...",
+        "failed_50": "âŒ >300MB", "failed_blocked": "âŒ Ù…Ø­Ø¸ÙˆØ±/Ø®Ø§Øµ", "failed_generic": "âŒ ÙØ´Ù„",
+        "menu_lang": "ðŸŒ Ø§Ù„Ù„ØºØ©", "menu_stats": "ðŸ“Š Ø¥Ø­ØµØ§Ø¦ÙŠØ§ØªÙŠ", "menu_help": "ðŸ’¬ Ø§Ù„Ø¯Ø¹Ù… / Ø§Ù„Ø£Ø³Ø¦Ù„Ø© Ø§Ù„Ø´Ø§Ø¦Ø¹Ø©", "menu_join": "ðŸ“¢ Ø§Ù†Ø¶Ù… Ù„Ù„Ù‚Ù†Ø§Ø©",
+        "menu_uploads": "ðŸ¿ Ø±ÙØ¹ Ø§Ù„Ù…Ø¹Ø¬Ø¨ÙŠÙ†", "menu_upload": "ðŸ“¤ Ø±ÙØ¹ Ù…Ù„Ù",
+        "admin_upload_prompt": "ðŸ“‚ **ØµÙ†Ø¯ÙˆÙ‚ ÙˆØ§Ø±Ø¯ Ø±ÙØ¹ Ø§Ù„Ù…Ø¹Ø¬Ø¨ÙŠÙ†**",
+        "user_upload_prompt": "ðŸ“¤ **Ø±ÙØ¹ Ù…Ù„Ù**\nØ£Ø±Ø³Ù„ ÙÙŠØ¯ÙŠÙˆ/ØµÙˆØ±Ø©/Ù…Ù„Ù Ù„Ù„Ù…Ø³Ø¤ÙˆÙ„. Ø§Ù„Ø­Ø¯ 5/24 Ø³Ø§Ø¹Ø©.",
+        "upload_success_user": "âœ… ØªÙ… Ø§Ù„Ø¥Ø±Ø³Ø§Ù„ Ù„Ù„Ù…Ø³Ø¤ÙˆÙ„!",
+        "upload_limit_reached": "âš ï¸ ØªÙ… Ø§Ù„ÙˆØµÙˆÙ„ Ù„Ø­Ø¯ Ø§Ù„Ø±ÙØ¹ 5/24 Ø³Ø§Ø¹Ø©.",
+        "no_uploads": "ðŸ“­ Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¹Ù…Ù„ÙŠØ§Øª Ø±ÙØ¹ Ø¨Ø¹Ø¯.",
+        "stats_msg": "ðŸ“Š **Ø¥Ø­ØµØ§Ø¦ÙŠØ§ØªÙƒ:**\nâ€¢ Ø§Ù„ØªØ­Ù…ÙŠÙ„Ø§Øª Ø§Ù„Ù…ØªØ¨Ù‚ÙŠØ©: {}\nâ€¢ Ø§Ù„Ø¯ÙØ¹Ø§Øª Ø§Ù„Ù…ØªØ¨Ù‚ÙŠØ©: {}",
+        "change_channel_prompt": "ðŸ”„ **ØªØºÙŠÙŠØ± Ù‚Ù†Ø§Ø© Ø§Ù„Ø¯ÙØ¹Ø§Øª**\n1. ØªØ£ÙƒØ¯ Ù…Ù† Ø£Ù†Ù†ÙŠ Ù…Ø³Ø¤ÙˆÙ„ ÙÙŠ Ø§Ù„Ù‚Ù†Ø§Ø© Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø©.\n2. Ø£Ø¹Ø¯ ØªÙˆØ¬ÙŠÙ‡ Ø£ÙŠ Ø±Ø³Ø§Ù„Ø© Ù…Ù† ØªÙ„Ùƒ Ø§Ù„Ù‚Ù†Ø§Ø© Ø¥Ù„Ù‰ Ù‡Ù†Ø§.",
+        "disk_config_prompt": "ðŸ’¾ **Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø§Ù„Ù‚Ø±Øµ**\nØ§Ù„Ø­Ø¯ Ø§Ù„Ø£Ø¯Ù†Ù‰ Ø§Ù„Ø­Ø§Ù„ÙŠ Ù„Ù„Ù…Ø³Ø§Ø­Ø© Ø§Ù„Ø­Ø±Ø©: **{} Ù…ÙŠØ¬Ø§Ø¨Ø§ÙŠØª**\nÙ„Ù„ØªØºÙŠÙŠØ±: `/setdisk <value>`",
+        "mtproto_config_prompt": "âš¡ **Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª MTProto**\nØ§Ù„Ø­Ø¯ Ø§Ù„Ø£Ù‚ØµÙ‰ Ø§Ù„Ø­Ø§Ù„ÙŠ Ù„Ù„Ø±ÙØ¹: **{} Ù…ÙŠØ¬Ø§Ø¨Ø§ÙŠØª**\nÙ„Ù„ØªØºÙŠÙŠØ±: `/setmtproto <value>`",
+        "free_panel_prompt": "ðŸ“¦ Ø§Ù„ØªØ­Ù…ÙŠÙ„Ø§Øª Ø§Ù„Ù…Ø¬Ø§Ù†ÙŠØ©\nØ§Ù„Ù…Ø¬Ø§Ù†ÙŠ Ø§Ù„Ø­Ø§Ù„ÙŠ ÙŠÙˆÙ…ÙŠØ§Ù‹: {}",
+        "reward_panel_prompt": "ðŸŽ Ù„ÙˆØ­Ø© Ø§Ù„Ù…ÙƒØ§ÙØ¢Øª\nØ§Ù„Ø­Ø§Ù„ÙŠ: +{} ØªØ­Ù…ÙŠÙ„ Ù„ÙƒÙ„ Ø¥Ø¹Ù„Ø§Ù† 20 Ø«Ø§Ù†ÙŠØ©",
+        "ad_panel_prompt": "âš™ï¸ Ù„ÙˆØ­Ø© Ø§Ù„Ø¥Ø¹Ù„Ø§Ù†Ø§Øª\nØ§Ù„Ø­Ø§Ù„ÙŠ: {}",
+        "password_saved": "ðŸ” ØªÙ… Ø­ÙØ¸ ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±.",
+        "password_too_long": "ÙŠØ¬Ø¨ Ø£Ù† ØªÙƒÙˆÙ† ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± 64 Ø­Ø±ÙØ§Ù‹ Ø£Ùˆ Ø£Ù‚Ù„.",
+        "file_to_link_prompt": "ðŸ”— **Ù…Ù„Ù-Ø¥Ù„Ù‰-Ø±Ø§Ø¨Ø·**\nØ£Ø±Ø³Ù„ Ø§Ù„Ù…Ù„Ù(Ø§Øª) Ø§Ù„ØªÙŠ ØªØ±ÙŠØ¯ Ù…Ø´Ø§Ø±ÙƒØªÙ‡Ø§.",
+        "link_invalid_expired": "âŒ Ù‡Ø°Ø§ Ø§Ù„Ø±Ø§Ø¨Ø· ØºÙŠØ± ØµØ§Ù„Ø­ Ø£Ùˆ Ù…Ù†ØªÙ‡ÙŠ Ø§Ù„ØµÙ„Ø§Ø­ÙŠØ©.",
+        "link_limit_reached": "â›” ÙˆØµÙ„ Ù‡Ø°Ø§ Ø§Ù„Ø±Ø§Ø¨Ø· Ø¥Ù„Ù‰ Ø­Ø¯ Ø§Ù„Ø§Ø³ØªØ®Ø¯Ø§Ù….",
+        "link_password_protected": "ðŸ” Ù‡Ø°Ø§ Ø§Ù„Ø±Ø§Ø¨Ø· Ù…Ø­Ù…ÙŠ Ø¨ÙƒÙ„Ù…Ø© Ù…Ø±ÙˆØ±. Ø£Ø±Ø³Ù„ ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±.",
+        "files_sent": "âœ… ØªÙ… Ø¥Ø±Ø³Ø§Ù„ Ù…Ù„ÙØ§ØªÙƒ.",
+        "file_added": "ðŸ“¥ ØªÙ…Øª Ø¥Ø¶Ø§ÙØ© Ø§Ù„Ù…Ù„Ù #{}. Ø£Ø±Ø³Ù„ Ø§Ù„Ù…Ø²ÙŠØ¯ØŒ Ø£Ùˆ Ø§Ø¶ØºØ· Ø¹Ù„Ù‰ Ø¥Ù†Ø´Ø§Ø¡ Ø±Ø§Ø¨Ø·.",
+        "fl_cancelled": "ØªÙ… Ø¥Ù„ØºØ§Ø¡ Ù…Ù„Ù-Ø¥Ù„Ù‰-Ø±Ø§Ø¨Ø·",
+        "fl_start_again": "Ø§Ø¨Ø¯Ø£ Ù…Ù„Ù-Ø¥Ù„Ù‰-Ø±Ø§Ø¨Ø· Ù…Ø±Ø© Ø£Ø®Ø±Ù‰ Ø¨Ø§Ø³ØªØ®Ø¯Ø§Ù… /filetolink",
+        "fl_choose_expiry": "Ø§Ø®ØªØ± Ø§Ù†ØªÙ‡Ø§Ø¡ ØµÙ„Ø§Ø­ÙŠØ© Ø§Ù„Ø±Ø§Ø¨Ø·:",
+        "fl_expiry_updated": "ØªÙ… ØªØ­Ø¯ÙŠØ« Ø§Ù„Ø§Ù†ØªÙ‡Ø§Ø¡",
+        "fl_choose_max_uses": "Ø§Ø®ØªØ± Ø§Ù„Ø­Ø¯ Ø§Ù„Ø£Ù‚ØµÙ‰ Ù„Ù„ØªØ³Ù„ÙŠÙ…Ø§Øª Ø§Ù„Ù†Ø§Ø¬Ø­Ø©:",
+        "fl_uses_updated": "ØªÙ… ØªØ­Ø¯ÙŠØ« Ø­Ø¯ Ø§Ù„Ø§Ø³ØªØ®Ø¯Ø§Ù…",
+        "fl_set_password": "Ø£Ø±Ø³Ù„ ÙƒÙ„Ù…Ø© Ù…Ø±ÙˆØ±ØŒ Ø£Ùˆ /clearpassword Ù„Ù„Ø¥Ø²Ø§Ù„Ø©.",
+        "fl_link_created": "ØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø±Ø§Ø¨Ø·",
+        "fl_link_ready": "ðŸ”— Ø±Ø§Ø¨Ø·Ùƒ Ø¬Ø§Ù‡Ø²:\n{}\nØ§Ù„Ù…Ù„ÙØ§Øª: {}\nØ§Ù„ØªÙƒÙ„ÙØ©: 1 ØªØ­Ù…ÙŠÙ„ ÙŠÙˆÙ…ÙŠ Ù…Ø¬Ø§Ù†ÙŠ",
+        "fl_daily_limit": "ØªÙ… Ø§Ù„ÙˆØµÙˆÙ„ Ù„Ù„Ø­Ø¯ Ø§Ù„ÙŠÙˆÙ…ÙŠ Ø§Ù„Ù…Ø¬Ø§Ù†ÙŠ. Ø´Ø§Ù‡Ø¯ Ø¥Ø¹Ù„Ø§Ù†Ø§Ù‹ Ù„ÙƒØ³Ø¨ Ø§Ù„Ù…Ø²ÙŠØ¯.",
+        "fl_ad_busy": "âš ï¸ Ø®Ø§Ø¯Ù… Ø§Ù„Ø¥Ø¹Ù„Ø§Ù†Ø§Øª Ù…Ø´ØºÙˆÙ„.",
+        "admin_skipped": "âœ… ØªÙ… Ø§Ù„ØªØ®Ø·ÙŠ!",
+        "admin_bypassed": "âœ… ØªÙ… Ø§Ù„ØªØ¬Ø§ÙˆØ²",
+        "free_set": "âœ… ØªÙ… ØªØ¹ÙŠÙŠÙ† Ø§Ù„Ù…Ø¬Ø§Ù†ÙŠ Ø¥Ù„Ù‰ {}!",
+        "free_updated": "âœ… ØªÙ… ØªØ­Ø¯ÙŠØ« Ø§Ù„ØªØ­Ù…ÙŠÙ„Ø§Øª Ø§Ù„Ù…Ø¬Ø§Ù†ÙŠØ© Ø¥Ù„Ù‰ {}!",
+        "reward_set": "âœ… ØªÙ… ØªØ¹ÙŠÙŠÙ† Ø§Ù„Ù…ÙƒØ§ÙØ£Ø© Ø¥Ù„Ù‰ +{}!",
+        "reward_updated": "âœ… ØªÙ… ØªØ­Ø¯ÙŠØ« Ø§Ù„Ù…ÙƒØ§ÙØ£Ø© Ø¥Ù„Ù‰ +{}!",
+        "mode_updated": "âœ… Ø§Ù„ÙˆØ¶Ø¹: {}",
+        "support_opened": "âœï¸ Ø£Ø±Ø³Ù„ Ø±Ø³Ø§Ù„Ø©/ØµÙˆØ±Ø©/ÙÙŠØ¯ÙŠÙˆ/Ù…Ù„Ù Ø£Ø¯Ù†Ø§Ù‡.",
+        "admin_reply_mode": "âœï¸ Ø§Ù„Ø±Ø¯ Ø¹Ù„Ù‰ {}:",
+        "user_reply_mode": "âœï¸ Ø§ÙƒØªØ¨ Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø© Ø£Ø¯Ù†Ø§Ù‡",
+        "support_closed": "ðŸ”’ Ù…ØºÙ„Ù‚",
+        "drop_cancelled": "âŒ Ù…Ù„ØºÙŠ",
+        "drop_no_items": "âš ï¸ Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¹Ù†Ø§ØµØ±!",
+        "drop_timer_set": "ØªÙ… ØªØ¹ÙŠÙŠÙ† {}!",
+        "drop_broadcasting": "ðŸš€ Ø¬Ø§Ø±ÙŠ Ø§Ù„Ø¨Ø« {} Ø¹Ù†Ø§ØµØ± Ø¥Ù„Ù‰ {}...",
+        "drop_flash_text": "ðŸš¨ FLASH DROP!\nØ­Ø°Ù ØªÙ„Ù‚Ø§Ø¦ÙŠ ÙÙŠ {}\nØ§Ø¶ØºØ· Ù„Ù„Ù…Ø·Ø§Ù„Ø¨Ø©:",
+        "drop_done": "âœ… ØªÙ… Ø§Ù„Ø¨Ø« Ø¥Ù„Ù‰ {}",
+        "age_expired": "â³ Ù…Ù†ØªÙ‡ÙŠ Ø§Ù„ØµÙ„Ø§Ø­ÙŠØ©!",
+        "age_claimed": "âŒ ØªÙ…Øª Ø§Ù„Ù…Ø·Ø§Ù„Ø¨Ø© Ø¨Ù‡ Ø¨Ø§Ù„ÙØ¹Ù„!",
+        "age_verified": "ØªÙ… Ø§Ù„ØªØ­Ù‚Ù‚!",
+        "age_denied": "âŒ Ù…Ø±ÙÙˆØ¶. ÙŠØ¬Ø¨ Ø£Ù† ÙŠÙƒÙˆÙ† 18+",
+        "lang_updated": "ØªÙ… Ø§Ù„ØªØ­Ø¯ÙŠØ«!",
+        "batch_expired": "Ù…Ù†ØªÙ‡ÙŠ Ø§Ù„ØµÙ„Ø§Ø­ÙŠØ©",
+        "batch_loading": "Ø¬Ø§Ø±ÙŠ Ø§Ù„ØªØ­Ù…ÙŠÙ„...",
+        "batch_no_channel": "Ù„Ø§ ØªÙˆØ¬Ø¯ Ù‚Ù†Ø§Ø© Ù…Ø±ØªØ¨Ø·Ø©!",
+        "batch_setup_prompt": "ðŸ“¦ Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯: Ø§Ø¬Ø¹Ù„ Ø§Ù„Ø¨ÙˆØª Ù…Ø³Ø¤ÙˆÙ„Ø§Ù‹ ÙÙŠ Ø§Ù„Ù‚Ù†Ø§Ø© ÙˆØ£Ø¹Ø¯ ØªÙˆØ¬ÙŠÙ‡ Ø±Ø³Ø§Ù„Ø© Ø¥Ù„Ù‰ Ù‡Ù†Ø§",
+        "batch_mode_activated": "ØªÙ… ØªÙØ¹ÙŠÙ„ Ø§Ù„ÙˆØ¶Ø¹!",
+        "batch_change_dest": "ðŸ”„ **ØªØºÙŠÙŠØ± Ù‚Ù†Ø§Ø© Ø§Ù„ÙˆØ¬Ù‡Ø©**\nØ§Ø¬Ø¹Ù„ Ø§Ù„Ø¨ÙˆØª Ù…Ø³Ø¤ÙˆÙ„Ø§Ù‹ ÙÙŠ Ø§Ù„Ù‚Ù†Ø§Ø© Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø©ØŒ Ø«Ù… Ø£Ø¹Ø¯ ØªÙˆØ¬ÙŠÙ‡ Ø±Ø³Ø§Ù„Ø© Ø¥Ù„Ù‰ Ù‡Ù†Ø§.",
+        "join_channel_first_alert": "Ø§Ù†Ø¶Ù… Ù„Ù„Ù‚Ù†Ø§Ø© Ø£ÙˆÙ„Ø§Ù‹! ðŸ“¢ ÙŠØ¬Ø¨ Ø§Ù„Ø§Ù†Ø¶Ù…Ø§Ù…!",
+        "join_channel_first": "Ø§Ù†Ø¶Ù… Ù„Ù„Ù‚Ù†Ø§Ø© Ø£ÙˆÙ„Ø§Ù‹! ðŸ“¢",
+        "watch_timer_first": "â° Ø§ÙØªØ­ Ø§Ù„Ø±Ø§Ø¨Ø· ÙˆØ´Ø§Ù‡Ø¯ Ø§Ù„Ù…Ø¤Ù‚Øª Ù„Ù…Ø¯Ø© 20 Ø«Ø§Ù†ÙŠØ© Ø£ÙˆÙ„Ø§Ù‹!",
+        "test_ad_verified": "âœ… ØªÙ… Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† Ø¥Ø¹Ù„Ø§Ù† Ø§Ù„Ø§Ø®ØªØ¨Ø§Ø±! +1",
+        "test_ad_verified_msg": "âœ… **ØªÙ… Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† Ø¥Ø¹Ù„Ø§Ù† Ø§Ù„Ø§Ø®ØªØ¨Ø§Ø±!**\nØ§Ù„Ù…ÙƒØ§ÙØ£Ø©: ØªÙ… Ø¥Ø¹Ø§Ø¯Ø© ØªØ¹Ø¨Ø¦Ø© +1 ØªØ­Ù…ÙŠÙ„!",
+        "finish_timer_first": "â° Ø£Ù†Ù‡Ù Ù…Ø¤Ù‚Øª 20 Ø«Ø§Ù†ÙŠØ© Ø£ÙˆÙ„Ø§Ù‹!",
+        "verified_added": "ØªÙ… Ø§Ù„ØªØ­Ù‚Ù‚! ØªÙ…Øª Ø¥Ø¶Ø§ÙØ© +1",
+        "resume_prompt": "âœ… ØªÙ… Ø§Ù„ØªØ­Ù‚Ù‚! ØªÙ…Øª Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„ØªØ¹Ø¨Ø¦Ø© +1. Ø§Ø³ØªØ¦Ù†Ø§ÙØŸ",
+        "refilled_download": "âœ… ØªÙ…Øª Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„ØªØ¹Ø¨Ø¦Ø© +1! Ø­Ù…Ù„ Ù…Ø±Ø© Ø£Ø®Ø±Ù‰.",
+        "fetching_bundle": "âœ… ØªÙ… Ø§Ù„ØªØ­Ù‚Ù‚! Ø¬Ø§Ø±ÙŠ Ø¬Ù„Ø¨ Ø§Ù„Ø­Ø²Ù…Ø©...",
+        "outdated_button": "Ù‡Ø°Ø§ Ø§Ù„Ø²Ø± Ù‚Ø¯ÙŠÙ…. Ø£Ø±Ø³Ù„ Ø±Ø§Ø¨Ø·Ùƒ Ù…Ø±Ø© Ø£Ø®Ø±Ù‰.",
+        "stopping": "Ø¬Ø§Ø±ÙŠ Ø§Ù„Ø¥ÙŠÙ‚Ø§Ù...",
+        "stopped": "ðŸ›‘ ØªÙ… Ø§Ù„Ø¥ÙŠÙ‚Ø§Ù",
+        "resuming": "Ø¬Ø§Ø±ÙŠ Ø§Ù„Ø§Ø³ØªØ¦Ù†Ø§Ù...",
+        "checking_vault": "Ø¬Ø§Ø±ÙŠ ÙØ­Øµ Ø§Ù„Ø®Ø²Ù†Ø© ÙˆØ­Ù…Ù„ Ø§Ù„Ø®Ø§Ø¯Ù…...",
+        "server_busy": "â³ **Ø§Ù„Ø®Ø§Ø¯Ù… Ù…Ø´ØºÙˆÙ„**\nÙ†Ø´Ø·: {}/{}\nØ­Ø±: {} Ù…ÙŠØ¬Ø§Ø¨Ø§ÙŠØª\nÙ‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø§Ù†ØªØ¸Ø§Ø±: #{}\nØ³ÙŠØ¨Ø¯Ø£ ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹!",
+        "simulated": "ðŸ›  ØªÙ…Øª Ø§Ù„Ù…Ø­Ø§ÙƒØ§Ø©! Ø§Ø¶ØºØ· Ø§Ù„Ø¢Ù† Ø¹Ù„Ù‰ ØªØ­Ù‚Ù‚ ÙˆØ§Ø­ØµÙ„ Ø¹Ù„Ù‰ +1",
+        "server_unreachable": "âŒ Ø§Ù„Ø®Ø§Ø¯Ù… ØºÙŠØ± Ù…ØªØ§Ø­",
+        "monetag_failed_twice": "Ø£ÙƒÙ…Ù„ Ù…Ø­Ø§ÙˆÙ„ØªÙŠÙ† ÙØ§Ø´Ù„ØªÙŠÙ† Ù„Ù€ Monetag Ø£ÙˆÙ„Ø§Ù‹.",
+        "monetag_fallback_prompt": "ðŸŒ ÙØ´Ù„ Monetag Ù…Ø±ØªÙŠÙ†. ØªØ§Ø¨Ø¹ Ù…Ø¹ Adsterra:",
+        "adsterra_ready": "Ø¨Ø¯ÙŠÙ„ Adsterra Ø¬Ø§Ù‡Ø²",
+        "finish_monetag": "ðŸ“º Ø£Ù†Ù‡Ù Ø¥Ø¹Ù„Ø§Ù† Monetag ÙÙŠ Ø§Ù„ØªØ·Ø¨ÙŠÙ‚ Ø§Ù„Ù…ØµØºØ±ØŒ Ø«Ù… ØªØ­Ù‚Ù‚ Ù…Ø±Ø© Ø£Ø®Ø±Ù‰.",
+        "monetag_failed_use_adsterra": "ÙØ´Ù„ Monetag Ù…Ø±ØªÙŠÙ†. Ø§Ø³ØªØ®Ø¯Ù… Ø¨Ø¯ÙŠÙ„ Adsterra Ø£Ø¯Ù†Ø§Ù‡.",
+        "ad_link_expired": "Ø§Ù†ØªÙ‡Øª ØµÙ„Ø§Ø­ÙŠØ© Ø±Ø§Ø¨Ø· Ø§Ù„Ø¥Ø¹Ù„Ø§Ù†. Ø£Ø±Ø³Ù„ Ø±Ø§Ø¨Ø·Ùƒ Ù…Ø±Ø© Ø£Ø®Ø±Ù‰.",
+        "ad_verified_added": "âœ… ØªÙ… Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† Ø§Ù„Ø¥Ø¹Ù„Ø§Ù†! ØªÙ…Øª Ø¥Ø¶Ø§ÙØ© +{}",
+        "test_ad_completed": "âœ… ØªÙ… Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† Ø¥Ø¹Ù„Ø§Ù† Ø§Ù„Ø§Ø®ØªØ¨Ø§Ø±\nØªÙ… Ø§Ø¹ØªÙ…Ø§Ø¯ Ø§Ù„Ù…ÙƒØ§ÙØ£Ø©: +{} ØªØ­Ù…ÙŠÙ„.",
+        "sponsor_viewed": "âœ… ØªÙ…Øª Ù…Ø´Ø§Ù‡Ø¯Ø© Ø§Ù„Ø±Ø§Ø¹ÙŠ! ØªÙ…Øª Ø¥Ø¶Ø§ÙØ© +{}",
+        "refilled_send_again": "âœ… ØªÙ…Øª Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„ØªØ¹Ø¨Ø¦Ø© +{}! Ø£Ø±Ø³Ù„ Ø±Ø§Ø¨Ø·Ùƒ Ù…Ø±Ø© Ø£Ø®Ø±Ù‰.",
+        "queued": "â³ ÙÙŠ Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø§Ù†ØªØ¸Ø§Ø± #{}",
+        "banned": "ðŸš« Ø£Ù†Øª Ù…Ø­Ø¸ÙˆØ±.",
+        "no_links": "âŒ Ù„Ù… ÙŠØªÙ… Ø§Ù„Ø¹Ø«ÙˆØ± Ø¹Ù„Ù‰ Ø±ÙˆØ§Ø¨Ø·.",
+        "batch_count": "ðŸ“¦ Ø¯ÙØ¹Ø© {} Ø±ÙˆØ§Ø¨Ø·",
+        "restore_invalid_json": "âŒ ÙØ´Ù„ Ø§Ù„Ø§Ø³ØªØ¹Ø§Ø¯Ø©: **{}** Ù„ÙŠØ³ JSON ØµØ§Ù„Ø­Ø§Ù‹.",
+        "restore_failed": "âŒ ÙØ´Ù„ Ø§Ù„Ø§Ø³ØªØ¹Ø§Ø¯Ø©: {}",
+        "restore_success": "âœ… **Ù†Ø¬Ø§Ø­ Ø§Ù„Ø§Ø³ØªØ¹Ø§Ø¯Ø©!**\nØ§Ù„Ù…Ù„Ù: **{}**\nØªÙ…Øª Ø§Ø³ØªØ¹Ø§Ø¯Ø© **{}** Ø¥Ø¯Ø®Ø§Ù„Ø§Øª.",
+        "admin_edit_welcome_prompt": "âœï¸ Ø£Ø±Ø³Ù„ Ø±Ø³Ø§Ù„Ø© Ø§Ù„ØªØ±Ø­ÙŠØ¨ Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø©. Ø§Ø³ØªØ®Ø¯Ù… `{bot_name}` Ù„Ø§Ø³Ù… Ù…Ø³ØªØ®Ø¯Ù… Ø§Ù„Ø¨ÙˆØª.",
+        "admin_welcome_updated": "âœ… ØªÙ… ØªØ­Ø¯ÙŠØ« Ø±Ø³Ø§Ù„Ø© Ø§Ù„ØªØ±Ø­ÙŠØ¨!",
+        "menu_edit_welcome": "âœï¸ ØªØ­Ø±ÙŠØ± Ø±Ø³Ø§Ù„Ø© Ø§Ù„ØªØ±Ø­ÙŠØ¨",
+        "cached_instant_video": "âš¡ Ø°Ø§ÙƒØ±Ø© ØªØ®Ø²ÙŠÙ† Ù…Ø¤Ù‚Øª ÙÙˆØ±ÙŠØ© [{}] {} {}",
+        "cached_instant_audio": "âš¡ **Ø°Ø§ÙƒØ±Ø© ØªØ®Ø²ÙŠÙ† Ù…Ø¤Ù‚Øª ÙÙˆØ±ÙŠØ©** `{}`",
+        "cached_instant_image": "âš¡ **Ø°Ø§ÙƒØ±Ø© ØªØ®Ø²ÙŠÙ† Ù…Ø¤Ù‚Øª ÙÙˆØ±ÙŠØ©** `{}`",
+        "auto_delete_9m": "â³ Ø­Ø°Ù ØªÙ„Ù‚Ø§Ø¦ÙŠ ÙÙŠ 9 Ø¯Ù‚Ø§Ø¦Ù‚",
+        "download_success": "âœ… ØªÙ… Ø§Ù„ØªØ­Ù…ÙŠÙ„ Ø¨Ù†Ø¬Ø§Ø­!"
     },
     "ru": {
-        "welcome": "🚀 **ДОБРО ПОЖАЛОВАТЬ В MICHAELBBC VAULT - УНИВЕРСАЛЬНЫЙ ЗАГРУЗЧИК!**\n\n🔥 ЧТО Я УМЕЮ:\n🎬 ВИДЕО HD Без Водяных Знаков!\n🎵 АУДИО MP3 192kbps!\n🖼️ ИЗОБРАЖЕНИЯ Скачивание ВСЕХ!\n📝 СУБТИТРЫ Авто!\n📦 ПАКЕТЫ 100+ Ссылок!\n⚡ КЭШ 1 Сек!\n💎 ХРАНИЛИЩЕ Навсегда!\n📤 ЗАГРУЗКА ФАЙЛОВ!\n🔗 ФАЙЛ-В-ССЫЛКУ: Создавайте ссылки для обмена!\n\n👉 ВСТАВЬТЕ ССЫЛКУ, ЧТОБЫ НАЧАТЬ! 👇",
-        "btn_video": "🎬 Видео (MP4)", "btn_audio": "🎵 Аудио (MP3)", "btn_image": "🖼️ Изображения", "btn_sub": "📝 Субтитры (SRT)",
-        "ask_format": "👇 **ОТЛИЧНО! Какой формат вы хотите? Выберите ниже!**",
-        "fetching": "📥 **Получение вашего {}... Подождите! ⏳✨**",
-        "error_generic": "❌ Ой! Ошибка! 😢 Ссылка приватная/заблокирована. Попробуйте публичную!",
-        "error_50mb": "❌ Слишком большой! 😅 Это видео больше 300 МБ. Попробуйте короче!", 
-        "error_no_img": "❌ Изображения не найдены! 😢 Попробуйте другую ссылку!",
-        "images_received": "⏳ **Получено {} изображений.**",
-        "select_lang": "🌍 Выберите ваш язык! Выберите ниже! 👇", 
-        "lang_set": "✅ Язык установлен! Наслаждайтесь! 🎉✨",
-        "batch_detected": "📦 **Обнаружен пакет ({} ссылок)**\nКакой формат?",
-        "batch_dest": "📦 **Куда отправить?**",
-        "btn_chat": "📥 В чат", "btn_chan": "📢 В канал",
-        "limit_reached": "⚠️ **Лимит достигнут!** Вы использовали 4 БЕСПЛАТНЫХ! Посмотрите 20-сек рекламу → Получите +1 загрузку!",
-        "refill_btn": "🔓 Открыть ссылку и пополнить +1",
-        "join_btn": "📢 Присоединиться к каналу", "check_btn": "💜 Проверить баланс",
-        "limit_batch": "⚠️ **Лимит пакета достигнут на {} из {}**\nПосмотрите 20-сек рекламу → +1 загрузка для продолжения.",
-        "batch_start": "📦 **Пакет запущен:** {} **{} файлов**\n⏳ Обработка...",
-        "batch_done": "🏁 **Готово!** ✅ {} ❌ {}\n📥 {} файлов здесь.",
-        "batch_done_chan": "🏁 **Готово!** ✅ {} ❌ {}\n📢 {} файлов переслано!",
-        "dl_video": "📥 Загрузка видео...", "dl_audio": "📥 Извлечение аудио...", "dl_image": "📥 Скачивание изображений...", "dl_sub": "📥 Получение субтитров...",
-        "failed_50": "❌ >300MB", "failed_blocked": "❌ Заблокировано/приватно", "failed_generic": "❌ Ошибка",
-        "menu_lang": "🌍 Язык", "menu_stats": "📊 Моя статистика", "menu_help": "💬 Поддержка / FAQ", "menu_join": "📢 Присоединиться к каналу",
-        "menu_uploads": "🍿 Загрузки фанатов", "menu_upload": "📤 Загрузить файл",
-        "admin_upload_prompt": "📂 **Входящие загрузки фанатов**",
-        "user_upload_prompt": "📤 **Загрузить файл**\nОтправьте видео/изображение/файл Админу. Лимит 5/24ч.",
-        "upload_success_user": "✅ Отправлено Админу!",
-        "upload_limit_reached": "⚠️ Достигнут лимит загрузок 5/24ч.",
-        "no_uploads": "📭 Загрузок пока нет.",
-        "stats_msg": "📊 **Ваша статистика:**\n• Осталось загрузок: {}\n• Осталось пакетов: {}",
-        "change_channel_prompt": "🔄 **Изменить канал для пакетов**\n1. Убедитесь, что я админ в новом канале.\n2. Перешлите любое сообщение из этого канала сюда.",
-        "disk_config_prompt": "💾 **Настройка диска**\nТекущий мин. свободный диск: **{} МБ**\nЧтобы изменить: `/setdisk <значение>`",
-        "mtproto_config_prompt": "⚡ **Настройка MTProto**\nТекущий макс. размер загрузки: **{} МБ**\nЧтобы изменить: `/setmtproto <значение>`",
-        "free_panel_prompt": "📦 БЕСПЛАТНЫЕ ЗАГРУЗКИ\nТекущие бесплатные в день: {}",
-        "reward_panel_prompt": "🎁 ПАНЕЛЬ НАГРАД\nТекущая: +{} загрузка за 20-сек рекламу",
-        "ad_panel_prompt": "⚙️ Панель рекламы\nТекущая: {}",
-        "password_saved": "🔐 Пароль сохранен.",
-        "password_too_long": "Пароль должен быть не более 64 символов.",
-        "file_to_link_prompt": "🔗 **Файл-в-ссылку**\nОтправьте файл(ы), которыми хотите поделиться.",
-        "link_invalid_expired": "❌ Эта ссылка недействительна или истекла.",
-        "link_limit_reached": "⛔ Эта ссылка достигла лимита использования.",
-        "link_password_protected": "🔐 Эта ссылка защищена паролем. Отправьте пароль.",
-        "files_sent": "✅ Ваши файлы отправлены.",
-        "file_added": "📥 Добавлен файл #{}. Отправьте еще или нажмите Создать ссылку.",
-        "fl_cancelled": "Файл-в-ссылку отменен",
-        "fl_start_again": "Начните Файл-в-ссылку заново с /filetolink",
-        "fl_choose_expiry": "Выберите срок действия ссылки:",
-        "fl_expiry_updated": "Срок действия обновлен",
-        "fl_choose_max_uses": "Выберите макс. количество успешных доставок:",
-        "fl_uses_updated": "Лимит использования обновлен",
-        "fl_set_password": "Отправьте пароль или /clearpassword для удаления.",
-        "fl_link_created": "Ссылка создана",
-        "fl_link_ready": "🔗 Ваша ссылка готова:\n{}\nФайлов: {}\nСтоимость: 1 бесплатная загрузка в день",
-        "fl_daily_limit": "Дневной бесплатный лимит достигнут. Посмотрите рекламу, чтобы заработать больше.",
-        "fl_ad_busy": "⚠️ Рекламный сервер занят.",
-        "admin_skipped": "✅ Пропущено!",
-        "admin_bypassed": "✅ Обойдено",
-        "free_set": "✅ Бесплатно установлено на {}!",
-        "free_updated": "✅ Бесплатные загрузки обновлены до {}!",
-        "reward_set": "✅ Награда установлена на +{}!",
-        "reward_updated": "✅ Награда обновлена до +{}!",
-        "mode_updated": "✅ Режим: {}",
-        "support_opened": "✍️ Отправьте сообщение/фото/видео/файл ниже.",
-        "admin_reply_mode": "✍️ Ответить {}:",
-        "user_reply_mode": "✍️ Введите продолжение ниже",
-        "support_closed": "🔒 Закрыто",
-        "drop_cancelled": "❌ Отменено",
-        "drop_no_items": "⚠️ Нет элементов!",
-        "drop_timer_set": "{} установлено!",
-        "drop_broadcasting": "🚀 Трансляция {} элементов для {}...",
-        "drop_flash_text": "🚨 FLASH DROP!\nАвтоудаление через {}\nНажмите, чтобы забрать:",
-        "drop_done": "✅ Трансляция выполнена для {}",
-        "age_expired": "⏳ Истекло!",
-        "age_claimed": "❌ Уже забрано!",
-        "age_verified": "Проверено!",
-        "age_denied": "❌ Отказано. Должно быть 18+",
-        "lang_updated": "Обновлено!",
-        "batch_expired": "Истекло",
-        "batch_loading": "Загрузка...",
-        "batch_no_channel": "Канал не привязан!",
-        "batch_setup_prompt": "📦 Настройка: Сделайте бота админом в канале и перешлите сообщение сюда",
-        "batch_mode_activated": "Режим активирован!",
-        "batch_change_dest": "🔄 **Изменить канал назначения**\nСделайте бота админом в новом канале, затем перешлите сообщение сюда.",
-        "join_channel_first_alert": "Сначала присоединитесь к каналу! 📢 Обязательно!",
-        "join_channel_first": "Сначала присоединитесь к каналу! 📢",
-        "watch_timer_first": "⏰ Сначала откройте ссылку и посмотрите 20-сек таймер!",
-        "test_ad_verified": "✅ Тестовая реклама проверена! +1",
-        "test_ad_verified_msg": "✅ **ТЕСТОВАЯ РЕКЛАМА ПРОВЕРЕНА!**\nНаграда: +1 загрузка пополнена!",
-        "finish_timer_first": "⏰ Сначала завершите 20-сек таймер!",
-        "verified_added": "Проверено! +1 добавлено",
-        "resume_prompt": "✅ Проверено! Пополнено +1. Возобновить?",
-        "refilled_download": "✅ Пополнено +1! Загрузите снова.",
-        "fetching_bundle": "✅ Проверено! Получение пакета...",
-        "outdated_button": "Эта кнопка устарела. Отправьте ссылку снова.",
-        "stopping": "Остановка...",
-        "stopped": "🛑 Остановлено",
-        "resuming": "Возобновление...",
-        "checking_vault": "Проверка хранилища и нагрузки сервера...",
-        "server_busy": "⏳ **Сервер занят**\nАктивных: {}/{}\nСвободно: {} МБ\nОчередь: #{}\nЗапустится автоматически!",
-        "simulated": "🛠 Симулировано! Теперь нажмите Проверить и получить +1",
-        "server_unreachable": "❌ Сервер недоступен",
-        "monetag_failed_twice": "Сначала завершите две неудачные попытки Monetag.",
-        "monetag_fallback_prompt": "🌐 Monetag не сработал дважды. Продолжить с Adsterra:",
-        "adsterra_ready": "Резервный вариант Adsterra готов",
-        "finish_monetag": "📺 Завершите рекламу Monetag в Mini App, затем проверьте снова.",
-        "monetag_failed_use_adsterra": "Monetag не сработал дважды. Используйте резервный вариант Adsterra ниже.",
-        "ad_link_expired": "Срок действия рекламной ссылки истек. Отправьте ссылку снова.",
-        "ad_verified_added": "✅ Реклама проверена! +{} добавлено",
-        "test_ad_completed": "✅ ТЕСТОВАЯ РЕКЛАМА ПРОВЕРЕНА\nНаграда начислена: +{} загрузка.",
-        "sponsor_viewed": "✅ Спонсор просмотрен! +{} добавлено",
-        "refilled_send_again": "✅ Пополнено +{}! Отправьте ссылку снова.",
-        "queued": "⏳ В очереди #{}",
-        "banned": "🚫 Вы заблокированы.",
-        "no_links": "❌ Ссылки не найдены.",
-        "batch_count": "📦 Пакет {} ссылок",
-        "restore_invalid_json": "❌ Ошибка восстановления: **{}** не является допустимым JSON.",
-        "restore_failed": "❌ Ошибка восстановления: {}",
-        "restore_success": "✅ **Восстановление успешно!**\nФайл: **{}**\nВосстановлено **{}** записей.",
-        "admin_edit_welcome_prompt": "✏️ Отправьте новое приветственное сообщение. Используйте `{bot_name}` для имени пользователя бота.",
-        "admin_welcome_updated": "✅ Приветственное сообщение обновлено!",
-        "menu_edit_welcome": "✏️ Изменить приветственное сообщение",
-        "cached_instant_video": "⚡ Мгновенный кэш [{}] {} {}",
-        "cached_instant_audio": "⚡ **Мгновенный кэш** `{}`",
-        "cached_instant_image": "⚡ **Мгновенный кэш** `{}`",
-        "auto_delete_9m": "⏳ Автоудаление через 9 мин",
-        "download_success": "✅ Загрузка успешна!"
+        "welcome": "ðŸš€ **Ð”ÐžÐ‘Ð Ðž ÐŸÐžÐ–ÐÐ›ÐžÐ’ÐÐ¢Ð¬ Ð’ MICHAELBBC VAULT - Ð£ÐÐ˜Ð’Ð•Ð Ð¡ÐÐ›Ð¬ÐÐ«Ð™ Ð—ÐÐ“Ð Ð£Ð—Ð§Ð˜Ðš!**\n\nðŸ”¥ Ð§Ð¢Ðž Ð¯ Ð£ÐœÐ•Ð®:\nðŸŽ¬ Ð’Ð˜Ð”Ð•Ðž HD Ð‘ÐµÐ· Ð’Ð¾Ð´ÑÐ½Ñ‹Ñ… Ð—Ð½Ð°ÐºÐ¾Ð²!\nðŸŽµ ÐÐ£Ð”Ð˜Ðž MP3 192kbps!\nðŸ–¼ï¸ Ð˜Ð—ÐžÐ‘Ð ÐÐ–Ð•ÐÐ˜Ð¯ Ð¡ÐºÐ°Ñ‡Ð¸Ð²Ð°Ð½Ð¸Ðµ Ð’Ð¡Ð•Ð¥!\nðŸ“ Ð¡Ð£Ð‘Ð¢Ð˜Ð¢Ð Ð« ÐÐ²Ñ‚Ð¾!\nðŸ“¦ ÐŸÐÐšÐ•Ð¢Ð« 100+ Ð¡ÑÑ‹Ð»Ð¾Ðº!\nâš¡ ÐšÐ­Ð¨ 1 Ð¡ÐµÐº!\nðŸ’Ž Ð¥Ð ÐÐÐ˜Ð›Ð˜Ð©Ð• ÐÐ°Ð²ÑÐµÐ³Ð´Ð°!\nðŸ“¤ Ð—ÐÐ“Ð Ð£Ð—ÐšÐ Ð¤ÐÐ™Ð›ÐžÐ’!\nðŸ”— Ð¤ÐÐ™Ð›-Ð’-Ð¡Ð¡Ð«Ð›ÐšÐ£: Ð¡Ð¾Ð·Ð´Ð°Ð²Ð°Ð¹Ñ‚Ðµ ÑÑÑ‹Ð»ÐºÐ¸ Ð´Ð»Ñ Ð¾Ð±Ð¼ÐµÐ½Ð°!\n\nðŸ‘‰ Ð’Ð¡Ð¢ÐÐ’Ð¬Ð¢Ð• Ð¡Ð¡Ð«Ð›ÐšÐ£, Ð§Ð¢ÐžÐ‘Ð« ÐÐÐ§ÐÐ¢Ð¬! ðŸ‘‡",
+        "btn_video": "ðŸŽ¬ Ð’Ð¸Ð´ÐµÐ¾ (MP4)", "btn_audio": "ðŸŽµ ÐÑƒÐ´Ð¸Ð¾ (MP3)", "btn_image": "ðŸ–¼ï¸ Ð˜Ð·Ð¾Ð±Ñ€Ð°Ð¶ÐµÐ½Ð¸Ñ", "btn_sub": "ðŸ“ Ð¡ÑƒÐ±Ñ‚Ð¸Ñ‚Ñ€Ñ‹ (SRT)",
+        "ask_format": "ðŸ‘‡ **ÐžÐ¢Ð›Ð˜Ð§ÐÐž! ÐšÐ°ÐºÐ¾Ð¹ Ñ„Ð¾Ñ€Ð¼Ð°Ñ‚ Ð²Ñ‹ Ñ…Ð¾Ñ‚Ð¸Ñ‚Ðµ? Ð’Ñ‹Ð±ÐµÑ€Ð¸Ñ‚Ðµ Ð½Ð¸Ð¶Ðµ!**",
+        "fetching": "ðŸ“¥ **ÐŸÐ¾Ð»ÑƒÑ‡ÐµÐ½Ð¸Ðµ Ð²Ð°ÑˆÐµÐ³Ð¾ {}... ÐŸÐ¾Ð´Ð¾Ð¶Ð´Ð¸Ñ‚Ðµ! â³âœ¨**",
+        "error_generic": "âŒ ÐžÐ¹! ÐžÑˆÐ¸Ð±ÐºÐ°! ðŸ˜¢ Ð¡ÑÑ‹Ð»ÐºÐ° Ð¿Ñ€Ð¸Ð²Ð°Ñ‚Ð½Ð°Ñ/Ð·Ð°Ð±Ð»Ð¾ÐºÐ¸Ñ€Ð¾Ð²Ð°Ð½Ð°. ÐŸÐ¾Ð¿Ñ€Ð¾Ð±ÑƒÐ¹Ñ‚Ðµ Ð¿ÑƒÐ±Ð»Ð¸Ñ‡Ð½ÑƒÑŽ!",
+        "error_50mb": "âŒ Ð¡Ð»Ð¸ÑˆÐºÐ¾Ð¼ Ð±Ð¾Ð»ÑŒÑˆÐ¾Ð¹! ðŸ˜… Ð­Ñ‚Ð¾ Ð²Ð¸Ð´ÐµÐ¾ Ð±Ð¾Ð»ÑŒÑˆÐµ 300 ÐœÐ‘. ÐŸÐ¾Ð¿Ñ€Ð¾Ð±ÑƒÐ¹Ñ‚Ðµ ÐºÐ¾Ñ€Ð¾Ñ‡Ðµ!", 
+        "error_no_img": "âŒ Ð˜Ð·Ð¾Ð±Ñ€Ð°Ð¶ÐµÐ½Ð¸Ñ Ð½Ðµ Ð½Ð°Ð¹Ð´ÐµÐ½Ñ‹! ðŸ˜¢ ÐŸÐ¾Ð¿Ñ€Ð¾Ð±ÑƒÐ¹Ñ‚Ðµ Ð´Ñ€ÑƒÐ³ÑƒÑŽ ÑÑÑ‹Ð»ÐºÑƒ!",
+        "images_received": "â³ **ÐŸÐ¾Ð»ÑƒÑ‡ÐµÐ½Ð¾ {} Ð¸Ð·Ð¾Ð±Ñ€Ð°Ð¶ÐµÐ½Ð¸Ð¹.**",
+        "select_lang": "ðŸŒ Ð’Ñ‹Ð±ÐµÑ€Ð¸Ñ‚Ðµ Ð²Ð°Ñˆ ÑÐ·Ñ‹Ðº! Ð’Ñ‹Ð±ÐµÑ€Ð¸Ñ‚Ðµ Ð½Ð¸Ð¶Ðµ! ðŸ‘‡", 
+        "lang_set": "âœ… Ð¯Ð·Ñ‹Ðº ÑƒÑÑ‚Ð°Ð½Ð¾Ð²Ð»ÐµÐ½! ÐÐ°ÑÐ»Ð°Ð¶Ð´Ð°Ð¹Ñ‚ÐµÑÑŒ! ðŸŽ‰âœ¨",
+        "batch_detected": "ðŸ“¦ **ÐžÐ±Ð½Ð°Ñ€ÑƒÐ¶ÐµÐ½ Ð¿Ð°ÐºÐµÑ‚ ({} ÑÑÑ‹Ð»Ð¾Ðº)**\nÐšÐ°ÐºÐ¾Ð¹ Ñ„Ð¾Ñ€Ð¼Ð°Ñ‚?",
+        "batch_dest": "ðŸ“¦ **ÐšÑƒÐ´Ð° Ð¾Ñ‚Ð¿Ñ€Ð°Ð²Ð¸Ñ‚ÑŒ?**",
+        "btn_chat": "ðŸ“¥ Ð’ Ñ‡Ð°Ñ‚", "btn_chan": "ðŸ“¢ Ð’ ÐºÐ°Ð½Ð°Ð»",
+        "limit_reached": "âš ï¸ **Ð›Ð¸Ð¼Ð¸Ñ‚ Ð´Ð¾ÑÑ‚Ð¸Ð³Ð½ÑƒÑ‚!** Ð’Ñ‹ Ð¸ÑÐ¿Ð¾Ð»ÑŒÐ·Ð¾Ð²Ð°Ð»Ð¸ 4 Ð‘Ð•Ð¡ÐŸÐ›ÐÐ¢ÐÐ«Ð¥! ÐŸÐ¾ÑÐ¼Ð¾Ñ‚Ñ€Ð¸Ñ‚Ðµ 20-ÑÐµÐº Ñ€ÐµÐºÐ»Ð°Ð¼Ñƒ â†’ ÐŸÐ¾Ð»ÑƒÑ‡Ð¸Ñ‚Ðµ +1 Ð·Ð°Ð³Ñ€ÑƒÐ·ÐºÑƒ!",
+        "refill_btn": "ðŸ”“ ÐžÑ‚ÐºÑ€Ñ‹Ñ‚ÑŒ ÑÑÑ‹Ð»ÐºÑƒ Ð¸ Ð¿Ð¾Ð¿Ð¾Ð»Ð½Ð¸Ñ‚ÑŒ +1",
+        "join_btn": "ðŸ“¢ ÐŸÑ€Ð¸ÑÐ¾ÐµÐ´Ð¸Ð½Ð¸Ñ‚ÑŒÑÑ Ðº ÐºÐ°Ð½Ð°Ð»Ñƒ", "check_btn": "ðŸ’œ ÐŸÑ€Ð¾Ð²ÐµÑ€Ð¸Ñ‚ÑŒ Ð±Ð°Ð»Ð°Ð½Ñ",
+        "limit_batch": "âš ï¸ **Ð›Ð¸Ð¼Ð¸Ñ‚ Ð¿Ð°ÐºÐµÑ‚Ð° Ð´Ð¾ÑÑ‚Ð¸Ð³Ð½ÑƒÑ‚ Ð½Ð° {} Ð¸Ð· {}**\nÐŸÐ¾ÑÐ¼Ð¾Ñ‚Ñ€Ð¸Ñ‚Ðµ 20-ÑÐµÐº Ñ€ÐµÐºÐ»Ð°Ð¼Ñƒ â†’ +1 Ð·Ð°Ð³Ñ€ÑƒÐ·ÐºÐ° Ð´Ð»Ñ Ð¿Ñ€Ð¾Ð´Ð¾Ð»Ð¶ÐµÐ½Ð¸Ñ.",
+        "batch_start": "ðŸ“¦ **ÐŸÐ°ÐºÐµÑ‚ Ð·Ð°Ð¿ÑƒÑ‰ÐµÐ½:** {} **{} Ñ„Ð°Ð¹Ð»Ð¾Ð²**\nâ³ ÐžÐ±Ñ€Ð°Ð±Ð¾Ñ‚ÐºÐ°...",
+        "batch_done": "ðŸ **Ð“Ð¾Ñ‚Ð¾Ð²Ð¾!** âœ… {} âŒ {}\nðŸ“¥ {} Ñ„Ð°Ð¹Ð»Ð¾Ð² Ð·Ð´ÐµÑÑŒ.",
+        "batch_done_chan": "ðŸ **Ð“Ð¾Ñ‚Ð¾Ð²Ð¾!** âœ… {} âŒ {}\nðŸ“¢ {} Ñ„Ð°Ð¹Ð»Ð¾Ð² Ð¿ÐµÑ€ÐµÑÐ»Ð°Ð½Ð¾!",
+        "dl_video": "ðŸ“¥ Ð—Ð°Ð³Ñ€ÑƒÐ·ÐºÐ° Ð²Ð¸Ð´ÐµÐ¾...", "dl_audio": "ðŸ“¥ Ð˜Ð·Ð²Ð»ÐµÑ‡ÐµÐ½Ð¸Ðµ Ð°ÑƒÐ´Ð¸Ð¾...", "dl_image": "ðŸ“¥ Ð¡ÐºÐ°Ñ‡Ð¸Ð²Ð°Ð½Ð¸Ðµ Ð¸Ð·Ð¾Ð±Ñ€Ð°Ð¶ÐµÐ½Ð¸Ð¹...", "dl_sub": "ðŸ“¥ ÐŸÐ¾Ð»ÑƒÑ‡ÐµÐ½Ð¸Ðµ ÑÑƒÐ±Ñ‚Ð¸Ñ‚Ñ€Ð¾Ð²...",
+        "failed_50": "âŒ >300MB", "failed_blocked": "âŒ Ð—Ð°Ð±Ð»Ð¾ÐºÐ¸Ñ€Ð¾Ð²Ð°Ð½Ð¾/Ð¿Ñ€Ð¸Ð²Ð°Ñ‚Ð½Ð¾", "failed_generic": "âŒ ÐžÑˆÐ¸Ð±ÐºÐ°",
+        "menu_lang": "ðŸŒ Ð¯Ð·Ñ‹Ðº", "menu_stats": "ðŸ“Š ÐœÐ¾Ñ ÑÑ‚Ð°Ñ‚Ð¸ÑÑ‚Ð¸ÐºÐ°", "menu_help": "ðŸ’¬ ÐŸÐ¾Ð´Ð´ÐµÑ€Ð¶ÐºÐ° / FAQ", "menu_join": "ðŸ“¢ ÐŸÑ€Ð¸ÑÐ¾ÐµÐ´Ð¸Ð½Ð¸Ñ‚ÑŒÑÑ Ðº ÐºÐ°Ð½Ð°Ð»Ñƒ",
+        "menu_uploads": "ðŸ¿ Ð—Ð°Ð³Ñ€ÑƒÐ·ÐºÐ¸ Ñ„Ð°Ð½Ð°Ñ‚Ð¾Ð²", "menu_upload": "ðŸ“¤ Ð—Ð°Ð³Ñ€ÑƒÐ·Ð¸Ñ‚ÑŒ Ñ„Ð°Ð¹Ð»",
+        "admin_upload_prompt": "ðŸ“‚ **Ð’Ñ…Ð¾Ð´ÑÑ‰Ð¸Ðµ Ð·Ð°Ð³Ñ€ÑƒÐ·ÐºÐ¸ Ñ„Ð°Ð½Ð°Ñ‚Ð¾Ð²**",
+        "user_upload_prompt": "ðŸ“¤ **Ð—Ð°Ð³Ñ€ÑƒÐ·Ð¸Ñ‚ÑŒ Ñ„Ð°Ð¹Ð»**\nÐžÑ‚Ð¿Ñ€Ð°Ð²ÑŒÑ‚Ðµ Ð²Ð¸Ð´ÐµÐ¾/Ð¸Ð·Ð¾Ð±Ñ€Ð°Ð¶ÐµÐ½Ð¸Ðµ/Ñ„Ð°Ð¹Ð» ÐÐ´Ð¼Ð¸Ð½Ñƒ. Ð›Ð¸Ð¼Ð¸Ñ‚ 5/24Ñ‡.",
+        "upload_success_user": "âœ… ÐžÑ‚Ð¿Ñ€Ð°Ð²Ð»ÐµÐ½Ð¾ ÐÐ´Ð¼Ð¸Ð½Ñƒ!",
+        "upload_limit_reached": "âš ï¸ Ð”Ð¾ÑÑ‚Ð¸Ð³Ð½ÑƒÑ‚ Ð»Ð¸Ð¼Ð¸Ñ‚ Ð·Ð°Ð³Ñ€ÑƒÐ·Ð¾Ðº 5/24Ñ‡.",
+        "no_uploads": "ðŸ“­ Ð—Ð°Ð³Ñ€ÑƒÐ·Ð¾Ðº Ð¿Ð¾ÐºÐ° Ð½ÐµÑ‚.",
+        "stats_msg": "ðŸ“Š **Ð’Ð°ÑˆÐ° ÑÑ‚Ð°Ñ‚Ð¸ÑÑ‚Ð¸ÐºÐ°:**\nâ€¢ ÐžÑÑ‚Ð°Ð»Ð¾ÑÑŒ Ð·Ð°Ð³Ñ€ÑƒÐ·Ð¾Ðº: {}\nâ€¢ ÐžÑÑ‚Ð°Ð»Ð¾ÑÑŒ Ð¿Ð°ÐºÐµÑ‚Ð¾Ð²: {}",
+        "change_channel_prompt": "ðŸ”„ **Ð˜Ð·Ð¼ÐµÐ½Ð¸Ñ‚ÑŒ ÐºÐ°Ð½Ð°Ð» Ð´Ð»Ñ Ð¿Ð°ÐºÐµÑ‚Ð¾Ð²**\n1. Ð£Ð±ÐµÐ´Ð¸Ñ‚ÐµÑÑŒ, Ñ‡Ñ‚Ð¾ Ñ Ð°Ð´Ð¼Ð¸Ð½ Ð² Ð½Ð¾Ð²Ð¾Ð¼ ÐºÐ°Ð½Ð°Ð»Ðµ.\n2. ÐŸÐµÑ€ÐµÑˆÐ»Ð¸Ñ‚Ðµ Ð»ÑŽÐ±Ð¾Ðµ ÑÐ¾Ð¾Ð±Ñ‰ÐµÐ½Ð¸Ðµ Ð¸Ð· ÑÑ‚Ð¾Ð³Ð¾ ÐºÐ°Ð½Ð°Ð»Ð° ÑÑŽÐ´Ð°.",
+        "disk_config_prompt": "ðŸ’¾ **ÐÐ°ÑÑ‚Ñ€Ð¾Ð¹ÐºÐ° Ð´Ð¸ÑÐºÐ°**\nÐ¢ÐµÐºÑƒÑ‰Ð¸Ð¹ Ð¼Ð¸Ð½. ÑÐ²Ð¾Ð±Ð¾Ð´Ð½Ñ‹Ð¹ Ð´Ð¸ÑÐº: **{} ÐœÐ‘**\nÐ§Ñ‚Ð¾Ð±Ñ‹ Ð¸Ð·Ð¼ÐµÐ½Ð¸Ñ‚ÑŒ: `/setdisk <Ð·Ð½Ð°Ñ‡ÐµÐ½Ð¸Ðµ>`",
+        "mtproto_config_prompt": "âš¡ **ÐÐ°ÑÑ‚Ñ€Ð¾Ð¹ÐºÐ° MTProto**\nÐ¢ÐµÐºÑƒÑ‰Ð¸Ð¹ Ð¼Ð°ÐºÑ. Ñ€Ð°Ð·Ð¼ÐµÑ€ Ð·Ð°Ð³Ñ€ÑƒÐ·ÐºÐ¸: **{} ÐœÐ‘**\nÐ§Ñ‚Ð¾Ð±Ñ‹ Ð¸Ð·Ð¼ÐµÐ½Ð¸Ñ‚ÑŒ: `/setmtproto <Ð·Ð½Ð°Ñ‡ÐµÐ½Ð¸Ðµ>`",
+        "free_panel_prompt": "ðŸ“¦ Ð‘Ð•Ð¡ÐŸÐ›ÐÐ¢ÐÐ«Ð• Ð—ÐÐ“Ð Ð£Ð—ÐšÐ˜\nÐ¢ÐµÐºÑƒÑ‰Ð¸Ðµ Ð±ÐµÑÐ¿Ð»Ð°Ñ‚Ð½Ñ‹Ðµ Ð² Ð´ÐµÐ½ÑŒ: {}",
+        "reward_panel_prompt": "ðŸŽ ÐŸÐÐÐ•Ð›Ð¬ ÐÐÐ“Ð ÐÐ”\nÐ¢ÐµÐºÑƒÑ‰Ð°Ñ: +{} Ð·Ð°Ð³Ñ€ÑƒÐ·ÐºÐ° Ð·Ð° 20-ÑÐµÐº Ñ€ÐµÐºÐ»Ð°Ð¼Ñƒ",
+        "ad_panel_prompt": "âš™ï¸ ÐŸÐ°Ð½ÐµÐ»ÑŒ Ñ€ÐµÐºÐ»Ð°Ð¼Ñ‹\nÐ¢ÐµÐºÑƒÑ‰Ð°Ñ: {}",
+        "password_saved": "ðŸ” ÐŸÐ°Ñ€Ð¾Ð»ÑŒ ÑÐ¾Ñ…Ñ€Ð°Ð½ÐµÐ½.",
+        "password_too_long": "ÐŸÐ°Ñ€Ð¾Ð»ÑŒ Ð´Ð¾Ð»Ð¶ÐµÐ½ Ð±Ñ‹Ñ‚ÑŒ Ð½Ðµ Ð±Ð¾Ð»ÐµÐµ 64 ÑÐ¸Ð¼Ð²Ð¾Ð»Ð¾Ð².",
+        "file_to_link_prompt": "ðŸ”— **Ð¤Ð°Ð¹Ð»-Ð²-ÑÑÑ‹Ð»ÐºÑƒ**\nÐžÑ‚Ð¿Ñ€Ð°Ð²ÑŒÑ‚Ðµ Ñ„Ð°Ð¹Ð»(Ñ‹), ÐºÐ¾Ñ‚Ð¾Ñ€Ñ‹Ð¼Ð¸ Ñ…Ð¾Ñ‚Ð¸Ñ‚Ðµ Ð¿Ð¾Ð´ÐµÐ»Ð¸Ñ‚ÑŒÑÑ.",
+        "link_invalid_expired": "âŒ Ð­Ñ‚Ð° ÑÑÑ‹Ð»ÐºÐ° Ð½ÐµÐ´ÐµÐ¹ÑÑ‚Ð²Ð¸Ñ‚ÐµÐ»ÑŒÐ½Ð° Ð¸Ð»Ð¸ Ð¸ÑÑ‚ÐµÐºÐ»Ð°.",
+        "link_limit_reached": "â›” Ð­Ñ‚Ð° ÑÑÑ‹Ð»ÐºÐ° Ð´Ð¾ÑÑ‚Ð¸Ð³Ð»Ð° Ð»Ð¸Ð¼Ð¸Ñ‚Ð° Ð¸ÑÐ¿Ð¾Ð»ÑŒÐ·Ð¾Ð²Ð°Ð½Ð¸Ñ.",
+        "link_password_protected": "ðŸ” Ð­Ñ‚Ð° ÑÑÑ‹Ð»ÐºÐ° Ð·Ð°Ñ‰Ð¸Ñ‰ÐµÐ½Ð° Ð¿Ð°Ñ€Ð¾Ð»ÐµÐ¼. ÐžÑ‚Ð¿Ñ€Ð°Ð²ÑŒÑ‚Ðµ Ð¿Ð°Ñ€Ð¾Ð»ÑŒ.",
+        "files_sent": "âœ… Ð’Ð°ÑˆÐ¸ Ñ„Ð°Ð¹Ð»Ñ‹ Ð¾Ñ‚Ð¿Ñ€Ð°Ð²Ð»ÐµÐ½Ñ‹.",
+        "file_added": "ðŸ“¥ Ð”Ð¾Ð±Ð°Ð²Ð»ÐµÐ½ Ñ„Ð°Ð¹Ð» #{}. ÐžÑ‚Ð¿Ñ€Ð°Ð²ÑŒÑ‚Ðµ ÐµÑ‰Ðµ Ð¸Ð»Ð¸ Ð½Ð°Ð¶Ð¼Ð¸Ñ‚Ðµ Ð¡Ð¾Ð·Ð´Ð°Ñ‚ÑŒ ÑÑÑ‹Ð»ÐºÑƒ.",
+        "fl_cancelled": "Ð¤Ð°Ð¹Ð»-Ð²-ÑÑÑ‹Ð»ÐºÑƒ Ð¾Ñ‚Ð¼ÐµÐ½ÐµÐ½",
+        "fl_start_again": "ÐÐ°Ñ‡Ð½Ð¸Ñ‚Ðµ Ð¤Ð°Ð¹Ð»-Ð²-ÑÑÑ‹Ð»ÐºÑƒ Ð·Ð°Ð½Ð¾Ð²Ð¾ Ñ /filetolink",
+        "fl_choose_expiry": "Ð’Ñ‹Ð±ÐµÑ€Ð¸Ñ‚Ðµ ÑÑ€Ð¾Ðº Ð´ÐµÐ¹ÑÑ‚Ð²Ð¸Ñ ÑÑÑ‹Ð»ÐºÐ¸:",
+        "fl_expiry_updated": "Ð¡Ñ€Ð¾Ðº Ð´ÐµÐ¹ÑÑ‚Ð²Ð¸Ñ Ð¾Ð±Ð½Ð¾Ð²Ð»ÐµÐ½",
+        "fl_choose_max_uses": "Ð’Ñ‹Ð±ÐµÑ€Ð¸Ñ‚Ðµ Ð¼Ð°ÐºÑ. ÐºÐ¾Ð»Ð¸Ñ‡ÐµÑÑ‚Ð²Ð¾ ÑƒÑÐ¿ÐµÑˆÐ½Ñ‹Ñ… Ð´Ð¾ÑÑ‚Ð°Ð²Ð¾Ðº:",
+        "fl_uses_updated": "Ð›Ð¸Ð¼Ð¸Ñ‚ Ð¸ÑÐ¿Ð¾Ð»ÑŒÐ·Ð¾Ð²Ð°Ð½Ð¸Ñ Ð¾Ð±Ð½Ð¾Ð²Ð»ÐµÐ½",
+        "fl_set_password": "ÐžÑ‚Ð¿Ñ€Ð°Ð²ÑŒÑ‚Ðµ Ð¿Ð°Ñ€Ð¾Ð»ÑŒ Ð¸Ð»Ð¸ /clearpassword Ð´Ð»Ñ ÑƒÐ´Ð°Ð»ÐµÐ½Ð¸Ñ.",
+        "fl_link_created": "Ð¡ÑÑ‹Ð»ÐºÐ° ÑÐ¾Ð·Ð´Ð°Ð½Ð°",
+        "fl_link_ready": "ðŸ”— Ð’Ð°ÑˆÐ° ÑÑÑ‹Ð»ÐºÐ° Ð³Ð¾Ñ‚Ð¾Ð²Ð°:\n{}\nÐ¤Ð°Ð¹Ð»Ð¾Ð²: {}\nÐ¡Ñ‚Ð¾Ð¸Ð¼Ð¾ÑÑ‚ÑŒ: 1 Ð±ÐµÑÐ¿Ð»Ð°Ñ‚Ð½Ð°Ñ Ð·Ð°Ð³Ñ€ÑƒÐ·ÐºÐ° Ð² Ð´ÐµÐ½ÑŒ",
+        "fl_daily_limit": "Ð”Ð½ÐµÐ²Ð½Ð¾Ð¹ Ð±ÐµÑÐ¿Ð»Ð°Ñ‚Ð½Ñ‹Ð¹ Ð»Ð¸Ð¼Ð¸Ñ‚ Ð´Ð¾ÑÑ‚Ð¸Ð³Ð½ÑƒÑ‚. ÐŸÐ¾ÑÐ¼Ð¾Ñ‚Ñ€Ð¸Ñ‚Ðµ Ñ€ÐµÐºÐ»Ð°Ð¼Ñƒ, Ñ‡Ñ‚Ð¾Ð±Ñ‹ Ð·Ð°Ñ€Ð°Ð±Ð¾Ñ‚Ð°Ñ‚ÑŒ Ð±Ð¾Ð»ÑŒÑˆÐµ.",
+        "fl_ad_busy": "âš ï¸ Ð ÐµÐºÐ»Ð°Ð¼Ð½Ñ‹Ð¹ ÑÐµÑ€Ð²ÐµÑ€ Ð·Ð°Ð½ÑÑ‚.",
+        "admin_skipped": "âœ… ÐŸÑ€Ð¾Ð¿ÑƒÑ‰ÐµÐ½Ð¾!",
+        "admin_bypassed": "âœ… ÐžÐ±Ð¾Ð¹Ð´ÐµÐ½Ð¾",
+        "free_set": "âœ… Ð‘ÐµÑÐ¿Ð»Ð°Ñ‚Ð½Ð¾ ÑƒÑÑ‚Ð°Ð½Ð¾Ð²Ð»ÐµÐ½Ð¾ Ð½Ð° {}!",
+        "free_updated": "âœ… Ð‘ÐµÑÐ¿Ð»Ð°Ñ‚Ð½Ñ‹Ðµ Ð·Ð°Ð³Ñ€ÑƒÐ·ÐºÐ¸ Ð¾Ð±Ð½Ð¾Ð²Ð»ÐµÐ½Ñ‹ Ð´Ð¾ {}!",
+        "reward_set": "âœ… ÐÐ°Ð³Ñ€Ð°Ð´Ð° ÑƒÑÑ‚Ð°Ð½Ð¾Ð²Ð»ÐµÐ½Ð° Ð½Ð° +{}!",
+        "reward_updated": "âœ… ÐÐ°Ð³Ñ€Ð°Ð´Ð° Ð¾Ð±Ð½Ð¾Ð²Ð»ÐµÐ½Ð° Ð´Ð¾ +{}!",
+        "mode_updated": "âœ… Ð ÐµÐ¶Ð¸Ð¼: {}",
+        "support_opened": "âœï¸ ÐžÑ‚Ð¿Ñ€Ð°Ð²ÑŒÑ‚Ðµ ÑÐ¾Ð¾Ð±Ñ‰ÐµÐ½Ð¸Ðµ/Ñ„Ð¾Ñ‚Ð¾/Ð²Ð¸Ð´ÐµÐ¾/Ñ„Ð°Ð¹Ð» Ð½Ð¸Ð¶Ðµ.",
+        "admin_reply_mode": "âœï¸ ÐžÑ‚Ð²ÐµÑ‚Ð¸Ñ‚ÑŒ {}:",
+        "user_reply_mode": "âœï¸ Ð’Ð²ÐµÐ´Ð¸Ñ‚Ðµ Ð¿Ñ€Ð¾Ð´Ð¾Ð»Ð¶ÐµÐ½Ð¸Ðµ Ð½Ð¸Ð¶Ðµ",
+        "support_closed": "ðŸ”’ Ð—Ð°ÐºÑ€Ñ‹Ñ‚Ð¾",
+        "drop_cancelled": "âŒ ÐžÑ‚Ð¼ÐµÐ½ÐµÐ½Ð¾",
+        "drop_no_items": "âš ï¸ ÐÐµÑ‚ ÑÐ»ÐµÐ¼ÐµÐ½Ñ‚Ð¾Ð²!",
+        "drop_timer_set": "{} ÑƒÑÑ‚Ð°Ð½Ð¾Ð²Ð»ÐµÐ½Ð¾!",
+        "drop_broadcasting": "ðŸš€ Ð¢Ñ€Ð°Ð½ÑÐ»ÑÑ†Ð¸Ñ {} ÑÐ»ÐµÐ¼ÐµÐ½Ñ‚Ð¾Ð² Ð´Ð»Ñ {}...",
+        "drop_flash_text": "ðŸš¨ FLASH DROP!\nÐÐ²Ñ‚Ð¾ÑƒÐ´Ð°Ð»ÐµÐ½Ð¸Ðµ Ñ‡ÐµÑ€ÐµÐ· {}\nÐÐ°Ð¶Ð¼Ð¸Ñ‚Ðµ, Ñ‡Ñ‚Ð¾Ð±Ñ‹ Ð·Ð°Ð±Ñ€Ð°Ñ‚ÑŒ:",
+        "drop_done": "âœ… Ð¢Ñ€Ð°Ð½ÑÐ»ÑÑ†Ð¸Ñ Ð²Ñ‹Ð¿Ð¾Ð»Ð½ÐµÐ½Ð° Ð´Ð»Ñ {}",
+        "age_expired": "â³ Ð˜ÑÑ‚ÐµÐºÐ»Ð¾!",
+        "age_claimed": "âŒ Ð£Ð¶Ðµ Ð·Ð°Ð±Ñ€Ð°Ð½Ð¾!",
+        "age_verified": "ÐŸÑ€Ð¾Ð²ÐµÑ€ÐµÐ½Ð¾!",
+        "age_denied": "âŒ ÐžÑ‚ÐºÐ°Ð·Ð°Ð½Ð¾. Ð”Ð¾Ð»Ð¶Ð½Ð¾ Ð±Ñ‹Ñ‚ÑŒ 18+",
+        "lang_updated": "ÐžÐ±Ð½Ð¾Ð²Ð»ÐµÐ½Ð¾!",
+        "batch_expired": "Ð˜ÑÑ‚ÐµÐºÐ»Ð¾",
+        "batch_loading": "Ð—Ð°Ð³Ñ€ÑƒÐ·ÐºÐ°...",
+        "batch_no_channel": "ÐšÐ°Ð½Ð°Ð» Ð½Ðµ Ð¿Ñ€Ð¸Ð²ÑÐ·Ð°Ð½!",
+        "batch_setup_prompt": "ðŸ“¦ ÐÐ°ÑÑ‚Ñ€Ð¾Ð¹ÐºÐ°: Ð¡Ð´ÐµÐ»Ð°Ð¹Ñ‚Ðµ Ð±Ð¾Ñ‚Ð° Ð°Ð´Ð¼Ð¸Ð½Ð¾Ð¼ Ð² ÐºÐ°Ð½Ð°Ð»Ðµ Ð¸ Ð¿ÐµÑ€ÐµÑˆÐ»Ð¸Ñ‚Ðµ ÑÐ¾Ð¾Ð±Ñ‰ÐµÐ½Ð¸Ðµ ÑÑŽÐ´Ð°",
+        "batch_mode_activated": "Ð ÐµÐ¶Ð¸Ð¼ Ð°ÐºÑ‚Ð¸Ð²Ð¸Ñ€Ð¾Ð²Ð°Ð½!",
+        "batch_change_dest": "ðŸ”„ **Ð˜Ð·Ð¼ÐµÐ½Ð¸Ñ‚ÑŒ ÐºÐ°Ð½Ð°Ð» Ð½Ð°Ð·Ð½Ð°Ñ‡ÐµÐ½Ð¸Ñ**\nÐ¡Ð´ÐµÐ»Ð°Ð¹Ñ‚Ðµ Ð±Ð¾Ñ‚Ð° Ð°Ð´Ð¼Ð¸Ð½Ð¾Ð¼ Ð² Ð½Ð¾Ð²Ð¾Ð¼ ÐºÐ°Ð½Ð°Ð»Ðµ, Ð·Ð°Ñ‚ÐµÐ¼ Ð¿ÐµÑ€ÐµÑˆÐ»Ð¸Ñ‚Ðµ ÑÐ¾Ð¾Ð±Ñ‰ÐµÐ½Ð¸Ðµ ÑÑŽÐ´Ð°.",
+        "join_channel_first_alert": "Ð¡Ð½Ð°Ñ‡Ð°Ð»Ð° Ð¿Ñ€Ð¸ÑÐ¾ÐµÐ´Ð¸Ð½Ð¸Ñ‚ÐµÑÑŒ Ðº ÐºÐ°Ð½Ð°Ð»Ñƒ! ðŸ“¢ ÐžÐ±ÑÐ·Ð°Ñ‚ÐµÐ»ÑŒÐ½Ð¾!",
+        "join_channel_first": "Ð¡Ð½Ð°Ñ‡Ð°Ð»Ð° Ð¿Ñ€Ð¸ÑÐ¾ÐµÐ´Ð¸Ð½Ð¸Ñ‚ÐµÑÑŒ Ðº ÐºÐ°Ð½Ð°Ð»Ñƒ! ðŸ“¢",
+        "watch_timer_first": "â° Ð¡Ð½Ð°Ñ‡Ð°Ð»Ð° Ð¾Ñ‚ÐºÑ€Ð¾Ð¹Ñ‚Ðµ ÑÑÑ‹Ð»ÐºÑƒ Ð¸ Ð¿Ð¾ÑÐ¼Ð¾Ñ‚Ñ€Ð¸Ñ‚Ðµ 20-ÑÐµÐº Ñ‚Ð°Ð¹Ð¼ÐµÑ€!",
+        "test_ad_verified": "âœ… Ð¢ÐµÑÑ‚Ð¾Ð²Ð°Ñ Ñ€ÐµÐºÐ»Ð°Ð¼Ð° Ð¿Ñ€Ð¾Ð²ÐµÑ€ÐµÐ½Ð°! +1",
+        "test_ad_verified_msg": "âœ… **Ð¢Ð•Ð¡Ð¢ÐžÐ’ÐÐ¯ Ð Ð•ÐšÐ›ÐÐœÐ ÐŸÐ ÐžÐ’Ð•Ð Ð•ÐÐ!**\nÐÐ°Ð³Ñ€Ð°Ð´Ð°: +1 Ð·Ð°Ð³Ñ€ÑƒÐ·ÐºÐ° Ð¿Ð¾Ð¿Ð¾Ð»Ð½ÐµÐ½Ð°!",
+        "finish_timer_first": "â° Ð¡Ð½Ð°Ñ‡Ð°Ð»Ð° Ð·Ð°Ð²ÐµÑ€ÑˆÐ¸Ñ‚Ðµ 20-ÑÐµÐº Ñ‚Ð°Ð¹Ð¼ÐµÑ€!",
+        "verified_added": "ÐŸÑ€Ð¾Ð²ÐµÑ€ÐµÐ½Ð¾! +1 Ð´Ð¾Ð±Ð°Ð²Ð»ÐµÐ½Ð¾",
+        "resume_prompt": "âœ… ÐŸÑ€Ð¾Ð²ÐµÑ€ÐµÐ½Ð¾! ÐŸÐ¾Ð¿Ð¾Ð»Ð½ÐµÐ½Ð¾ +1. Ð’Ð¾Ð·Ð¾Ð±Ð½Ð¾Ð²Ð¸Ñ‚ÑŒ?",
+        "refilled_download": "âœ… ÐŸÐ¾Ð¿Ð¾Ð»Ð½ÐµÐ½Ð¾ +1! Ð—Ð°Ð³Ñ€ÑƒÐ·Ð¸Ñ‚Ðµ ÑÐ½Ð¾Ð²Ð°.",
+        "fetching_bundle": "âœ… ÐŸÑ€Ð¾Ð²ÐµÑ€ÐµÐ½Ð¾! ÐŸÐ¾Ð»ÑƒÑ‡ÐµÐ½Ð¸Ðµ Ð¿Ð°ÐºÐµÑ‚Ð°...",
+        "outdated_button": "Ð­Ñ‚Ð° ÐºÐ½Ð¾Ð¿ÐºÐ° ÑƒÑÑ‚Ð°Ñ€ÐµÐ»Ð°. ÐžÑ‚Ð¿Ñ€Ð°Ð²ÑŒÑ‚Ðµ ÑÑÑ‹Ð»ÐºÑƒ ÑÐ½Ð¾Ð²Ð°.",
+        "stopping": "ÐžÑÑ‚Ð°Ð½Ð¾Ð²ÐºÐ°...",
+        "stopped": "ðŸ›‘ ÐžÑÑ‚Ð°Ð½Ð¾Ð²Ð»ÐµÐ½Ð¾",
+        "resuming": "Ð’Ð¾Ð·Ð¾Ð±Ð½Ð¾Ð²Ð»ÐµÐ½Ð¸Ðµ...",
+        "checking_vault": "ÐŸÑ€Ð¾Ð²ÐµÑ€ÐºÐ° Ñ…Ñ€Ð°Ð½Ð¸Ð»Ð¸Ñ‰Ð° Ð¸ Ð½Ð°Ð³Ñ€ÑƒÐ·ÐºÐ¸ ÑÐµÑ€Ð²ÐµÑ€Ð°...",
+        "server_busy": "â³ **Ð¡ÐµÑ€Ð²ÐµÑ€ Ð·Ð°Ð½ÑÑ‚**\nÐÐºÑ‚Ð¸Ð²Ð½Ñ‹Ñ…: {}/{}\nÐ¡Ð²Ð¾Ð±Ð¾Ð´Ð½Ð¾: {} ÐœÐ‘\nÐžÑ‡ÐµÑ€ÐµÐ´ÑŒ: #{}\nÐ—Ð°Ð¿ÑƒÑÑ‚Ð¸Ñ‚ÑÑ Ð°Ð²Ñ‚Ð¾Ð¼Ð°Ñ‚Ð¸Ñ‡ÐµÑÐºÐ¸!",
+        "simulated": "ðŸ›  Ð¡Ð¸Ð¼ÑƒÐ»Ð¸Ñ€Ð¾Ð²Ð°Ð½Ð¾! Ð¢ÐµÐ¿ÐµÑ€ÑŒ Ð½Ð°Ð¶Ð¼Ð¸Ñ‚Ðµ ÐŸÑ€Ð¾Ð²ÐµÑ€Ð¸Ñ‚ÑŒ Ð¸ Ð¿Ð¾Ð»ÑƒÑ‡Ð¸Ñ‚ÑŒ +1",
+        "server_unreachable": "âŒ Ð¡ÐµÑ€Ð²ÐµÑ€ Ð½ÐµÐ´Ð¾ÑÑ‚ÑƒÐ¿ÐµÐ½",
+        "monetag_failed_twice": "Ð¡Ð½Ð°Ñ‡Ð°Ð»Ð° Ð·Ð°Ð²ÐµÑ€ÑˆÐ¸Ñ‚Ðµ Ð´Ð²Ðµ Ð½ÐµÑƒÐ´Ð°Ñ‡Ð½Ñ‹Ðµ Ð¿Ð¾Ð¿Ñ‹Ñ‚ÐºÐ¸ Monetag.",
+        "monetag_fallback_prompt": "ðŸŒ Monetag Ð½Ðµ ÑÑ€Ð°Ð±Ð¾Ñ‚Ð°Ð» Ð´Ð²Ð°Ð¶Ð´Ñ‹. ÐŸÑ€Ð¾Ð´Ð¾Ð»Ð¶Ð¸Ñ‚ÑŒ Ñ Adsterra:",
+        "adsterra_ready": "Ð ÐµÐ·ÐµÑ€Ð²Ð½Ñ‹Ð¹ Ð²Ð°Ñ€Ð¸Ð°Ð½Ñ‚ Adsterra Ð³Ð¾Ñ‚Ð¾Ð²",
+        "finish_monetag": "ðŸ“º Ð—Ð°Ð²ÐµÑ€ÑˆÐ¸Ñ‚Ðµ Ñ€ÐµÐºÐ»Ð°Ð¼Ñƒ Monetag Ð² Mini App, Ð·Ð°Ñ‚ÐµÐ¼ Ð¿Ñ€Ð¾Ð²ÐµÑ€ÑŒÑ‚Ðµ ÑÐ½Ð¾Ð²Ð°.",
+        "monetag_failed_use_adsterra": "Monetag Ð½Ðµ ÑÑ€Ð°Ð±Ð¾Ñ‚Ð°Ð» Ð´Ð²Ð°Ð¶Ð´Ñ‹. Ð˜ÑÐ¿Ð¾Ð»ÑŒÐ·ÑƒÐ¹Ñ‚Ðµ Ñ€ÐµÐ·ÐµÑ€Ð²Ð½Ñ‹Ð¹ Ð²Ð°Ñ€Ð¸Ð°Ð½Ñ‚ Adsterra Ð½Ð¸Ð¶Ðµ.",
+        "ad_link_expired": "Ð¡Ñ€Ð¾Ðº Ð´ÐµÐ¹ÑÑ‚Ð²Ð¸Ñ Ñ€ÐµÐºÐ»Ð°Ð¼Ð½Ð¾Ð¹ ÑÑÑ‹Ð»ÐºÐ¸ Ð¸ÑÑ‚ÐµÐº. ÐžÑ‚Ð¿Ñ€Ð°Ð²ÑŒÑ‚Ðµ ÑÑÑ‹Ð»ÐºÑƒ ÑÐ½Ð¾Ð²Ð°.",
+        "ad_verified_added": "âœ… Ð ÐµÐºÐ»Ð°Ð¼Ð° Ð¿Ñ€Ð¾Ð²ÐµÑ€ÐµÐ½Ð°! +{} Ð´Ð¾Ð±Ð°Ð²Ð»ÐµÐ½Ð¾",
+        "test_ad_completed": "âœ… Ð¢Ð•Ð¡Ð¢ÐžÐ’ÐÐ¯ Ð Ð•ÐšÐ›ÐÐœÐ ÐŸÐ ÐžÐ’Ð•Ð Ð•ÐÐ\nÐÐ°Ð³Ñ€Ð°Ð´Ð° Ð½Ð°Ñ‡Ð¸ÑÐ»ÐµÐ½Ð°: +{} Ð·Ð°Ð³Ñ€ÑƒÐ·ÐºÐ°.",
+        "sponsor_viewed": "âœ… Ð¡Ð¿Ð¾Ð½ÑÐ¾Ñ€ Ð¿Ñ€Ð¾ÑÐ¼Ð¾Ñ‚Ñ€ÐµÐ½! +{} Ð´Ð¾Ð±Ð°Ð²Ð»ÐµÐ½Ð¾",
+        "refilled_send_again": "âœ… ÐŸÐ¾Ð¿Ð¾Ð»Ð½ÐµÐ½Ð¾ +{}! ÐžÑ‚Ð¿Ñ€Ð°Ð²ÑŒÑ‚Ðµ ÑÑÑ‹Ð»ÐºÑƒ ÑÐ½Ð¾Ð²Ð°.",
+        "queued": "â³ Ð’ Ð¾Ñ‡ÐµÑ€ÐµÐ´Ð¸ #{}",
+        "banned": "ðŸš« Ð’Ñ‹ Ð·Ð°Ð±Ð»Ð¾ÐºÐ¸Ñ€Ð¾Ð²Ð°Ð½Ñ‹.",
+        "no_links": "âŒ Ð¡ÑÑ‹Ð»ÐºÐ¸ Ð½Ðµ Ð½Ð°Ð¹Ð´ÐµÐ½Ñ‹.",
+        "batch_count": "ðŸ“¦ ÐŸÐ°ÐºÐµÑ‚ {} ÑÑÑ‹Ð»Ð¾Ðº",
+        "restore_invalid_json": "âŒ ÐžÑˆÐ¸Ð±ÐºÐ° Ð²Ð¾ÑÑÑ‚Ð°Ð½Ð¾Ð²Ð»ÐµÐ½Ð¸Ñ: **{}** Ð½Ðµ ÑÐ²Ð»ÑÐµÑ‚ÑÑ Ð´Ð¾Ð¿ÑƒÑÑ‚Ð¸Ð¼Ñ‹Ð¼ JSON.",
+        "restore_failed": "âŒ ÐžÑˆÐ¸Ð±ÐºÐ° Ð²Ð¾ÑÑÑ‚Ð°Ð½Ð¾Ð²Ð»ÐµÐ½Ð¸Ñ: {}",
+        "restore_success": "âœ… **Ð’Ð¾ÑÑÑ‚Ð°Ð½Ð¾Ð²Ð»ÐµÐ½Ð¸Ðµ ÑƒÑÐ¿ÐµÑˆÐ½Ð¾!**\nÐ¤Ð°Ð¹Ð»: **{}**\nÐ’Ð¾ÑÑÑ‚Ð°Ð½Ð¾Ð²Ð»ÐµÐ½Ð¾ **{}** Ð·Ð°Ð¿Ð¸ÑÐµÐ¹.",
+        "admin_edit_welcome_prompt": "âœï¸ ÐžÑ‚Ð¿Ñ€Ð°Ð²ÑŒÑ‚Ðµ Ð½Ð¾Ð²Ð¾Ðµ Ð¿Ñ€Ð¸Ð²ÐµÑ‚ÑÑ‚Ð²ÐµÐ½Ð½Ð¾Ðµ ÑÐ¾Ð¾Ð±Ñ‰ÐµÐ½Ð¸Ðµ. Ð˜ÑÐ¿Ð¾Ð»ÑŒÐ·ÑƒÐ¹Ñ‚Ðµ `{bot_name}` Ð´Ð»Ñ Ð¸Ð¼ÐµÐ½Ð¸ Ð¿Ð¾Ð»ÑŒÐ·Ð¾Ð²Ð°Ñ‚ÐµÐ»Ñ Ð±Ð¾Ñ‚Ð°.",
+        "admin_welcome_updated": "âœ… ÐŸÑ€Ð¸Ð²ÐµÑ‚ÑÑ‚Ð²ÐµÐ½Ð½Ð¾Ðµ ÑÐ¾Ð¾Ð±Ñ‰ÐµÐ½Ð¸Ðµ Ð¾Ð±Ð½Ð¾Ð²Ð»ÐµÐ½Ð¾!",
+        "menu_edit_welcome": "âœï¸ Ð˜Ð·Ð¼ÐµÐ½Ð¸Ñ‚ÑŒ Ð¿Ñ€Ð¸Ð²ÐµÑ‚ÑÑ‚Ð²ÐµÐ½Ð½Ð¾Ðµ ÑÐ¾Ð¾Ð±Ñ‰ÐµÐ½Ð¸Ðµ",
+        "cached_instant_video": "âš¡ ÐœÐ³Ð½Ð¾Ð²ÐµÐ½Ð½Ñ‹Ð¹ ÐºÑÑˆ [{}] {} {}",
+        "cached_instant_audio": "âš¡ **ÐœÐ³Ð½Ð¾Ð²ÐµÐ½Ð½Ñ‹Ð¹ ÐºÑÑˆ** `{}`",
+        "cached_instant_image": "âš¡ **ÐœÐ³Ð½Ð¾Ð²ÐµÐ½Ð½Ñ‹Ð¹ ÐºÑÑˆ** `{}`",
+        "auto_delete_9m": "â³ ÐÐ²Ñ‚Ð¾ÑƒÐ´Ð°Ð»ÐµÐ½Ð¸Ðµ Ñ‡ÐµÑ€ÐµÐ· 9 Ð¼Ð¸Ð½",
+        "download_success": "âœ… Ð—Ð°Ð³Ñ€ÑƒÐ·ÐºÐ° ÑƒÑÐ¿ÐµÑˆÐ½Ð°!"
     },
     "pt": {
-        "welcome": "🚀 **BEM-VINDO AO MICHAELBBC VAULT - BAIXADOR DE MÍDIA COMPLETO!**\n\n🔥 O QUE POSSO FAZER:\n🎬 VÍDEOS HD Sem Marca D'água!\n🎵 ÁUDIO MP3 192kbps!\n??️ IMAGENS Extração TOTAL!\n📝 LEGENDAS Auto!\n📦 LOTES 100+ Links!\n⚡ CACHE 1 Seg!\n💎 COFRE Para Sempre!\n📤 ENVIAR ARQUIVOS!\n🔗 ARQUIVO-PARA-LINK: Crie links compartilháveis!\n\n👉 COLE UM LINK PARA COMEÇAR! 👇",
-        "btn_video": "🎬 Vídeo (MP4)", "btn_audio": "🎵 Áudio (MP3)", "btn_image": "🖼️ Imagens", "btn_sub": "📝 Legendas (SRT)",
-        "ask_format": "👇 **INCRÍVEL! Qual formato você quer? Escolha abaixo!**",
-        "fetching": "📥 **Buscando seu {}... Aguarde! ⏳✨**",
-        "error_generic": "❌ Ops! Falhou! 😢 Link privado/bloqueado. Tente um link público!",
-        "error_50mb": "❌ Muito grande! 😅 Este vídeo tem mais de 300MB. Tente um mais curto!", 
-        "error_no_img": "❌ Nenhuma imagem encontrada! 😢 Tente outro link!",
-        "images_received": "⏳ **{} Imagens recebidas.**",
-        "select_lang": "🌍 Selecione seu idioma! Escolha abaixo! 👇", 
-        "lang_set": "✅ Idioma definido! Aproveite! 🎉✨",
-        "batch_detected": "📦 **Lote Detectado ({} links)**\nQual formato?",
-        "batch_dest": "📦 **Para onde enviar?**",
-        "btn_chat": "📥 No Chat", "btn_chan": "📢 Para o Canal",
-        "limit_reached": "⚠️ **Limite Atingido!** Você usou 4 GRÁTIS! Assista a um anúncio de 20s → Ganhe +1 download!",
-        "refill_btn": "🔓 Abrir Link e Recarregar +1",
-        "join_btn": "📢 Entrar no Canal", "check_btn": "💜 Verificar Saldo",
-        "limit_batch": "⚠️ **Limite do Lote Atingido em {} de {}**\nAssista a um anúncio de 20s → +1 download para continuar.",
-        "batch_start": "📦 **Lote Iniciado:** {} **{} arquivos**\n⏳ Processando...",
-        "batch_done": "🏁 **Concluído!** ✅ {} ❌ {}\n📥 {} arquivos aqui.",
-        "batch_done_chan": "🏁 **Concluído!** ✅ {} ❌ {}\n📢 {} arquivos encaminhados!",
-        "dl_video": "📥 Baixando vídeo...", "dl_audio": "📥 Extraindo áudio...", "dl_image": "📥 Extraindo imagens...", "dl_sub": "📥 Buscando legendas...",
-        "failed_50": "❌ >300MB", "failed_blocked": "❌ Bloqueado/privado", "failed_generic": "❌ Falhou",
-        "menu_lang": "🌍 Idioma", "menu_stats": "📊 Minhas Estatísticas", "menu_help": "💬 Suporte / FAQ", "menu_join": "📢 Entrar no Canal",
-        "menu_uploads": "🍿 Envios de Fãs", "menu_upload": "📤 Enviar Arquivo",
-        "admin_upload_prompt": "📂 **Caixa de Entrada de Envios de Fãs**",
-        "user_upload_prompt": "📤 **Enviar Arquivo**\nEnvie vídeo/imagem/arquivo para o Admin. Limite 5/24h.",
-        "upload_success_user": "✅ Enviado para o Admin!",
-        "upload_limit_reached": "⚠️ Limite de envios 5/24h atingido.",
-        "no_uploads": "📭 Nenhum envio ainda.",
-        "stats_msg": "📊 **Suas Estatísticas:**\n• Downloads Restantes: {}\n• Lotes Restantes: {}",
-        "change_channel_prompt": "🔄 **Alterar Canal de Lotes**\n1. Certifique-se de que sou admin no novo canal.\n2. Encaminhe qualquer mensagem desse canal para cá.",
-        "disk_config_prompt": "💾 **Config de Disco**\nMínimo de disco livre atual: **{}MB**\nPara alterar: `/setdisk <valor>`",
-        "mtproto_config_prompt": "⚡ **Config MTProto**\nMax de upload atual: **{}MB**\nPara alterar: `/setmtproto <valor>`",
-        "free_panel_prompt": "📦 DOWNLOADS GRÁTIS\nGrátis atuais por dia: {}",
-        "reward_panel_prompt": "🎁 PAINEL DE RECOMPENSAS\nAtual: +{} download por anúncio de 20s",
-        "ad_panel_prompt": "⚙️ Painel de Anúncios\nAtual: {}",
-        "password_saved": "🔐 Senha salva.",
+        "welcome": "ðŸš€ **BEM-VINDO AO MICHAELBBC VAULT - BAIXADOR DE MÃDIA COMPLETO!**\n\nðŸ”¥ O QUE POSSO FAZER:\nðŸŽ¬ VÃDEOS HD Sem Marca D'Ã¡gua!\nðŸŽµ ÃUDIO MP3 192kbps!\n??ï¸ IMAGENS ExtraÃ§Ã£o TOTAL!\nðŸ“ LEGENDAS Auto!\nðŸ“¦ LOTES 100+ Links!\nâš¡ CACHE 1 Seg!\nðŸ’Ž COFRE Para Sempre!\nðŸ“¤ ENVIAR ARQUIVOS!\nðŸ”— ARQUIVO-PARA-LINK: Crie links compartilhÃ¡veis!\n\nðŸ‘‰ COLE UM LINK PARA COMEÃ‡AR! ðŸ‘‡",
+        "btn_video": "ðŸŽ¬ VÃ­deo (MP4)", "btn_audio": "ðŸŽµ Ãudio (MP3)", "btn_image": "ðŸ–¼ï¸ Imagens", "btn_sub": "ðŸ“ Legendas (SRT)",
+        "ask_format": "ðŸ‘‡ **INCRÃVEL! Qual formato vocÃª quer? Escolha abaixo!**",
+        "fetching": "ðŸ“¥ **Buscando seu {}... Aguarde! â³âœ¨**",
+        "error_generic": "âŒ Ops! Falhou! ðŸ˜¢ Link privado/bloqueado. Tente um link pÃºblico!",
+        "error_50mb": "âŒ Muito grande! ðŸ˜… Este vÃ­deo tem mais de 300MB. Tente um mais curto!", 
+        "error_no_img": "âŒ Nenhuma imagem encontrada! ðŸ˜¢ Tente outro link!",
+        "images_received": "â³ **{} Imagens recebidas.**",
+        "select_lang": "ðŸŒ Selecione seu idioma! Escolha abaixo! ðŸ‘‡", 
+        "lang_set": "âœ… Idioma definido! Aproveite! ðŸŽ‰âœ¨",
+        "batch_detected": "ðŸ“¦ **Lote Detectado ({} links)**\nQual formato?",
+        "batch_dest": "ðŸ“¦ **Para onde enviar?**",
+        "btn_chat": "ðŸ“¥ No Chat", "btn_chan": "ðŸ“¢ Para o Canal",
+        "limit_reached": "âš ï¸ **Limite Atingido!** VocÃª usou 4 GRÃTIS! Assista a um anÃºncio de 20s â†’ Ganhe +1 download!",
+        "refill_btn": "ðŸ”“ Abrir Link e Recarregar +1",
+        "join_btn": "ðŸ“¢ Entrar no Canal", "check_btn": "ðŸ’œ Verificar Saldo",
+        "limit_batch": "âš ï¸ **Limite do Lote Atingido em {} de {}**\nAssista a um anÃºncio de 20s â†’ +1 download para continuar.",
+        "batch_start": "ðŸ“¦ **Lote Iniciado:** {} **{} arquivos**\nâ³ Processando...",
+        "batch_done": "ðŸ **ConcluÃ­do!** âœ… {} âŒ {}\nðŸ“¥ {} arquivos aqui.",
+        "batch_done_chan": "ðŸ **ConcluÃ­do!** âœ… {} âŒ {}\nðŸ“¢ {} arquivos encaminhados!",
+        "dl_video": "ðŸ“¥ Baixando vÃ­deo...", "dl_audio": "ðŸ“¥ Extraindo Ã¡udio...", "dl_image": "ðŸ“¥ Extraindo imagens...", "dl_sub": "ðŸ“¥ Buscando legendas...",
+        "failed_50": "âŒ >300MB", "failed_blocked": "âŒ Bloqueado/privado", "failed_generic": "âŒ Falhou",
+        "menu_lang": "ðŸŒ Idioma", "menu_stats": "ðŸ“Š Minhas EstatÃ­sticas", "menu_help": "ðŸ’¬ Suporte / FAQ", "menu_join": "ðŸ“¢ Entrar no Canal",
+        "menu_uploads": "ðŸ¿ Envios de FÃ£s", "menu_upload": "ðŸ“¤ Enviar Arquivo",
+        "admin_upload_prompt": "ðŸ“‚ **Caixa de Entrada de Envios de FÃ£s**",
+        "user_upload_prompt": "ðŸ“¤ **Enviar Arquivo**\nEnvie vÃ­deo/imagem/arquivo para o Admin. Limite 5/24h.",
+        "upload_success_user": "âœ… Enviado para o Admin!",
+        "upload_limit_reached": "âš ï¸ Limite de envios 5/24h atingido.",
+        "no_uploads": "ðŸ“­ Nenhum envio ainda.",
+        "stats_msg": "ðŸ“Š **Suas EstatÃ­sticas:**\nâ€¢ Downloads Restantes: {}\nâ€¢ Lotes Restantes: {}",
+        "change_channel_prompt": "ðŸ”„ **Alterar Canal de Lotes**\n1. Certifique-se de que sou admin no novo canal.\n2. Encaminhe qualquer mensagem desse canal para cÃ¡.",
+        "disk_config_prompt": "ðŸ’¾ **Config de Disco**\nMÃ­nimo de disco livre atual: **{}MB**\nPara alterar: `/setdisk <valor>`",
+        "mtproto_config_prompt": "âš¡ **Config MTProto**\nMax de upload atual: **{}MB**\nPara alterar: `/setmtproto <valor>`",
+        "free_panel_prompt": "ðŸ“¦ DOWNLOADS GRÃTIS\nGrÃ¡tis atuais por dia: {}",
+        "reward_panel_prompt": "ðŸŽ PAINEL DE RECOMPENSAS\nAtual: +{} download por anÃºncio de 20s",
+        "ad_panel_prompt": "âš™ï¸ Painel de AnÃºncios\nAtual: {}",
+        "password_saved": "ðŸ” Senha salva.",
         "password_too_long": "A senha deve ter 64 caracteres ou menos.",
-        "file_to_link_prompt": "🔗 **Arquivo-para-Link**\nEnvie o(s) arquivo(s) que deseja compartilhar.",
-        "link_invalid_expired": "❌ Este link é inválido ou expirou.",
-        "link_limit_reached": "⛔ Este link atingiu seu limite de uso.",
-        "link_password_protected": "🔐 Este link está protegido por senha. Envie a senha.",
-        "files_sent": "✅ Seus arquivos foram enviados.",
-        "file_added": "📥 Arquivo #{} adicionado. Envie mais ou toque em Criar Link.",
+        "file_to_link_prompt": "ðŸ”— **Arquivo-para-Link**\nEnvie o(s) arquivo(s) que deseja compartilhar.",
+        "link_invalid_expired": "âŒ Este link Ã© invÃ¡lido ou expirou.",
+        "link_limit_reached": "â›” Este link atingiu seu limite de uso.",
+        "link_password_protected": "ðŸ” Este link estÃ¡ protegido por senha. Envie a senha.",
+        "files_sent": "âœ… Seus arquivos foram enviados.",
+        "file_added": "ðŸ“¥ Arquivo #{} adicionado. Envie mais ou toque em Criar Link.",
         "fl_cancelled": "Arquivo-para-Link cancelado",
         "fl_start_again": "Inicie Arquivo-para-Link novamente com /filetolink",
-        "fl_choose_expiry": "Escolha a expiração do link:",
-        "fl_expiry_updated": "Expiração atualizada",
-        "fl_choose_max_uses": "Escolha o máximo de entregas bem-sucedidas:",
+        "fl_choose_expiry": "Escolha a expiraÃ§Ã£o do link:",
+        "fl_expiry_updated": "ExpiraÃ§Ã£o atualizada",
+        "fl_choose_max_uses": "Escolha o mÃ¡ximo de entregas bem-sucedidas:",
         "fl_uses_updated": "Limite de uso atualizado",
         "fl_set_password": "Envie uma senha ou /clearpassword para remover.",
         "fl_link_created": "Link criado",
-        "fl_link_ready": "🔗 Seu link está pronto:\n{}\nArquivos: {}\nCusto: 1 download diário grátis",
-        "fl_daily_limit": "Limite diário grátis atingido. Assista a um anúncio para ganhar mais.",
-        "fl_ad_busy": "⚠️ Servidor de anúncios ocupado.",
-        "admin_skipped": "✅ Ignorado!",
-        "admin_bypassed": "✅ Ignorado",
-        "free_set": "✅ Grátis definido para {}!",
-        "free_updated": "✅ Downloads Grátis atualizados para {}!",
-        "reward_set": "✅ Recompensa definida para +{}!",
-        "reward_updated": "✅ Recompensa atualizada para +{}!",
-        "mode_updated": "✅ Modo: {}",
-        "support_opened": "✍️ Envie mensagem/foto/vídeo/arquivo abaixo.",
-        "admin_reply_mode": "✍️ Responder a {}:",
-        "user_reply_mode": "✍️ Digite o acompanhamento abaixo",
-        "support_closed": "🔒 Fechado",
-        "drop_cancelled": "❌ Cancelado",
-        "drop_no_items": "⚠️ Sem itens!",
+        "fl_link_ready": "ðŸ”— Seu link estÃ¡ pronto:\n{}\nArquivos: {}\nCusto: 1 download diÃ¡rio grÃ¡tis",
+        "fl_daily_limit": "Limite diÃ¡rio grÃ¡tis atingido. Assista a um anÃºncio para ganhar mais.",
+        "fl_ad_busy": "âš ï¸ Servidor de anÃºncios ocupado.",
+        "admin_skipped": "âœ… Ignorado!",
+        "admin_bypassed": "âœ… Ignorado",
+        "free_set": "âœ… GrÃ¡tis definido para {}!",
+        "free_updated": "âœ… Downloads GrÃ¡tis atualizados para {}!",
+        "reward_set": "âœ… Recompensa definida para +{}!",
+        "reward_updated": "âœ… Recompensa atualizada para +{}!",
+        "mode_updated": "âœ… Modo: {}",
+        "support_opened": "âœï¸ Envie mensagem/foto/vÃ­deo/arquivo abaixo.",
+        "admin_reply_mode": "âœï¸ Responder a {}:",
+        "user_reply_mode": "âœï¸ Digite o acompanhamento abaixo",
+        "support_closed": "ðŸ”’ Fechado",
+        "drop_cancelled": "âŒ Cancelado",
+        "drop_no_items": "âš ï¸ Sem itens!",
         "drop_timer_set": "{} definido!",
-        "drop_broadcasting": "🚀 Transmitindo {} itens para {}...",
-        "drop_flash_text": "🚨 FLASH DROP!\nAuto-exclui em {}\nToque para reivindicar:",
-        "drop_done": "✅ Transmissão feita para {}",
-        "age_expired": "⏳ Expirado!",
-        "age_claimed": "❌ Já reivindicado!",
+        "drop_broadcasting": "ðŸš€ Transmitindo {} itens para {}...",
+        "drop_flash_text": "ðŸš¨ FLASH DROP!\nAuto-exclui em {}\nToque para reivindicar:",
+        "drop_done": "âœ… TransmissÃ£o feita para {}",
+        "age_expired": "â³ Expirado!",
+        "age_claimed": "âŒ JÃ¡ reivindicado!",
         "age_verified": "Verificado!",
-        "age_denied": "❌ Negado. Deve ser 18+",
+        "age_denied": "âŒ Negado. Deve ser 18+",
         "lang_updated": "Atualizado!",
         "batch_expired": "Expirado",
         "batch_loading": "Carregando...",
         "batch_no_channel": "Nenhum canal vinculado!",
-        "batch_setup_prompt": "📦 Configuração: Torne o bot admin no canal e encaminhe uma mensagem aqui",
+        "batch_setup_prompt": "ðŸ“¦ ConfiguraÃ§Ã£o: Torne o bot admin no canal e encaminhe uma mensagem aqui",
         "batch_mode_activated": "Modo ativado!",
-        "batch_change_dest": "🔄 **Alterar Canal de Destino**\nTorne o bot admin no novo canal, depois encaminhe uma mensagem aqui.",
-        "join_channel_first_alert": "Entre no canal primeiro! 📢 Deve entrar!",
-        "join_channel_first": "Entre no canal primeiro! 📢",
-        "watch_timer_first": "⏰ Abra o link e assista ao temporizador de 20s primeiro!",
-        "test_ad_verified": "✅ Anúncio de Teste Verificado! +1",
-        "test_ad_verified_msg": "✅ **ANÚNCIO DE TESTE VERIFICADO!**\nRecompensa: +1 download recarregado!",
-        "finish_timer_first": "⏰ Termine o temporizador de 20s primeiro!",
+        "batch_change_dest": "ðŸ”„ **Alterar Canal de Destino**\nTorne o bot admin no novo canal, depois encaminhe uma mensagem aqui.",
+        "join_channel_first_alert": "Entre no canal primeiro! ðŸ“¢ Deve entrar!",
+        "join_channel_first": "Entre no canal primeiro! ðŸ“¢",
+        "watch_timer_first": "â° Abra o link e assista ao temporizador de 20s primeiro!",
+        "test_ad_verified": "âœ… AnÃºncio de Teste Verificado! +1",
+        "test_ad_verified_msg": "âœ… **ANÃšNCIO DE TESTE VERIFICADO!**\nRecompensa: +1 download recarregado!",
+        "finish_timer_first": "â° Termine o temporizador de 20s primeiro!",
         "verified_added": "Verificado! +1 adicionado",
-        "resume_prompt": "✅ Verificado! Recarregado +1. Retomar?",
-        "refilled_download": "✅ Recarregado +1! Baixe novamente.",
-        "fetching_bundle": "✅ Verificado! Buscando pacote...",
-        "outdated_button": "Este botão está desatualizado. Envie seu link novamente.",
+        "resume_prompt": "âœ… Verificado! Recarregado +1. Retomar?",
+        "refilled_download": "âœ… Recarregado +1! Baixe novamente.",
+        "fetching_bundle": "âœ… Verificado! Buscando pacote...",
+        "outdated_button": "Este botÃ£o estÃ¡ desatualizado. Envie seu link novamente.",
         "stopping": "Parando...",
-        "stopped": "🛑 Parado",
+        "stopped": "ðŸ›‘ Parado",
         "resuming": "Retomando...",
         "checking_vault": "Verificando cofre e carga do servidor...",
-        "server_busy": "⏳ **Servidor Ocupado**\nAtivos: {}/{}\nLivre: {}MB\nFila: #{}\nIniciará auto!",
-        "simulated": "🛠 Simulado! Agora toque em Verificar e Obter +1",
-        "server_unreachable": "❌ Servidor inacessível",
+        "server_busy": "â³ **Servidor Ocupado**\nAtivos: {}/{}\nLivre: {}MB\nFila: #{}\nIniciarÃ¡ auto!",
+        "simulated": "ðŸ›  Simulado! Agora toque em Verificar e Obter +1",
+        "server_unreachable": "âŒ Servidor inacessÃ­vel",
         "monetag_failed_twice": "Complete duas tentativas falhas de Monetag primeiro.",
-        "monetag_fallback_prompt": "🌐 Monetag falhou duas vezes. Continue com Adsterra:",
+        "monetag_fallback_prompt": "ðŸŒ Monetag falhou duas vezes. Continue com Adsterra:",
         "adsterra_ready": "Fallback de Adsterra pronto",
-        "finish_monetag": "📺 Termine o anúncio Monetag no Mini App, depois verifique.",
+        "finish_monetag": "ðŸ“º Termine o anÃºncio Monetag no Mini App, depois verifique.",
         "monetag_failed_use_adsterra": "Monetag falhou duas vezes. Use o fallback de Adsterra abaixo.",
-        "ad_link_expired": "Link de anúncio expirado. Envie seu link novamente.",
-        "ad_verified_added": "✅ Anúncio verificado! +{} adicionado",
-        "test_ad_completed": "✅ ANÚNCIO DE TESTE VERIFICADO\nRecompensa creditada: +{} download.",
-        "sponsor_viewed": "✅ Patrocinador visto! +{} adicionado",
-        "refilled_send_again": "✅ Recarregado +{}! Envie seu link novamente.",
-        "queued": "⏳ Na fila #{}",
-        "banned": "🚫 Você está banido.",
-        "no_links": "❌ Nenhum link encontrado.",
-        "batch_count": "📦 Lote {} links",
-        "restore_invalid_json": "❌ Falha na restauração: **{}** não é JSON válido.",
-        "restore_failed": "❌ Falha na restauração: {}",
-        "restore_success": "✅ **Restauração Bem-sucedida!**\nArquivo: **{}**\nRestauradas **{}** entradas.",
-        "admin_edit_welcome_prompt": "✏️ Envie a nova Mensagem de Boas-vindas. Use `{bot_name}` para o nome de usuário.",
-        "admin_welcome_updated": "✅ Mensagem de boas-vindas atualizada!",
-        "menu_edit_welcome": "✏️ Editar Mensagem de Boas-vindas",
-        "cached_instant_video": "⚡ Cache Instantâneo [{}] {} {}",
-        "cached_instant_audio": "⚡ **Cache Instantâneo** `{}`",
-        "cached_instant_image": "⚡ **Cache Instantâneo** `{}`",
-        "auto_delete_9m": "⏳ Auto-exclui em 9 mins",
-        "download_success": "✅ Download bem-sucedido!"
+        "ad_link_expired": "Link de anÃºncio expirado. Envie seu link novamente.",
+        "ad_verified_added": "âœ… AnÃºncio verificado! +{} adicionado",
+        "test_ad_completed": "âœ… ANÃšNCIO DE TESTE VERIFICADO\nRecompensa creditada: +{} download.",
+        "sponsor_viewed": "âœ… Patrocinador visto! +{} adicionado",
+        "refilled_send_again": "âœ… Recarregado +{}! Envie seu link novamente.",
+        "queued": "â³ Na fila #{}",
+        "banned": "ðŸš« VocÃª estÃ¡ banido.",
+        "no_links": "âŒ Nenhum link encontrado.",
+        "batch_count": "ðŸ“¦ Lote {} links",
+        "restore_invalid_json": "âŒ Falha na restauraÃ§Ã£o: **{}** nÃ£o Ã© JSON vÃ¡lido.",
+        "restore_failed": "âŒ Falha na restauraÃ§Ã£o: {}",
+        "restore_success": "âœ… **RestauraÃ§Ã£o Bem-sucedida!**\nArquivo: **{}**\nRestauradas **{}** entradas.",
+        "admin_edit_welcome_prompt": "âœï¸ Envie a nova Mensagem de Boas-vindas. Use `{bot_name}` para o nome de usuÃ¡rio.",
+        "admin_welcome_updated": "âœ… Mensagem de boas-vindas atualizada!",
+        "menu_edit_welcome": "âœï¸ Editar Mensagem de Boas-vindas",
+        "cached_instant_video": "âš¡ Cache InstantÃ¢neo [{}] {} {}",
+        "cached_instant_audio": "âš¡ **Cache InstantÃ¢neo** `{}`",
+        "cached_instant_image": "âš¡ **Cache InstantÃ¢neo** `{}`",
+        "auto_delete_9m": "â³ Auto-exclui em 9 mins",
+        "download_success": "âœ… Download bem-sucedido!"
     },
     "id": {
-        "welcome": "🚀 **SELAMAT DATANG DI MICHAELBBC VAULT - PENGUNDUH MEDIA LENGKAP!**\n\n🔥 APA YANG BISA SAYA LAKUKAN:\n🎬 VIDEO HD Tanpa Watermark!\n🎵 AUDIO MP3 192kbps!\n🖼️ GAMBAR Ekstraksi SEMUA!\n📝 SUBTITLE Otomatis!\n📦 BATCH 100+ Link!\n⚡ CACHE 1 Detik!\n💎 BRANKAS Selamanya!\n📤 UNGGAH FILE!\n🔗 FILE-KE-LINK: Buat link yang bisa dibagikan!\n\n👉 TEMPEL LINK UNTUK MEMULAI! 👇",
-        "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Gambar", "btn_sub": "📝 Subtitle (SRT)",
-        "ask_format": "👇 **KEREN! Format apa yang Anda inginkan? Pilih di bawah!**",
-        "fetching": "📥 **Mengambil {} Anda... Tunggu sebentar! ⏳✨**",
-        "error_generic": "❌ Ups! Gagal! 😢 Link pribadi/diblokir. Coba link publik!",
-        "error_50mb": "❌ Terlalu besar! 😅 Video ini lebih dari 300MB. Coba yang lebih pendek!", 
-        "error_no_img": "❌ Tidak ada gambar ditemukan! 😢 Coba link lain!",
-        "images_received": "⏳ **{} Gambar diterima.**",
-        "select_lang": "🌍 Pilih bahasa Anda! Pilih di bawah! 👇", 
-        "lang_set": "✅ Bahasa diatur! Nikmati! 🎉✨",
-        "batch_detected": "📦 **Batch Terdeteksi ({} link)**\nFormat apa?",
-        "batch_dest": "📦 **Kirim ke mana?**",
-        "btn_chat": "📥 Di Chat", "btn_chan": "📢 Ke Channel",
-        "limit_reached": "⚠️ **Batas Tercapai!** Anda menggunakan 4 GRATIS! Tonton iklan 20d → Dapatkan +1 unduhan!",
-        "refill_btn": "🔓 Buka Link & Isi Ulang +1",
-        "join_btn": "📢 Gabung Channel", "check_btn": "💜 Cek Saldo",
-        "limit_batch": "⚠️ **Batas Batch Tercapai pada {} dari {}**\nTonton iklan 20d → +1 unduhan untuk melanjutkan.",
-        "batch_start": "📦 **Batch Dimulai:** {} **{} file**\n⏳ Memproses...",
-        "batch_done": "🏁 **Selesai!** ✅ {} ❌ {}\n📥 {} file di sini.",
-        "batch_done_chan": "🏁 **Selesai!** ✅ {} ❌ {}\n📢 {} file diteruskan!",
-        "dl_video": "📥 Mengunduh video...", "dl_audio": "📥 Mengekstrak audio...", "dl_image": "📥 Mengekstrak gambar...", "dl_sub": "📥 Mengambil subtitle...",
-        "failed_50": "❌ >300MB", "failed_blocked": "❌ Diblokir/pribadi", "failed_generic": "❌ Gagal",
-        "menu_lang": "🌍 Bahasa", "menu_stats": "📊 Statistik Saya", "menu_help": "💬 Dukungan / FAQ", "menu_join": "📢 Gabung Channel",
-        "menu_uploads": "🍿 Unggahan Penggemar", "menu_upload": "📤 Unggah File",
-        "admin_upload_prompt": "📂 **Kotak Masuk Unggahan Penggemar**",
-        "user_upload_prompt": "📤 **Unggah File**\nKirim video/gambar/file ke Admin. Batas 5/24jam.",
-        "upload_success_user": "✅ Terkirim ke Admin!",
-        "upload_limit_reached": "⚠️ Batas unggahan 5/24jam tercapai.",
-        "no_uploads": "📭 Belum ada unggahan.",
-        "stats_msg": "📊 **Statistik Anda:**\n• Sisa Unduhan: {}\n• Sisa Batch: {}",
-        "change_channel_prompt": "🔄 **Ubah Channel Batch**\n1. Pastikan saya adalah admin di channel baru.\n2. Teruskan pesan apa pun dari channel tersebut ke sini.",
-        "disk_config_prompt": "💾 **Konfigurasi Disk**\nMin disk bebas saat ini: **{}MB**\nUntuk mengubah: `/setdisk <nilai>`",
-        "mtproto_config_prompt": "⚡ **Konfigurasi MTProto**\nMax unggah saat ini: **{}MB**\nUntuk mengubah: `/setmtproto <nilai>`",
-        "free_panel_prompt": "📦 UNDUHAN GRATIS\nGratis saat ini per hari: {}",
-        "reward_panel_prompt": "🎁 PANEL HADIAH\nSaat ini: +{} unduhan per iklan 20d",
-        "ad_panel_prompt": "⚙️ Panel Iklan\nSaat ini: {}",
-        "password_saved": "🔐 Kata sandi disimpan.",
+        "welcome": "ðŸš€ **SELAMAT DATANG DI MICHAELBBC VAULT - PENGUNDUH MEDIA LENGKAP!**\n\nðŸ”¥ APA YANG BISA SAYA LAKUKAN:\nðŸŽ¬ VIDEO HD Tanpa Watermark!\nðŸŽµ AUDIO MP3 192kbps!\nðŸ–¼ï¸ GAMBAR Ekstraksi SEMUA!\nðŸ“ SUBTITLE Otomatis!\nðŸ“¦ BATCH 100+ Link!\nâš¡ CACHE 1 Detik!\nðŸ’Ž BRANKAS Selamanya!\nðŸ“¤ UNGGAH FILE!\nðŸ”— FILE-KE-LINK: Buat link yang bisa dibagikan!\n\nðŸ‘‰ TEMPEL LINK UNTUK MEMULAI! ðŸ‘‡",
+        "btn_video": "ðŸŽ¬ Video (MP4)", "btn_audio": "ðŸŽµ Audio (MP3)", "btn_image": "ðŸ–¼ï¸ Gambar", "btn_sub": "ðŸ“ Subtitle (SRT)",
+        "ask_format": "ðŸ‘‡ **KEREN! Format apa yang Anda inginkan? Pilih di bawah!**",
+        "fetching": "ðŸ“¥ **Mengambil {} Anda... Tunggu sebentar! â³âœ¨**",
+        "error_generic": "âŒ Ups! Gagal! ðŸ˜¢ Link pribadi/diblokir. Coba link publik!",
+        "error_50mb": "âŒ Terlalu besar! ðŸ˜… Video ini lebih dari 300MB. Coba yang lebih pendek!", 
+        "error_no_img": "âŒ Tidak ada gambar ditemukan! ðŸ˜¢ Coba link lain!",
+        "images_received": "â³ **{} Gambar diterima.**",
+        "select_lang": "ðŸŒ Pilih bahasa Anda! Pilih di bawah! ðŸ‘‡", 
+        "lang_set": "âœ… Bahasa diatur! Nikmati! ðŸŽ‰âœ¨",
+        "batch_detected": "ðŸ“¦ **Batch Terdeteksi ({} link)**\nFormat apa?",
+        "batch_dest": "ðŸ“¦ **Kirim ke mana?**",
+        "btn_chat": "ðŸ“¥ Di Chat", "btn_chan": "ðŸ“¢ Ke Channel",
+        "limit_reached": "âš ï¸ **Batas Tercapai!** Anda menggunakan 4 GRATIS! Tonton iklan 20d â†’ Dapatkan +1 unduhan!",
+        "refill_btn": "ðŸ”“ Buka Link & Isi Ulang +1",
+        "join_btn": "ðŸ“¢ Gabung Channel", "check_btn": "ðŸ’œ Cek Saldo",
+        "limit_batch": "âš ï¸ **Batas Batch Tercapai pada {} dari {}**\nTonton iklan 20d â†’ +1 unduhan untuk melanjutkan.",
+        "batch_start": "ðŸ“¦ **Batch Dimulai:** {} **{} file**\nâ³ Memproses...",
+        "batch_done": "ðŸ **Selesai!** âœ… {} âŒ {}\nðŸ“¥ {} file di sini.",
+        "batch_done_chan": "ðŸ **Selesai!** âœ… {} âŒ {}\nðŸ“¢ {} file diteruskan!",
+        "dl_video": "ðŸ“¥ Mengunduh video...", "dl_audio": "ðŸ“¥ Mengekstrak audio...", "dl_image": "ðŸ“¥ Mengekstrak gambar...", "dl_sub": "ðŸ“¥ Mengambil subtitle...",
+        "failed_50": "âŒ >300MB", "failed_blocked": "âŒ Diblokir/pribadi", "failed_generic": "âŒ Gagal",
+        "menu_lang": "ðŸŒ Bahasa", "menu_stats": "ðŸ“Š Statistik Saya", "menu_help": "ðŸ’¬ Dukungan / FAQ", "menu_join": "ðŸ“¢ Gabung Channel",
+        "menu_uploads": "ðŸ¿ Unggahan Penggemar", "menu_upload": "ðŸ“¤ Unggah File",
+        "admin_upload_prompt": "ðŸ“‚ **Kotak Masuk Unggahan Penggemar**",
+        "user_upload_prompt": "ðŸ“¤ **Unggah File**\nKirim video/gambar/file ke Admin. Batas 5/24jam.",
+        "upload_success_user": "âœ… Terkirim ke Admin!",
+        "upload_limit_reached": "âš ï¸ Batas unggahan 5/24jam tercapai.",
+        "no_uploads": "ðŸ“­ Belum ada unggahan.",
+        "stats_msg": "ðŸ“Š **Statistik Anda:**\nâ€¢ Sisa Unduhan: {}\nâ€¢ Sisa Batch: {}",
+        "change_channel_prompt": "ðŸ”„ **Ubah Channel Batch**\n1. Pastikan saya adalah admin di channel baru.\n2. Teruskan pesan apa pun dari channel tersebut ke sini.",
+        "disk_config_prompt": "ðŸ’¾ **Konfigurasi Disk**\nMin disk bebas saat ini: **{}MB**\nUntuk mengubah: `/setdisk <nilai>`",
+        "mtproto_config_prompt": "âš¡ **Konfigurasi MTProto**\nMax unggah saat ini: **{}MB**\nUntuk mengubah: `/setmtproto <nilai>`",
+        "free_panel_prompt": "ðŸ“¦ UNDUHAN GRATIS\nGratis saat ini per hari: {}",
+        "reward_panel_prompt": "ðŸŽ PANEL HADIAH\nSaat ini: +{} unduhan per iklan 20d",
+        "ad_panel_prompt": "âš™ï¸ Panel Iklan\nSaat ini: {}",
+        "password_saved": "ðŸ” Kata sandi disimpan.",
         "password_too_long": "Kata sandi harus 64 karakter atau kurang.",
-        "file_to_link_prompt": "🔗 **File-ke-Link**\nKirim file yang ingin Anda bagikan.",
-        "link_invalid_expired": "❌ Link ini tidak valid atau kedaluwarsa.",
-        "link_limit_reached": "⛔ Link ini mencapai batas penggunaan.",
-        "link_password_protected": "🔐 Link ini dilindungi kata sandi. Kirim kata sandi.",
-        "files_sent": "✅ File Anda telah dikirim.",
-        "file_added": "📥 File #{} ditambahkan. Kirim lebih banyak, atau ketuk Buat Link.",
+        "file_to_link_prompt": "ðŸ”— **File-ke-Link**\nKirim file yang ingin Anda bagikan.",
+        "link_invalid_expired": "âŒ Link ini tidak valid atau kedaluwarsa.",
+        "link_limit_reached": "â›” Link ini mencapai batas penggunaan.",
+        "link_password_protected": "ðŸ” Link ini dilindungi kata sandi. Kirim kata sandi.",
+        "files_sent": "âœ… File Anda telah dikirim.",
+        "file_added": "ðŸ“¥ File #{} ditambahkan. Kirim lebih banyak, atau ketuk Buat Link.",
         "fl_cancelled": "File-ke-Link dibatalkan",
         "fl_start_again": "Mulai File-ke-Link lagi dengan /filetolink",
         "fl_choose_expiry": "Pilih kedaluwarsa link:",
@@ -929,464 +929,464 @@ LANGUAGES = {
         "fl_uses_updated": "Batas penggunaan diperbarui",
         "fl_set_password": "Kirim kata sandi, atau /clearpassword untuk menghapus.",
         "fl_link_created": "Link dibuat",
-        "fl_link_ready": "🔗 Link Anda siap:\n{}\nFile: {}\nBiaya: 1 unduhan harian gratis",
+        "fl_link_ready": "ðŸ”— Link Anda siap:\n{}\nFile: {}\nBiaya: 1 unduhan harian gratis",
         "fl_daily_limit": "Batas harian gratis tercapai. Tonton iklan untuk mendapatkan lebih banyak.",
-        "fl_ad_busy": "⚠️ Server iklan sibuk.",
-        "admin_skipped": "✅ Dilewati!",
-        "admin_bypassed": "✅ Dilewati",
-        "free_set": "✅ Gratis diatur ke {}!",
-        "free_updated": "✅ Unduhan Gratis diperbarui ke {}!",
-        "reward_set": "✅ Hadiah diatur ke +{}!",
-        "reward_updated": "✅ Hadiah diperbarui ke +{}!",
-        "mode_updated": "✅ Mode: {}",
-        "support_opened": "✍️ Kirim pesan/foto/video/file di bawah.",
-        "admin_reply_mode": "✍️ Balas ke {}:",
-        "user_reply_mode": "✍️ Ketik tindak lanjut di bawah",
-        "support_closed": "🔒 Ditutup",
-        "drop_cancelled": "❌ Dibatalkan",
-        "drop_no_items": "⚠️ Tidak ada item!",
+        "fl_ad_busy": "âš ï¸ Server iklan sibuk.",
+        "admin_skipped": "âœ… Dilewati!",
+        "admin_bypassed": "âœ… Dilewati",
+        "free_set": "âœ… Gratis diatur ke {}!",
+        "free_updated": "âœ… Unduhan Gratis diperbarui ke {}!",
+        "reward_set": "âœ… Hadiah diatur ke +{}!",
+        "reward_updated": "âœ… Hadiah diperbarui ke +{}!",
+        "mode_updated": "âœ… Mode: {}",
+        "support_opened": "âœï¸ Kirim pesan/foto/video/file di bawah.",
+        "admin_reply_mode": "âœï¸ Balas ke {}:",
+        "user_reply_mode": "âœï¸ Ketik tindak lanjut di bawah",
+        "support_closed": "ðŸ”’ Ditutup",
+        "drop_cancelled": "âŒ Dibatalkan",
+        "drop_no_items": "âš ï¸ Tidak ada item!",
         "drop_timer_set": "{} diatur!",
-        "drop_broadcasting": "🚀 Menyiarakan {} item ke {}...",
-        "drop_flash_text": "🚨 FLASH DROP!\nHapus otomatis dalam {}\nKetuk untuk klaim:",
-        "drop_done": "✅ Siaran selesai ke {}",
-        "age_expired": "⏳ Kedaluwarsa!",
-        "age_claimed": "❌ Sudah diklaim!",
+        "drop_broadcasting": "ðŸš€ Menyiarakan {} item ke {}...",
+        "drop_flash_text": "ðŸš¨ FLASH DROP!\nHapus otomatis dalam {}\nKetuk untuk klaim:",
+        "drop_done": "âœ… Siaran selesai ke {}",
+        "age_expired": "â³ Kedaluwarsa!",
+        "age_claimed": "âŒ Sudah diklaim!",
         "age_verified": "Terverifikasi!",
-        "age_denied": "❌ Ditolak. Harus 18+",
+        "age_denied": "âŒ Ditolak. Harus 18+",
         "lang_updated": "Diperbarui!",
         "batch_expired": "Kedaluwarsa",
         "batch_loading": "Memuat...",
         "batch_no_channel": "Tidak ada channel yang ditautkan!",
-        "batch_setup_prompt": "📦 Pengaturan: Jadikan bot admin di channel dan teruskan pesan ke sini",
+        "batch_setup_prompt": "ðŸ“¦ Pengaturan: Jadikan bot admin di channel dan teruskan pesan ke sini",
         "batch_mode_activated": "Mode diaktifkan!",
-        "batch_change_dest": "🔄 **Ubah Channel Tujuan**\nJadikan bot admin di channel baru, lalu teruskan pesan ke sini.",
-        "join_channel_first_alert": "Gabung channel dulu! 📢 Wajib gabung!",
-        "join_channel_first": "Gabung channel dulu! 📢",
-        "watch_timer_first": "⏰ Buka link dan tonton timer 20d dulu!",
-        "test_ad_verified": "✅ Iklan Uji Terverifikasi! +1",
-        "test_ad_verified_msg": "✅ **IKLAN UJI TERVERIFIKASI!**\nHadiah: +1 unduhan diisi ulang!",
-        "finish_timer_first": "⏰ Selesaikan timer 20d dulu!",
+        "batch_change_dest": "ðŸ”„ **Ubah Channel Tujuan**\nJadikan bot admin di channel baru, lalu teruskan pesan ke sini.",
+        "join_channel_first_alert": "Gabung channel dulu! ðŸ“¢ Wajib gabung!",
+        "join_channel_first": "Gabung channel dulu! ðŸ“¢",
+        "watch_timer_first": "â° Buka link dan tonton timer 20d dulu!",
+        "test_ad_verified": "âœ… Iklan Uji Terverifikasi! +1",
+        "test_ad_verified_msg": "âœ… **IKLAN UJI TERVERIFIKASI!**\nHadiah: +1 unduhan diisi ulang!",
+        "finish_timer_first": "â° Selesaikan timer 20d dulu!",
         "verified_added": "Terverifikasi! +1 ditambahkan",
-        "resume_prompt": "✅ Terverifikasi! Diisi ulang +1. Lanjutkan?",
-        "refilled_download": "✅ Diisi ulang +1! Unduh lagi.",
-        "fetching_bundle": "✅ Terverifikasi! Mengambil paket...",
+        "resume_prompt": "âœ… Terverifikasi! Diisi ulang +1. Lanjutkan?",
+        "refilled_download": "âœ… Diisi ulang +1! Unduh lagi.",
+        "fetching_bundle": "âœ… Terverifikasi! Mengambil paket...",
         "outdated_button": "Tombol ini kedaluwarsa. Kirim link Anda lagi.",
         "stopping": "Menghentikan...",
-        "stopped": "🛑 Berhenti",
+        "stopped": "ðŸ›‘ Berhenti",
         "resuming": "Melanjutkan...",
         "checking_vault": "Memeriksa brankas & beban server...",
-        "server_busy": "⏳ **Server Sibuk**\nAktif: {}/{}\nBebas: {}MB\nAntrian: #{}\nAkan mulai otomatis!",
-        "simulated": "🛠 Disimulasikan! Sekarang ketuk Periksa & Dapatkan +1",
-        "server_unreachable": "❌ Server tidak dapat dijangkau",
+        "server_busy": "â³ **Server Sibuk**\nAktif: {}/{}\nBebas: {}MB\nAntrian: #{}\nAkan mulai otomatis!",
+        "simulated": "ðŸ›  Disimulasikan! Sekarang ketuk Periksa & Dapatkan +1",
+        "server_unreachable": "âŒ Server tidak dapat dijangkau",
         "monetag_failed_twice": "Selesaikan dua upaya Monetag yang gagal terlebih dahulu.",
-        "monetag_fallback_prompt": "🌐 Monetag gagal dua kali. Lanjutkan dengan Adsterra:",
+        "monetag_fallback_prompt": "ðŸŒ Monetag gagal dua kali. Lanjutkan dengan Adsterra:",
         "adsterra_ready": "Fallback Adsterra siap",
-        "finish_monetag": "📺 Selesaikan iklan Monetag di Mini App, lalu periksa lagi.",
+        "finish_monetag": "ðŸ“º Selesaikan iklan Monetag di Mini App, lalu periksa lagi.",
         "monetag_failed_use_adsterra": "Monetag gagal dua kali. Gunakan fallback Adsterra di bawah.",
         "ad_link_expired": "Link iklan kedaluwarsa. Kirim link Anda lagi.",
-        "ad_verified_added": "✅ Iklan terverifikasi! +{} ditambahkan",
-        "test_ad_completed": "✅ IKLAN UJI TERVERIFIKASI\nHadiah dikreditkan: +{} unduhan.",
-        "sponsor_viewed": "✅ Sponsor dilihat! +{} ditambahkan",
-        "refilled_send_again": "✅ Diisi ulang +{}! Kirim link Anda lagi.",
-        "queued": "⏳ Dalam antrian #{}",
-        "banned": "🚫 Anda dibanned.",
-        "no_links": "❌ Tidak ada link ditemukan.",
-        "batch_count": "📦 Batch {} link",
-        "restore_invalid_json": "❌ Gagal memulihkan: **{}** bukan JSON yang valid.",
-        "restore_failed": "❌ Gagal memulihkan: {}",
-        "restore_success": "✅ **Pemulihan Berhasil!**\nFile: **{}**\nDipulihkan **{}** entri.",
-        "admin_edit_welcome_prompt": "✏️ Kirim Pesan Selamat Datang baru. Gunakan `{bot_name}` untuk username bot.",
-        "admin_welcome_updated": "✅ Pesan selamat datang diperbarui!",
-        "menu_edit_welcome": "✏️ Edit Pesan Selamat Datang",
-        "cached_instant_video": "⚡ Cache Instan [{}] {} {}",
-        "cached_instant_audio": "⚡ **Cache Instan** `{}`",
-        "cached_instant_image": "⚡ **Cache Instan** `{}`",
-        "auto_delete_9m": "⏳ Hapus otomatis dalam 9 menit",
-        "download_success": "✅ Unduhan berhasil!"
+        "ad_verified_added": "âœ… Iklan terverifikasi! +{} ditambahkan",
+        "test_ad_completed": "âœ… IKLAN UJI TERVERIFIKASI\nHadiah dikreditkan: +{} unduhan.",
+        "sponsor_viewed": "âœ… Sponsor dilihat! +{} ditambahkan",
+        "refilled_send_again": "âœ… Diisi ulang +{}! Kirim link Anda lagi.",
+        "queued": "â³ Dalam antrian #{}",
+        "banned": "ðŸš« Anda dibanned.",
+        "no_links": "âŒ Tidak ada link ditemukan.",
+        "batch_count": "ðŸ“¦ Batch {} link",
+        "restore_invalid_json": "âŒ Gagal memulihkan: **{}** bukan JSON yang valid.",
+        "restore_failed": "âŒ Gagal memulihkan: {}",
+        "restore_success": "âœ… **Pemulihan Berhasil!**\nFile: **{}**\nDipulihkan **{}** entri.",
+        "admin_edit_welcome_prompt": "âœï¸ Kirim Pesan Selamat Datang baru. Gunakan `{bot_name}` untuk username bot.",
+        "admin_welcome_updated": "âœ… Pesan selamat datang diperbarui!",
+        "menu_edit_welcome": "âœï¸ Edit Pesan Selamat Datang",
+        "cached_instant_video": "âš¡ Cache Instan [{}] {} {}",
+        "cached_instant_audio": "âš¡ **Cache Instan** `{}`",
+        "cached_instant_image": "âš¡ **Cache Instan** `{}`",
+        "auto_delete_9m": "â³ Hapus otomatis dalam 9 menit",
+        "download_success": "âœ… Unduhan berhasil!"
     },
     "fr": {
-        "welcome": "🚀 **BIENVENUE SUR MICHAELBBC VAULT - TÉLÉCHARGEUR DE MÉDIAS COMPLET!**\n\n🔥 CE QUE JE PEUX FAIRE:\n🎬 VIDÉOS HD Sans Filigrane!\n🎵 AUDIO MP3 192kbps!\n🖼️ IMAGES Extraction TOTALE!\n📝 SOUS-TITRES Auto!\n📦 LOTS 100+ Liens!\n⚡ CACHE 1 Sec!\n💎 COFFRE Pour Toujours!\n📤 TÉLÉVERSER DES FICHIERS!\n🔗 FICHIER-VERS-LIEN: Créez des liens partageables!\n\n👉 COLLEZ UN LIEN POUR COMMENCER! 👇",
-        "btn_video": "🎬 Vidéo (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Images", "btn_sub": "📝 Sous-titres (SRT)",
-        "ask_format": "👇 **GÉNIAL! Quel format voulez-vous? Choisissez ci-dessous!**",
-        "fetching": "📥 **Récupération de votre {}... Patientez! ⏳✨**",
-        "error_generic": "❌ Oups! Échec! 😢 Lien privé/bloqué. Essayez un lien public!",
-        "error_50mb": "❌ Trop grand! 😅 Cette vidéo dépasse 300 Mo. Essayez une plus courte!", 
-        "error_no_img": "❌ Aucune image trouvée! 😢 Essayez un autre lien!",
-        "images_received": "⏳ **{} Images reçues.**",
-        "select_lang": "🌍 Sélectionnez votre langue! Choisissez ci-dessous! 👇", 
-        "lang_set": "✅ Langue définie! Profitez-en! 🎉✨",
-        "batch_detected": "📦 **Lot Détecté ({} liens)**\nQuel format?",
-        "batch_dest": "📦 **Où envoyer?**",
-        "btn_chat": "📥 Dans le Chat", "btn_chan": "📢 Vers le Canal",
-        "limit_reached": "⚠️ **Limite Atteinte!** Vous avez utilisé 4 GRATUITS! Regardez une pub de 20s → Obtenez +1 téléchargement!",
-        "refill_btn": "🔓 Ouvrir le Lien et Recharger +1",
-        "join_btn": "📢 Rejoindre le Canal", "check_btn": "💜 Vérifier le Solde",
-        "limit_batch": "⚠️ **Limite du Lot Atteinte à {} sur {}**\nRegardez une pub de 20s → +1 téléchargement pour continuer.",
-        "batch_start": "📦 **Lot Démarré:** {} **{} fichiers**\n⏳ Traitement...",
-        "batch_done": "🏁 **Terminé!** ✅ {} ❌ {}\n📥 {} fichiers ici.",
-        "batch_done_chan": "🏁 **Terminé!** ✅ {} ❌ {}\n📢 {} fichiers transférés!",
-        "dl_video": "📥 Téléchargement de la vidéo...", "dl_audio": "📥 Extraction de l'audio...", "dl_image": "📥 Extraction des images...", "dl_sub": "📥 Récupération des sous-titres...",
-        "failed_50": "❌ >300MB", "failed_blocked": "❌ Bloqué/privé", "failed_generic": "❌ Échec",
-        "menu_lang": "🌍 Langue", "menu_stats": "📊 Mes Statistiques", "menu_help": "💬 Support / FAQ", "menu_join": "📢 Rejoindre le Canal",
-        "menu_uploads": "🍿 Téléversements des Fans", "menu_upload": "📤 Téléverser un Fichier",
-        "admin_upload_prompt": "📂 **Boîte de Réception des Téléversements des Fans**",
-        "user_upload_prompt": "📤 **Téléverser un Fichier**\nEnvoyez vidéo/image/fichier à l'Admin. Limite 5/24h.",
-        "upload_success_user": "✅ Envoyé à l'Admin!",
-        "upload_limit_reached": "⚠️ Limite de téléversement 5/24h atteinte.",
-        "no_uploads": "📭 Aucun téléversement pour le moment.",
-        "stats_msg": "📊 **Vos Statistiques:**\n• Téléchargements Restants: {}\n• Lots Restants: {}",
-        "change_channel_prompt": "🔄 **Changer de Canal pour les Lots**\n1. Assurez-vous que je suis admin dans le nouveau canal.\n2. Transférez n'importe quel message de ce canal ici.",
-        "disk_config_prompt": "💾 **Config du Disque**\nMin disque libre actuel: **{} Mo**\nPour changer: `/setdisk <valeur>`",
-        "mtproto_config_prompt": "⚡ **Config MTProto**\nMax téléversement actuel: **{} Mo**\nPour changer: `/setmtproto <valeur>`",
-        "free_panel_prompt": "📦 TÉLÉCHARGEMENTS GRATUITS\nGratuits actuels par jour: {}",
-        "reward_panel_prompt": "🎁 PANNEAU DE RÉCOMPENSES\nActuel: +{} téléchargement par pub de 20s",
-        "ad_panel_prompt": "⚙️ Panneau des Pubs\nActuel: {}",
-        "password_saved": "🔐 Mot de passe enregistré.",
-        "password_too_long": "Le mot de passe doit faire 64 caractères ou moins.",
-        "file_to_link_prompt": "🔗 **Fichier-vers-Lien**\nEnvoyez le(s) fichier(s) que vous souhaitez partager.",
-        "link_invalid_expired": "❌ Ce lien est invalide ou a expiré.",
-        "link_limit_reached": "⛔ Ce lien a atteint sa limite d'utilisation.",
-        "link_password_protected": "🔐 Ce lien est protégé par mot de passe. Envoyez le mot de passe.",
-        "files_sent": "✅ Vos fichiers ont été envoyés.",
-        "file_added": "📥 Fichier #{} ajouté. Envoyez-en plus ou appuyez sur Créer un Lien.",
-        "fl_cancelled": "Fichier-vers-Lien annulé",
+        "welcome": "ðŸš€ **BIENVENUE SUR MICHAELBBC VAULT - TÃ‰LÃ‰CHARGEUR DE MÃ‰DIAS COMPLET!**\n\nðŸ”¥ CE QUE JE PEUX FAIRE:\nðŸŽ¬ VIDÃ‰OS HD Sans Filigrane!\nðŸŽµ AUDIO MP3 192kbps!\nðŸ–¼ï¸ IMAGES Extraction TOTALE!\nðŸ“ SOUS-TITRES Auto!\nðŸ“¦ LOTS 100+ Liens!\nâš¡ CACHE 1 Sec!\nðŸ’Ž COFFRE Pour Toujours!\nðŸ“¤ TÃ‰LÃ‰VERSER DES FICHIERS!\nðŸ”— FICHIER-VERS-LIEN: CrÃ©ez des liens partageables!\n\nðŸ‘‰ COLLEZ UN LIEN POUR COMMENCER! ðŸ‘‡",
+        "btn_video": "ðŸŽ¬ VidÃ©o (MP4)", "btn_audio": "ðŸŽµ Audio (MP3)", "btn_image": "ðŸ–¼ï¸ Images", "btn_sub": "ðŸ“ Sous-titres (SRT)",
+        "ask_format": "ðŸ‘‡ **GÃ‰NIAL! Quel format voulez-vous? Choisissez ci-dessous!**",
+        "fetching": "ðŸ“¥ **RÃ©cupÃ©ration de votre {}... Patientez! â³âœ¨**",
+        "error_generic": "âŒ Oups! Ã‰chec! ðŸ˜¢ Lien privÃ©/bloquÃ©. Essayez un lien public!",
+        "error_50mb": "âŒ Trop grand! ðŸ˜… Cette vidÃ©o dÃ©passe 300 Mo. Essayez une plus courte!", 
+        "error_no_img": "âŒ Aucune image trouvÃ©e! ðŸ˜¢ Essayez un autre lien!",
+        "images_received": "â³ **{} Images reÃ§ues.**",
+        "select_lang": "ðŸŒ SÃ©lectionnez votre langue! Choisissez ci-dessous! ðŸ‘‡", 
+        "lang_set": "âœ… Langue dÃ©finie! Profitez-en! ðŸŽ‰âœ¨",
+        "batch_detected": "ðŸ“¦ **Lot DÃ©tectÃ© ({} liens)**\nQuel format?",
+        "batch_dest": "ðŸ“¦ **OÃ¹ envoyer?**",
+        "btn_chat": "ðŸ“¥ Dans le Chat", "btn_chan": "ðŸ“¢ Vers le Canal",
+        "limit_reached": "âš ï¸ **Limite Atteinte!** Vous avez utilisÃ© 4 GRATUITS! Regardez une pub de 20s â†’ Obtenez +1 tÃ©lÃ©chargement!",
+        "refill_btn": "ðŸ”“ Ouvrir le Lien et Recharger +1",
+        "join_btn": "ðŸ“¢ Rejoindre le Canal", "check_btn": "ðŸ’œ VÃ©rifier le Solde",
+        "limit_batch": "âš ï¸ **Limite du Lot Atteinte Ã  {} sur {}**\nRegardez une pub de 20s â†’ +1 tÃ©lÃ©chargement pour continuer.",
+        "batch_start": "ðŸ“¦ **Lot DÃ©marrÃ©:** {} **{} fichiers**\nâ³ Traitement...",
+        "batch_done": "ðŸ **TerminÃ©!** âœ… {} âŒ {}\nðŸ“¥ {} fichiers ici.",
+        "batch_done_chan": "ðŸ **TerminÃ©!** âœ… {} âŒ {}\nðŸ“¢ {} fichiers transfÃ©rÃ©s!",
+        "dl_video": "ðŸ“¥ TÃ©lÃ©chargement de la vidÃ©o...", "dl_audio": "ðŸ“¥ Extraction de l'audio...", "dl_image": "ðŸ“¥ Extraction des images...", "dl_sub": "ðŸ“¥ RÃ©cupÃ©ration des sous-titres...",
+        "failed_50": "âŒ >300MB", "failed_blocked": "âŒ BloquÃ©/privÃ©", "failed_generic": "âŒ Ã‰chec",
+        "menu_lang": "ðŸŒ Langue", "menu_stats": "ðŸ“Š Mes Statistiques", "menu_help": "ðŸ’¬ Support / FAQ", "menu_join": "ðŸ“¢ Rejoindre le Canal",
+        "menu_uploads": "ðŸ¿ TÃ©lÃ©versements des Fans", "menu_upload": "ðŸ“¤ TÃ©lÃ©verser un Fichier",
+        "admin_upload_prompt": "ðŸ“‚ **BoÃ®te de RÃ©ception des TÃ©lÃ©versements des Fans**",
+        "user_upload_prompt": "ðŸ“¤ **TÃ©lÃ©verser un Fichier**\nEnvoyez vidÃ©o/image/fichier Ã  l'Admin. Limite 5/24h.",
+        "upload_success_user": "âœ… EnvoyÃ© Ã  l'Admin!",
+        "upload_limit_reached": "âš ï¸ Limite de tÃ©lÃ©versement 5/24h atteinte.",
+        "no_uploads": "ðŸ“­ Aucun tÃ©lÃ©versement pour le moment.",
+        "stats_msg": "ðŸ“Š **Vos Statistiques:**\nâ€¢ TÃ©lÃ©chargements Restants: {}\nâ€¢ Lots Restants: {}",
+        "change_channel_prompt": "ðŸ”„ **Changer de Canal pour les Lots**\n1. Assurez-vous que je suis admin dans le nouveau canal.\n2. TransfÃ©rez n'importe quel message de ce canal ici.",
+        "disk_config_prompt": "ðŸ’¾ **Config du Disque**\nMin disque libre actuel: **{} Mo**\nPour changer: `/setdisk <valeur>`",
+        "mtproto_config_prompt": "âš¡ **Config MTProto**\nMax tÃ©lÃ©versement actuel: **{} Mo**\nPour changer: `/setmtproto <valeur>`",
+        "free_panel_prompt": "ðŸ“¦ TÃ‰LÃ‰CHARGEMENTS GRATUITS\nGratuits actuels par jour: {}",
+        "reward_panel_prompt": "ðŸŽ PANNEAU DE RÃ‰COMPENSES\nActuel: +{} tÃ©lÃ©chargement par pub de 20s",
+        "ad_panel_prompt": "âš™ï¸ Panneau des Pubs\nActuel: {}",
+        "password_saved": "ðŸ” Mot de passe enregistrÃ©.",
+        "password_too_long": "Le mot de passe doit faire 64 caractÃ¨res ou moins.",
+        "file_to_link_prompt": "ðŸ”— **Fichier-vers-Lien**\nEnvoyez le(s) fichier(s) que vous souhaitez partager.",
+        "link_invalid_expired": "âŒ Ce lien est invalide ou a expirÃ©.",
+        "link_limit_reached": "â›” Ce lien a atteint sa limite d'utilisation.",
+        "link_password_protected": "ðŸ” Ce lien est protÃ©gÃ© par mot de passe. Envoyez le mot de passe.",
+        "files_sent": "âœ… Vos fichiers ont Ã©tÃ© envoyÃ©s.",
+        "file_added": "ðŸ“¥ Fichier #{} ajoutÃ©. Envoyez-en plus ou appuyez sur CrÃ©er un Lien.",
+        "fl_cancelled": "Fichier-vers-Lien annulÃ©",
         "fl_start_again": "Recommencez Fichier-vers-Lien avec /filetolink",
         "fl_choose_expiry": "Choisissez l'expiration du lien:",
-        "fl_expiry_updated": "Expiration mise à jour",
-        "fl_choose_max_uses": "Choisissez le max de livraisons réussies:",
-        "fl_uses_updated": "Limite d'utilisation mise à jour",
+        "fl_expiry_updated": "Expiration mise Ã  jour",
+        "fl_choose_max_uses": "Choisissez le max de livraisons rÃ©ussies:",
+        "fl_uses_updated": "Limite d'utilisation mise Ã  jour",
         "fl_set_password": "Envoyez un mot de passe, ou /clearpassword pour supprimer.",
-        "fl_link_created": "Lien créé",
-        "fl_link_ready": "🔗 Votre lien est prêt:\n{}\nFichiers: {}\nCoût: 1 téléchargement quotidien gratuit",
+        "fl_link_created": "Lien crÃ©Ã©",
+        "fl_link_ready": "ðŸ”— Votre lien est prÃªt:\n{}\nFichiers: {}\nCoÃ»t: 1 tÃ©lÃ©chargement quotidien gratuit",
         "fl_daily_limit": "Limite quotidienne gratuite atteinte. Regardez une pub pour en gagner plus.",
-        "fl_ad_busy": "⚠️ Serveur de publicités occupé.",
-        "admin_skipped": "✅ Ignoré!",
-        "admin_bypassed": "✅ Contourné",
-        "free_set": "✅ Gratuit défini à {}!",
-        "free_updated": "✅ Téléchargements Gratuits mis à jour à {}!",
-        "reward_set": "✅ Récompense définie à +{}!",
-        "reward_updated": "✅ Récompense mise à jour à +{}!",
-        "mode_updated": "✅ Mode: {}",
-        "support_opened": "✍️ Envoyez message/photo/vidéo/fichier ci-dessous.",
-        "admin_reply_mode": "✍️ Répondre à {}:",
-        "user_reply_mode": "✍️ Tapez le suivi ci-dessous",
-        "support_closed": "🔒 Fermé",
-        "drop_cancelled": "❌ Annulé",
-        "drop_no_items": "⚠️ Aucun élément!",
-        "drop_timer_set": "{} défini!",
-        "drop_broadcasting": "🚀 Diffusion de {} éléments à {}...",
-        "drop_flash_text": "🚨 FLASH DROP!\nAuto-suppression dans {}\nAppuyez pour réclamer:",
-        "drop_done": "✅ Diffusion terminée pour {}",
-        "age_expired": "⏳ Expiré!",
-        "age_claimed": "❌ Déjà réclamé!",
-        "age_verified": "Vérifié!",
-        "age_denied": "❌ Refusé. Doit être 18+",
-        "lang_updated": "Mis à jour!",
-        "batch_expired": "Expiré",
+        "fl_ad_busy": "âš ï¸ Serveur de publicitÃ©s occupÃ©.",
+        "admin_skipped": "âœ… IgnorÃ©!",
+        "admin_bypassed": "âœ… ContournÃ©",
+        "free_set": "âœ… Gratuit dÃ©fini Ã  {}!",
+        "free_updated": "âœ… TÃ©lÃ©chargements Gratuits mis Ã  jour Ã  {}!",
+        "reward_set": "âœ… RÃ©compense dÃ©finie Ã  +{}!",
+        "reward_updated": "âœ… RÃ©compense mise Ã  jour Ã  +{}!",
+        "mode_updated": "âœ… Mode: {}",
+        "support_opened": "âœï¸ Envoyez message/photo/vidÃ©o/fichier ci-dessous.",
+        "admin_reply_mode": "âœï¸ RÃ©pondre Ã  {}:",
+        "user_reply_mode": "âœï¸ Tapez le suivi ci-dessous",
+        "support_closed": "ðŸ”’ FermÃ©",
+        "drop_cancelled": "âŒ AnnulÃ©",
+        "drop_no_items": "âš ï¸ Aucun Ã©lÃ©ment!",
+        "drop_timer_set": "{} dÃ©fini!",
+        "drop_broadcasting": "ðŸš€ Diffusion de {} Ã©lÃ©ments Ã  {}...",
+        "drop_flash_text": "ðŸš¨ FLASH DROP!\nAuto-suppression dans {}\nAppuyez pour rÃ©clamer:",
+        "drop_done": "âœ… Diffusion terminÃ©e pour {}",
+        "age_expired": "â³ ExpirÃ©!",
+        "age_claimed": "âŒ DÃ©jÃ  rÃ©clamÃ©!",
+        "age_verified": "VÃ©rifiÃ©!",
+        "age_denied": "âŒ RefusÃ©. Doit Ãªtre 18+",
+        "lang_updated": "Mis Ã  jour!",
+        "batch_expired": "ExpirÃ©",
         "batch_loading": "Chargement...",
-        "batch_no_channel": "Aucun canal lié!",
-        "batch_setup_prompt": "📦 Configuration: Rendez le bot admin dans le canal et transférez un message ici",
-        "batch_mode_activated": "Mode activé!",
-        "batch_change_dest": "🔄 **Changer de Canal de Destination**\nRendez le bot admin dans le nouveau canal, puis transférez un message ici.",
-        "join_channel_first_alert": "Rejoignez le canal d'abord! 📢 Obligatoire!",
-        "join_channel_first": "Rejoignez le canal d'abord! 📢",
-        "watch_timer_first": "⏰ Ouvrez le lien et regardez le minuteur de 20s d'abord!",
-        "test_ad_verified": "✅ Pub de Test Vérifiée! +1",
-        "test_ad_verified_msg": "✅ **PUB DE TEST VÉRIFIÉE!**\nRécompense: +1 téléchargement rechargé!",
-        "finish_timer_first": "⏰ Terminez le minuteur de 20s d'abord!",
-        "verified_added": "Vérifié! +1 ajouté",
-        "resume_prompt": "✅ Vérifié! Rechargé +1. Reprendre?",
-        "refilled_download": "✅ Rechargé +1! Téléchargez à nouveau.",
-        "fetching_bundle": "✅ Vérifié! Récupération du paquet...",
-        "outdated_button": "Ce bouton est obsolète. Envoyez votre lien à nouveau.",
-        "stopping": "Arrêt...",
-        "stopped": "🛑 Arrêté",
+        "batch_no_channel": "Aucun canal liÃ©!",
+        "batch_setup_prompt": "ðŸ“¦ Configuration: Rendez le bot admin dans le canal et transfÃ©rez un message ici",
+        "batch_mode_activated": "Mode activÃ©!",
+        "batch_change_dest": "ðŸ”„ **Changer de Canal de Destination**\nRendez le bot admin dans le nouveau canal, puis transfÃ©rez un message ici.",
+        "join_channel_first_alert": "Rejoignez le canal d'abord! ðŸ“¢ Obligatoire!",
+        "join_channel_first": "Rejoignez le canal d'abord! ðŸ“¢",
+        "watch_timer_first": "â° Ouvrez le lien et regardez le minuteur de 20s d'abord!",
+        "test_ad_verified": "âœ… Pub de Test VÃ©rifiÃ©e! +1",
+        "test_ad_verified_msg": "âœ… **PUB DE TEST VÃ‰RIFIÃ‰E!**\nRÃ©compense: +1 tÃ©lÃ©chargement rechargÃ©!",
+        "finish_timer_first": "â° Terminez le minuteur de 20s d'abord!",
+        "verified_added": "VÃ©rifiÃ©! +1 ajoutÃ©",
+        "resume_prompt": "âœ… VÃ©rifiÃ©! RechargÃ© +1. Reprendre?",
+        "refilled_download": "âœ… RechargÃ© +1! TÃ©lÃ©chargez Ã  nouveau.",
+        "fetching_bundle": "âœ… VÃ©rifiÃ©! RÃ©cupÃ©ration du paquet...",
+        "outdated_button": "Ce bouton est obsolÃ¨te. Envoyez votre lien Ã  nouveau.",
+        "stopping": "ArrÃªt...",
+        "stopped": "ðŸ›‘ ArrÃªtÃ©",
         "resuming": "Reprise...",
-        "checking_vault": "Vérification du coffre et de la charge du serveur...",
-        "server_busy": "⏳ **Serveur Occupé**\nActifs: {}/{}\nLibre: {} Mo\nFile d'attente: #{}\nDémarrage auto!",
-        "simulated": "🛠 Simulé! Appuyez maintenant sur Vérifier et Obtenir +1",
-        "server_unreachable": "❌ Serveur injoignable",
-        "monetag_failed_twice": "Terminez d'abord deux tentatives Monetag échouées.",
-        "monetag_fallback_prompt": "🌐 Monetag a échoué deux fois. Continuez avec Adsterra:",
-        "adsterra_ready": "Solution de repli Adsterra prête",
-        "finish_monetag": "📺 Terminez la pub Monetag dans la Mini App, puis vérifiez à nouveau.",
-        "monetag_failed_use_adsterra": "Monetag a échoué deux fois. Utilisez la solution de repli Adsterra ci-dessous.",
-        "ad_link_expired": "Lien publicitaire expiré. Envoyez votre lien à nouveau.",
-        "ad_verified_added": "✅ Pub vérifiée! +{} ajouté",
-        "test_ad_completed": "✅ PUB DE TEST VÉRIFIÉE\nRécompense créditée: +{} téléchargement.",
-        "sponsor_viewed": "✅ Sponsor vu! +{} ajouté",
-        "refilled_send_again": "✅ Rechargé +{}! Envoyez votre lien à nouveau.",
-        "queued": "⏳ En file d'attente #{}",
-        "banned": "🚫 Vous êtes banni.",
-        "no_links": "❌ Aucun lien trouvé.",
-        "batch_count": "📦 Lot {} liens",
-        "restore_invalid_json": "❌ Échec de la restauration: **{}** n'est pas un JSON valide.",
-        "restore_failed": "❌ Échec de la restauration: {}",
-        "restore_success": "✅ **Restauration Réussie!**\nFichier: **{}**\nRestaurées **{}** entrées.",
-        "admin_edit_welcome_prompt": "✏️ Envoyez le nouveau Message de Bienvenue. Utilisez `{bot_name}` pour le nom d'utilisateur.",
-        "admin_welcome_updated": "✅ Message de bienvenue mis à jour!",
-        "menu_edit_welcome": "✏️ Modifier le Message de Bienvenue",
-        "cached_instant_video": "⚡ Cache Instantané [{}] {} {}",
-        "cached_instant_audio": "⚡ **Cache Instantané** `{}`",
-        "cached_instant_image": "⚡ **Cache Instantané** `{}`",
-        "auto_delete_9m": "⏳ Auto-suppression dans 9 mins",
-        "download_success": "✅ Téléchargement réussi !"
+        "checking_vault": "VÃ©rification du coffre et de la charge du serveur...",
+        "server_busy": "â³ **Serveur OccupÃ©**\nActifs: {}/{}\nLibre: {} Mo\nFile d'attente: #{}\nDÃ©marrage auto!",
+        "simulated": "ðŸ›  SimulÃ©! Appuyez maintenant sur VÃ©rifier et Obtenir +1",
+        "server_unreachable": "âŒ Serveur injoignable",
+        "monetag_failed_twice": "Terminez d'abord deux tentatives Monetag Ã©chouÃ©es.",
+        "monetag_fallback_prompt": "ðŸŒ Monetag a Ã©chouÃ© deux fois. Continuez avec Adsterra:",
+        "adsterra_ready": "Solution de repli Adsterra prÃªte",
+        "finish_monetag": "ðŸ“º Terminez la pub Monetag dans la Mini App, puis vÃ©rifiez Ã  nouveau.",
+        "monetag_failed_use_adsterra": "Monetag a Ã©chouÃ© deux fois. Utilisez la solution de repli Adsterra ci-dessous.",
+        "ad_link_expired": "Lien publicitaire expirÃ©. Envoyez votre lien Ã  nouveau.",
+        "ad_verified_added": "âœ… Pub vÃ©rifiÃ©e! +{} ajoutÃ©",
+        "test_ad_completed": "âœ… PUB DE TEST VÃ‰RIFIÃ‰E\nRÃ©compense crÃ©ditÃ©e: +{} tÃ©lÃ©chargement.",
+        "sponsor_viewed": "âœ… Sponsor vu! +{} ajoutÃ©",
+        "refilled_send_again": "âœ… RechargÃ© +{}! Envoyez votre lien Ã  nouveau.",
+        "queued": "â³ En file d'attente #{}",
+        "banned": "ðŸš« Vous Ãªtes banni.",
+        "no_links": "âŒ Aucun lien trouvÃ©.",
+        "batch_count": "ðŸ“¦ Lot {} liens",
+        "restore_invalid_json": "âŒ Ã‰chec de la restauration: **{}** n'est pas un JSON valide.",
+        "restore_failed": "âŒ Ã‰chec de la restauration: {}",
+        "restore_success": "âœ… **Restauration RÃ©ussie!**\nFichier: **{}**\nRestaurÃ©es **{}** entrÃ©es.",
+        "admin_edit_welcome_prompt": "âœï¸ Envoyez le nouveau Message de Bienvenue. Utilisez `{bot_name}` pour le nom d'utilisateur.",
+        "admin_welcome_updated": "âœ… Message de bienvenue mis Ã  jour!",
+        "menu_edit_welcome": "âœï¸ Modifier le Message de Bienvenue",
+        "cached_instant_video": "âš¡ Cache InstantanÃ© [{}] {} {}",
+        "cached_instant_audio": "âš¡ **Cache InstantanÃ©** `{}`",
+        "cached_instant_image": "âš¡ **Cache InstantanÃ©** `{}`",
+        "auto_delete_9m": "â³ Auto-suppression dans 9 mins",
+        "download_success": "âœ… TÃ©lÃ©chargement rÃ©ussi !"
     },
     "tr": {
-        "welcome": "🚀 **MICHAELBBC VAULT'A HOŞGELDİNİZ - TAM MEDYA İNDİRİCİ!**\n\n🔥 NE YAPABİLİRİM:\n🎬 VİDEOLAR HD Filigransız!\n🎵 SES MP3 192kbps!\n🖼️ GÖRSELLER Tam Çekim!\n📝 ALTYAZILAR Oto!\n📦 TOPLU 100+ Bağlantı!\n⚡ ÖNBELLEK 1 Sn!\n💎 KASA Sonsuza Kadar!\n📤 DOSYA YÜKLE!\n🔗 DOSYADAN-LİNKE: Paylaşılabilir bağlantılar oluşturun!\n\n👉 BAŞLAMAK İÇİN BAĞLANTI YAPIŞTIRIN! 👇",
-        "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Ses (MP3)", "btn_image": "🖼️ Görseller", "btn_sub": "📝 Altyazılar (SRT)",
-        "ask_format": "👇 **HARİKA! Hangi formatı istiyorsunuz? Aşağıdan seçin!**",
-        "fetching": "📥 **{} getiriliyor... Bekleyin! ⏳✨**",
-        "error_generic": "❌ Oops! Başarısız! 😢 Bağlantı özel/engelli. Halka açık bir bağlantı deneyin!",
-        "error_50mb": "❌ Çok büyük! 😅 Bu video 300MB'ı aşıyor. Daha kısa bir tane deneyin!", 
-        "error_no_img": "❌ Görsel bulunamadı! 😢 Başka bir bağlantı deneyin!",
-        "images_received": "⏳ **{} Görsel alındı.**",
-        "select_lang": "🌍 Dilinizi seçin! Aşağıdan seçin! 👇", 
-        "lang_set": "✅ Dil ayarlandı! Keyfini çıkarın! 🎉✨",
-        "batch_detected": "📦 **Toplu İşlem Algılandı ({} bağlantı)**\nHangi format?",
-        "batch_dest": "📦 **Nereye gönderilsin?**",
-        "btn_chat": "📥 Sohbette", "btn_chan": "📢 Kanala",
-        "limit_reached": "⚠️ **Limit Aşıldı!** 4 ÜCRETSİZ kullandınız! 20 sn reklam izleyin → +1 indirme kazanın!",
-        "refill_btn": "🔓 Bağlantıyı Aç ve +1 Doldur",
-        "join_btn": "📢 Kanala Katıl", "check_btn": "💜 Bakiyeyi Kontrol Et",
-        "limit_batch": "⚠️ **Toplu İşlem Limiti {}/{}'de Aşıldı**\n20 sn reklam izleyin → devam etmek için +1 indirme.",
-        "batch_start": "📦 **Toplu İşlem Başladı:** {} **{} dosya**\n⏳ İşleniyor...",
-        "batch_done": "🏁 **Bitti!** ✅ {} ❌ {}\n📥 Burada {} dosya var.",
-        "batch_done_chan": "🏁 **Bitti!** ✅ {} ❌ {}\n📢 {} dosya iletildi!",
-        "dl_video": "📥 Video indiriliyor...", "dl_audio": "📥 Ses çıkarılıyor...", "dl_image": "📥 Görseller çekiliyor...", "dl_sub": "📥 Altyazılar getiriliyor...",
-        "failed_50": "❌ >300MB", "failed_blocked": "❌ Engelli/özel", "failed_generic": "❌ Başarısız",
-        "menu_lang": "🌍 Dil", "menu_stats": "📊 İstatistiklerim", "menu_help": "💬 Destek / SSS", "menu_join": "📢 Kanala Katıl",
-        "menu_uploads": "🍿 Hayran Yüklemeleri", "menu_upload": "📤 Dosya Yükle",
-        "admin_upload_prompt": "📂 **Hayran Yüklemeleri Gelen Kutusu**",
-        "user_upload_prompt": "📤 **Dosya Yükle**\nYöneticiye video/görsel/dosya gönderin. Limit 5/24s.",
-        "upload_success_user": "✅ Yöneticiye gönderildi!",
-        "upload_limit_reached": "⚠️ 5/24s yükleme limitine ulaşıldı.",
-        "no_uploads": "📭 Henüz yükleme yok.",
-        "stats_msg": "📊 **İstatistikleriniz:**\n• Kalan İndirme: {}\n• Kalan Toplu İşlem: {}",
-        "change_channel_prompt": "🔄 **Toplu İşlem Kanalını Değiştir**\n1. Yeni kanalda yönetici olduğumdan emin olun.\n2. O kanaldan herhangi bir mesajı buraya iletin.",
-        "disk_config_prompt": "💾 **Disk Yapılandırması**\nMevcut min boş disk: **{}MB**\nDeğiştirmek için: `/setdisk <değer>`",
-        "mtproto_config_prompt": "⚡ **MTProto Yapılandırması**\nMevcut max yükleme: **{}MB**\nDeğiştirmek için: `/setmtproto <değer>`",
-        "free_panel_prompt": "📦 ÜCRETSİZ İNDİRMELER\nGünlük mevcut ücretsiz: {}",
-        "reward_panel_prompt": "🎁 ÖDÜL PANELİ\nMevcut: 20 sn reklam başına +{} indirme",
-        "ad_panel_prompt": "⚙️ Reklam Paneli\nMevcut: {}",
-        "password_saved": "🔐 Şifre kaydedildi.",
-        "password_too_long": "Şifre 64 karakter veya daha az olmalıdır.",
-        "file_to_link_prompt": "🔗 **Dosyadan-Link**\nPaylaşmak istediğiniz dosya(ları) gönderin.",
-        "link_invalid_expired": "❌ Bu bağlantı geçersiz veya süresi dolmuş.",
-        "link_limit_reached": "⛔ Bu bağlantı kullanım limitine ulaştı.",
-        "link_password_protected": "🔐 Bu bağlantı şifre korumalıdır. Şifreyi gönderin.",
-        "files_sent": "✅ Dosyalarınız gönderildi.",
-        "file_added": "📥 Dosya #{} eklendi. Daha fazla gönderin veya Bağlantı Oluştur'a dokunun.",
+        "welcome": "ðŸš€ **MICHAELBBC VAULT'A HOÅžGELDÄ°NÄ°Z - TAM MEDYA Ä°NDÄ°RÄ°CÄ°!**\n\nðŸ”¥ NE YAPABÄ°LÄ°RÄ°M:\nðŸŽ¬ VÄ°DEOLAR HD FiligransÄ±z!\nðŸŽµ SES MP3 192kbps!\nðŸ–¼ï¸ GÃ–RSELLER Tam Ã‡ekim!\nðŸ“ ALTYAZILAR Oto!\nðŸ“¦ TOPLU 100+ BaÄŸlantÄ±!\nâš¡ Ã–NBELLEK 1 Sn!\nðŸ’Ž KASA Sonsuza Kadar!\nðŸ“¤ DOSYA YÃœKLE!\nðŸ”— DOSYADAN-LÄ°NKE: PaylaÅŸÄ±labilir baÄŸlantÄ±lar oluÅŸturun!\n\nðŸ‘‰ BAÅžLAMAK Ä°Ã‡Ä°N BAÄžLANTI YAPIÅžTIRIN! ðŸ‘‡",
+        "btn_video": "ðŸŽ¬ Video (MP4)", "btn_audio": "ðŸŽµ Ses (MP3)", "btn_image": "ðŸ–¼ï¸ GÃ¶rseller", "btn_sub": "ðŸ“ AltyazÄ±lar (SRT)",
+        "ask_format": "ðŸ‘‡ **HARÄ°KA! Hangi formatÄ± istiyorsunuz? AÅŸaÄŸÄ±dan seÃ§in!**",
+        "fetching": "ðŸ“¥ **{} getiriliyor... Bekleyin! â³âœ¨**",
+        "error_generic": "âŒ Oops! BaÅŸarÄ±sÄ±z! ðŸ˜¢ BaÄŸlantÄ± Ã¶zel/engelli. Halka aÃ§Ä±k bir baÄŸlantÄ± deneyin!",
+        "error_50mb": "âŒ Ã‡ok bÃ¼yÃ¼k! ðŸ˜… Bu video 300MB'Ä± aÅŸÄ±yor. Daha kÄ±sa bir tane deneyin!", 
+        "error_no_img": "âŒ GÃ¶rsel bulunamadÄ±! ðŸ˜¢ BaÅŸka bir baÄŸlantÄ± deneyin!",
+        "images_received": "â³ **{} GÃ¶rsel alÄ±ndÄ±.**",
+        "select_lang": "ðŸŒ Dilinizi seÃ§in! AÅŸaÄŸÄ±dan seÃ§in! ðŸ‘‡", 
+        "lang_set": "âœ… Dil ayarlandÄ±! Keyfini Ã§Ä±karÄ±n! ðŸŽ‰âœ¨",
+        "batch_detected": "ðŸ“¦ **Toplu Ä°ÅŸlem AlgÄ±landÄ± ({} baÄŸlantÄ±)**\nHangi format?",
+        "batch_dest": "ðŸ“¦ **Nereye gÃ¶nderilsin?**",
+        "btn_chat": "ðŸ“¥ Sohbette", "btn_chan": "ðŸ“¢ Kanala",
+        "limit_reached": "âš ï¸ **Limit AÅŸÄ±ldÄ±!** 4 ÃœCRETSÄ°Z kullandÄ±nÄ±z! 20 sn reklam izleyin â†’ +1 indirme kazanÄ±n!",
+        "refill_btn": "ðŸ”“ BaÄŸlantÄ±yÄ± AÃ§ ve +1 Doldur",
+        "join_btn": "ðŸ“¢ Kanala KatÄ±l", "check_btn": "ðŸ’œ Bakiyeyi Kontrol Et",
+        "limit_batch": "âš ï¸ **Toplu Ä°ÅŸlem Limiti {}/{}'de AÅŸÄ±ldÄ±**\n20 sn reklam izleyin â†’ devam etmek iÃ§in +1 indirme.",
+        "batch_start": "ðŸ“¦ **Toplu Ä°ÅŸlem BaÅŸladÄ±:** {} **{} dosya**\nâ³ Ä°ÅŸleniyor...",
+        "batch_done": "ðŸ **Bitti!** âœ… {} âŒ {}\nðŸ“¥ Burada {} dosya var.",
+        "batch_done_chan": "ðŸ **Bitti!** âœ… {} âŒ {}\nðŸ“¢ {} dosya iletildi!",
+        "dl_video": "ðŸ“¥ Video indiriliyor...", "dl_audio": "ðŸ“¥ Ses Ã§Ä±karÄ±lÄ±yor...", "dl_image": "ðŸ“¥ GÃ¶rseller Ã§ekiliyor...", "dl_sub": "ðŸ“¥ AltyazÄ±lar getiriliyor...",
+        "failed_50": "âŒ >300MB", "failed_blocked": "âŒ Engelli/Ã¶zel", "failed_generic": "âŒ BaÅŸarÄ±sÄ±z",
+        "menu_lang": "ðŸŒ Dil", "menu_stats": "ðŸ“Š Ä°statistiklerim", "menu_help": "ðŸ’¬ Destek / SSS", "menu_join": "ðŸ“¢ Kanala KatÄ±l",
+        "menu_uploads": "ðŸ¿ Hayran YÃ¼klemeleri", "menu_upload": "ðŸ“¤ Dosya YÃ¼kle",
+        "admin_upload_prompt": "ðŸ“‚ **Hayran YÃ¼klemeleri Gelen Kutusu**",
+        "user_upload_prompt": "ðŸ“¤ **Dosya YÃ¼kle**\nYÃ¶neticiye video/gÃ¶rsel/dosya gÃ¶nderin. Limit 5/24s.",
+        "upload_success_user": "âœ… YÃ¶neticiye gÃ¶nderildi!",
+        "upload_limit_reached": "âš ï¸ 5/24s yÃ¼kleme limitine ulaÅŸÄ±ldÄ±.",
+        "no_uploads": "ðŸ“­ HenÃ¼z yÃ¼kleme yok.",
+        "stats_msg": "ðŸ“Š **Ä°statistikleriniz:**\nâ€¢ Kalan Ä°ndirme: {}\nâ€¢ Kalan Toplu Ä°ÅŸlem: {}",
+        "change_channel_prompt": "ðŸ”„ **Toplu Ä°ÅŸlem KanalÄ±nÄ± DeÄŸiÅŸtir**\n1. Yeni kanalda yÃ¶netici olduÄŸumdan emin olun.\n2. O kanaldan herhangi bir mesajÄ± buraya iletin.",
+        "disk_config_prompt": "ðŸ’¾ **Disk YapÄ±landÄ±rmasÄ±**\nMevcut min boÅŸ disk: **{}MB**\nDeÄŸiÅŸtirmek iÃ§in: `/setdisk <deÄŸer>`",
+        "mtproto_config_prompt": "âš¡ **MTProto YapÄ±landÄ±rmasÄ±**\nMevcut max yÃ¼kleme: **{}MB**\nDeÄŸiÅŸtirmek iÃ§in: `/setmtproto <deÄŸer>`",
+        "free_panel_prompt": "ðŸ“¦ ÃœCRETSÄ°Z Ä°NDÄ°RMELER\nGÃ¼nlÃ¼k mevcut Ã¼cretsiz: {}",
+        "reward_panel_prompt": "ðŸŽ Ã–DÃœL PANELÄ°\nMevcut: 20 sn reklam baÅŸÄ±na +{} indirme",
+        "ad_panel_prompt": "âš™ï¸ Reklam Paneli\nMevcut: {}",
+        "password_saved": "ðŸ” Åžifre kaydedildi.",
+        "password_too_long": "Åžifre 64 karakter veya daha az olmalÄ±dÄ±r.",
+        "file_to_link_prompt": "ðŸ”— **Dosyadan-Link**\nPaylaÅŸmak istediÄŸiniz dosya(larÄ±) gÃ¶nderin.",
+        "link_invalid_expired": "âŒ Bu baÄŸlantÄ± geÃ§ersiz veya sÃ¼resi dolmuÅŸ.",
+        "link_limit_reached": "â›” Bu baÄŸlantÄ± kullanÄ±m limitine ulaÅŸtÄ±.",
+        "link_password_protected": "ðŸ” Bu baÄŸlantÄ± ÅŸifre korumalÄ±dÄ±r. Åžifreyi gÃ¶nderin.",
+        "files_sent": "âœ… DosyalarÄ±nÄ±z gÃ¶nderildi.",
+        "file_added": "ðŸ“¥ Dosya #{} eklendi. Daha fazla gÃ¶nderin veya BaÄŸlantÄ± OluÅŸtur'a dokunun.",
         "fl_cancelled": "Dosyadan-Link iptal edildi",
-        "fl_start_again": "/filetolink ile Dosyadan-Link'i yeniden başlatın",
-        "fl_choose_expiry": "Bağlantı sona erme süresini seçin:",
-        "fl_expiry_updated": "Sona erme güncellendi",
-        "fl_choose_max_uses": "Maksimum başarılı teslimat sayısını seçin:",
-        "fl_uses_updated": "Kullanım limiti güncellendi",
-        "fl_set_password": "Bir şifre gönderin veya kaldırmak için /clearpassword gönderin.",
-        "fl_link_created": "Bağlantı oluşturuldu",
-        "fl_link_ready": "🔗 Bağlantınız hazır:\n{}\nDosyalar: {}\nMaliyet: 1 ücretsiz günlük indirme",
-        "fl_daily_limit": "Günlük ücretsiz limite ulaşıldı. Daha fazlasını kazanmak için reklam izleyin.",
-        "fl_ad_busy": "⚠️ Reklam sunucusu meşgul.",
-        "admin_skipped": "✅ Atlandı!",
-        "admin_bypassed": "✅ Atlatıldı",
-        "free_set": "✅ Ücretsiz {} olarak ayarlandı!",
-        "free_updated": "✅ Ücretsiz İndirmeler {} olarak güncellendi!",
-        "reward_set": "✅ Ödül +{} olarak ayarlandı!",
-        "reward_updated": "✅ Ödül +{} olarak güncellendi!",
-        "mode_updated": "✅ Mod: {}",
-        "support_opened": "✍️ Aşağıya mesaj/fotoğraf/video/dosya gönderin.",
-        "admin_reply_mode": "✍️ {} kişisine yanıt ver:",
-        "user_reply_mode": "✍️ Aşağıya takip mesajı yazın",
-        "support_closed": "🔒 Kapatıldı",
-        "drop_cancelled": "❌ İptal edildi",
-        "drop_no_items": "⚠️ Öğe yok!",
-        "drop_timer_set": "{} ayarlandı!",
-        "drop_broadcasting": "🚀 {} öğe {} kişisine yayınlanıyor...",
-        "drop_flash_text": "🚨 FLASH DROP!\n{} içinde otomatik silinir\nTalep etmek için dokunun:",
-        "drop_done": "✅ {} kişisine yayın tamamlandı",
-        "age_expired": "⏳ Süresi doldu!",
-        "age_claimed": "❌ Zaten talep edildi!",
-        "age_verified": "Doğrulandı!",
-        "age_denied": "❌ Reddedildi. 18+ olmalı",
-        "lang_updated": "Güncellendi!",
-        "batch_expired": "Süresi doldu",
-        "batch_loading": "Yükleniyor...",
-        "batch_no_channel": "Bağlı kanal yok!",
-        "batch_setup_prompt": "📦 Kurulum: Botu kanalda yönetici yapın ve buraya bir mesaj iletin",
-        "batch_mode_activated": "Mod etkinleştirildi!",
-        "batch_change_dest": "🔄 **Hedef Kanalı Değiştir**\nBotu yeni kanalda yönetici yapın, ardından buraya bir mesaj iletin.",
-        "join_channel_first_alert": "Önce kanala katılın! 📢 Katılmalısınız!",
-        "join_channel_first": "Önce kanala katılın! 📢",
-        "watch_timer_first": "⏰ Önce bağlantıyı açın ve 20 sn'lik zamanlayıcıyı izleyin!",
-        "test_ad_verified": "✅ Test Reklamı Doğrulandı! +1",
-        "test_ad_verified_msg": "✅ **TEST REKLAMI DOĞRULANDI!**\nÖdül: +1 indirme dolduruldu!",
-        "finish_timer_first": "⏰ Önce 20 sn'lik zamanlayıcıyı tamamlayın!",
-        "verified_added": "Doğrulandı! +1 eklendi",
-        "resume_prompt": "✅ Doğrulandı! +1 dolduruldu. Devam edilsin mi?",
-        "refilled_download": "✅ +1 dolduruldu! Tekrar indirin.",
-        "fetching_bundle": "✅ Doğrulandı! Paket getiriliyor...",
-        "outdated_button": "Bu düğme güncel değil. Bağlantınızı tekrar gönderin.",
+        "fl_start_again": "/filetolink ile Dosyadan-Link'i yeniden baÅŸlatÄ±n",
+        "fl_choose_expiry": "BaÄŸlantÄ± sona erme sÃ¼resini seÃ§in:",
+        "fl_expiry_updated": "Sona erme gÃ¼ncellendi",
+        "fl_choose_max_uses": "Maksimum baÅŸarÄ±lÄ± teslimat sayÄ±sÄ±nÄ± seÃ§in:",
+        "fl_uses_updated": "KullanÄ±m limiti gÃ¼ncellendi",
+        "fl_set_password": "Bir ÅŸifre gÃ¶nderin veya kaldÄ±rmak iÃ§in /clearpassword gÃ¶nderin.",
+        "fl_link_created": "BaÄŸlantÄ± oluÅŸturuldu",
+        "fl_link_ready": "ðŸ”— BaÄŸlantÄ±nÄ±z hazÄ±r:\n{}\nDosyalar: {}\nMaliyet: 1 Ã¼cretsiz gÃ¼nlÃ¼k indirme",
+        "fl_daily_limit": "GÃ¼nlÃ¼k Ã¼cretsiz limite ulaÅŸÄ±ldÄ±. Daha fazlasÄ±nÄ± kazanmak iÃ§in reklam izleyin.",
+        "fl_ad_busy": "âš ï¸ Reklam sunucusu meÅŸgul.",
+        "admin_skipped": "âœ… AtlandÄ±!",
+        "admin_bypassed": "âœ… AtlatÄ±ldÄ±",
+        "free_set": "âœ… Ãœcretsiz {} olarak ayarlandÄ±!",
+        "free_updated": "âœ… Ãœcretsiz Ä°ndirmeler {} olarak gÃ¼ncellendi!",
+        "reward_set": "âœ… Ã–dÃ¼l +{} olarak ayarlandÄ±!",
+        "reward_updated": "âœ… Ã–dÃ¼l +{} olarak gÃ¼ncellendi!",
+        "mode_updated": "âœ… Mod: {}",
+        "support_opened": "âœï¸ AÅŸaÄŸÄ±ya mesaj/fotoÄŸraf/video/dosya gÃ¶nderin.",
+        "admin_reply_mode": "âœï¸ {} kiÅŸisine yanÄ±t ver:",
+        "user_reply_mode": "âœï¸ AÅŸaÄŸÄ±ya takip mesajÄ± yazÄ±n",
+        "support_closed": "ðŸ”’ KapatÄ±ldÄ±",
+        "drop_cancelled": "âŒ Ä°ptal edildi",
+        "drop_no_items": "âš ï¸ Ã–ÄŸe yok!",
+        "drop_timer_set": "{} ayarlandÄ±!",
+        "drop_broadcasting": "ðŸš€ {} Ã¶ÄŸe {} kiÅŸisine yayÄ±nlanÄ±yor...",
+        "drop_flash_text": "ðŸš¨ FLASH DROP!\n{} iÃ§inde otomatik silinir\nTalep etmek iÃ§in dokunun:",
+        "drop_done": "âœ… {} kiÅŸisine yayÄ±n tamamlandÄ±",
+        "age_expired": "â³ SÃ¼resi doldu!",
+        "age_claimed": "âŒ Zaten talep edildi!",
+        "age_verified": "DoÄŸrulandÄ±!",
+        "age_denied": "âŒ Reddedildi. 18+ olmalÄ±",
+        "lang_updated": "GÃ¼ncellendi!",
+        "batch_expired": "SÃ¼resi doldu",
+        "batch_loading": "YÃ¼kleniyor...",
+        "batch_no_channel": "BaÄŸlÄ± kanal yok!",
+        "batch_setup_prompt": "ðŸ“¦ Kurulum: Botu kanalda yÃ¶netici yapÄ±n ve buraya bir mesaj iletin",
+        "batch_mode_activated": "Mod etkinleÅŸtirildi!",
+        "batch_change_dest": "ðŸ”„ **Hedef KanalÄ± DeÄŸiÅŸtir**\nBotu yeni kanalda yÃ¶netici yapÄ±n, ardÄ±ndan buraya bir mesaj iletin.",
+        "join_channel_first_alert": "Ã–nce kanala katÄ±lÄ±n! ðŸ“¢ KatÄ±lmalÄ±sÄ±nÄ±z!",
+        "join_channel_first": "Ã–nce kanala katÄ±lÄ±n! ðŸ“¢",
+        "watch_timer_first": "â° Ã–nce baÄŸlantÄ±yÄ± aÃ§Ä±n ve 20 sn'lik zamanlayÄ±cÄ±yÄ± izleyin!",
+        "test_ad_verified": "âœ… Test ReklamÄ± DoÄŸrulandÄ±! +1",
+        "test_ad_verified_msg": "âœ… **TEST REKLAMI DOÄžRULANDI!**\nÃ–dÃ¼l: +1 indirme dolduruldu!",
+        "finish_timer_first": "â° Ã–nce 20 sn'lik zamanlayÄ±cÄ±yÄ± tamamlayÄ±n!",
+        "verified_added": "DoÄŸrulandÄ±! +1 eklendi",
+        "resume_prompt": "âœ… DoÄŸrulandÄ±! +1 dolduruldu. Devam edilsin mi?",
+        "refilled_download": "âœ… +1 dolduruldu! Tekrar indirin.",
+        "fetching_bundle": "âœ… DoÄŸrulandÄ±! Paket getiriliyor...",
+        "outdated_button": "Bu dÃ¼ÄŸme gÃ¼ncel deÄŸil. BaÄŸlantÄ±nÄ±zÄ± tekrar gÃ¶nderin.",
         "stopping": "Durduruluyor...",
-        "stopped": "🛑 Durduruldu",
+        "stopped": "ðŸ›‘ Durduruldu",
         "resuming": "Devam ediliyor...",
-        "checking_vault": "Kasa ve sunucu yükü kontrol ediliyor...",
-        "server_busy": "⏳ **Sunucu Meşgul**\nAktif: {}/{}\nBoş: {}MB\nKuyruk: #{}\nOtomatik başlayacak!",
-        "simulated": "🛠 Simüle edildi! Şimdi Kontrol Et ve +1 Al'a dokunun",
-        "server_unreachable": "❌ Sunucuya ulaşılamıyor",
-        "monetag_failed_twice": "Önce iki başarısız Monetag denemesini tamamlayın.",
-        "monetag_fallback_prompt": "🌐 Monetag iki kez başarısız oldu. Adsterra ile devam edin:",
-        "adsterra_ready": "Adsterra yedeklemesi hazır",
-        "finish_monetag": "📺 Mini Uygulama'da Monetag reklamını tamamlayın, sonra tekrar kontrol edin.",
-        "monetag_failed_use_adsterra": "Monetag iki kez başarısız oldu. Aşağıdaki Adsterra yedeklemesini kullanın.",
-        "ad_link_expired": "Reklam bağlantısının süresi doldu. Bağlantınızı tekrar gönderin.",
-        "ad_verified_added": "✅ Reklam doğrulandı! +{} eklendi",
-        "test_ad_completed": "✅ TEST REKLAMI DOĞRULANDI\nÖdül yatırıldı: +{} indirme.",
-        "sponsor_viewed": "✅ Sponsor görüntülendi! +{} eklendi",
-        "refilled_send_again": "✅ +{} dolduruldu! Bağlantınızı tekrar gönderin.",
-        "queued": "⏳ Kuyrukta #{}",
-        "banned": "🚫 Yasaklandınız.",
-        "no_links": "❌ Bağlantı bulunamadı.",
-        "batch_count": "📦 Toplu {} bağlantı",
-        "restore_invalid_json": "❌ Geri yükleme başarısız: **{}** geçerli bir JSON değil.",
-        "restore_failed": "❌ Geri yükleme başarısız: {}",
-        "restore_success": "✅ **Geri Yükleme Başarılı!**\nDosya: **{}**\n**{}** girdi geri yüklendi.",
-        "admin_edit_welcome_prompt": "✏️ Yeni Karşılama Mesajını gönderin. Bot kullanıcı adı için `{bot_name}` kullanın.",
-        "admin_welcome_updated": "✅ Karşılama mesajı güncellendi!",
-        "menu_edit_welcome": "✏️ Karşılama Mesajını Düzenle",
-        "cached_instant_video": "⚡ Anında Önbellek [{}] {} {}",
-        "cached_instant_audio": "⚡ **Anında Önbellek** `{}`",
-        "cached_instant_image": "⚡ **Anında Önbellek** `{}`",
-        "auto_delete_9m": "⏳ 9 dakikada otomatik silinir",
-        "download_success": "✅ İndirme başarılı!"
+        "checking_vault": "Kasa ve sunucu yÃ¼kÃ¼ kontrol ediliyor...",
+        "server_busy": "â³ **Sunucu MeÅŸgul**\nAktif: {}/{}\nBoÅŸ: {}MB\nKuyruk: #{}\nOtomatik baÅŸlayacak!",
+        "simulated": "ðŸ›  SimÃ¼le edildi! Åžimdi Kontrol Et ve +1 Al'a dokunun",
+        "server_unreachable": "âŒ Sunucuya ulaÅŸÄ±lamÄ±yor",
+        "monetag_failed_twice": "Ã–nce iki baÅŸarÄ±sÄ±z Monetag denemesini tamamlayÄ±n.",
+        "monetag_fallback_prompt": "ðŸŒ Monetag iki kez baÅŸarÄ±sÄ±z oldu. Adsterra ile devam edin:",
+        "adsterra_ready": "Adsterra yedeklemesi hazÄ±r",
+        "finish_monetag": "ðŸ“º Mini Uygulama'da Monetag reklamÄ±nÄ± tamamlayÄ±n, sonra tekrar kontrol edin.",
+        "monetag_failed_use_adsterra": "Monetag iki kez baÅŸarÄ±sÄ±z oldu. AÅŸaÄŸÄ±daki Adsterra yedeklemesini kullanÄ±n.",
+        "ad_link_expired": "Reklam baÄŸlantÄ±sÄ±nÄ±n sÃ¼resi doldu. BaÄŸlantÄ±nÄ±zÄ± tekrar gÃ¶nderin.",
+        "ad_verified_added": "âœ… Reklam doÄŸrulandÄ±! +{} eklendi",
+        "test_ad_completed": "âœ… TEST REKLAMI DOÄžRULANDI\nÃ–dÃ¼l yatÄ±rÄ±ldÄ±: +{} indirme.",
+        "sponsor_viewed": "âœ… Sponsor gÃ¶rÃ¼ntÃ¼lendi! +{} eklendi",
+        "refilled_send_again": "âœ… +{} dolduruldu! BaÄŸlantÄ±nÄ±zÄ± tekrar gÃ¶nderin.",
+        "queued": "â³ Kuyrukta #{}",
+        "banned": "ðŸš« YasaklandÄ±nÄ±z.",
+        "no_links": "âŒ BaÄŸlantÄ± bulunamadÄ±.",
+        "batch_count": "ðŸ“¦ Toplu {} baÄŸlantÄ±",
+        "restore_invalid_json": "âŒ Geri yÃ¼kleme baÅŸarÄ±sÄ±z: **{}** geÃ§erli bir JSON deÄŸil.",
+        "restore_failed": "âŒ Geri yÃ¼kleme baÅŸarÄ±sÄ±z: {}",
+        "restore_success": "âœ… **Geri YÃ¼kleme BaÅŸarÄ±lÄ±!**\nDosya: **{}**\n**{}** girdi geri yÃ¼klendi.",
+        "admin_edit_welcome_prompt": "âœï¸ Yeni KarÅŸÄ±lama MesajÄ±nÄ± gÃ¶nderin. Bot kullanÄ±cÄ± adÄ± iÃ§in `{bot_name}` kullanÄ±n.",
+        "admin_welcome_updated": "âœ… KarÅŸÄ±lama mesajÄ± gÃ¼ncellendi!",
+        "menu_edit_welcome": "âœï¸ KarÅŸÄ±lama MesajÄ±nÄ± DÃ¼zenle",
+        "cached_instant_video": "âš¡ AnÄ±nda Ã–nbellek [{}] {} {}",
+        "cached_instant_audio": "âš¡ **AnÄ±nda Ã–nbellek** `{}`",
+        "cached_instant_image": "âš¡ **AnÄ±nda Ã–nbellek** `{}`",
+        "auto_delete_9m": "â³ 9 dakikada otomatik silinir",
+        "download_success": "âœ… Ä°ndirme baÅŸarÄ±lÄ±!"
     },
     "de": {
-        "welcome": "🚀 **WILLKOMMEN IM MICHAELBBC VAULT - ALL-IN-ONE MEDIA DOWNLOADER!**\n\n🔥 WAS ICH KANN:\n🎬 VIDEOS HD Ohne Wasserzeichen!\n🎵 AUDIO MP3 192kbps!\n🖼️ BILDER Komplett Extrahiert!\n📝 UNTERTITEL Auto!\n📦 STAPEL 100+ Links!\n⚡ CACHE 1 Sek!\n💎 TRESOR Für Immer!\n📤 DATEIEN HOCHLADEN!\n🔗 DATEI-ZU-LINK: Erstelle teilbare Links!\n\n👉 FÜGE EINEN LINK EIN, UM ZU STARTEN! 👇",
-        "btn_video": "🎬 Video (MP4)", "btn_audio": "🎵 Audio (MP3)", "btn_image": "🖼️ Bilder", "btn_sub": "📝 Untertitel (SRT)",
-        "ask_format": "👇 **TOLL! Welches Format möchtest du? Wähle unten!**",
-        "fetching": "📥 **Dein {} wird abgerufen... Warte kurz! ⏳✨**",
-        "error_generic": "❌ Oops! Fehlgeschlagen! 😢 Link privat/gesperrt. Versuche einen öffentlichen Link!",
-        "error_50mb": "❌ Zu groß! 😅 Dieses Video ist über 300MB. Versuche ein kürzeres!", 
-        "error_no_img": "❌ Keine Bilder gefunden! 😢 Versuche einen anderen Link!",
-        "images_received": "⏳ **{} Bilder erhalten.**",
-        "select_lang": "🌍 Wähle deine Sprache! Wähle unten! 👇", 
-        "lang_set": "✅ Sprache eingestellt! Viel Spaß! 🎉✨",
-        "batch_detected": "📦 **Stapel erkannt ({} Links)**\nWelches Format?",
-        "batch_dest": "📦 **Wohin senden?**",
-        "btn_chat": "📥 Im Chat", "btn_chan": "📢 An Kanal",
-        "limit_reached": "⚠️ **Limit erreicht!** Du hast 4 KOSTENLOSE genutzt! Schau 20s Werbung → Erhalte +1 Download!",
-        "refill_btn": "🔓 Link öffnen & +1 auffüllen",
-        "join_btn": "📢 Kanal beitreten", "check_btn": "💜 Guthaben prüfen",
-        "limit_batch": "⚠️ **Stapel-Limit bei {} von {} erreicht**\nSchau 20s Werbung → +1 Download um fortzufahren.",
-        "batch_start": "📦 **Stapel gestartet:** {} **{} Dateien**\n⏳ Wird verarbeitet...",
-        "batch_done": "🏁 **Fertig!** ✅ {} ❌ {}\n📥 {} Dateien hier.",
-        "batch_done_chan": "🏁 **Fertig!** ✅ {} ❌ {}\n📢 {} Dateien weitergeleitet!",
-        "dl_video": "📥 Video wird heruntergeladen...", "dl_audio": "📥 Audio wird extrahiert...", "dl_image": "📥 Bilder werden extrahiert...", "dl_sub": "📥 Untertitel werden abgerufen...",
-        "failed_50": "❌ >300MB", "failed_blocked": "❌ Gesperrt/privat", "failed_generic": "❌ Fehlgeschlagen",
-        "menu_lang": "🌍 Sprache", "menu_stats": "📊 Meine Statistiken", "menu_help": "💬 Support / FAQ", "menu_join": "📢 Kanal beitreten",
-        "menu_uploads": "🍿 Fan-Uploads", "menu_upload": "📤 Datei hochladen",
-        "admin_upload_prompt": "📂 **Fan-Uploads Posteingang**",
-        "user_upload_prompt": "📤 **Datei hochladen**\nSende Video/Bild/Datei an Admin. Limit 5/24h.",
-        "upload_success_user": "✅ An Admin gesendet!",
-        "upload_limit_reached": "⚠️ Upload-Limit 5/24h erreicht.",
-        "no_uploads": "📭 Noch keine Uploads.",
-        "stats_msg": "📊 **Deine Statistiken:**\n• Verbleibende Downloads: {}\n• Verbleibende Stapel: {}",
-        "change_channel_prompt": "🔄 **Stapel-Kanal ändern**\n1. Stelle sicher, dass ich im neuen Kanal Admin bin.\n2. Leite eine beliebige Nachricht aus diesem Kanal hierher weiter.",
-        "disk_config_prompt": "💾 **Speicher-Konfiguration**\nAktueller min. freier Speicher: **{}MB**\nZum Ändern: `/setdisk <wert>`",
-        "mtproto_config_prompt": "⚡ **MTProto-Konfiguration**\nAktueller max. Upload: **{}MB**\nZum Ändern: `/setmtproto <wert>`",
-        "free_panel_prompt": "📦 KOSTENLOSE DOWNLOADS\nAktuell kostenlos pro Tag: {}",
-        "reward_panel_prompt": "🎁 BELOHNUNGS-PANEL\nAktuell: +{} Download pro 20s Werbung",
-        "ad_panel_prompt": "⚙️ Werbe-Panel\nAktuell: {}",
-        "password_saved": "🔐 Passwort gespeichert.",
+        "welcome": "ðŸš€ **WILLKOMMEN IM MICHAELBBC VAULT - ALL-IN-ONE MEDIA DOWNLOADER!**\n\nðŸ”¥ WAS ICH KANN:\nðŸŽ¬ VIDEOS HD Ohne Wasserzeichen!\nðŸŽµ AUDIO MP3 192kbps!\nðŸ–¼ï¸ BILDER Komplett Extrahiert!\nðŸ“ UNTERTITEL Auto!\nðŸ“¦ STAPEL 100+ Links!\nâš¡ CACHE 1 Sek!\nðŸ’Ž TRESOR FÃ¼r Immer!\nðŸ“¤ DATEIEN HOCHLADEN!\nðŸ”— DATEI-ZU-LINK: Erstelle teilbare Links!\n\nðŸ‘‰ FÃœGE EINEN LINK EIN, UM ZU STARTEN! ðŸ‘‡",
+        "btn_video": "ðŸŽ¬ Video (MP4)", "btn_audio": "ðŸŽµ Audio (MP3)", "btn_image": "ðŸ–¼ï¸ Bilder", "btn_sub": "ðŸ“ Untertitel (SRT)",
+        "ask_format": "ðŸ‘‡ **TOLL! Welches Format mÃ¶chtest du? WÃ¤hle unten!**",
+        "fetching": "ðŸ“¥ **Dein {} wird abgerufen... Warte kurz! â³âœ¨**",
+        "error_generic": "âŒ Oops! Fehlgeschlagen! ðŸ˜¢ Link privat/gesperrt. Versuche einen Ã¶ffentlichen Link!",
+        "error_50mb": "âŒ Zu groÃŸ! ðŸ˜… Dieses Video ist Ã¼ber 300MB. Versuche ein kÃ¼rzeres!", 
+        "error_no_img": "âŒ Keine Bilder gefunden! ðŸ˜¢ Versuche einen anderen Link!",
+        "images_received": "â³ **{} Bilder erhalten.**",
+        "select_lang": "ðŸŒ WÃ¤hle deine Sprache! WÃ¤hle unten! ðŸ‘‡", 
+        "lang_set": "âœ… Sprache eingestellt! Viel SpaÃŸ! ðŸŽ‰âœ¨",
+        "batch_detected": "ðŸ“¦ **Stapel erkannt ({} Links)**\nWelches Format?",
+        "batch_dest": "ðŸ“¦ **Wohin senden?**",
+        "btn_chat": "ðŸ“¥ Im Chat", "btn_chan": "ðŸ“¢ An Kanal",
+        "limit_reached": "âš ï¸ **Limit erreicht!** Du hast 4 KOSTENLOSE genutzt! Schau 20s Werbung â†’ Erhalte +1 Download!",
+        "refill_btn": "ðŸ”“ Link Ã¶ffnen & +1 auffÃ¼llen",
+        "join_btn": "ðŸ“¢ Kanal beitreten", "check_btn": "ðŸ’œ Guthaben prÃ¼fen",
+        "limit_batch": "âš ï¸ **Stapel-Limit bei {} von {} erreicht**\nSchau 20s Werbung â†’ +1 Download um fortzufahren.",
+        "batch_start": "ðŸ“¦ **Stapel gestartet:** {} **{} Dateien**\nâ³ Wird verarbeitet...",
+        "batch_done": "ðŸ **Fertig!** âœ… {} âŒ {}\nðŸ“¥ {} Dateien hier.",
+        "batch_done_chan": "ðŸ **Fertig!** âœ… {} âŒ {}\nðŸ“¢ {} Dateien weitergeleitet!",
+        "dl_video": "ðŸ“¥ Video wird heruntergeladen...", "dl_audio": "ðŸ“¥ Audio wird extrahiert...", "dl_image": "ðŸ“¥ Bilder werden extrahiert...", "dl_sub": "ðŸ“¥ Untertitel werden abgerufen...",
+        "failed_50": "âŒ >300MB", "failed_blocked": "âŒ Gesperrt/privat", "failed_generic": "âŒ Fehlgeschlagen",
+        "menu_lang": "ðŸŒ Sprache", "menu_stats": "ðŸ“Š Meine Statistiken", "menu_help": "ðŸ’¬ Support / FAQ", "menu_join": "ðŸ“¢ Kanal beitreten",
+        "menu_uploads": "ðŸ¿ Fan-Uploads", "menu_upload": "ðŸ“¤ Datei hochladen",
+        "admin_upload_prompt": "ðŸ“‚ **Fan-Uploads Posteingang**",
+        "user_upload_prompt": "ðŸ“¤ **Datei hochladen**\nSende Video/Bild/Datei an Admin. Limit 5/24h.",
+        "upload_success_user": "âœ… An Admin gesendet!",
+        "upload_limit_reached": "âš ï¸ Upload-Limit 5/24h erreicht.",
+        "no_uploads": "ðŸ“­ Noch keine Uploads.",
+        "stats_msg": "ðŸ“Š **Deine Statistiken:**\nâ€¢ Verbleibende Downloads: {}\nâ€¢ Verbleibende Stapel: {}",
+        "change_channel_prompt": "ðŸ”„ **Stapel-Kanal Ã¤ndern**\n1. Stelle sicher, dass ich im neuen Kanal Admin bin.\n2. Leite eine beliebige Nachricht aus diesem Kanal hierher weiter.",
+        "disk_config_prompt": "ðŸ’¾ **Speicher-Konfiguration**\nAktueller min. freier Speicher: **{}MB**\nZum Ã„ndern: `/setdisk <wert>`",
+        "mtproto_config_prompt": "âš¡ **MTProto-Konfiguration**\nAktueller max. Upload: **{}MB**\nZum Ã„ndern: `/setmtproto <wert>`",
+        "free_panel_prompt": "ðŸ“¦ KOSTENLOSE DOWNLOADS\nAktuell kostenlos pro Tag: {}",
+        "reward_panel_prompt": "ðŸŽ BELOHNUNGS-PANEL\nAktuell: +{} Download pro 20s Werbung",
+        "ad_panel_prompt": "âš™ï¸ Werbe-Panel\nAktuell: {}",
+        "password_saved": "ðŸ” Passwort gespeichert.",
         "password_too_long": "Passwort muss 64 Zeichen oder weniger sein.",
-        "file_to_link_prompt": "🔗 **Datei-zu-Link**\nSende die Datei(en), die du teilen möchtest.",
-        "link_invalid_expired": "❌ Dieser Link ist ungültig oder abgelaufen.",
-        "link_limit_reached": "⛔ Dieser Link hat sein Nutzungslimit erreicht.",
-        "link_password_protected": "🔐 Dieser Link ist passwortgeschützt. Sende das Passwort.",
-        "files_sent": "✅ Deine Dateien wurden gesendet.",
-        "file_added": "📥 Datei #{} hinzugefügt. Sende mehr oder tippe auf Link erstellen.",
+        "file_to_link_prompt": "ðŸ”— **Datei-zu-Link**\nSende die Datei(en), die du teilen mÃ¶chtest.",
+        "link_invalid_expired": "âŒ Dieser Link ist ungÃ¼ltig oder abgelaufen.",
+        "link_limit_reached": "â›” Dieser Link hat sein Nutzungslimit erreicht.",
+        "link_password_protected": "ðŸ” Dieser Link ist passwortgeschÃ¼tzt. Sende das Passwort.",
+        "files_sent": "âœ… Deine Dateien wurden gesendet.",
+        "file_added": "ðŸ“¥ Datei #{} hinzugefÃ¼gt. Sende mehr oder tippe auf Link erstellen.",
         "fl_cancelled": "Datei-zu-Link abgebrochen",
         "fl_start_again": "Starte Datei-zu-Link neu mit /filetolink",
-        "fl_choose_expiry": "Wähle den Link-Ablauf:",
+        "fl_choose_expiry": "WÃ¤hle den Link-Ablauf:",
         "fl_expiry_updated": "Ablauf aktualisiert",
-        "fl_choose_max_uses": "Wähle max. erfolgreiche Zustellungen:",
+        "fl_choose_max_uses": "WÃ¤hle max. erfolgreiche Zustellungen:",
         "fl_uses_updated": "Nutzungslimit aktualisiert",
         "fl_set_password": "Sende ein Passwort oder /clearpassword zum Entfernen.",
         "fl_link_created": "Link erstellt",
-        "fl_link_ready": "🔗 Dein Link ist bereit:\n{}\nDateien: {}\nKosten: 1 kostenloser täglicher Download",
-        "fl_daily_limit": "Tägliches kostenloses Limit erreicht. Schau Werbung, um mehr zu verdienen.",
-        "fl_ad_busy": "⚠️ Werbeserver beschäftigt.",
-        "admin_skipped": "✅ Übersprungen!",
-        "admin_bypassed": "✅ Umgangen",
-        "free_set": "✅ Kostenlos auf {} gesetzt!",
-        "free_updated": "✅ Kostenlose Downloads auf {} aktualisiert!",
-        "reward_set": "✅ Belohnung auf +{} gesetzt!",
-        "reward_updated": "✅ Belohnung auf +{} aktualisiert!",
-        "mode_updated": "✅ Modus: {}",
-        "support_opened": "✍️ Sende Nachricht/Foto/Video/Datei unten.",
-        "admin_reply_mode": "✍️ Antworte an {}:",
-        "user_reply_mode": "✍️ Tippe die Fortsetzung unten",
-        "support_closed": "🔒 Geschlossen",
-        "drop_cancelled": "❌ Abgebrochen",
-        "drop_no_items": "⚠️ Keine Elemente!",
+        "fl_link_ready": "ðŸ”— Dein Link ist bereit:\n{}\nDateien: {}\nKosten: 1 kostenloser tÃ¤glicher Download",
+        "fl_daily_limit": "TÃ¤gliches kostenloses Limit erreicht. Schau Werbung, um mehr zu verdienen.",
+        "fl_ad_busy": "âš ï¸ Werbeserver beschÃ¤ftigt.",
+        "admin_skipped": "âœ… Ãœbersprungen!",
+        "admin_bypassed": "âœ… Umgangen",
+        "free_set": "âœ… Kostenlos auf {} gesetzt!",
+        "free_updated": "âœ… Kostenlose Downloads auf {} aktualisiert!",
+        "reward_set": "âœ… Belohnung auf +{} gesetzt!",
+        "reward_updated": "âœ… Belohnung auf +{} aktualisiert!",
+        "mode_updated": "âœ… Modus: {}",
+        "support_opened": "âœï¸ Sende Nachricht/Foto/Video/Datei unten.",
+        "admin_reply_mode": "âœï¸ Antworte an {}:",
+        "user_reply_mode": "âœï¸ Tippe die Fortsetzung unten",
+        "support_closed": "ðŸ”’ Geschlossen",
+        "drop_cancelled": "âŒ Abgebrochen",
+        "drop_no_items": "âš ï¸ Keine Elemente!",
         "drop_timer_set": "{} eingestellt!",
-        "drop_broadcasting": "🚡 Sende {} Elemente an {}...",
-        "drop_flash_text": "🚨 FLASH DROP!\nAutomatische Löschung in {}\nTippe zum Einlösen:",
-        "drop_done": "✅ Sendung abgeschlossen an {}",
-        "age_expired": "⏳ Abgelaufen!",
-        "age_claimed": "❌ Bereits eingelöst!",
+        "drop_broadcasting": "ðŸš¡ Sende {} Elemente an {}...",
+        "drop_flash_text": "ðŸš¨ FLASH DROP!\nAutomatische LÃ¶schung in {}\nTippe zum EinlÃ¶sen:",
+        "drop_done": "âœ… Sendung abgeschlossen an {}",
+        "age_expired": "â³ Abgelaufen!",
+        "age_claimed": "âŒ Bereits eingelÃ¶st!",
         "age_verified": "Verifiziert!",
-        "age_denied": "❌ Abgelehnt. Muss 18+ sein",
+        "age_denied": "âŒ Abgelehnt. Muss 18+ sein",
         "lang_updated": "Aktualisiert!",
         "batch_expired": "Abgelaufen",
         "batch_loading": "Wird geladen...",
-        "batch_no_channel": "Kein Kanal verknüpft!",
-        "batch_setup_prompt": "📦 Einrichtung: Mache den Bot im Kanal zum Admin und leite eine Nachricht hierher weiter",
+        "batch_no_channel": "Kein Kanal verknÃ¼pft!",
+        "batch_setup_prompt": "ðŸ“¦ Einrichtung: Mache den Bot im Kanal zum Admin und leite eine Nachricht hierher weiter",
         "batch_mode_activated": "Modus aktiviert!",
-        "batch_change_dest": "🔄 **Zielkanal ändern**\nMache den Bot im neuen Kanal zum Admin, dann leite eine Nachricht hierher weiter.",
-        "join_channel_first_alert": "Tritt zuerst dem Kanal bei! 📢 Muss beitreten!",
-        "join_channel_first": "Tritt zuerst dem Kanal bei! 📢",
-        "watch_timer_first": "⏰ Öffne zuerst den Link und schaue den 20s Timer!",
-        "test_ad_verified": "✅ Test-Werbung verifiziert! +1",
-        "test_ad_verified_msg": "✅ **TEST-WERBUNG VERIFIZIERT!**\nBelohnung: +1 Download aufgefüllt!",
-        "finish_timer_first": "⏰ Schließe zuerst den 20s Timer ab!",
-        "verified_added": "Verifiziert! +1 hinzugefügt",
-        "resume_prompt": "✅ Verifiziert! +1 aufgefüllt. Fortsetzen?",
-        "refilled_download": "✅ +1 aufgefüllt! Lade erneut herunter.",
-        "fetching_bundle": "✅ Verifiziert! Paket wird abgerufen...",
-        "outdated_button": "Diese Schaltfläche ist veraltet. Sende deinen Link erneut.",
+        "batch_change_dest": "ðŸ”„ **Zielkanal Ã¤ndern**\nMache den Bot im neuen Kanal zum Admin, dann leite eine Nachricht hierher weiter.",
+        "join_channel_first_alert": "Tritt zuerst dem Kanal bei! ðŸ“¢ Muss beitreten!",
+        "join_channel_first": "Tritt zuerst dem Kanal bei! ðŸ“¢",
+        "watch_timer_first": "â° Ã–ffne zuerst den Link und schaue den 20s Timer!",
+        "test_ad_verified": "âœ… Test-Werbung verifiziert! +1",
+        "test_ad_verified_msg": "âœ… **TEST-WERBUNG VERIFIZIERT!**\nBelohnung: +1 Download aufgefÃ¼llt!",
+        "finish_timer_first": "â° SchlieÃŸe zuerst den 20s Timer ab!",
+        "verified_added": "Verifiziert! +1 hinzugefÃ¼gt",
+        "resume_prompt": "âœ… Verifiziert! +1 aufgefÃ¼llt. Fortsetzen?",
+        "refilled_download": "âœ… +1 aufgefÃ¼llt! Lade erneut herunter.",
+        "fetching_bundle": "âœ… Verifiziert! Paket wird abgerufen...",
+        "outdated_button": "Diese SchaltflÃ¤che ist veraltet. Sende deinen Link erneut.",
         "stopping": "Wird gestoppt...",
-        "stopped": "🛑 Gestoppt",
+        "stopped": "ðŸ›‘ Gestoppt",
         "resuming": "Wird fortgesetzt...",
-        "checking_vault": "Tresor und Serverlast werden überprüft...",
-        "server_busy": "⏳ **Server beschäftigt**\nAktiv: {}/{}\nFrei: {}MB\nWarteschlange: #{}\nStartet automatisch!",
-        "simulated": "🛠 Simuliert! Tippe jetzt auf Prüfen & +1 erhalten",
-        "server_unreachable": "❌ Server nicht erreichbar",
-        "monetag_failed_twice": "Schließe zuerst zwei fehlgeschlagene Monetag-Versuche ab.",
-        "monetag_fallback_prompt": "🌐 Monetag ist zweimal fehlgeschlagen. Mit Adsterra fortfahren:",
+        "checking_vault": "Tresor und Serverlast werden Ã¼berprÃ¼ft...",
+        "server_busy": "â³ **Server beschÃ¤ftigt**\nAktiv: {}/{}\nFrei: {}MB\nWarteschlange: #{}\nStartet automatisch!",
+        "simulated": "ðŸ›  Simuliert! Tippe jetzt auf PrÃ¼fen & +1 erhalten",
+        "server_unreachable": "âŒ Server nicht erreichbar",
+        "monetag_failed_twice": "SchlieÃŸe zuerst zwei fehlgeschlagene Monetag-Versuche ab.",
+        "monetag_fallback_prompt": "ðŸŒ Monetag ist zweimal fehlgeschlagen. Mit Adsterra fortfahren:",
         "adsterra_ready": "Adsterra-Fallback bereit",
-        "finish_monetag": "📺 Schließe die Monetag-Werbung in der Mini-App ab, prüfe dann erneut.",
+        "finish_monetag": "ðŸ“º SchlieÃŸe die Monetag-Werbung in der Mini-App ab, prÃ¼fe dann erneut.",
         "monetag_failed_use_adsterra": "Monetag ist zweimal fehlgeschlagen. Nutze den Adsterra-Fallback unten.",
         "ad_link_expired": "Werbelink abgelaufen. Sende deinen Link erneut.",
-        "ad_verified_added": "✅ Werbung verifiziert! +{} hinzugefügt",
-        "test_ad_completed": "✅ TEST-WERBUNG VERIFIZIERT\nBelohnung gutgeschrieben: +{} Download.",
-        "sponsor_viewed": "✅ Sponsor angesehen! +{} hinzugefügt",
-        "refilled_send_again": "✅ +{} aufgefüllt! Sende deinen Link erneut.",
-        "queued": "⏳ In Warteschlange #{}",
-        "banned": "🚫 Du bist gesperrt.",
-        "no_links": "❌ Keine Links gefunden.",
-        "batch_count": "📦 Stapel {} Links",
-        "restore_invalid_json": "❌ Wiederherstellung fehlgeschlagen: **{}** ist kein gültiges JSON.",
-        "restore_failed": "❌ Wiederherstellung fehlgeschlagen: {}",
-        "restore_success": "✅ **Wiederherstellung erfolgreich!**\nDatei: **{}**\n**{}** Einträge wiederhergestellt.",
-        "admin_edit_welcome_prompt": "✏️ Sende die neue Willkommensnachricht. Verwende `{bot_name}` für den Bot-Benutzernamen.",
-        "admin_welcome_updated": "✅ Willkommensnachricht aktualisiert!",
-        "menu_edit_welcome": "✏️ Willkommensnachricht bearbeiten",
-        "cached_instant_video": "⚡ Sofortiger Cache [{}] {} {}",
-        "cached_instant_audio": "⚡ **Sofortiger Cache** `{}`",
-        "cached_instant_image": "⚡ **Sofortiger Cache** `{}`",
-        "auto_delete_9m": "⏳ Automatische Löschung in 9 Min.",
-        "download_success": "✅ Download erfolgreich!"
+        "ad_verified_added": "âœ… Werbung verifiziert! +{} hinzugefÃ¼gt",
+        "test_ad_completed": "âœ… TEST-WERBUNG VERIFIZIERT\nBelohnung gutgeschrieben: +{} Download.",
+        "sponsor_viewed": "âœ… Sponsor angesehen! +{} hinzugefÃ¼gt",
+        "refilled_send_again": "âœ… +{} aufgefÃ¼llt! Sende deinen Link erneut.",
+        "queued": "â³ In Warteschlange #{}",
+        "banned": "ðŸš« Du bist gesperrt.",
+        "no_links": "âŒ Keine Links gefunden.",
+        "batch_count": "ðŸ“¦ Stapel {} Links",
+        "restore_invalid_json": "âŒ Wiederherstellung fehlgeschlagen: **{}** ist kein gÃ¼ltiges JSON.",
+        "restore_failed": "âŒ Wiederherstellung fehlgeschlagen: {}",
+        "restore_success": "âœ… **Wiederherstellung erfolgreich!**\nDatei: **{}**\n**{}** EintrÃ¤ge wiederhergestellt.",
+        "admin_edit_welcome_prompt": "âœï¸ Sende die neue Willkommensnachricht. Verwende `{bot_name}` fÃ¼r den Bot-Benutzernamen.",
+        "admin_welcome_updated": "âœ… Willkommensnachricht aktualisiert!",
+        "menu_edit_welcome": "âœï¸ Willkommensnachricht bearbeiten",
+        "cached_instant_video": "âš¡ Sofortiger Cache [{}] {} {}",
+        "cached_instant_audio": "âš¡ **Sofortiger Cache** `{}`",
+        "cached_instant_image": "âš¡ **Sofortiger Cache** `{}`",
+        "auto_delete_9m": "â³ Automatische LÃ¶schung in 9 Min.",
+        "download_success": "âœ… Download erfolgreich!"
     }
 }
 
@@ -1443,7 +1443,7 @@ async def get_canonical_key(url: str, chat_id=None, bot=None):
             try: await bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
             except: pass
 
-    await send_debug(f"🔍 <b>Processing Link:</b>\n<code>{url}</code>")
+    await send_debug(f"ðŸ” <b>Processing Link:</b>\n<code>{url}</code>")
     yt_id = youtube_id_from_url(url)
     if yt_id:
         return f"youtube_{yt_id}"     # same key format yt-dlp produced, so old cache entries still match
@@ -1452,24 +1452,24 @@ async def get_canonical_key(url: str, chat_id=None, bot=None):
     is_short_link = any(domain in url.lower() for domain in short_link_domains)
 
     if is_short_link:
-        await send_debug("🔄 Resolving short link...")
+        await send_debug("ðŸ”„ Resolving short link...")
         try:
             headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15'}
             response = requests.get(url, headers=headers, allow_redirects=True, timeout=15)
             resolved_url = response.url
             if resolved_url != original_url and "google.com/sorry" not in resolved_url:
                 url = resolved_url
-                await send_debug(f"✅ Resolved to:\n<code>{url}</code>")
+                await send_debug(f"âœ… Resolved to:\n<code>{url}</code>")
         except Exception as e:
-            await send_debug(f"❌ Redirect failed: {str(e)[:100]}")
+            await send_debug(f"âŒ Redirect failed: {str(e)[:100]}")
 
     tiktok_match = re.search(r'/video/(\d{15,20})', url)
     if tiktok_match:
         vid_id = tiktok_match.group(1)
-        await send_debug(f"🎯 <b>TikTok Regex Match!</b>\nVideo ID: <code>{vid_id}</code>")
+        await send_debug(f"ðŸŽ¯ <b>TikTok Regex Match!</b>\nVideo ID: <code>{vid_id}</code>")
         return f"tiktok_{vid_id}"
 
-    await send_debug("🤖 Trying yt-dlp extraction...")
+    await send_debug("ðŸ¤– Trying yt-dlp extraction...")
     try:
         ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -1479,12 +1479,12 @@ async def get_canonical_key(url: str, chat_id=None, bot=None):
                 extractor = info.get('extractor', 'generic').replace(':', '').replace(' ', '')
                 vid_id = info.get('id', '')
                 if vid_id:
-                    await send_debug(f"✅ yt-dlp found ID: <code>{vid_id}</code>")
+                    await send_debug(f"âœ… yt-dlp found ID: <code>{vid_id}</code>")
                     return f"{extractor}_{vid_id}"
     except Exception as e:
-        await send_debug(f"⚠️ yt-dlp failed: {str(e)[:50]}")
+        await send_debug(f"âš ï¸ yt-dlp failed: {str(e)[:50]}")
 
-    await send_debug("🎲 Using URL hash fallback.")
+    await send_debug("ðŸŽ² Using URL hash fallback.")
     clean = url.split('?')[0].split('&')[0].lower().strip('/').replace('https://','').replace('http://','')
     h = hashlib.md5(clean.encode()).hexdigest()[:12]
     return f"url_{h}"
@@ -1538,7 +1538,7 @@ async def backup_to_channel(bot):
         except Exception as e:
             logger.error(f"Error fetching arcade backup: {e}")
 
-        cap = f"📦 AUTO-BACKUP {ts}\nFree: {free_mb}MB | Active: {active_downloads} | Queue: {download_queue.qsize()} | Vault: {VIDEO_VAULT_ID}"
+        cap = f"ðŸ“¦ AUTO-BACKUP {ts}\nFree: {free_mb}MB | Active: {active_downloads} | Queue: {download_queue.qsize()} | Vault: {VIDEO_VAULT_ID}"
         first = True
         for fname in BACKUP_FILES:
             if os.path.exists(fname):
@@ -1656,10 +1656,10 @@ def adsgram_keyboard(user_id, kind="wall", msg_start=0, msg_end=0, extra_rows=No
     if not nonce: return None
     url = f"{WEB_BASE_URL}/monetag?n={nonce}&k={kind}"
     rows = [
-        [InlineKeyboardButton("📺 Watch Monetag Ad +1", web_app=WebAppInfo(url=url))],
-        [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
-        [InlineKeyboardButton("✅ Check & Get +1", callback_data="monetag_check")],
-        [InlineKeyboardButton("↪️ Use Adsterra fallback (after 2 failures)", callback_data="monetag_fallback")],
+        [InlineKeyboardButton("ðŸ“º Watch Monetag Ad +1", web_app=WebAppInfo(url=url))],
+        [InlineKeyboardButton("ðŸ“¢ Join Public Channel ðŸ’œ", url=PUBLIC_CHANNEL_URL)],
+        [InlineKeyboardButton("âœ… Check & Get +1", callback_data="monetag_check")],
+        [InlineKeyboardButton("â†ªï¸ Use Adsterra fallback (after 2 failures)", callback_data="monetag_fallback")],
     ]
     if extra_rows: rows.extend(extra_rows)
     return InlineKeyboardMarkup(rows)
@@ -1686,7 +1686,7 @@ async def deliver_bundle(bot, user_id, msg_start, msg_end):
             fwd_ids.append(tut.message_id)
         except Exception: pass
     kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
-    warn = await bot.send_message(chat_id=user_id, text="⏳ Auto-deletes in 9 mins", reply_markup=kb)
+    warn = await bot.send_message(chat_id=user_id, text="â³ Auto-deletes in 9 mins", reply_markup=kb)
     fwd_ids.append(warn.message_id)
     asyncio.create_task(schedule_deletion(bot, user_id, fwd_ids, 540))
 
@@ -2070,7 +2070,7 @@ async def _send_items(bot, chat_id, items, caption=None):
 
 async def send_carousel(bot, chat_id, file_paths, ckey, status_msg=None, send_video_file_fn=None):
     """Send downloaded files. Returns list of {'kind','file_id','message_id'}."""
-    caption = f"📸 {len(file_paths)} items `{ckey}`"
+    caption = f"ðŸ“¸ {len(file_paths)} items `{ckey}`"
     results, big_videos = [], []
     with ExitStack() as stack:
         items = []
@@ -2089,7 +2089,7 @@ async def send_carousel(bot, chat_id, file_paths, ckey, status_msg=None, send_vi
         if not send_video_file_fn:
             continue
         try:
-            m = await send_video_file_fn(bot, chat_id, chat_id, p, f"🎬 `{ckey}`", "Markdown", status_msg)
+            m = await send_video_file_fn(bot, chat_id, chat_id, p, f"ðŸŽ¬ `{ckey}`", "Markdown", status_msg)
             results.append({"kind": "video", "file_id": m.video.file_id, "message_id": m.message_id})
         except Exception as e:
             logger.error(f"carousel big video fail: {e}")
@@ -2118,7 +2118,7 @@ async def save_carousel_cache(bot, ckey, results, size):
 async def send_cached_carousel(bot, chat_id, entry, ckey):
     """Instant resend from cache. Returns list of sent message ids.
     Falls back to copying from the vault channel if file_ids stop working."""
-    caption = f"⚡ 📸 {len(entry['items'])} items `{ckey}`"
+    caption = f"âš¡ ðŸ“¸ {len(entry['items'])} items `{ckey}`"
     try:
         items = [{"kind": i["kind"], "src": i["file_id"]} for i in entry["items"]]
         sent = await _send_items(bot, chat_id, items, caption)
@@ -2311,9 +2311,9 @@ def get_main_keyboard(lang_code, is_admin):
     keyboard = [
         [KeyboardButton(t["menu_stats"]), KeyboardButton(t["menu_lang"])],
         [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])],
-        [KeyboardButton(t["menu_upload"]), KeyboardButton("🔗 File-to-Link")],
-        [KeyboardButton("🟢 Bot Status")],
-        [KeyboardButton("🔄 Change Batch Channel")]
+        [KeyboardButton(t["menu_upload"]), KeyboardButton("ðŸ”— File-to-Link")],
+        [KeyboardButton("ðŸŸ¢ Bot Status")],
+        [KeyboardButton("ðŸ”„ Change Batch Channel")]
     ]
     if is_admin:
         keyboard.append([KeyboardButton("/stats"), KeyboardButton("/toggleads")])
@@ -2321,9 +2321,9 @@ def get_main_keyboard(lang_code, is_admin):
         keyboard.append([KeyboardButton("/tokencheck"), KeyboardButton("/broadcast")])
         keyboard.append([KeyboardButton("/ban"), KeyboardButton("/unban")])
         keyboard.append([KeyboardButton("/backup"), KeyboardButton("/restore")])
-        keyboard.append([KeyboardButton("💾 Disk Config"), KeyboardButton("⚡ MTProto Config")])
-        keyboard.append([KeyboardButton(t["menu_uploads"]), KeyboardButton("⚡ Create Flash Drop")])
-        keyboard.append([KeyboardButton("🎁 Set Reward (1/2/3/5)"), KeyboardButton("📦 Set Free DL (2/3/4/5)")])
+        keyboard.append([KeyboardButton("ðŸ’¾ Disk Config"), KeyboardButton("âš¡ MTProto Config")])
+        keyboard.append([KeyboardButton(t["menu_uploads"]), KeyboardButton("âš¡ Create Flash Drop")])
+        keyboard.append([KeyboardButton("ðŸŽ Set Reward (1/2/3/5)"), KeyboardButton("ðŸ“¦ Set Free DL (2/3/4/5)")])
         keyboard.append([KeyboardButton(t["menu_edit_welcome"])])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -2394,11 +2394,11 @@ async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     lang = get_lang(update.message.from_user.id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
     keyboard = [
-        [InlineKeyboardButton("🇬🇧 English", callback_data="lang_en"), InlineKeyboardButton("🇮🇳 हिंदी", callback_data="lang_hi")],
-        [InlineKeyboardButton("🇪🇸 Español", callback_data="lang_es"), InlineKeyboardButton("🇸🇦 العربية", callback_data="lang_ar")],
-        [InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru"), InlineKeyboardButton("🇧🇷 Português", callback_data="lang_pt")],
-        [InlineKeyboardButton("🇮🇩 Indonesia", callback_data="lang_id"), InlineKeyboardButton("🇫🇷 Français", callback_data="lang_fr")],
-        [InlineKeyboardButton("🇹🇷 Türkçe", callback_data="lang_tr"), InlineKeyboardButton("🇩🇪 Deutsch", callback_data="lang_de")]
+        [InlineKeyboardButton("ðŸ‡¬ðŸ‡§ English", callback_data="lang_en"), InlineKeyboardButton("ðŸ‡®ðŸ‡³ à¤¹à¤¿à¤‚à¤¦à¥€", callback_data="lang_hi")],
+        [InlineKeyboardButton("ðŸ‡ªðŸ‡¸ EspaÃ±ol", callback_data="lang_es"), InlineKeyboardButton("ðŸ‡¸ðŸ‡¦ Ø§Ù„Ø¹Ø±Ø¨ÙŠØ©", callback_data="lang_ar")],
+        [InlineKeyboardButton("ðŸ‡·ðŸ‡º Ð ÑƒÑÑÐºÐ¸Ð¹", callback_data="lang_ru"), InlineKeyboardButton("ðŸ‡§ðŸ‡· PortuguÃªs", callback_data="lang_pt")],
+        [InlineKeyboardButton("ðŸ‡®ðŸ‡© Indonesia", callback_data="lang_id"), InlineKeyboardButton("ðŸ‡«ðŸ‡· FranÃ§ais", callback_data="lang_fr")],
+        [InlineKeyboardButton("ðŸ‡¹ðŸ‡· TÃ¼rkÃ§e", callback_data="lang_tr"), InlineKeyboardButton("ðŸ‡©ðŸ‡ª Deutsch", callback_data="lang_de")]
     ]
     await update.message.reply_text(t["select_lang"], reply_markup=InlineKeyboardMarkup(keyboard))
 
@@ -2407,11 +2407,11 @@ def file_link_keyboard(state):
     expiry = settings.get("expiry", "never")
     expiry_label = {"3600":"1 hour", "86400":"1 day", "604800":"7 days", "2592000":"30 days", "never":"Never"}.get(str(expiry), "Never")
     max_clicks = int(settings.get("max_clicks", 0) or 0)
-    kb = [[InlineKeyboardButton(f"⏳ Expiry: {expiry_label}", callback_data="fl_expiry")],
-          [InlineKeyboardButton(f"👥 Max uses: {max_clicks if max_clicks else 'Unlimited'}", callback_data="fl_maxuses")],
-          [InlineKeyboardButton("🔐 Set password" if not settings.get("password") else "🔐 Change/remove password", callback_data="fl_password")],
-          [InlineKeyboardButton(f"📎 Files: {len(state.get('items', []))}", callback_data="fl_refresh")],
-          [InlineKeyboardButton("✅ Create Link", callback_data="fl_create"), InlineKeyboardButton("❌ Cancel", callback_data="fl_cancel")]]
+    kb = [[InlineKeyboardButton(f"â³ Expiry: {expiry_label}", callback_data="fl_expiry")],
+          [InlineKeyboardButton(f"ðŸ‘¥ Max uses: {max_clicks if max_clicks else 'Unlimited'}", callback_data="fl_maxuses")],
+          [InlineKeyboardButton("ðŸ” Set password" if not settings.get("password") else "ðŸ” Change/remove password", callback_data="fl_password")],
+          [InlineKeyboardButton(f"ðŸ“Ž Files: {len(state.get('items', []))}", callback_data="fl_refresh")],
+          [InlineKeyboardButton("âœ… Create Link", callback_data="fl_create"), InlineKeyboardButton("âŒ Cancel", callback_data="fl_cancel")]]
     return InlineKeyboardMarkup(kb)
 
 async def file_link_add_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -2460,7 +2460,7 @@ async def send_file_link_payload(update: Update, context: ContextTypes.DEFAULT_T
     try:
         member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_USERNAME, user_id=user_id)
         if member.status not in ("member", "administrator", "creator"): raise ValueError("not joined")
-    except Exception: await update.effective_message.reply_text("📢 Join our required channel first: " + PUBLIC_CHANNEL_URL); return
+    except Exception: await update.effective_message.reply_text("ðŸ“¢ Join our required channel first: " + PUBLIC_CHANNEL_URL); return
     for item in record.get("items", []): await context.bot.copy_message(chat_id=user_id, from_chat_id=FILE_LINK_STORAGE_ID, message_id=item["message_id"])
     record["clicks"] = record.get("clicks", 0) + 1
     links = load_json_file(FILE_LINKS_FILE); links[token] = record; save_json_file(FILE_LINKS_FILE, links)
@@ -2490,11 +2490,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         drop_id = arg_code.replace("drip_", "")
         drip_data = load_json_file(DRIP_FILE)
         drop = drip_data.get(drop_id)
-        if not drop: await update.message.reply_text("❌ Invalid flash drop."); return
+        if not drop: await update.message.reply_text("âŒ Invalid flash drop."); return
         if time.time() > drop["expires_at"]: await update.message.reply_text(t["age_expired"], parse_mode="Markdown"); return
         if "claimed_users" in drop and user_id in drop["claimed_users"]: await update.message.reply_text(t["age_claimed"], parse_mode="Markdown"); return
-        keyboard = [[InlineKeyboardButton("✅ Yes, 18+", callback_data=f"age_yes_{drop_id}"), InlineKeyboardButton("❌ No", callback_data="age_no")]]
-        await update.message.reply_text("🔞 Age verification?", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        keyboard = [[InlineKeyboardButton("âœ… Yes, 18+", callback_data=f"age_yes_{drop_id}"), InlineKeyboardButton("âŒ No", callback_data="age_no")]]
+        await update.message.reply_text("ðŸ”ž Age verification?", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     video_code = arg_code
     if video_code.startswith("vid"):
@@ -2509,16 +2509,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     assigned_network = get_global_ab_network(user_id)
     tokens = load_tokens()
     if assigned_network == "monetag":
-        extra = [[InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")]] if user_id == ADMIN_ID else None
+        extra = [[InlineKeyboardButton("âŒ Skip (Admin)", callback_data="admin_skip_ad")]] if user_id == ADMIN_ID else None
         kb = adsgram_keyboard(user_id, "wall", msg_start, msg_end, extra)
-        if kb: await update.message.reply_text("📺 **Sponsor**\nTap **Watch Ad**, finish the ad in the Mini App, then tap **Check & Get +1**.", reply_markup=kb, parse_mode="Markdown")
-        else: await update.message.reply_text("⚠️ Ad server busy, try again in a moment.")
+        if kb: await update.message.reply_text("ðŸ“º **Sponsor**\nTap **Watch Ad**, finish the ad in the Mini App, then tap **Check & Get +1**.", reply_markup=kb, parse_mode="Markdown")
+        else: await update.message.reply_text("âš ï¸ Ad server busy, try again in a moment.")
         return
     bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
     tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": int(msg_start), "msg_end": int(msg_end), "clicked_ad": False, "verified": False, "expires": time.time() + 600}
     save_tokens(tokens)
-    keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch", url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
-    if user_id == ADMIN_ID: keyboard.append([InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")])
+    keyboard = [[InlineKeyboardButton("ðŸ”“ Open Link & Watch", url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
+    if user_id == ADMIN_ID: keyboard.append([InlineKeyboardButton("âŒ Skip (Admin)", callback_data="admin_skip_ad")])
     try:
         tut = await context.bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
         await asyncio.sleep(0.2)
@@ -2526,7 +2526,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.error(f"Forward failed: {e1}")
         try: await context.bot.copy_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
         except Exception as e2: logger.error(f"Copy failed: {e2}")
-    await update.message.reply_text("👇 **CONTENT LOCKED 🔒**" + ADSTERRA_USER_GUIDE, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await update.message.reply_text("ðŸ‘‡ **CONTENT LOCKED ðŸ”’**" + ADSTERRA_USER_GUIDE, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0):
     if not urls: return
@@ -2534,7 +2534,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
     t = LANGUAGES.get(lang, LANGUAGES["en"])
     success_count = fail_count = 0
     active_batch_sessions[user_id] = True
-    stop_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop Batch", callback_data="stop_batch")]])
+    stop_markup = InlineKeyboardMarkup([[InlineKeyboardButton("ðŸ›‘ Stop Batch", callback_data="stop_batch")]])
     batch_notice = await bot.send_message(chat_id=chat_id, text=t["batch_start"].format(download_type.upper(), len(urls)), reply_markup=stop_markup, parse_mode="Markdown")
     for index, url in enumerate(urls[start_index:], start=start_index+1):
         if not active_batch_sessions.get(user_id, False): break
@@ -2558,7 +2558,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)]]
             await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             break
-        status_msg = await bot.send_message(chat_id=chat_id, text=f"📥 [{index}/{len(urls)}] {t['dl_video']}")
+        status_msg = await bot.send_message(chat_id=chat_id, text=f"ðŸ“¥ [{index}/{len(urls)}] {t['dl_video']}")
         try:
             ckey = await get_canonical_key(url, chat_id, bot)
             cache = load_json_file(CACHE_FILE)
@@ -2594,9 +2594,9 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     try:
                         cached = cached_qualities[best_cached_quality]
                         qual_tag = f"[{best_cached_quality}]"
-                        sent = await bot.send_video(chat_id=target_destination_id, video=cached["file_id"], caption=f"Item {index}/{len(urls)} ⚡ Cached {qual_tag}")
+                        sent = await bot.send_video(chat_id=target_destination_id, video=cached["file_id"], caption=f"Item {index}/{len(urls)} âš¡ Cached {qual_tag}")
                         if target_destination_id == chat_id:
-                            warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
+                            warn = await bot.send_message(chat_id=target_destination_id, text="â³ Auto-deletes in 9 mins")
                             asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
                         cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
                         save_json_file(CACHE_FILE, cache)
@@ -2632,7 +2632,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                 qual_tag = f"[{res}]"
                 sent = await send_video_file(bot, chat_id, target_destination_id, file_paths[0], f"Item {index}/{len(urls)} {qual_tag} Size {size}", None, status_msg)
                 if target_destination_id == chat_id:
-                    warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
+                    warn = await bot.send_message(chat_id=target_destination_id, text="â³ Auto-deletes in 9 mins")
                     asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
                 try:
                     vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent.video.file_id, caption=f"{ckey} [{res}]")
@@ -2645,10 +2645,10 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                 await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
                 success_count += 1
             else:
-                await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}] {t['failed_generic']}")
+                await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"âŒ [{index}] {t['failed_generic']}")
                 fail_count += 1
         except Exception as e:
-            try: await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}] {str(e)[:50]}")
+            try: await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"âŒ [{index}] {str(e)[:50]}")
             except: pass
             fail_count += 1
         await asyncio.sleep(3)
@@ -2671,8 +2671,8 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         ticket_id = support_states[str(user_id)]["ticket_id"]
         del support_states[str(user_id)]
         save_json_file(SUPPORT_STATES_FILE, support_states)
-        keyboard = [[InlineKeyboardButton("💬 Reply", callback_data=f"support_reply_{user_id}"), InlineKeyboardButton("🔒 Close", callback_data=f"support_close_{ticket_id}")]]
-        await context.bot.send_message(chat_id=ADMIN_ID, text=f"💬 Ticket [{ticket_id}] From {user_id}\n📎 Media below:", parse_mode="Markdown")
+        keyboard = [[InlineKeyboardButton("ðŸ’¬ Reply", callback_data=f"support_reply_{user_id}"), InlineKeyboardButton("ðŸ”’ Close", callback_data=f"support_close_{ticket_id}")]]
+        await context.bot.send_message(chat_id=ADMIN_ID, text=f"ðŸ’¬ Ticket [{ticket_id}] From {user_id}\nðŸ“Ž Media below:", parse_mode="Markdown")
         try: await update.message.forward(chat_id=ADMIN_ID)
         except: await context.bot.copy_message(chat_id=ADMIN_ID, from_chat_id=chat_id, message_id=update.message.message_id)
         await context.bot.send_message(chat_id=ADMIN_ID, text="Manage:", reply_markup=InlineKeyboardMarkup(keyboard))
@@ -2686,9 +2686,9 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
             drip_states[str(user_id)] = drip_state
             save_json_file(DRIP_STATE_FILE, drip_states)
             await update.message.reply_text(
-                f"⚡ Flash Drop item #{len(drip_state['items'])} added. Send more files or tap Finish & Broadcast Drop.",
+                f"âš¡ Flash Drop item #{len(drip_state['items'])} added. Send more files or tap Finish & Broadcast Drop.",
                 reply_markup=ReplyKeyboardMarkup(
-                    [[KeyboardButton("🚀 Finish & Broadcast Drop")], [KeyboardButton("❌ Cancel / Exit")]],
+                    [[KeyboardButton("ðŸš€ Finish & Broadcast Drop")], [KeyboardButton("âŒ Cancel / Exit")]],
                     resize_keyboard=True
                 )
             )
@@ -2696,9 +2696,9 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
         try:
             await update.message.forward(chat_id=PRIVATE_CHANNEL_ID)
             context.user_data.pop("admin_vault_upload_mode", None)
-            await update.message.reply_text("✅ Saved to vault!", reply_markup=get_main_keyboard(get_lang(user_id), True))
+            await update.message.reply_text("âœ… Saved to vault!", reply_markup=get_main_keyboard(get_lang(user_id), True))
         except Exception as e:
-            await update.message.reply_text(f"❌ {e}", reply_markup=get_main_keyboard(get_lang(user_id), True))
+            await update.message.reply_text(f"âŒ {e}", reply_markup=get_main_keyboard(get_lang(user_id), True))
     else:
         limits = load_json_file(UPLOAD_LIMITS_FILE)
         user_str = str(user_id)
@@ -2722,7 +2722,7 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text(t["upload_success_user"], reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
         except Exception as e:
             logger.exception("Fan upload forwarding/storage failed: %s", e)
-            await update.message.reply_text("❌ Failed to send your upload. Please try again.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
+            await update.message.reply_text("âŒ Failed to send your upload. Please try again.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
 
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text if update.message.text else ""
@@ -2732,11 +2732,11 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if is_banned(user_id): await update.message.reply_text(t["banned"]); return
     if "http" in text.lower():
         flood, wait = is_flood(user_id)
-        if flood: await update.message.reply_text(f"🐢 **Slow down!** You sent {FLOOD_LIMIT} links in last minute.\nWait {wait}s before next link.", parse_mode="Markdown"); return
+        if flood: await update.message.reply_text(f"ðŸ¢ **Slow down!** You sent {FLOOD_LIMIT} links in last minute.\nWait {wait}s before next link.", parse_mode="Markdown"); return
     track_user_activity(user_id)
     lang = get_lang(user_id)
     
-    if text == t.get("menu_edit_welcome", "✏️ Edit Welcome Msg") and user_id == ADMIN_ID:
+    if text == t.get("menu_edit_welcome", "âœï¸ Edit Welcome Msg") and user_id == ADMIN_ID:
         support_states = load_json_file(SUPPORT_STATES_FILE)
         support_states[str(user_id)] = {"mode": "admin_edit_welcome"}
         save_json_file(SUPPORT_STATES_FILE, support_states)
@@ -2763,19 +2763,19 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         f_chat = None
         if forward_origin and getattr(forward_origin, "type", None) == "channel": f_chat = getattr(forward_origin, "chat", None)
         if f_chat is None: f_chat = getattr(update.message, "forward_from_chat", None)
-        if f_chat is None: await update.message.reply_text("❌ Please forward a message directly from your channel, not a copied message.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
+        if f_chat is None: await update.message.reply_text("âŒ Please forward a message directly from your channel, not a copied message.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
         try:
             bot_member = await context.bot.get_chat_member(chat_id=f_chat.id, user_id=context.bot.id)
-            if getattr(bot_member, "status", None) not in ("administrator", "creator"): await update.message.reply_text("⚠️ I detected the channel, but I'm not an admin there yet. Add me as an administrator, then forward a channel message again.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
+            if getattr(bot_member, "status", None) not in ("administrator", "creator"): await update.message.reply_text("âš ï¸ I detected the channel, but I'm not an admin there yet. Add me as an administrator, then forward a channel message again.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
         except Exception as exc:
             logger.warning(f"Could not verify bot admin status in channel {getattr(f_chat, 'id', 'unknown')}: {exc}")
-            await update.message.reply_text("⚠️ I couldn't verify my admin access. Please check my admin status and forward another channel message.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
+            await update.message.reply_text("âš ï¸ I couldn't verify my admin access. Please check my admin status and forward another channel message.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
         user_channels = load_user_channels()
         user_channels[str(user_id)] = f_chat.id
         save_user_channels(user_channels)
         linking_states.pop(str(user_id), None)
         save_linking_states(linking_states)
-        await update.message.reply_text(f"✅ Linked {getattr(f_chat, 'title', 'your channel')} successfully. You can now use batch downloads to that channel.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+        await update.message.reply_text(f"âœ… Linked {getattr(f_chat, 'title', 'your channel')} successfully. You can now use batch downloads to that channel.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         return
     fl_states = load_json_file(FILE_LINK_STATE_FILE)
     fl_state = fl_states.get(str(user_id))
@@ -2785,18 +2785,18 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         record = links.get(token)
         fl_states.pop(str(user_id), None); save_json_file(FILE_LINK_STATE_FILE, fl_states)
         if not record or (record.get("expires_at") and time.time() > record["expires_at"]): await update.message.reply_text(t["link_invalid_expired"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
-        if text.strip() != str(record.get("password", "")): await update.message.reply_text("❌ Incorrect password.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
+        if text.strip() != str(record.get("password", "")): await update.message.reply_text("âŒ Incorrect password.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
         if record.get("max_clicks", 0) and record.get("clicks", 0) >= record["max_clicks"]: await update.message.reply_text(t["link_limit_reached"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
         await send_file_link_payload(update, context, token, record)
         return
-    menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🔗 File-to-Link", "🟢 Bot Status", "🔄 Change Batch Channel", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel", t.get("menu_edit_welcome", "✏️ Edit Welcome Msg")]
+    menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "ðŸ”— File-to-Link", "ðŸŸ¢ Bot Status", "ðŸ”„ Change Batch Channel", "ðŸ“¢ Broadcast", "âš¡ Create Flash Drop", "âš™ï¸ Ad Toggle Panel", t.get("menu_edit_welcome", "âœï¸ Edit Welcome Msg")]
     if text in menu_texts:
         if text != t["menu_upload"]:
             context.user_data.pop("admin_vault_upload_mode", None)
         support_states = load_json_file(SUPPORT_STATES_FILE)
         if str(user_id) in support_states: del support_states[str(user_id)]; save_json_file(SUPPORT_STATES_FILE, support_states)
-    if text.strip() == "🔗 File-to-Link": await file_to_link_command(update, context); return
-    if text.strip() == "🔄 Change Batch Channel":
+    if text.strip() == "ðŸ”— File-to-Link": await file_to_link_command(update, context); return
+    if text.strip() == "ðŸ”„ Change Batch Channel":
         linking_states = load_linking_states()
         linking_states[str(user_id)] = "waiting_for_channel"
         save_linking_states(linking_states)
@@ -2813,28 +2813,28 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         fl_states[str(user_id)] = fl_state; save_json_file(FILE_LINK_STATE_FILE, fl_states)
         await update.message.reply_text(t["password_saved"], reply_markup=file_link_keyboard(fl_state))
         return
-    if text == "💾 Disk Config" and user_id == ADMIN_ID:
+    if text == "ðŸ’¾ Disk Config" and user_id == ADMIN_ID:
         current = get_min_free_disk_mb()
         await update.message.reply_text(t["disk_config_prompt"].format(current), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
         return
-    if text == "⚡ MTProto Config" and user_id == ADMIN_ID:
+    if text == "âš¡ MTProto Config" and user_id == ADMIN_ID:
         current = get_mtproto_max_mb()
         await update.message.reply_text(t["mtproto_config_prompt"].format(current), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
         return
-    if text.startswith("📦 Set Free") and user_id == ADMIN_ID:
+    if text.startswith("ðŸ“¦ Set Free") and user_id == ADMIN_ID:
         current = get_free_amount()
-        keyboard = [[InlineKeyboardButton(f"✅ {i} (Current)" if i==current else f"{i} free", callback_data=f"set_free_{i}") for i in [2,3,4,5]]]
+        keyboard = [[InlineKeyboardButton(f"âœ… {i} (Current)" if i==current else f"{i} free", callback_data=f"set_free_{i}") for i in [2,3,4,5]]]
         await update.message.reply_text(t["free_panel_prompt"].format(current), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
-    if text.startswith("🎁 Set Reward") and user_id == ADMIN_ID:
+    if text.startswith("ðŸŽ Set Reward") and user_id == ADMIN_ID:
         current = get_reward_amount()
-        keyboard = [[InlineKeyboardButton(f"✅ {i} (Current)" if i==current else f"{i}", callback_data=f"set_reward_{i}") for i in [1,2,3,5]]]
+        keyboard = [[InlineKeyboardButton(f"âœ… {i} (Current)" if i==current else f"{i}", callback_data=f"set_reward_{i}") for i in [1,2,3,5]]]
         await update.message.reply_text(t["reward_panel_prompt"].format(current), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
-    if text == "⚙️ Ad Toggle Panel" and user_id == ADMIN_ID:
+    if text == "âš™ï¸ Ad Toggle Panel" and user_id == ADMIN_ID:
         config = load_json_file(CONFIG_FILE)
         mode = config.get("ad_mode", "auto").upper()
-        keyboard = [[InlineKeyboardButton("🔄 Auto", callback_data="set_ad_auto")],[InlineKeyboardButton("📺 Monetag", callback_data="set_ad_monetag")],[InlineKeyboardButton("🌐 Adsterra", callback_data="set_ad_adsterra")]]
+        keyboard = [[InlineKeyboardButton("ðŸ”„ Auto", callback_data="set_ad_auto")],[InlineKeyboardButton("ðŸ“º Monetag", callback_data="set_ad_monetag")],[InlineKeyboardButton("ðŸŒ Adsterra", callback_data="set_ad_adsterra")]]
         await update.message.reply_text(t["ad_panel_prompt"].format(mode), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     
@@ -2843,40 +2843,40 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         ticket_id = support_states[str(user_id)]["ticket_id"]
         del support_states[str(user_id)]
         save_json_file(SUPPORT_STATES_FILE, support_states)
-        keyboard = [[InlineKeyboardButton("💬 Reply", callback_data=f"support_reply_{user_id}"), InlineKeyboardButton("🔒 Close", callback_data=f"support_close_{ticket_id}")]]
+        keyboard = [[InlineKeyboardButton("ðŸ’¬ Reply", callback_data=f"support_reply_{user_id}"), InlineKeyboardButton("ðŸ”’ Close", callback_data=f"support_close_{ticket_id}")]]
         try:
-            await context.bot.send_message(chat_id=target_user_id, text=f"💬 **Admin Reply:**\n\n{text}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-            await update.message.reply_text(f"✅ Sent to {target_user_id}!", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
-        except Exception as e: await update.message.reply_text(f"❌ {e}", reply_markup=get_main_keyboard(lang, True))
+            await context.bot.send_message(chat_id=target_user_id, text=f"ðŸ’¬ **Admin Reply:**\n\n{text}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            await update.message.reply_text(f"âœ… Sent to {target_user_id}!", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
+        except Exception as e: await update.message.reply_text(f"âŒ {e}", reply_markup=get_main_keyboard(lang, True))
         return
     if str(user_id) in support_states and isinstance(support_states[str(user_id)], dict) and support_states[str(user_id)].get("mode") == "user_writing":
         ticket_id = support_states[str(user_id)]["ticket_id"]
         del support_states[str(user_id)]
         save_json_file(SUPPORT_STATES_FILE, support_states)
-        keyboard = [[InlineKeyboardButton("💬 Reply", callback_data=f"support_reply_{user_id}"), InlineKeyboardButton("🔒 Close", callback_data=f"support_close_{ticket_id}")]]
-        await context.bot.send_message(chat_id=ADMIN_ID, text=f"💬 Ticket [{ticket_id}] From {user_id}\n\n{text}", parse_mode="Markdown")
+        keyboard = [[InlineKeyboardButton("ðŸ’¬ Reply", callback_data=f"support_reply_{user_id}"), InlineKeyboardButton("ðŸ”’ Close", callback_data=f"support_close_{ticket_id}")]]
+        await context.bot.send_message(chat_id=ADMIN_ID, text=f"ðŸ’¬ Ticket [{ticket_id}] From {user_id}\n\n{text}", parse_mode="Markdown")
         await context.bot.send_message(chat_id=ADMIN_ID, text="Manage:", reply_markup=InlineKeyboardMarkup(keyboard))
-        await update.message.reply_text("✅ Sent!", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+        await update.message.reply_text("âœ… Sent!", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         return
-    if text == "⚡ Create Flash Drop" and user_id == ADMIN_ID:
+    if text == "âš¡ Create Flash Drop" and user_id == ADMIN_ID:
         states = load_json_file(DRIP_STATE_FILE)
         states[str(user_id)] = {"mode": "collecting", "items": []}
         save_json_file(DRIP_STATE_FILE, states)
-        kb = [[KeyboardButton("🚀 Finish & Broadcast Drop")],[KeyboardButton("❌ Cancel / Exit")]]
-        await update.message.reply_text("⚡ Flash Drop Mode: Send files", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True), parse_mode="Markdown")
+        kb = [[KeyboardButton("ðŸš€ Finish & Broadcast Drop")],[KeyboardButton("âŒ Cancel / Exit")]]
+        await update.message.reply_text("âš¡ Flash Drop Mode: Send files", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True), parse_mode="Markdown")
         return
-    if text == "🟢 Bot Status": await status_command(update, context); return
-    if text.strip() in ("🧪 Test Ad", "📢 Ad Info"):
-        if user_id != ADMIN_ID: await update.message.reply_text("✅ Menu updated.", reply_markup=get_main_keyboard(lang, False)); return
-        if text.strip() == "🧪 Test Ad": await send_test_ad(update.message, user_id); return
-    if text.strip() == "📢 Ad Info" and user_id == ADMIN_ID: await update.message.reply_text(build_ad_info_text(user_id), reply_markup=get_main_keyboard(lang, True)); return
-    if text == "📢 Broadcast" and user_id == ADMIN_ID: await update.message.reply_text("📢 /broadcast [message] or reply with /broadcast", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True)); return
-    if text == "❌ Cancel / Exit" and user_id == ADMIN_ID:
+    if text == "ðŸŸ¢ Bot Status": await status_command(update, context); return
+    if text.strip() in ("ðŸ§ª Test Ad", "ðŸ“¢ Ad Info"):
+        if user_id != ADMIN_ID: await update.message.reply_text("âœ… Menu updated.", reply_markup=get_main_keyboard(lang, False)); return
+        if text.strip() == "ðŸ§ª Test Ad": await send_test_ad(update.message, user_id); return
+    if text.strip() == "ðŸ“¢ Ad Info" and user_id == ADMIN_ID: await update.message.reply_text(build_ad_info_text(user_id), reply_markup=get_main_keyboard(lang, True)); return
+    if text == "ðŸ“¢ Broadcast" and user_id == ADMIN_ID: await update.message.reply_text("ðŸ“¢ /broadcast [message] or reply with /broadcast", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True)); return
+    if text == "âŒ Cancel / Exit" and user_id == ADMIN_ID:
         states = load_json_file(DRIP_STATE_FILE)
         if str(user_id) in states: del states[str(user_id)]; save_json_file(DRIP_STATE_FILE, states)
         await update.message.reply_text(t["drop_cancelled"], reply_markup=get_main_keyboard(lang, True), parse_mode="Markdown")
         return
-    if text == "🚀 Finish & Broadcast Drop" and user_id == ADMIN_ID:
+    if text == "ðŸš€ Finish & Broadcast Drop" and user_id == ADMIN_ID:
         states = load_json_file(DRIP_STATE_FILE)
         user_state = states.get(str(user_id))
         if not user_state or not user_state.get("items"): await update.message.reply_text(t["drop_no_items"], reply_markup=get_main_keyboard(lang, True)); return
@@ -2897,14 +2897,14 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
     if text == t["menu_join"]: await update.message.reply_text(f"[Join]({PUBLIC_CHANNEL_URL})", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
     if text == t["menu_help"]:
-        keyboard = [[InlineKeyboardButton("💬 Open Support", callback_data="open_support")]]
+        keyboard = [[InlineKeyboardButton("ðŸ’¬ Open Support", callback_data="open_support")]]
         await update.message.reply_text(f"Support: [Help]({HELP_CHANNEL_URL})", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     if text == t["menu_lang"]: await language_command(update, context); return
     if text == t["menu_upload"]:
         if user_id == ADMIN_ID:
             context.user_data["admin_vault_upload_mode"] = True
-            prompt = "📤 **Admin File Upload**\\nSend the file(s) you want to save to the vault."
+            prompt = "ðŸ“¤ **Admin File Upload**\\nSend the file(s) you want to save to the vault."
         else:
             prompt = t["user_upload_prompt"]
         await update.message.reply_text(prompt, parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
@@ -2928,7 +2928,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 failed += 1
                 logger.warning("Could not display fan upload %s: %s", k, e)
         await update.message.reply_text(
-            f"📬 Displayed {shown} fan upload(s)." + (f"\\n⚠️ {failed} older upload(s) could not be retrieved." if failed else ""),
+            f"ðŸ“¬ Displayed {shown} fan upload(s)." + (f"\\nâš ï¸ {failed} older upload(s) could not be retrieved." if failed else ""),
             reply_markup=get_main_keyboard(lang, True)
         )
         return
@@ -2936,7 +2936,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     filtered = [u for u in extracted_urls if not ("t.me/" in u and "start=" in u)]
     extracted_urls = filtered
     if not extracted_urls:
-        if "t.me/" in text and "start=" in text: await update.message.reply_text("👆 Please use the buttons above.", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+        if "t.me/" in text and "start=" in text: await update.message.reply_text("ðŸ‘† Please use the buttons above.", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         return
     if user_id != ADMIN_ID:
         tokens = load_tokens()
@@ -2954,7 +2954,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             if assigned_network == "monetag":
                 kb = adsgram_keyboard(user_id, "wall", msg_start, msg_end)
                 if kb: await update.message.reply_text(t["limit_reached"], reply_markup=kb, parse_mode="Markdown")
-                else: await update.message.reply_text("⚠️ Ad server busy, try again in a moment.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+                else: await update.message.reply_text("âš ï¸ Ad server busy, try again in a moment.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
                 return
             else:
                 try:
@@ -2962,7 +2962,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                     await asyncio.sleep(0.2)
                 except: pass
                 bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
-                keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")]]
+                keyboard = [[InlineKeyboardButton("ðŸ”“ Open Link & Watch Timer â° 20s +1", url=bridge_link)], [InlineKeyboardButton("ðŸ“¢ Join Public Channel ðŸ’œ", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("ðŸ’œ Check & Get Files âœ… +1", callback_data="verify_user")]]
                 await update.message.reply_text(t["limit_reached"] + ADSTERRA_USER_GUIDE, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 return
     if active_batch_sessions.get(user_id, False): return
@@ -2971,7 +2971,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         user_channels = load_user_channels()
         user_channels[str(user_id)] = f_chat.id
         save_user_channels(user_channels)
-        await update.message.reply_text(f"✅ Linked {f_chat.title}", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+        await update.message.reply_text(f"âœ… Linked {f_chat.title}", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         return
     if len(extracted_urls) > 1:
         payload_key = f"batch_{user_id}_{int(time.time())}"
@@ -2980,14 +2980,14 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text(t["batch_detected"].format(len(extracted_urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     url = extracted_urls[0]
-    status_preview = await update.message.reply_text("🔍 Checking link...")
+    status_preview = await update.message.reply_text("ðŸ” Checking link...")
     title, dur = fetch_url_metadata(url)
     try: await status_preview.delete()
     except: pass
     payload_key = f"single_{user_id}_{int(time.time())}"
     pending_single_links[payload_key] = url
     keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"fmt_vid_{payload_key}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"fmt_aud_{payload_key}")],[InlineKeyboardButton(t["btn_image"], callback_data=f"fmt_img_{payload_key}")]]
-    await update.message.reply_text(f"🎬 {title}\n⏱️ {dur}\n\n{t['ask_format']}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await update.message.reply_text(f"ðŸŽ¬ {title}\nâ±ï¸ {dur}\n\n{t['ask_format']}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
@@ -3001,7 +3001,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         
     document = update.message.document
     if user_id == ADMIN_ID and document.file_name in BACKUP_FILES:
-        await update.message.reply_text(f"🔄 Restoring <b>{document.file_name}</b>...", parse_mode="HTML")
+        await update.message.reply_text(f"ðŸ”„ Restoring <b>{document.file_name}</b>...", parse_mode="HTML")
         try:
             file = await context.bot.get_file(document.file_id)
             temp_path = f"temp_{document.file_name}"
@@ -3041,7 +3041,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if not urls: await update.message.reply_text(t["no_links"], reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)); return
         payload_key = f"batch_{user_id}_{int(time.time())}"
         pending_batch_payloads[payload_key] = urls
-        keyboard = [[InlineKeyboardButton("🎬 Video", callback_data=f"batchtype_video_{payload_key}")]]
+        keyboard = [[InlineKeyboardButton("ðŸŽ¬ Video", callback_data=f"batchtype_video_{payload_key}")]]
         await update.message.reply_text(t["batch_count"].format(len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     except Exception as e: logger.error(f"File: {e}")
 
@@ -3064,7 +3064,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         except: adsterra_count+=1
     sorted_users = sorted(activity.items(), key=lambda x: x[1].get("total_interactions",0), reverse=True)[:10]
     top_text = ""
-    for idx,(uid,info) in enumerate(sorted_users,1): top_text+=f"{idx}. `{uid}` — {info.get('total_interactions',0)}\n"
+    for idx,(uid,info) in enumerate(sorted_users,1): top_text+=f"{idx}. `{uid}` â€” {info.get('total_interactions',0)}\n"
     if not top_text: top_text="No activity yet"
     free_mb = shutil.disk_usage(".").free // (1024*1024)
     used_mb = get_downloads_usage_mb()
@@ -3073,7 +3073,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     banned = load_json_file(BANNED_FILE)
     total_hits = sum(v.get("hits",0) for v in cache.values() if isinstance(v, dict))
     host_free = shutil.disk_usage(".").free // (1024*1024) if os.path.exists(".") else 0
-    txt = (f"📊 **ADVANCED ADMIN**\n\n• Total: **{total_users}**\n• 24h Active: **{active_24hr}**\n• Ad Mode: **{mode}**\n\n📢 **Ad Split:**\n• Monetag: **{adsgram_count}**\n• Adsterra: **{adsterra_count}**\n\n🖥️ **Render:**\n• Used: **{used_mb}MB**\n• Free: **{free_mb}MB**\n• Host: **{host_free}MB**\n• Active: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\n• Queue: **{download_queue.qsize()}**\n• Cache: **{len(cache)}** files\n• Hits: **{total_hits}** saved\n• Flood: **{len(flood_data)}**\n• Banned: **{len(banned)}**\n\n🎞️ **Video Vault:** `{VIDEO_VAULT_ID}`\n🏆 **Top 10:**\n{top_text}")
+    txt = (f"ðŸ“Š **ADVANCED ADMIN**\n\nâ€¢ Total: **{total_users}**\nâ€¢ 24h Active: **{active_24hr}**\nâ€¢ Ad Mode: **{mode}**\n\nðŸ“¢ **Ad Split:**\nâ€¢ Monetag: **{adsgram_count}**\nâ€¢ Adsterra: **{adsterra_count}**\n\nðŸ–¥ï¸ **Render:**\nâ€¢ Used: **{used_mb}MB**\nâ€¢ Free: **{free_mb}MB**\nâ€¢ Host: **{host_free}MB**\nâ€¢ Active: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nâ€¢ Queue: **{download_queue.qsize()}**\nâ€¢ Cache: **{len(cache)}** files\nâ€¢ Hits: **{total_hits}** saved\nâ€¢ Flood: **{len(flood_data)}**\nâ€¢ Banned: **{len(banned)}**\n\nðŸŽžï¸ **Video Vault:** `{VIDEO_VAULT_ID}`\nðŸ† **Top 10:**\n{top_text}")
     await update.message.reply_text(txt, parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -3082,18 +3082,18 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
     free_mb = shutil.disk_usage(".").free // (1024*1024)
     cache = load_json_file(CACHE_FILE)
-    await update.message.reply_text(f"🟢 **Status V38 Monetag**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown", reply_markup=get_main_keyboard(get_lang(update.message.from_user.id), update.message.from_user.id == ADMIN_ID))
+    await update.message.reply_text(f"ðŸŸ¢ **Status V38 Monetag**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown", reply_markup=get_main_keyboard(get_lang(update.message.from_user.id), update.message.from_user.id == ADMIN_ID))
 
 async def restore_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_user.id != ADMIN_ID: return
-    file_list = "\n".join([f"   • <b>{f}</b>" for f in BACKUP_FILES])
-    await update.message.reply_text(f"🔄 <b>Restore Backup Files</b>\n\n1. Go to your private backup channel.\n2. <b>Long-press</b> a backup file, then tap all the others to select them.\n3. Hit <b>Forward</b> and send them all to this bot at once!\n\n<b>Files to restore:</b>\n{file_list}\n\nI will automatically detect and restore each file! ⚡", parse_mode="HTML", reply_markup=get_main_keyboard("en", True))
+    file_list = "\n".join([f"   â€¢ <b>{f}</b>" for f in BACKUP_FILES])
+    await update.message.reply_text(f"ðŸ”„ <b>Restore Backup Files</b>\n\n1. Go to your private backup channel.\n2. <b>Long-press</b> a backup file, then tap all the others to select them.\n3. Hit <b>Forward</b> and send them all to this bot at once!\n\n<b>Files to restore:</b>\n{file_list}\n\nI will automatically detect and restore each file! âš¡", parse_mode="HTML", reply_markup=get_main_keyboard("en", True))
 
 async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID: return
     config = load_json_file(CONFIG_FILE)
     mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
-    keyboard = [[InlineKeyboardButton("🔄 Auto", callback_data="set_ad_auto")],[InlineKeyboardButton("📺 Monetag", callback_data="set_ad_monetag")],[InlineKeyboardButton("🌐 Adsterra", callback_data="set_ad_adsterra")]]
+    keyboard = [[InlineKeyboardButton("ðŸ”„ Auto", callback_data="set_ad_auto")],[InlineKeyboardButton("ðŸ“º Monetag", callback_data="set_ad_monetag")],[InlineKeyboardButton("ðŸŒ Adsterra", callback_data="set_ad_adsterra")]]
     await update.message.reply_text(f"Ad Panel: {mode}\nReward: +1 optimum", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -3106,7 +3106,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         for uid in d.keys():
             try: all_users.add(int(uid))
             except: pass
-    status_msg = await update.message.reply_text(f"🚀 Broadcasting to {len(all_users)}...", parse_mode="Markdown")
+    status_msg = await update.message.reply_text(f"ðŸš€ Broadcasting to {len(all_users)}...", parse_mode="Markdown")
     success = fail = 0
     for uid in all_users:
         if uid == ADMIN_ID or is_banned(uid): continue
@@ -3116,7 +3116,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             success+=1
             await asyncio.sleep(0.05)
         except: fail+=1
-    await status_msg.edit_text(f"✅ Done\nSent: {success}\nFail: {fail}", parse_mode="Markdown")
+    await status_msg.edit_text(f"âœ… Done\nSent: {success}\nFail: {fail}", parse_mode="Markdown")
 
 async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID: return
@@ -3126,8 +3126,8 @@ async def ban_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         banned = load_json_file(BANNED_FILE)
         banned[target] = {"banned_at": time.time(), "reason": "spam"}
         save_json_file(BANNED_FILE, banned)
-        await update.message.reply_text(f"🚫 Banned {target}", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
-    except Exception as e: await update.message.reply_text(f"❌ {e}", reply_markup=get_main_keyboard("en", True))
+        await update.message.reply_text(f"ðŸš« Banned {target}", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
+    except Exception as e: await update.message.reply_text(f"âŒ {e}", reply_markup=get_main_keyboard("en", True))
 
 async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID: return
@@ -3138,39 +3138,39 @@ async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         if target in banned:
             del banned[target]
             save_json_file(BANNED_FILE, banned)
-            await update.message.reply_text(f"✅ Unbanned {target}", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
+            await update.message.reply_text(f"âœ… Unbanned {target}", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
         else: await update.message.reply_text(f"Not banned", reply_markup=get_main_keyboard("en", True))
-    except Exception as e: await update.message.reply_text(f"❌ {e}", reply_markup=get_main_keyboard("en", True))
+    except Exception as e: await update.message.reply_text(f"âŒ {e}", reply_markup=get_main_keyboard("en", True))
 
 async def backup_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID: return
-    await update.message.reply_text(f"📦 Backing up ALL files to {PRIVATE_CHANNEL_ID}...", reply_markup=get_main_keyboard("en", True))
+    await update.message.reply_text(f"ðŸ“¦ Backing up ALL files to {PRIVATE_CHANNEL_ID}...", reply_markup=get_main_keyboard("en", True))
     await backup_to_channel(context.bot)
-    await update.message.reply_text("✅ Full Backup sent!", reply_markup=get_main_keyboard("en", True))
+    await update.message.reply_text("âœ… Full Backup sent!", reply_markup=get_main_keyboard("en", True))
 
 async def set_disk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     if not context.args: await update.message.reply_text("Usage: `/setdisk <mb>`\nExample: `/setdisk 500`", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True)); return
     try:
         value = int(context.args[0])
-        if value < 50: await update.message.reply_text("⚠️ Value must be at least 50MB.", reply_markup=get_main_keyboard("en", True)); return
+        if value < 50: await update.message.reply_text("âš ï¸ Value must be at least 50MB.", reply_markup=get_main_keyboard("en", True)); return
         config = load_json_file(CONFIG_FILE)
         config["min_free_disk_mb"] = value
         save_json_file(CONFIG_FILE, config)
-        await update.message.reply_text(f"✅ Minimum free disk space set to **{value}MB**", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
-    except ValueError: await update.message.reply_text("❌ Invalid number.", reply_markup=get_main_keyboard("en", True))
+        await update.message.reply_text(f"âœ… Minimum free disk space set to **{value}MB**", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
+    except ValueError: await update.message.reply_text("âŒ Invalid number.", reply_markup=get_main_keyboard("en", True))
 
 async def set_mtproto_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     if not context.args: await update.message.reply_text("Usage: `/setmtproto <mb>`\nExample: `/setmtproto 1000`", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True)); return
     try:
         value = int(context.args[0])
-        if value < 50: await update.message.reply_text("⚠️ Value must be at least 50MB.", reply_markup=get_main_keyboard("en", True)); return
+        if value < 50: await update.message.reply_text("âš ï¸ Value must be at least 50MB.", reply_markup=get_main_keyboard("en", True)); return
         config = load_json_file(CONFIG_FILE)
         config["mtproto_max_mb"] = value
         save_json_file(CONFIG_FILE, config)
-        await update.message.reply_text(f"✅ MTProto max upload size set to **{value}MB**", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
-    except ValueError: await update.message.reply_text("❌ Invalid number.", reply_markup=get_main_keyboard("en", True))
+        await update.message.reply_text(f"âœ… MTProto max upload size set to **{value}MB**", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
+    except ValueError: await update.message.reply_text("âŒ Invalid number.", reply_markup=get_main_keyboard("en", True))
 
 async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
     cache = load_json_file(CACHE_FILE)
@@ -3260,7 +3260,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
             asyncio.to_thread(download_media_engine, url, dl_type, effective_max_mb), timeout=420)
         if user_id == ADMIN_ID and LAST_CAROUSEL_TRACE:
             try:
-                await bot.send_message(chat_id=chat_id, text="🧪 Carousel trace:\n" + "\n".join(LAST_CAROUSEL_TRACE)[:3500])
+                await bot.send_message(chat_id=chat_id, text="ðŸ§ª Carousel trace:\n" + "\n".join(LAST_CAROUSEL_TRACE)[:3500])
             except Exception:
                 pass
         if not file_paths: raise ValueError("FILE_NOT_FOUND")
@@ -3298,7 +3298,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
             except: cache[ckey]["qualities"]["original"] = {"file_id": sent_media[0].photo[-1].file_id, "size": size}
             for p in file_paths: os.remove(p)
         elif dl_type == 'audio':
-            sent_media = await send_audio_file(bot, chat_id, file_paths[0], f"🎵 Size {size} `{ckey}`", "Markdown", status_msg)
+            sent_media = await send_audio_file(bot, chat_id, file_paths[0], f"ðŸŽµ Size {size} `{ckey}`", "Markdown", status_msg)
             warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
             asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
             try:
@@ -3307,7 +3307,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
             except: cache[ckey]["qualities"]["audio"] = {"file_id": sent_media.audio.file_id, "size": size}
             os.remove(file_paths[0])
         else:
-            sent_media = await send_video_file(bot, chat_id, chat_id, file_paths[0], f"✨ {qual_tag} Size {size} `{ckey}`", "Markdown", status_msg)
+            sent_media = await send_video_file(bot, chat_id, chat_id, file_paths[0], f"âœ¨ {qual_tag} Size {size} `{ckey}`", "Markdown", status_msg)
             warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
             asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
             try:
@@ -3331,15 +3331,15 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
             trace_txt = ("\nTrace:\n" + "\n".join(LAST_CAROUSEL_TRACE)[:1200]) if LAST_CAROUSEL_TRACE else ""
             try:
                 await bot.send_message(chat_id=chat_id, text=(
-                    f"🧪 DL error: {type(e).__name__}: {str(e)[:500]}\n"
+                    f"ðŸ§ª DL error: {type(e).__name__}: {str(e)[:500]}\n"
                     f"MTProto: ready={MTPROTO['ready'].is_set()} api_id={bool(API_ID)} api_hash={bool(API_HASH)}"
                     f"{trace_txt}"))
             except Exception: pass
         if "FILE_TOO_LARGE" in str(e): err = t["error_50mb"]
-        elif "MTPROTO_OFF" in str(e): err = "⚠️ Big files need fast mode, which is offline right now."
-        elif "MTPROTO_PEER" in str(e): err = "⚠️ Send /start to this bot once, then send the link again."
-        elif "SITE_BLOCKED" in str(e): err = "⚠️ This site is blocking downloads from our server right now. Please try again later."
-        elif isinstance(e, (asyncio.TimeoutError, TimeoutError)): err = "⚠️ This is taking too long, so I stopped. Please try again later."
+        elif "MTPROTO_OFF" in str(e): err = "âš ï¸ Big files need fast mode, which is offline right now."
+        elif "MTPROTO_PEER" in str(e): err = "âš ï¸ Send /start to this bot once, then send the link again."
+        elif "SITE_BLOCKED" in str(e): err = "âš ï¸ This site is blocking downloads from our server right now. Please try again later."
+        elif isinstance(e, (asyncio.TimeoutError, TimeoutError)): err = "âš ï¸ This is taking too long, so I stopped. Please try again later."
         else: err = t["error_generic"]
         kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
         try: await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=err, reply_markup=kb)
@@ -3374,7 +3374,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if data == "fl_expiry":
             kb = [[InlineKeyboardButton("1 hour", callback_data="fl_exp_3600"), InlineKeyboardButton("1 day", callback_data="fl_exp_86400")],
                   [InlineKeyboardButton("7 days", callback_data="fl_exp_604800"), InlineKeyboardButton("30 days", callback_data="fl_exp_2592000")],
-                  [InlineKeyboardButton("Never", callback_data="fl_exp_never"), InlineKeyboardButton("⬅ Back", callback_data="fl_refresh")]]
+                  [InlineKeyboardButton("Never", callback_data="fl_exp_never"), InlineKeyboardButton("â¬… Back", callback_data="fl_refresh")]]
             await query.answer(); await query.message.reply_text(t["fl_choose_expiry"], reply_markup=InlineKeyboardMarkup(kb)); return
         if data.startswith("fl_exp_"):
             value = data[7:]
@@ -3387,7 +3387,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if data == "fl_maxuses":
             kb = [[InlineKeyboardButton(str(n), callback_data=f"fl_uses_{n}") for n in (1,5,10)],
                   [InlineKeyboardButton("25", callback_data="fl_uses_25"), InlineKeyboardButton("50", callback_data="fl_uses_50"), InlineKeyboardButton("Unlimited", callback_data="fl_uses_0")],
-                  [InlineKeyboardButton("⬅ Back", callback_data="fl_refresh")]]
+                  [InlineKeyboardButton("â¬… Back", callback_data="fl_refresh")]]
             await query.answer(); await query.message.reply_text(t["fl_choose_max_uses"], reply_markup=InlineKeyboardMarkup(kb)); return
         if data.startswith("fl_uses_"):
             settings["max_clicks"] = int(data.rsplit("_",1)[1])
@@ -3421,7 +3421,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                         else: await query.message.reply_text(t["fl_ad_busy"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
                     else:
                         bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
-                        reward_kb = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get +1", callback_data="verify_user")]]
+                        reward_kb = [[InlineKeyboardButton("ðŸ”“ Open Link & Watch Timer â° 20s +1", url=bridge_link)], [InlineKeyboardButton("ðŸ“¢ Join Public Channel ðŸ’œ", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("ðŸ’œ Check & Get +1", callback_data="verify_user")]]
                         await query.message.reply_text(t["limit_reached"] + ADSTERRA_USER_GUIDE, reply_markup=InlineKeyboardMarkup(reward_kb), parse_mode="Markdown")
                     return
                 profile["downloads_left"] = remaining - 1
@@ -3527,7 +3527,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 try: all_users.add(int(uid))
                 except: pass
         await context.bot.send_message(chat_id=chat_id, text=t["drop_broadcasting"].format(len(items_to_drop), len(all_users)), parse_mode="Markdown")
-        keyboard = [[InlineKeyboardButton("🎁 Claim Now", url=claim_url)]]
+        keyboard = [[InlineKeyboardButton("ðŸŽ Claim Now", url=claim_url)]]
         broadcast_text = t["drop_flash_text"].format(mins_label)
         success = 0
         for uid in all_users:
@@ -3563,10 +3563,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             for item in drop["items"]:
                 fwd = await context.bot.copy_message(chat_id=user_id, from_chat_id=item["chat_id"], message_id=item["message_id"])
                 sent_ids.append(fwd.message_id); await asyncio.sleep(0.2)
-            warn = await context.bot.send_message(chat_id=user_id, text=f"⏳ Auto-deletes in {drop.get('delete_label','9 Minutes')}", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+            warn = await context.bot.send_message(chat_id=user_id, text=f"â³ Auto-deletes in {drop.get('delete_label','9 Minutes')}", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
             sent_ids.append(warn.message_id)
             asyncio.create_task(schedule_deletion(context.bot, user_id, sent_ids, drop.get("delete_delay",540)))
-        except Exception as e: await context.bot.send_message(chat_id=user_id, text=f"❌ {e}", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+        except Exception as e: await context.bot.send_message(chat_id=user_id, text=f"âŒ {e}", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         return
     if data == "age_no":
         await query.answer(t["age_denied"], show_alert=True)
@@ -3594,7 +3594,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         urls = pending_batch_payloads.get(payload_key)
         if not urls: await query.answer(t["batch_expired"], show_alert=True); return
         await query.message.delete()
-        keyboard = [[InlineKeyboardButton(t["btn_chat"], callback_data=f"dest_chat_{dl_type}_{payload_key}")], [InlineKeyboardButton(t["btn_chan"], callback_data=f"dest_chan_{dl_type}_{payload_key}")], [InlineKeyboardButton("🔄 Change Channel", callback_data="change_channel")]]
+        keyboard = [[InlineKeyboardButton(t["btn_chat"], callback_data=f"dest_chat_{dl_type}_{payload_key}")], [InlineKeyboardButton(t["btn_chan"], callback_data=f"dest_chan_{dl_type}_{payload_key}")], [InlineKeyboardButton("ðŸ”„ Change Channel", callback_data="change_channel")]]
         await context.bot.send_message(chat_id=chat_id, text=t["batch_dest"].format(len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     if data.startswith("fmt_"):
@@ -3637,7 +3637,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         tokens = load_tokens()
         tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
         save_tokens(tokens)
-        await query.message.reply_text(t["monetag_fallback_prompt"] + ADSTERRA_USER_GUIDE, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔓 Open Adsterra Link", url=bridge_link)], [InlineKeyboardButton("✅ Check & Get +1", callback_data="verify_user")]]), parse_mode="Markdown")
+        await query.message.reply_text(t["monetag_fallback_prompt"] + ADSTERRA_USER_GUIDE, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("ðŸ”“ Open Adsterra Link", url=bridge_link)], [InlineKeyboardButton("âœ… Check & Get +1", callback_data="verify_user")]]), parse_mode="Markdown")
         await query.answer(t["adsterra_ready"], show_alert=True)
         return
     if data in ("monetag_check", "adsgram_check"):
@@ -3661,7 +3661,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if msg_start > 0:
             await context.bot.send_message(chat_id=chat_id, text=t["fetching_bundle"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
             try: await deliver_bundle(context.bot, user_id, msg_start, msg_end)
-            except Exception as e: await context.bot.send_message(chat_id=chat_id, text=f"❌ {e}", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+            except Exception as e: await context.bot.send_message(chat_id=chat_id, text=f"âŒ {e}", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
             return
         retry_url = pending_single_links.pop(f"retry_{user_id}", None)
         if retry_url:
@@ -3745,7 +3745,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         save_tokens(tokens)
         await query.answer(t["verified_added"])
         if user_id in paused_batches:
-            keyboard = [[InlineKeyboardButton("▶️ Resume Batch +1", callback_data="resume_batch")]]
+            keyboard = [[InlineKeyboardButton("â–¶ï¸ Resume Batch +1", callback_data="resume_batch")]]
             await query.message.reply_text(t["resume_prompt"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             return
         if msg_start==0: 
@@ -3765,13 +3765,13 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     tut = await context.bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
                     fwd_ids.append(tut.message_id)
                 except Exception as tut_e: logger.error(f"Tutorial forward fail: {tut_e}")
-            warn = await context.bot.send_message(chat_id=user_id, text="⏳ Auto-deletes in 9 mins", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+            warn = await context.bot.send_message(chat_id=user_id, text="â³ Auto-deletes in 9 mins", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
             fwd_ids.append(warn.message_id)
             asyncio.create_task(schedule_deletion(context.bot, user_id, fwd_ids, 540))
-        except Exception as e: await query.message.reply_text(f"❌ {e}", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+        except Exception as e: await query.message.reply_text(f"âŒ {e}", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
 
 ADSTERRA_USER_GUIDE = (
-    "\n\n⚠️ **Adsterra not opening or visit not detected?**\n"
+    "\n\nâš ï¸ **Adsterra not opening or visit not detected?**\n"
     "1. Temporarily disable Private DNS, ad blockers, and ad-filtering apps.\n"
     "2. Turn off VPN or proxy.\n"
     "3. Tap **Open Link** and choose **Open in browser** (not inside Telegram).\n"
@@ -3780,15 +3780,15 @@ ADSTERRA_USER_GUIDE = (
     "Detection depends on Adsterra and your browser/network; these steps do not guarantee a reward."
 )
 
-TEST_AD_TEXT = "🧪 AD PLACEMENT TEST\n\n1️⃣ User sends link\n2️⃣ User gets 4 FREE downloads\n3️⃣ LIMIT REACHED screen appears\n4️⃣ Tap Watch Ad\n5️⃣ Tap Check & Get +1\n\n👇 TRY THE AD NOW:"
+TEST_AD_TEXT = "ðŸ§ª AD PLACEMENT TEST\n\n1ï¸âƒ£ User sends link\n2ï¸âƒ£ User gets 4 FREE downloads\n3ï¸âƒ£ LIMIT REACHED screen appears\n4ï¸âƒ£ Tap Watch Ad\n5ï¸âƒ£ Tap Check & Get +1\n\nðŸ‘‡ TRY THE AD NOW:"
 
 async def send_adsgram_test(message, user_id):
-    extra = [[InlineKeyboardButton("🛠 Admin: simulate ad finished", callback_data="admin_sim_ad")]] if user_id == ADMIN_ID else None
+    extra = [[InlineKeyboardButton("ðŸ›  Admin: simulate ad finished", callback_data="admin_sim_ad")]] if user_id == ADMIN_ID else None
     kb = adsgram_keyboard(user_id, "test", 0, 0, extra)
-    if not kb: await message.reply_text("⚠️ Ad server not reachable.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)); return
+    if not kb: await message.reply_text("âš ï¸ Ad server not reachable.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)); return
     await message.reply_text(TEST_AD_TEXT, reply_markup=kb)
 
-ADSTERRA_TEST_TEXT = "🧪 AD PLACEMENT TEST (Adsterra)\n\n1️⃣ User sends link\n2️⃣ LIMIT REACHED screen appears\n3️⃣ Stay 20s on ad page\n4️⃣ Tap Check & Get +1\n\n👇 TRY THE AD NOW:" + ADSTERRA_USER_GUIDE
+ADSTERRA_TEST_TEXT = "ðŸ§ª AD PLACEMENT TEST (Adsterra)\n\n1ï¸âƒ£ User sends link\n2ï¸âƒ£ LIMIT REACHED screen appears\n3ï¸âƒ£ Stay 20s on ad page\n4ï¸âƒ£ Tap Check & Get +1\n\nðŸ‘‡ TRY THE AD NOW:" + ADSTERRA_USER_GUIDE
 
 async def send_adsterra_test(message, user_id):
     tokens = load_tokens()
@@ -3800,7 +3800,7 @@ async def send_adsterra_test(message, user_id):
         tokens[uid] = {"user_id": int(user_id), "downloads_left": free, "batch_downloads_left": free * 5, "last_reset": now, "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": now + 600}
     save_tokens(tokens)
     bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
-    keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")]]
+    keyboard = [[InlineKeyboardButton("ðŸ”“ Open Link & Watch Timer â° 20s +1", url=bridge_link)], [InlineKeyboardButton("ðŸ“¢ Join Public Channel ðŸ’œ", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("ðŸ’œ Check & Get Files âœ… +1", callback_data="verify_user")]]
     await message.reply_text(ADSTERRA_TEST_TEXT, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def send_test_ad(message, user_id):
@@ -3809,14 +3809,14 @@ async def send_test_ad(message, user_id):
 
 def build_ad_info_text(user_id):
     mode = load_json_file(CONFIG_FILE).get("ad_mode", "auto")
-    monetag = "• Monetag: LIMIT REACHED screen -> Watch Ad Mini App -> Check & Get +1\n"
-    adsterra = "• Adsterra: LIMIT REACHED screen -> Open Link 20s -> Check & Get +1\n"
+    monetag = "â€¢ Monetag: LIMIT REACHED screen -> Watch Ad Mini App -> Check & Get +1\n"
+    adsterra = "â€¢ Adsterra: LIMIT REACHED screen -> Open Link 20s -> Check & Get +1\n"
     if mode in ("monetag", "adsgram"): head, body = "Mode: MONETAG only", monetag
     elif mode == "adsterra": head, body = "Mode: ADSTERRA only", adsterra
     else:
         net = "Monetag" if get_global_ab_network(user_id) == "monetag" else "Adsterra"
         head, body = f"Mode: AUTO (you currently get {net})", monetag + adsterra
-    return ("📢 AD INFO\n\nBot: @Michaelbbcvaultbot\n" + head + "\n\n📍 Exact ad placement:\n" + body + "\n• Reward: +1 download per completed ad\n\n🧪 To test: tap 🧪 Test Ad or send /testad")
+    return ("ðŸ“¢ AD INFO\n\nBot: @Michaelbbcvaultbot\n" + head + "\n\nðŸ“ Exact ad placement:\n" + body + "\nâ€¢ Reward: +1 download per completed ad\n\nðŸ§ª To test: tap ðŸ§ª Test Ad or send /testad")
 
 async def test_ad_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
@@ -3826,15 +3826,17 @@ async def tokencheck_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if update.effective_user.id != ADMIN_ID: return
     mine = hashlib.sha256(BOT_TOKEN.encode()).hexdigest()[:8] if BOT_TOKEN else "none"
     try: s = requests.get(f"{WEB_BASE_URL}/monetag-selfcheck", timeout=15).json()
-    except Exception as e: await update.message.reply_text(f"❌ Could not reach server: {type(e).__name__}", reply_markup=get_main_keyboard("en", True)); return
+    except Exception as e: await update.message.reply_text(f"âŒ Could not reach server: {type(e).__name__}", reply_markup=get_main_keyboard("en", True)); return
     same = (s.get("fingerprint") == mine)
-    lines = ["🔐 TOKEN CHECK", f"Render bot: fingerprint {mine}", f"PythonAnywhere: fingerprint {s.get('fingerprint')}", f"PA token works: {s.get('telegram_ok')}"]
-    lines.append("✅ MATCH" if same else "❌ DIFFERENT")
+    lines = ["ðŸ” TOKEN CHECK", f"Render bot: fingerprint {mine}", f"PythonAnywhere: fingerprint {s.get('fingerprint')}", f"PA token works: {s.get('telegram_ok')}"]
+    lines.append("âœ… MATCH" if same else "âŒ DIFFERENT")
     await update.message.reply_text("\n".join(lines), reply_markup=get_main_keyboard("en", True))
 
 async def ad_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     await update.message.reply_text(build_ad_info_text(update.effective_user.id), reply_markup=get_main_keyboard("en", True))
+
+EXTRAS_STATUS = "â³ Extras not loaded yet"
 
 def run_telegram_bot():
     loop = asyncio.new_event_loop()
@@ -3842,6 +3844,36 @@ def run_telegram_bot():
     async def start_bot():
         clean_downloads_startup()
         app = Application.builder().token(BOT_TOKEN).build()
+        # ---- load the extras add-on (Limits, Required Channels, quality picker, metadata, progress card) ----
+        # Finds the file even if it was saved as "extras. Py", "extras.py.txt", "extras.txt", etc.
+        # If it fails, the bot still runs and the admin gets a Telegram message with the exact reason.
+        global EXTRAS_STATUS
+        try:
+            import glob, importlib.util, importlib.machinery, traceback
+            _here = os.path.dirname(os.path.abspath(__file__))
+            _cands = [os.path.join(_here, "extras.py")]
+            _cands += sorted(p for p in glob.glob(os.path.join(_here, "*")) if os.path.basename(p).lower().replace(" ", "").startswith("extras") and os.path.isfile(p))
+            _cands += [os.path.join(os.getcwd(), "extras.py")]
+            _path = next((p for p in _cands if os.path.isfile(p)), None)
+            if not _path:
+                raise FileNotFoundError(f"no extras file found in {_here} (files: {', '.join(sorted(os.listdir(_here)))[:500]})")
+            _loader = importlib.machinery.SourceFileLoader("extras", _path)
+            _spec = importlib.util.spec_from_loader("extras", _loader)
+            extras = importlib.util.module_from_spec(_spec)
+            sys.modules["extras"] = extras
+            _loader.exec_module(extras)
+            extras.init(globals())
+            extras.register(app)
+            EXTRAS_STATUS = f"âœ… Extras loaded from: {os.path.basename(_path)}"
+        except Exception as _e:
+            EXTRAS_STATUS = f"âŒ Extras NOT loaded: {type(_e).__name__}: {str(_e)[:700]}"
+            logger.exception("extras failed to load")
+        print(EXTRAS_STATUS, flush=True)
+
+        async def extras_status_command(update, context):
+            if update.effective_user.id != ADMIN_ID: return
+            await update.message.reply_text(EXTRAS_STATUS, reply_markup=get_main_keyboard("en", True))
+        app.add_handler(CommandHandler("extras", extras_status_command))
         try:
             from telegram import BotCommand
             await app.bot.set_my_commands([BotCommand("start", "Start bot"), BotCommand("filetolink", "Create a File-to-Link"), BotCommand("language", "Choose language"), BotCommand("stats", "View download balance")])
@@ -3873,6 +3905,9 @@ def run_telegram_bot():
         asyncio.create_task(queue_processor(app.bot))
         asyncio.create_task(restore_arcade_backup(app.bot)) 
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
+        try:   # tell the admin on every restart whether the extras loaded (also refreshes the admin keyboard)
+            await app.bot.send_message(chat_id=ADMIN_ID, text="ðŸ¤– Bot restarted\n" + EXTRAS_STATUS, reply_markup=get_main_keyboard("en", True))
+        except Exception as e: logger.warning(f"startup notice failed: {e}")
         print(f"Bot started! V25 Cloud Sync Vault={VIDEO_VAULT_ID} Backup={PRIVATE_CHANNEL_ID} Free {get_free_disk_mb()}MB")
         await asyncio.Event().wait()
     loop.run_until_complete(start_bot())
@@ -3922,7 +3957,7 @@ async def mtproto_upload(kind, chat_id, path, caption, **extra):
 
 async def _tell_uploading(status_msg, path):
     if status_msg is None: return
-    try: await status_msg.edit_text(f"📤 Uploading {os.path.getsize(path)/(1024*1024):.0f}MB in fast mode...")
+    try: await status_msg.edit_text(f"ðŸ“¤ Uploading {os.path.getsize(path)/(1024*1024):.0f}MB in fast mode...")
     except Exception: pass
 
 async def send_video_file(bot, chat_id, target_id, path, caption, parse_mode, status_msg=None):
