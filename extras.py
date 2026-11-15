@@ -1623,6 +1623,8 @@ def init(g):
     if _INITED:
         return
     _INITED = True
+    print("EXTRAS LOADED OK (v2: cache any quality + picker every time + reward fix)", flush=True)
+    logger.warning("EXTRAS LOADED OK (v2)")
     for name in ("cached_download_and_send", "deduct_download_counter", "get_canonical_key", "get_main_keyboard"):
         _ORIG[name] = g[name]
 
