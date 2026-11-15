@@ -980,6 +980,7 @@ def _yt_menu(info, user_id, key):
         rows.append([_yt_button(info, "youtube", H, f"{actual}p", dur, is_admin, key)])
     if hs and min(hs) < 360 and min(hs) not in seen:
         rows.append([_yt_button(info, "youtube", 0, f"{min(hs)}p (lowest)", dur, is_admin, key)])
+    rows.append([InlineKeyboardButton("🎵 Audio MP3 · 192kbps", callback_data=f"ytq_audio_{key}")])
     rows.append([InlineKeyboardButton("❌ Cancel", callback_data=f"ytq_cancel_{key}")])
     return InlineKeyboardMarkup(rows)
 
@@ -1008,6 +1009,27 @@ async def _launch(context, chat_id, user_id, t, url, cap):
     else:
         pos = G["download_queue"].qsize() + 1
         await G["download_queue"].put({"func": run_with_quality, "args": (context.bot, chat_id, user_id, url, "video", t, cap), "kwargs": {}})
+        free_mb = shutil.disk_usage(".").free // (1024 * 1024)
+        await context.bot.send_message(chat_id=chat_id, text=t["server_busy"].format(G["active_downloads"], G["MAX_CONCURRENT_SHORT"], free_mb, pos),
+                                       parse_mode="Markdown", reply_markup=G["get_main_keyboard"](lang, user_id == _admin()))
+
+
+async def _launch_audio(context, chat_id, user_id, t, url):
+    """Start the audio download, same slot/queue logic as video."""
+    lang = G["get_lang"](user_id)
+    ckey = await G["get_canonical_key"](url, chat_id, context.bot)
+    cache = G["load_json_file"](G["CACHE_FILE"])
+    if ckey in cache:
+        await run_with_quality(context.bot, chat_id, user_id, url, "audio", t, None)
+        return
+    if await G["acquire_slot"]():
+        try:
+            await run_with_quality(context.bot, chat_id, user_id, url, "audio", t, None)
+        finally:
+            await G["release_slot"]()
+    else:
+        pos = G["download_queue"].qsize() + 1
+        await G["download_queue"].put({"func": run_with_quality, "args": (context.bot, chat_id, user_id, url, "audio", t, None), "kwargs": {}})
         free_mb = shutil.disk_usage(".").free // (1024 * 1024)
         await context.bot.send_message(chat_id=chat_id, text=t["server_busy"].format(G["active_downloads"], G["MAX_CONCURRENT_SHORT"], free_mb, pos),
                                        parse_mode="Markdown", reply_markup=G["get_main_keyboard"](lang, user_id == _admin()))
@@ -1087,6 +1109,13 @@ async def on_ytq(update, context):
     url = G["pending_single_links"].get(key)
     if not url:
         await q.answer("Expired, please send the link again.", show_alert=True)
+        raise ApplicationHandlerStop
+    if capstr == "audio":
+        G["pending_single_links"].pop(key, None)
+        await q.answer()
+        try: await q.message.delete()
+        except Exception: pass
+        await _launch_audio(context, chat_id, user_id, t, url)
         raise ApplicationHandlerStop
     # QUALITY FIX: Auto is now AUTO (9999), not None, so the next step knows
     # the user already made a choice and will not show the picker again.
@@ -1445,6 +1474,69 @@ async def admin_router(update, context):
 
 
 # =====================================================================
+# 9b. YouTube link interceptor - MUST run before the main bot's cache
+#     fast-path. The main bot sends cached videos instantly without ever
+#     calling cached_download_and_send, so the picker in there never ran
+#     for cached links (this is what happened after restoring backup JSON:
+#     the cache came back, so every paste sent 1080p instantly).
+#     This handler catches the YouTube link message itself, shows the
+#     picker, and stops the main handler. It includes Audio so it can
+#     replace the old Video/Audio format chooser for YouTube links.
+# =====================================================================
+async def on_youtube_link(update, context):
+    msg = update.message
+    if msg is None or msg.from_user is None:
+        return
+    if msg.text is None:
+        return
+    text = (msg.text or "").strip()
+    if not text or text.startswith("/"):
+        return
+    if text in CANCEL_WORDS:
+        return
+    if text in _menu_texts():
+        return
+    chat = update.effective_chat
+    if chat is not None and chat.type != "private":
+        return
+    # do not intercept when user is in a panel / waiting for channel
+    if context.user_data.get("extras_state"):
+        return
+    try:
+        _st = G["load_linking_states"]()
+        if _st.get(str(msg.from_user.id)) == "waiting_for_channel":
+            return
+    except Exception:
+        pass
+    # find first YouTube URL in the message
+    url = None
+    for m in re.finditer(r"https?://\S+", text):
+        cand = m.group(0).rstrip(".,)")
+        if YT_ID_RE.search(cand):
+            url = cand
+            break
+    if not url:
+        return
+    if not _cfg().get("yt_quality_menu", True):
+        return
+    user_id, chat_id = msg.from_user.id, msg.chat_id
+    info = await probe(url, timeout=15)
+    if not info or not heights_available(info):
+        return  # let main bot do Auto, do not block
+    key = f"single_{user_id}_{int(time.time())}"
+    G["pending_single_links"][key] = url
+    title = _clean(info.get("title"), 70)
+    dur = info.get("duration") or 0
+    text_out = (f"🎬 {title}\n⏱ {int(dur // 60)}m {int(dur % 60)}s\n\n"
+                f"Choose a quality:\n🎞 normal · ⚡ uses extra credits · 🚫 too big")
+    try:
+        await msg.reply_text(text_out, reply_markup=_yt_menu(info, user_id, key))
+    except Exception:
+        return
+    raise ApplicationHandlerStop
+
+
+# =====================================================================
 # 10. "Change Batch Channel": cancel button, and links are never trapped
 #     + /menu handling (keyboard fix)
 # =====================================================================
@@ -1690,3 +1782,6 @@ def register(app):
     app.add_handler(CallbackQueryHandler(on_admin_cb, pattern=r"^extras_"), group=-2)
     app.add_handler(CallbackQueryHandler(on_fmt_vid, pattern=r"^fmt_vid_"), group=-2)
     app.add_handler(CallbackQueryHandler(on_ytq, pattern=r"^ytq_"), group=-2)
+    # YouTube link interceptor: group -1 runs after gate (-4) / batch (-3) / admin (-2)
+    # but before the main bot (group 0), so it can stop the main bot's cached instant-send.
+    app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, on_youtube_link), group=-1)
