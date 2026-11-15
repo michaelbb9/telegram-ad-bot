@@ -168,6 +168,13 @@ def _probe_sync(url):
     return info
 
 
+def _store_probe(url, info):
+    if info:
+        if len(_PROBE_CACHE) > 200:
+            _PROBE_CACHE.clear()
+        _PROBE_CACHE[url] = (time.time(), info)
+
+
 def peek_probe(url):
     """Cached metadata only (never touches the network)."""
     hit = _PROBE_CACHE.get(url)
@@ -995,9 +1002,9 @@ async def on_fmt_vid(update, context):
                 try: await q.message.edit_text(BLOCKED_TEXT)
                 except Exception: pass
                 raise ApplicationHandlerStop
-            # no quality list available: carry on with the normal automatic download
+            # no quality list available: carry on with the normal automatic download (and say so)
             G["pending_single_links"].pop(key, None)
-            try: await q.message.delete()
+            try: await q.message.edit_text("ℹ️ I couldn't load the quality list, so I'm downloading in Auto quality…")
             except Exception: pass
             await _launch(context, chat_id, user_id, t, url, None)
             raise ApplicationHandlerStop
@@ -1403,6 +1410,9 @@ async def batch_channel_router(update, context):
     text = (msg.text or "").strip()
     lang = G["get_lang"](uid)
     t = G["LANGUAGES"].get(lang, G["LANGUAGES"]["en"])
+    if text.split("@")[0] == "/menu":
+        await msg.reply_text("📋 Main menu is back 👇", reply_markup=_main_kb(uid))
+        raise ApplicationHandlerStop
     if text == "🔄 Change Batch Channel":
         states = G["load_linking_states"]()
         states[str(uid)] = "waiting_for_channel"
@@ -1447,6 +1457,34 @@ def init(g):
     _INITED = True
     for name in ("cached_download_and_send", "deduct_download_counter", "get_canonical_key", "get_main_keyboard"):
         _ORIG[name] = g[name]
+    if "fetch_url_metadata" in g:
+        _ORIG["fetch_url_metadata"] = g["fetch_url_metadata"]
+
+        def fetch_meta_shared(url):
+            """Title/duration for the 'choose format' screen. For YouTube we do ONE lookup and keep it,
+            so the quality list is ready instantly when the user taps Video."""
+            try:
+                if YT_ID_RE.search(url or ""):
+                    info = peek_probe(url)
+                    if info is None:
+                        if blocked_for("youtube"):
+                            return "Media Link", "N/A"
+                        try:
+                            info = _probe_sync(url)
+                            _store_probe(url, info)
+                        except Exception as e:
+                            if looks_blocked(e):
+                                mark_blocked("youtube")
+                            info = None
+                    if info:
+                        title = (info.get("title") or "Unknown")[:60]
+                        mins, secs = divmod(int(info.get("duration") or 0), 60)
+                        return title, (f"{mins}m {secs}s" if mins else f"{secs}s")
+                    return "Media Link", "N/A"
+            except Exception:
+                pass
+            return _ORIG["fetch_url_metadata"](url)
+        g["fetch_url_metadata"] = fetch_meta_shared
 
     # progress hooks + quality cap inside every yt-dlp call
     base = yt_dlp.YoutubeDL
@@ -1499,11 +1537,12 @@ def init(g):
 
     def kb_with_admin_buttons(lang_code, is_admin):
         kb = _ORIG["get_main_keyboard"](lang_code, is_admin)
-        if not is_admin:
-            return kb
         rows = [list(r) for r in kb.keyboard]
-        rows.append([KeyboardButton("📏 Limits"), KeyboardButton("📢 Required Channels")])
-        return ReplyKeyboardMarkup(rows, resize_keyboard=True)
+        if is_admin:
+            rows.append([KeyboardButton("📏 Limits"), KeyboardButton("📢 Required Channels")])
+        # is_persistent: Telegram keeps the menu visible instead of letting it collapse/disappear
+        return ReplyKeyboardMarkup(rows, resize_keyboard=True, is_persistent=True, one_time_keyboard=False,
+                                   input_field_placeholder="Paste a link here 🔗")
     g["get_main_keyboard"] = kb_with_admin_buttons
 
     async def tell_uploading(status_msg, path):
@@ -1528,8 +1567,22 @@ def init(g):
         g["cached_download_and_send"] = cached_download_and_send
 
 
+async def _set_commands(app):
+    try:
+        from telegram import BotCommand
+        await app.bot.set_my_commands([BotCommand("start", "Start bot"), BotCommand("menu", "Show the main menu"),
+                                       BotCommand("filetolink", "Create a File-to-Link"), BotCommand("language", "Choose language"),
+                                       BotCommand("stats", "View download balance")])
+    except Exception as e:
+        logger.warning(f"could not update the command list: {e}")
+
+
 def register(app):
     """Add our handlers. They run BEFORE the bot's own handlers (negative groups)."""
+    try:                                   # runs a few seconds later so it wins over the bot's own command list
+        asyncio.get_running_loop().call_later(10, lambda: asyncio.ensure_future(_set_commands(app)))
+    except Exception:
+        pass
     admin = filters.User(user_id=G["ADMIN_ID"])
     app.add_handler(TypeHandler(Update, gate), group=-4)
     app.add_handler(MessageHandler(filters.ALL & filters.ChatType.PRIVATE, batch_channel_router), group=-3)
