@@ -4118,6 +4118,9 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         track_user_activity(user_id, getattr(_fu2, "username", None), getattr(_fu2, "first_name", None))
     except: track_user_activity(user_id)
     data = query.data
+    chat_id = query.message.chat_id
+    lang = get_lang(user_id)
+    # V30 FIX: chat_id/lang must be defined BEFORE qual/cancel/gate handlers, as in original. This was why picking quality did nothing.
     # V27 ADD-ONLY button handlers - original fl_ etc below untouched
     if data == "cancel_linking":
         _ls2 = load_linking_states()
@@ -4272,11 +4275,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 finally: await release_slot()
             else:
                 await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, user_id, _url2, "video", t), 'kwargs': {'requested_quality': _qual, 'pre_fetched_meta': _meta2}})
-                await context.bot.send_message(chat_id=chat_id, text="⏳ Queued - will download with " + _qual, reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+                await context.bot.send_message(chat_id=chat_id, text="⏳ Queued - will download with " + (_qual or "Highest Cached"), reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
             return
-    chat_id = query.message.chat_id
-    lang = get_lang(user_id)
-    
     if data.startswith("fl_"):
         states = load_json_file(FILE_LINK_STATE_FILE)
         state = states.get(str(user_id))
