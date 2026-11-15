@@ -1,9 +1,3 @@
-# V45 FIXED - Ad wall restored: verify_user no longer blocks reward on join, forwarded double-handle removed, join buttons = ALL channels
-# V44 FIXED - Join Channel shows ALL configured channels, forwarded messages work, bot-not-in-channel no longer blocks users
-# V43 FIXED - 2026-11-15 - Ad monetisation fixed, Cancel + ForceJoin + Limits
-# Changes vs V42: Test Ad no longer blocked by fj_adding, ad callbacks excluded from force-join gate,
-# heavy refill uses Monetag OR Adsterra based on user network, heavy resume in monetag_check + verify_user,
-# Test Ad now shows HTTP diag if pythonanywhere down
 # -*- coding: utf-8 -*-
 import time
 import json
@@ -1668,20 +1662,9 @@ def adsgram_keyboard(user_id, kind="wall", msg_start=0, msg_end=0, extra_rows=No
     nonce = adsgram_start(user_id, kind, msg_start, msg_end)
     if not nonce: return None
     url = f"{WEB_BASE_URL}/monetag?n={nonce}&k={kind}"
-    # V45: Join buttons = ALL configured force-join channels, not just 1 hardcoded
-    _join_rows = []
-    try:
-        for _ch in get_force_join_channels():
-            _u = _ch.get("url") or f"https://t.me/{str(_ch.get('username','')).lstrip('@')}"
-            _t = _ch.get("title") or _ch.get("username") or "Channel"
-            _join_rows.append([InlineKeyboardButton(f"📢 Join {_t} 💜", url=_u)])
-    except Exception:
-        _join_rows = [[InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)]]
-    if not _join_rows:
-        _join_rows = [[InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)]]
     rows = [
         [InlineKeyboardButton("📺 Watch Monetag Ad +1", web_app=WebAppInfo(url=url))],
-        *_join_rows,
+        [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
         [InlineKeyboardButton("✅ Check & Get +1", callback_data="monetag_check")],
         [InlineKeyboardButton("↪️ Use Adsterra fallback (after 2 failures)", callback_data="monetag_fallback")],
     ]
@@ -1889,101 +1872,25 @@ def get_force_join_channels():
 def save_force_join_channels(lst):
     save_json_file(FORCE_JOIN_FILE, lst)
 
-async def resolve_channel_chat_id(bot, ch):
-    # Try to resolve a channel to a numeric chat_id so private / renamed channels still check correctly.
-    # Returns (chat_id_or_None, error_or_None)
-    if ch.get("chat_id"):
-        return ch.get("chat_id"), None
-    for ident in [ch.get("username"), ch.get("url")]:
+async def check_force_join(bot, user_id):
+    if user_id == ADMIN_ID:
+        return True, []
+    channels = get_force_join_channels()
+    missing = []
+    for ch in channels:
+        ident = ch.get("username") or ch.get("url")
         if not ident:
             continue
         try:
-            c = await bot.get_chat(chat_id=ident)
-            return getattr(c, "id", None), None
-        except Exception as e:
-            _err = str(e)
-            continue
-    return None, "not_found"
-
-async def check_force_join(bot, user_id):
-    # Returns (ok, missing, debug_list)
-    # debug_list: list of (channel, status, reason) for admin diagnostics
-    if user_id == ADMIN_ID:
-        return True, [], []
-    channels = get_force_join_channels()
-    missing = []
-    debug = []
-    for ch in channels:
-        _title = ch.get("title") or ch.get("username") or "Channel"
-        # Try identifiers in order: stored chat_id, username, url
-        # V45: only chat_id + username are valid for get_chat_member. URL always fails and wastes API calls / triggers FloodWait.
-        _idents = []
-        if ch.get("chat_id"):
-            _idents.append(ch.get("chat_id"))
-        if ch.get("username"):
-            _idents.append(ch.get("username"))
-        _checked = False
-        _last_err = ""
-        for ident in _idents:
-            try:
-                m = await bot.get_chat_member(chat_id=ident, user_id=user_id)
-                st = getattr(m, "status", None)
-                _checked = True
-                if st in ("member", "administrator", "creator", "restricted"):
-                    debug.append((ch, "joined", st))
-                    break
-                else:
-                    # left / kicked / not member
-                    debug.append((ch, "not_joined", st or "left"))
-                    missing.append({**ch, "_reason": f"status={st}"})
-                    break
-            except Exception as e:
-                _last_err = str(e)
-                # If bot itself is not in the channel, Telegram returns "bot is not a member" / "chat not found"
-                # That is a CONFIG error, not a user error - do NOT block user forever for it, but flag it.
-                if "bot is not a member" in _last_err.lower() or "bot was blocked" in _last_err.lower() or "forbidden" in _last_err.lower():
-                    debug.append((ch, "config_error", "BOT_NOT_IN_CHANNEL"))
-                    # V44: config error must NOT block user forever - admin must add bot to channel.
-                    # Do NOT add to missing, just log for admin.
-                    _checked = True
-                    break
-                # Otherwise try next ident
+            m = await bot.get_chat_member(chat_id=ident, user_id=user_id)
+            st = getattr(m, "status", None)
+            # member / creator / administrator / restricted (still in channel) = OK
+            if st in ("member", "administrator", "creator", "restricted"):
                 continue
-        if not _checked:
-            # All idents failed - channel username wrong / private / deleted
-            # V44: do NOT block user for admin config error - report in debug, let user through
-            debug.append((ch, "config_error", f"CHECK_FAILED: {_last_err[:120]}"))
-    # Log config errors for admin
-    for _ch_dbg, _st, _rs in debug:
-        if _st == "config_error":
-            logger.warning(f"FORCE-JOIN CONFIG ERROR for {_ch_dbg.get('username')} : {_rs} - admin must fix, user NOT blocked for this channel")
-    return (len(missing) == 0), missing, debug
-
-def force_join_gate_text(missing):
-    lines = ["🔒 **Join Required To Use This Bot**\n", "You must join **ALL** channels below before using any feature:"]
-    for ch in missing:
-        title = ch.get("title") or ch.get("username") or "Channel"
-        reason = ch.get("_reason", "")
-        if reason == "BOT_NOT_IN_CHANNEL":
-            lines.append(f"• {title} - {ch.get('username','')}  ⚠️ (Bot is not in this channel - tell admin to add bot as admin/member first)")
-        elif reason.startswith("CHECK_FAILED"):
-            lines.append(f"• {title} - {ch.get('username','')}  ⚠️ (Bot cannot check this channel - username may be wrong / channel is private / deleted)")
-        else:
-            lines.append(f"• {title} - {ch.get('username','')}")
-    lines.append("\nAfter joining, tap **✅ I've Joined - Check Again**.")
-    lines.append("If you just joined, wait 5 seconds then tap Check Again - Telegram can be slow to update.")
-    lines.append("If you already joined ALL of them and it still says not joined, tap Check Again twice - the bot re-checks each channel.")
-    return "\n".join(lines)
-
-def join_channels_keyboard():
-    # Used by 📢 Join Channel menu button - shows EVERY configured force-join channel, not just 1 hardcoded one
-    kb = []
-    for ch in get_force_join_channels():
-        title = ch.get("title") or ch.get("username") or "Channel"
-        url = ch.get("url") or f"https://t.me/{str(ch.get('username','')).lstrip('@')}"
-        kb.append([InlineKeyboardButton(f"📢 Join {title}", url=url)])
-    kb.append([InlineKeyboardButton("✅ I've Joined - Check Again", callback_data="check_join")])
-    return InlineKeyboardMarkup(kb)
+            missing.append(ch)
+        except Exception:
+            missing.append(ch)
+    return (len(missing) == 0), missing
 
 def force_join_keyboard(missing):
     kb = []
@@ -1994,7 +1901,14 @@ def force_join_keyboard(missing):
     kb.append([InlineKeyboardButton("✅ I've Joined - Check Again", callback_data="check_join")])
     return InlineKeyboardMarkup(kb)
 
-
+def force_join_gate_text(missing):
+    lines = ["🔒 **Join Required To Use This Bot**\n", "You must join **ALL** channels below before using any feature:"]
+    for ch in missing:
+        title = ch.get("title") or ch.get("username") or "Channel"
+        lines.append(f"• {title} - {ch.get('username','')}")
+    lines.append("\nAfter joining, tap **✅ I've Joined - Check Again**.")
+    lines.append("We check every time - if you leave, you'll be blocked again.")
+    return "\n".join(lines)
 
 def fetch_full_info(url):
     ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True}
@@ -2148,28 +2062,11 @@ def evaluate_limits(info, url, user_id, wanted_quality=None):
     return {"allowed": True, "cost": 1, "block": None, "need_ad": False, "duration": duration, "est_mb": est_mb, "plat": plat, "limits": lim, "heavy": False}
 
 def build_heavy_ad_keyboard(user_id, payload_key, dl_type, wanted_quality):
-    # FIX: heavy refill must use user's assigned network - Monetag Mini App OR Adsterra bridge
-    try:
-        _net = get_global_ab_network(user_id)
-    except:
-        _net = "adsterra"
-    if _net == "monetag":
-        try:
-            pending_single_links[f"retry_{user_id}"] = pending_single_links.get(payload_key, "")
-            pending_heavy[f"retry_{user_id}"] = pending_heavy.get(payload_key, {})
-        except:
-            pass
-        _kb = adsgram_keyboard(user_id, "wall", 0, 0, extra_rows=[
-            [InlineKeyboardButton("✅ Check & Retry Heavy", callback_data=f"retry_heavy_{payload_key}")],
-            [InlineKeyboardButton("⬇️ Try Lower Quality", callback_data=f"lowerq_{payload_key}")],
-        ])
-        if _kb is not None:
-            return _kb
+    # Watch ad to refill, then retry
     bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
     kb = [
         [InlineKeyboardButton("🔓 Watch Ad To Refill +1", url=bridge_link)],
         [InlineKeyboardButton("✅ Check & Retry", callback_data=f"retry_heavy_{payload_key}")],
-        [InlineKeyboardButton("✅ Check Adsterra & Retry", callback_data="verify_user")],
         [InlineKeyboardButton("⬇️ Try Lower Quality", callback_data=f"lowerq_{payload_key}")],
     ]
     return InlineKeyboardMarkup(kb)
@@ -2940,7 +2837,7 @@ async def file_to_link_command(update: Update, context: ContextTypes.DEFAULT_TYP
     if is_banned(user_id): await update.effective_message.reply_text(t["banned"]); return
     if user_id != ADMIN_ID:
         try:
-            _ok, _miss, _dbg = await check_force_join(context.bot, user_id)
+            _ok, _miss = await check_force_join(context.bot, user_id)
             if not _ok:
                 await update.effective_message.reply_text(force_join_gate_text(_miss), reply_markup=force_join_keyboard(_miss), parse_mode="Markdown")
                 return
@@ -2984,7 +2881,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # V42: Force-join on /start too (except deep-link file/drop which still needs join check inside)
     if user_id != ADMIN_ID:
         try:
-            _ok, _missing, _dbg = await check_force_join(context.bot, user_id)
+            _ok, _missing = await check_force_join(context.bot, user_id)
             if not _ok:
                 await update.message.reply_text(force_join_gate_text(_missing), reply_markup=force_join_keyboard(_missing), parse_mode="Markdown")
                 return
@@ -3053,7 +2950,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
     # V42: force-join for batch too
     if user_id != ADMIN_ID:
         try:
-            _okb, _missb, _dbgb = await check_force_join(bot, user_id)
+            _okb, _missb = await check_force_join(bot, user_id)
             if not _okb:
                 await bot.send_message(chat_id=chat_id, text=force_join_gate_text(_missb), reply_markup=force_join_keyboard(_missb), parse_mode="Markdown")
                 return
@@ -3274,17 +3171,9 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_id = update.message.from_user.id
     t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
     if is_banned(user_id): await update.message.reply_text(t["banned"]); return
-    # V45: forwarded photo/video while waiting for channel -> handle as channel link, not as upload
-    try:
-        _ls_u = load_linking_states()
-        if _ls_u.get(str(user_id)) == "waiting_for_channel" and (getattr(update.message, "forward_origin", None) is not None or getattr(update.message, "forward_from_chat", None) is not None):
-            await handle_forwarded_message(update, context)
-            return
-    except Exception:
-        pass
     if user_id != ADMIN_ID:
         try:
-            _ok, _miss, _dbg = await check_force_join(context.bot, user_id)
+            _ok, _miss = await check_force_join(context.bot, user_id)
             if not _ok:
                 await update.message.reply_text(force_join_gate_text(_miss), reply_markup=force_join_keyboard(_miss), parse_mode="Markdown")
                 return
@@ -3350,53 +3239,6 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
             logger.exception("Fan upload forwarding/storage failed: %s", e)
             await update.message.reply_text("❌ Failed to send your upload. Please try again.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
 
-async def handle_forwarded_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # V44 FIX: forwarded messages can be text, photo, video, doc - they must ALL reach the waiting_for_channel logic.
-    # TEXT forwards go to handle_media_link, but photo/video forwards go to handle_user_upload and would be lost.
-    # This handler runs FIRST (group -1) and only handles the waiting_for_channel case, otherwise lets other handlers run.
-    try:
-        msg = update.message
-        if not msg:
-            return
-        user_id = msg.from_user.id if msg.from_user else None
-        if not user_id:
-            return
-        linking = load_linking_states()
-        if linking.get(str(user_id)) != "waiting_for_channel":
-            return
-        # V45 FIX: TEXT forwards are already handled by handle_media_link in group 0.
-        # If we also call it here (group -1), it runs TWICE and replies twice / clears state twice.
-        # So for text, do NOTHING here - let group 0 handle it.
-        if msg.text:
-            return
-        # Non-text forward (photo/video/doc): extract f_chat same way
-        forward_origin = getattr(msg, "forward_origin", None)
-        f_chat = None
-        if forward_origin is not None:
-            f_chat = getattr(forward_origin, "chat", None) or getattr(forward_origin, "sender_chat", None)
-        if f_chat is None:
-            f_chat = getattr(msg, "forward_from_chat", None) or getattr(msg, "sender_chat", None)
-        if f_chat is None:
-            await msg.reply_text("⚠️ Got your forward but no channel info. Forward a TEXT message from the channel, or send @username.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel Change Channel", callback_data="cancel_link_channel")]]))
-            return
-        try:
-            bot_member = await context.bot.get_chat_member(chat_id=f_chat.id, user_id=context.bot.id)
-            if getattr(bot_member, "status", None) not in ("administrator", "creator"):
-                await msg.reply_text("⚠️ I detected the channel, but I'm not an admin there yet. Add me as administrator, then forward again.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
-                return
-        except Exception as exc:
-            await msg.reply_text("⚠️ I couldn't verify my admin access. Check my admin status and forward again.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
-            return
-        user_channels = load_user_channels()
-        user_channels[str(user_id)] = f_chat.id
-        save_user_channels(user_channels)
-        linking.pop(str(user_id), None)
-        save_linking_states(linking)
-        await msg.reply_text(f"✅ Linked {getattr(f_chat, 'title', 'your channel')} successfully. You can now use batch downloads to that channel.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
-        return
-    except Exception as e:
-        logger.error(f"handle_forwarded_message: {e}")
-
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text if update.message.text else ""
     user_id = update.message.from_user.id
@@ -3432,33 +3274,11 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     linking_states = load_linking_states()
     if linking_states.get(str(user_id)) == "waiting_for_channel":
-        # V44 FIX: accept ALL forward types - Telegram sends channel forwards as forward_origin(type=channel, chat=...),
-        # group forwards as type=chat, old clients as forward_from_chat, and sometimes only sender_chat.
         forward_origin = getattr(update.message, "forward_origin", None)
         f_chat = None
-        f_title = None
-        if forward_origin is not None:
-            _otype = getattr(forward_origin, "type", None)
-            if _otype in ("channel", "chat", "user"):
-                f_chat = getattr(forward_origin, "chat", None) or getattr(forward_origin, "sender_chat", None) or getattr(forward_origin, "sender_user_chat", None)
-                if f_chat is None and hasattr(forward_origin, "chat"):
-                    f_chat = forward_origin.chat
+        if forward_origin and getattr(forward_origin, "type", None) == "channel": f_chat = getattr(forward_origin, "chat", None)
         if f_chat is None: f_chat = getattr(update.message, "forward_from_chat", None)
-        if f_chat is None: f_chat = getattr(update.message, "sender_chat", None)
-        # If message has forward_date / forward_signature but no chat object, we still know it WAS forwarded
-        _was_forwarded = bool(forward_origin is not None or getattr(update.message, "forward_from_chat", None) is not None or getattr(update.message, "forward_date", None) is not None or getattr(update.message, "forward_from", None) is not None)
-        if f_chat is None and _was_forwarded:
-            await update.message.reply_text("⚠️ I got your forward but Telegram did not tell me which channel it came from (channel hides its name).\n\nFix: In the channel, tap the channel name at the top -> make sure it is Public, then forward again. Or send me the channel @username like @booksaufio and I will link it.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel Change Channel", callback_data="cancel_link_channel")]])); return
-        # V44: also allow typing @username while waiting - faster than forwarding
-        if f_chat is None and text.strip().startswith("@") and len(text.strip()) > 1:
-            try:
-                _gc2 = await context.bot.get_chat(chat_id=text.strip())
-                f_chat = _gc2
-            except Exception:
-                await update.message.reply_text(f"⚠️ Cannot find {text.strip()} - check spelling.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel Change Channel", callback_data="cancel_link_channel")]])); return
-        if f_chat is None:
-            _wkb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel Change Channel", callback_data="cancel_link_channel")]])
-            await update.message.reply_text("❌ Please forward a message directly from your channel, not a copied message.\n\nOr tap Cancel to exit and send links again.", reply_markup=_wkb); return
+        if f_chat is None: await update.message.reply_text("❌ Please forward a message directly from your channel, not a copied message.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
         try:
             bot_member = await context.bot.get_chat_member(chat_id=f_chat.id, user_id=context.bot.id)
             if getattr(bot_member, "status", None) not in ("administrator", "creator"): await update.message.reply_text("⚠️ I detected the channel, but I'm not an admin there yet. Add me as an administrator, then forward a channel message again.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
@@ -3518,14 +3338,9 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text("\n".join(_lines), reply_markup=InlineKeyboardMarkup(_kb), parse_mode="Markdown")
         return
     # V42: Admin adding force-join channel - next text message is @username / t.me link
-    # FIX: if admin taps any menu button (Test Ad, Limits, etc.) or /cancel, exit Add mode and let normal handling run - don't block Test Ad
     if user_id == ADMIN_ID and context.user_data.get("fj_adding"):
         _inp = text.strip()
-        _menu_buttons = ("🧪 Test Ad", "📢 Ad Info", "⚙️ Download Limits", "📢 Force Join Channels", "🟢 Bot Status", "🔄 Change Batch Channel", "📢 Broadcast", "⚡ Create Flash Drop", "🔗 File-to-Link", "❌ Cancel", "❌ Cancel Change Channel", "/cancel", "/start", "/testad", "/stats", "/toggleads")
-        if _inp in _menu_buttons or _inp.startswith("/") or _inp in ("📢 Force Join Channels", "⚙️ Download Limits"):
-            context.user_data.pop("fj_adding", None)
-            # fall through to normal handling below - do NOT return
-        elif _inp.startswith("@") or "t.me/" in _inp or _inp.startswith("https://"):
+        if _inp.startswith("@") or "t.me/" in _inp or _inp.startswith("https://"):
             # Normalize
             if _inp.startswith("@"):
                 _uname = _inp
@@ -3539,33 +3354,11 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 except:
                     _uname = _url
                 _title = _uname
-            # Resolve channel now so check_force_join can use chat_id (works for private/renamed channels)
-            _chat_id_resolved = None
-            _title_resolved = _title
-            _bot_in_channel = True
-            try:
-                _gc = await context.bot.get_chat(chat_id=_uname)
-                _chat_id_resolved = getattr(_gc, "id", None)
-                _title_resolved = getattr(_gc, "title", None) or _title
-                try:
-                    _bm = await context.bot.get_chat_member(chat_id=_chat_id_resolved, user_id=context.bot.id)
-                    if getattr(_bm, "status", None) not in ("administrator", "creator", "member"):
-                        _bot_in_channel = False
-                except Exception:
-                    _bot_in_channel = False
-            except Exception as _e:
-                await update.message.reply_text(f"⚠️ I cannot find {_uname} - check spelling / make sure channel exists and bot can see it. Error: {str(_e)[:150]}", reply_markup=get_main_keyboard(lang, True))
-                context.user_data.pop("fj_adding", None)
-                return
-            if not _bot_in_channel:
-                await update.message.reply_text(f"⚠️ Bot is NOT in {_uname} yet. Add the bot as admin/member in that channel FIRST, then add it again. I did NOT add it.", reply_markup=get_main_keyboard(lang, True))
-                context.user_data.pop("fj_adding", None)
-                return
             _chs2 = get_force_join_channels()
             if any((c.get("username")==_uname or c.get("url")==_url) for c in _chs2):
                 await update.message.reply_text(f"⚠️ {_uname} is already in the list.", reply_markup=get_main_keyboard(lang, True))
             else:
-                _chs2.append({"username": _uname, "url": _url, "title": _title_resolved, "chat_id": _chat_id_resolved})
+                _chs2.append({"username": _uname, "url": _url, "title": _title})
                 save_force_join_channels(_chs2)
                 await update.message.reply_text(f"✅ Added {_uname} to force-join. Users must now join {len(_chs2)} channel(s).", reply_markup=get_main_keyboard(lang, True))
             context.user_data.pop("fj_adding", None)
@@ -3666,14 +3459,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             b_left = profile.get("batch_downloads_left", get_free_amount()*5)
             await update.message.reply_text(t["stats_msg"].format(d_left, b_left), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         return
-    if text == t["menu_join"]:
-        _chs_join = get_force_join_channels()
-        _join_lines = ["📢 **Join ALL channels to use the bot:**\n"]
-        for _c in _chs_join:
-            _join_lines.append(f"• {(_c.get('title') or _c.get('username') or 'Channel')} - {_c.get('username','')} - {_c.get('url','')}")
-        _join_lines.append("\nTap a Join button below, then tap ✅ I've Joined - Check Again.")
-        await update.message.reply_text("\n".join(_join_lines), reply_markup=join_channels_keyboard(), parse_mode="Markdown")
-        return
+    if text == t["menu_join"]: await update.message.reply_text(f"[Join]({PUBLIC_CHANNEL_URL})", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
     if text == t["menu_help"]:
         keyboard = [[InlineKeyboardButton("💬 Open Support", callback_data="open_support")]]
         await update.message.reply_text(f"Support: [Help]({HELP_CHANNEL_URL})", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
@@ -3807,17 +3593,9 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     user_id = update.message.from_user.id
     t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
     if is_banned(user_id): await update.message.reply_text(t["banned"]); return
-    # V45: forwarded doc while waiting for channel -> handle as channel link, not as upload
-    try:
-        _ls_d = load_linking_states()
-        if _ls_d.get(str(user_id)) == "waiting_for_channel" and getattr(update.message, "forward_origin", None) is not None:
-            await handle_forwarded_message(update, context)
-            return
-    except Exception:
-        pass
     if user_id != ADMIN_ID:
         try:
-            _ok, _miss, _dbg = await check_force_join(context.bot, user_id)
+            _ok, _miss = await check_force_join(context.bot, user_id)
             if not _ok:
                 await update.message.reply_text(force_join_gate_text(_miss), reply_markup=force_join_keyboard(_miss), parse_mode="Markdown")
                 return
@@ -4005,7 +3783,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, wante
     # V42: force-join check - always, not one-off
     if user_id != ADMIN_ID:
         try:
-            _ok, _missing, _dbg = await check_force_join(bot, user_id)
+            _ok, _missing = await check_force_join(bot, user_id)
             if not _ok:
                 await bot.send_message(chat_id=chat_id, text=force_join_gate_text(_missing), reply_markup=force_join_keyboard(_missing), parse_mode="Markdown")
                 return False
@@ -4426,14 +4204,11 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except:
             await context.bot.send_message(chat_id=chat_id, text="✅ Cancelled. You can now send links again.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         return
-    # ===== V42: Force-join check on EVERY button (except check_join itself + admin config + ad callbacks) =====
-    # Ad callbacks run their own join/reward logic - blocking them here would mask "Ad server" errors as join gates
-    _ad_callbacks = ("monetag_check", "adsgram_check", "monetag_fallback", "admin_sim_ad", "verify_user", "adsgram_complete_", "adsgram_resume_batch", "resume_batch", "admin_skip_ad")
-    _is_ad_cb = data in _ad_callbacks or data.startswith("adsgram_complete_") or data.startswith("retry_heavy_") or data.startswith("lowerq_") or data.startswith("batchtype_")
-    if data not in ("check_join",) and not _is_ad_cb and not data.startswith("fj_") and not data.startswith("lim_"):
+    # ===== V42: Force-join check on EVERY button (except check_join itself + admin config) =====
+    if data not in ("check_join",) and not data.startswith("fj_") and not data.startswith("lim_"):
         if user_id != ADMIN_ID:
             try:
-                _ok2, _missing2, _dbg2 = await check_force_join(context.bot, user_id)
+                _ok2, _missing2 = await check_force_join(context.bot, user_id)
                 if not _ok2:
                     await query.answer("🔒 Join all channels first!", show_alert=True)
                     await context.bot.send_message(chat_id=chat_id, text=force_join_gate_text(_missing2), reply_markup=force_join_keyboard(_missing2), parse_mode="Markdown")
@@ -4445,27 +4220,13 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if user_id == ADMIN_ID:
             await query.answer("✅ Admin bypasses join check", show_alert=True)
             return
-        # Retry once after 1.5s - Telegram is slow to update membership after just joining
-        _ok3, _missing3, _dbg3 = await check_force_join(context.bot, user_id)
-        if not _ok3:
-            await asyncio.sleep(1.5)
-            _ok3, _missing3, _dbg3 = await check_force_join(context.bot, user_id)
+        _ok3, _missing3 = await check_force_join(context.bot, user_id)
         if _ok3:
             await query.answer("✅ All joined! You can now use the bot.", show_alert=True)
             await context.bot.send_message(chat_id=chat_id, text="✅ All channels joined! Send a link to start.", reply_markup=get_main_keyboard(lang, False))
         else:
-            # Show per-channel status so user knows WHICH one is still missing
-            _lines = ["❌ Still missing:"]
-            for _ch_dbg, _st, _rs in _dbg3:
-                _t = _ch_dbg.get("title") or _ch_dbg.get("username") or "Channel"
-                if _st == "joined":
-                    _lines.append(f"✅ {_t} - joined")
-                elif _st == "config_error":
-                    _lines.append(f"⚠️ {_t} - bot cannot check (admin must fix channel)")
-                else:
-                    _lines.append(f"❌ {_t} - not joined ({_rs})")
             await query.answer("❌ You still miss some channels", show_alert=True)
-            await context.bot.send_message(chat_id=chat_id, text=force_join_gate_text(_missing3) + "\n\n" + "\n".join(_lines), reply_markup=force_join_keyboard(_missing3), parse_mode="Markdown")
+            await context.bot.send_message(chat_id=chat_id, text=force_join_gate_text(_missing3), reply_markup=force_join_keyboard(_missing3), parse_mode="Markdown")
         return
     # ===== V42: Force Join Admin =====
     if data == "fj_add_prompt" and user_id == ADMIN_ID:
@@ -4932,12 +4693,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         try:
             r = requests.get(f"{WEB_BASE_URL}/monetag-reward", params={"userid": user_id, "secret": API_SECRET}, timeout=8)
             ok = r.status_code == 200
-            _code = r.status_code
-        except Exception as e: logger.error(f"simulate ad: {e}"); ok = False; _code = f"EXC {e}"
-        if ok:
-            await query.answer(t["simulated"], show_alert=True)
-        else:
-            await query.answer(f"{t['server_unreachable']} (HTTP {_code} - check pythonanywhere)", show_alert=True)
+        except Exception as e: logger.error(f"simulate ad: {e}"); ok = False
+        await query.answer(t["simulated"] if ok else t["server_unreachable"], show_alert=True)
         return
     if data == "monetag_fallback":
         st = adsgram_status(user_id)
@@ -4971,24 +4728,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await context.bot.send_message(chat_id=chat_id, text=t["fetching_bundle"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
             try: await deliver_bundle(context.bot, user_id, msg_start, msg_end)
             except Exception as e: await context.bot.send_message(chat_id=chat_id, text=f"❌ {e}", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            return
-        # V42: resume heavy download if ad was for heavy file
-        _heavy_resume = None
-        for _hk in list(pending_heavy.keys()):
-            if str(user_id) in str(_hk):
-                _heavy_resume = pending_heavy.pop(_hk, None)
-                break
-        if _heavy_resume and _heavy_resume.get("url"):
-            _h_url = _heavy_resume.get("url")
-            _h_dl = _heavy_resume.get("dl_type", "video")
-            _h_wq = _heavy_resume.get("wanted_quality")
-            _h_info = _heavy_resume.get("info")
-            _can = await acquire_slot()
-            if _can:
-                try: await cached_download_and_send(context.bot, chat_id, user_id, _h_url, _h_dl, t, wanted_quality=_h_wq, pre_info=_h_info)
-                finally: await release_slot()
-            else:
-                await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, user_id, _h_url, _h_dl, t), 'kwargs': {"wanted_quality": _h_wq, "pre_info": _h_info}})
             return
         retry_url = pending_single_links.pop(f"retry_{user_id}", None)
         if retry_url:
@@ -5047,16 +4786,14 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.message.reply_text(t["batch_change_dest"] + "\n\nTap Cancel if you changed your mind.", parse_mode="Markdown", reply_markup=_cc_kb)
         return
     if data == "verify_user":
-        # V45 FIX: ad reward must NOT be blocked by force-join. User watched the ad, so give +1.
-        # Force-join is checked on the NEXT download, not on the reward. Blocking here made the wall look broken:
-        # user watches ad -> taps Check -> gets "Join first" -> never gets reward -> wall appears dead.
-        # We only warn here, we do NOT return.
+        # V42: check ALL force-join channels, not just one
         try:
-            _okv, _missv, _dbgv = await check_force_join(context.bot, user_id)
+            _okv, _missv = await check_force_join(context.bot, user_id)
             if not _okv:
-                await context.bot.send_message(chat_id=chat_id, text="⚠️ You got +1 for the ad, but you still need to join all channels before your next download.\n" + force_join_gate_text(_missv), reply_markup=force_join_keyboard(_missv), parse_mode="Markdown")
-        except Exception:
-            pass
+                await query.answer(t["join_channel_first_alert"], show_alert=True)
+                await context.bot.send_message(chat_id=chat_id, text=force_join_gate_text(_missv), reply_markup=force_join_keyboard(_missv), parse_mode="Markdown")
+                return
+        except: await query.answer(t["join_channel_first"], show_alert=True); return
         tokens = load_tokens()
         user_str = str(user_id)
         if user_str not in tokens:
@@ -5073,26 +4810,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         reward = get_reward_amount()
         tokens[user_str]["downloads_left"] = reward
         tokens[user_str]["batch_downloads_left"] = reward * 5
-        # V42: resume heavy if verify was for heavy file
-        _heavy_v = None
-        for _hk in list(pending_heavy.keys()):
-            if str(user_id) in str(_hk):
-                _heavy_v = pending_heavy.pop(_hk, None)
-                break
-        if _heavy_v and _heavy_v.get("url"):
-            _hv_url = _heavy_v.get("url")
-            _hv_dl = _heavy_v.get("dl_type", "video")
-            _hv_wq = _heavy_v.get("wanted_quality")
-            _hv_info = _heavy_v.get("info")
-            await query.answer(t["verified_added"])
-            await context.bot.send_message(chat_id=chat_id, text=t["refilled_download"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            _canv = await acquire_slot()
-            if _canv:
-                try: await cached_download_and_send(context.bot, chat_id, user_id, _hv_url, _hv_dl, t, wanted_quality=_hv_wq, pre_info=_hv_info)
-                finally: await release_slot()
-            else:
-                await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, user_id, _hv_url, _hv_dl, t), 'kwargs': {"wanted_quality": _hv_wq, "pre_info": _hv_info}})
-            return
         tokens[user_str]["verified"] = True
         tokens[user_str]["msg_start"] = 0
         tokens[user_str]["msg_end"] = 0
@@ -5139,16 +4856,7 @@ TEST_AD_TEXT = "🧪 AD PLACEMENT TEST\n\n1️⃣ User sends link\n2️⃣ User 
 async def send_adsgram_test(message, user_id):
     extra = [[InlineKeyboardButton("🛠 Admin: simulate ad finished", callback_data="admin_sim_ad")]] if user_id == ADMIN_ID else None
     kb = adsgram_keyboard(user_id, "test", 0, 0, extra)
-    if not kb:
-        # V42 FIX: show real reason for admin - adsgram_start is unchanged, failure is WEB_BASE_URL / pythonanywhere, not V42 code
-        _diag = ""
-        if user_id == ADMIN_ID:
-            try:
-                _r = requests.post(f"{WEB_BASE_URL}/monetag-start", json={"user_id": int(user_id), "kind": "test", "msg_start": 0, "msg_end": 0, "secret": API_SECRET}, timeout=8)
-                _diag = f"\n\n🧪 Diag: POST /monetag-start -> HTTP {_r.status_code} {(_r.text[:200] if _r.text else '')}"
-            except Exception as _e:
-                _diag = f"\n\n🧪 Diag: POST /monetag-start failed: {str(_e)[:200]}\nThis is your pythonanywhere server (WEB_BASE_URL), not the V42 changes - adsgram_start/status are byte-identical to your original. Wake pythonanywhere / check its logs."
-        await message.reply_text("⚠️ Ad server not reachable." + _diag, reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)); return
+    if not kb: await message.reply_text("⚠️ Ad server not reachable.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)); return
     await message.reply_text(TEST_AD_TEXT, reply_markup=kb)
 
 ADSTERRA_TEST_TEXT = "🧪 AD PLACEMENT TEST (Adsterra)\n\n1️⃣ User sends link\n2️⃣ LIMIT REACHED screen appears\n3️⃣ Stay 20s on ad page\n4️⃣ Tap Check & Get +1\n\n👇 TRY THE AD NOW:" + ADSTERRA_USER_GUIDE
@@ -5225,7 +4933,6 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("restore", restore_command))
         app.add_handler(CommandHandler("setdisk", set_disk_command))
         app.add_handler(CommandHandler("setmtproto", set_mtproto_command))
-        app.add_handler(MessageHandler(filters.FORWARDED, handle_forwarded_message), group=-1)
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
         app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.ATTACHMENT, handle_user_upload))
