@@ -1,3 +1,4 @@
+# V45 FIXED - Ad wall restored: verify_user no longer blocks reward on join, forwarded double-handle removed, join buttons = ALL channels
 # V44 FIXED - Join Channel shows ALL configured channels, forwarded messages work, bot-not-in-channel no longer blocks users
 # V43 FIXED - 2026-11-15 - Ad monetisation fixed, Cancel + ForceJoin + Limits
 # Changes vs V42: Test Ad no longer blocked by fj_adding, ad callbacks excluded from force-join gate,
@@ -1667,9 +1668,20 @@ def adsgram_keyboard(user_id, kind="wall", msg_start=0, msg_end=0, extra_rows=No
     nonce = adsgram_start(user_id, kind, msg_start, msg_end)
     if not nonce: return None
     url = f"{WEB_BASE_URL}/monetag?n={nonce}&k={kind}"
+    # V45: Join buttons = ALL configured force-join channels, not just 1 hardcoded
+    _join_rows = []
+    try:
+        for _ch in get_force_join_channels():
+            _u = _ch.get("url") or f"https://t.me/{str(_ch.get('username','')).lstrip('@')}"
+            _t = _ch.get("title") or _ch.get("username") or "Channel"
+            _join_rows.append([InlineKeyboardButton(f"📢 Join {_t} 💜", url=_u)])
+    except Exception:
+        _join_rows = [[InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)]]
+    if not _join_rows:
+        _join_rows = [[InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)]]
     rows = [
         [InlineKeyboardButton("📺 Watch Monetag Ad +1", web_app=WebAppInfo(url=url))],
-        [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
+        *_join_rows,
         [InlineKeyboardButton("✅ Check & Get +1", callback_data="monetag_check")],
         [InlineKeyboardButton("↪️ Use Adsterra fallback (after 2 failures)", callback_data="monetag_fallback")],
     ]
@@ -1904,13 +1916,12 @@ async def check_force_join(bot, user_id):
     for ch in channels:
         _title = ch.get("title") or ch.get("username") or "Channel"
         # Try identifiers in order: stored chat_id, username, url
+        # V45: only chat_id + username are valid for get_chat_member. URL always fails and wastes API calls / triggers FloodWait.
         _idents = []
         if ch.get("chat_id"):
             _idents.append(ch.get("chat_id"))
         if ch.get("username"):
             _idents.append(ch.get("username"))
-        if ch.get("url"):
-            _idents.append(ch.get("url"))
         _checked = False
         _last_err = ""
         for ident in _idents:
@@ -3263,6 +3274,14 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_id = update.message.from_user.id
     t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
     if is_banned(user_id): await update.message.reply_text(t["banned"]); return
+    # V45: forwarded photo/video while waiting for channel -> handle as channel link, not as upload
+    try:
+        _ls_u = load_linking_states()
+        if _ls_u.get(str(user_id)) == "waiting_for_channel" and (getattr(update.message, "forward_origin", None) is not None or getattr(update.message, "forward_from_chat", None) is not None):
+            await handle_forwarded_message(update, context)
+            return
+    except Exception:
+        pass
     if user_id != ADMIN_ID:
         try:
             _ok, _miss, _dbg = await check_force_join(context.bot, user_id)
@@ -3345,11 +3364,10 @@ async def handle_forwarded_message(update: Update, context: ContextTypes.DEFAULT
         linking = load_linking_states()
         if linking.get(str(user_id)) != "waiting_for_channel":
             return
-        # We are waiting - handle it here for ANY media type, then stop further handlers by returning.
-        # Re-use the same logic as handle_media_link by delegating: set a flag and call handle_media_link for text,
-        # for non-text we duplicate the linking logic here.
+        # V45 FIX: TEXT forwards are already handled by handle_media_link in group 0.
+        # If we also call it here (group -1), it runs TWICE and replies twice / clears state twice.
+        # So for text, do NOTHING here - let group 0 handle it.
         if msg.text:
-            await handle_media_link(update, context)
             return
         # Non-text forward (photo/video/doc): extract f_chat same way
         forward_origin = getattr(msg, "forward_origin", None)
@@ -3789,6 +3807,14 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     user_id = update.message.from_user.id
     t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
     if is_banned(user_id): await update.message.reply_text(t["banned"]); return
+    # V45: forwarded doc while waiting for channel -> handle as channel link, not as upload
+    try:
+        _ls_d = load_linking_states()
+        if _ls_d.get(str(user_id)) == "waiting_for_channel" and getattr(update.message, "forward_origin", None) is not None:
+            await handle_forwarded_message(update, context)
+            return
+    except Exception:
+        pass
     if user_id != ADMIN_ID:
         try:
             _ok, _miss, _dbg = await check_force_join(context.bot, user_id)
@@ -4402,8 +4428,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     # ===== V42: Force-join check on EVERY button (except check_join itself + admin config + ad callbacks) =====
     # Ad callbacks run their own join/reward logic - blocking them here would mask "Ad server" errors as join gates
-    _ad_callbacks = ("monetag_check", "adsgram_check", "monetag_fallback", "admin_sim_ad", "verify_user", "adsgram_complete_", "adsgram_resume_batch")
-    _is_ad_cb = data in _ad_callbacks or data.startswith("adsgram_complete_")
+    _ad_callbacks = ("monetag_check", "adsgram_check", "monetag_fallback", "admin_sim_ad", "verify_user", "adsgram_complete_", "adsgram_resume_batch", "resume_batch", "admin_skip_ad")
+    _is_ad_cb = data in _ad_callbacks or data.startswith("adsgram_complete_") or data.startswith("retry_heavy_") or data.startswith("lowerq_") or data.startswith("batchtype_")
     if data not in ("check_join",) and not _is_ad_cb and not data.startswith("fj_") and not data.startswith("lim_"):
         if user_id != ADMIN_ID:
             try:
@@ -5021,14 +5047,16 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.message.reply_text(t["batch_change_dest"] + "\n\nTap Cancel if you changed your mind.", parse_mode="Markdown", reply_markup=_cc_kb)
         return
     if data == "verify_user":
-        # V42: check ALL force-join channels, not just one
+        # V45 FIX: ad reward must NOT be blocked by force-join. User watched the ad, so give +1.
+        # Force-join is checked on the NEXT download, not on the reward. Blocking here made the wall look broken:
+        # user watches ad -> taps Check -> gets "Join first" -> never gets reward -> wall appears dead.
+        # We only warn here, we do NOT return.
         try:
             _okv, _missv, _dbgv = await check_force_join(context.bot, user_id)
             if not _okv:
-                await query.answer(t["join_channel_first_alert"], show_alert=True)
-                await context.bot.send_message(chat_id=chat_id, text=force_join_gate_text(_missv), reply_markup=force_join_keyboard(_missv), parse_mode="Markdown")
-                return
-        except: await query.answer(t["join_channel_first"], show_alert=True); return
+                await context.bot.send_message(chat_id=chat_id, text="⚠️ You got +1 for the ad, but you still need to join all channels before your next download.\n" + force_join_gate_text(_missv), reply_markup=force_join_keyboard(_missv), parse_mode="Markdown")
+        except Exception:
+            pass
         tokens = load_tokens()
         user_str = str(user_id)
         if user_str not in tokens:
