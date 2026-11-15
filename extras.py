@@ -13,18 +13,6 @@
 #      admin ("📢 Required Channels" button)
 #   7. "Change Batch Channel" now has a Cancel button and no longer traps links
 #
-# QUALITY + KEYBOARD FIXES (this update only):
-#   - YouTube picker now shows every time for every user. No more silent
-#     Auto fallback, no more remembered quality skipping the picker,
-#     no more cache hit skipping the picker.
-#   - Auto is now a real value (AUTO = 9999) so we can tell the difference
-#     between "user chose Auto" and "no choice made yet".
-#   - Keyboard is persistent for everyone + "Paste a link here 🔗" hint.
-#   - /menu brings the main keyboard back at any time (CommandHandler in
-#     group -5, before gate / batch / admin handlers).
-#   - "menu" is in the command list, set ~10 seconds after the bot starts.
-#   - Ad reward and Required Channels logic left untouched in this update.
-#
 # It is wired in with init(globals()) and register(app); see the patch notes.
 # Every feature fails OPEN: if something here breaks, users are not locked out.
 # =====================================================================
@@ -52,13 +40,8 @@ G = {}                                   # main program's globals (filled by ini
 # per-request context (set by the download wrapper, read in worker threads)
 # ---------------------------------------------------------------------
 CTX_REPORTER = contextvars.ContextVar("extras_reporter", default=None)
-CTX_QUALITY = contextvars.ContextVar("extras_quality", default=None)   # None=no choice yet, AUTO=Auto, 0=lowest, else max height
+CTX_QUALITY = contextvars.ContextVar("extras_quality", default=None)   # None=auto, 0=lowest, else max height
 CTX_PROBE = contextvars.ContextVar("extras_probe", default=None)       # (url, info) already fetched: do not ask the site twice
-
-# AUTO sentinel: user tapped "Auto" in the picker.
-# We need this because None now means "no choice made yet" (show picker),
-# while AUTO means "user explicitly chose Auto" (do not show picker again).
-AUTO = 9999
 
 # when a site says "sign in to confirm you are not a bot" we stop hammering it for a while
 _BLOCKED_UNTIL = {}
@@ -171,7 +154,7 @@ def _cookiefile(url):
 
 def _probe_sync(url):
     opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True,
-            "socket_timeout": 15, "http_headers": {"User-Agent": "Mozilla/5.0"}}
+            "socket_timeout": 15}
     if G.get("PROXY_URL"):
         opts["proxy"] = G["PROXY_URL"]
     cf = _cookiefile(url)
@@ -183,6 +166,9 @@ def _probe_sync(url):
         entries = [e for e in info["entries"] if e]
         info = entries[0] if entries else None
     return info
+
+
+_LAST_PROBE_ERROR = {}
 
 
 def _store_probe(url, info):
@@ -207,14 +193,17 @@ async def probe(url, timeout=30):
     try:
         info = await asyncio.wait_for(asyncio.to_thread(_probe_sync, url), timeout=timeout)
     except Exception as e:
+        _LAST_PROBE_ERROR[url] = f"{type(e).__name__}: {str(e)[:160]}"
         if looks_blocked(e):
             mark_blocked(site_of(url))
-        logger.info(f"probe failed for {url[:60]}: {type(e).__name__}")
+        logger.warning(f"probe failed for {url[:60]}: {type(e).__name__}: {str(e)[:200]}")
         return None
     if info:
         if len(_PROBE_CACHE) > 200:
             _PROBE_CACHE.clear()
         _PROBE_CACHE[url] = (now, info)
+    else:
+        _LAST_PROBE_ERROR.setdefault(url, "no details returned")
     return info
 
 
@@ -544,7 +533,7 @@ async def show_error(bot, chat_id, status_msg, text, kb=None):
 # 6. the new download flow (replaces cached_download_and_send)
 # =====================================================================
 _ORIG = {}
-QUALITY_MEMORY = {}          # (user_id, url) -> (cap, timestamp): kept for compat, NOT used to skip picker
+QUALITY_MEMORY = {}          # (user_id, url) -> (cap, timestamp): survives the "watch an ad" retry
 
 
 class LimitHit(Exception):
@@ -560,8 +549,6 @@ def _remember_quality(user_id, url, cap):
 
 
 def _recall_quality(user_id, url):
-    # Kept for compat. We no longer use this to skip the picker,
-    # because it made the 2nd paste of the same link go Auto.
     hit = QUALITY_MEMORY.get((user_id, url))
     if hit and time.time() - hit[1] < 1800:
         return hit[0]
@@ -574,7 +561,7 @@ def _quality_order(dl_type, cap):
     if dl_type != "video":
         return ["original"]
     order = ["1080p", "720p", "480p", "360p", "worst"]
-    if cap is None or cap == AUTO:
+    if cap is None:
         return order
     if cap == 0:
         return ["worst"]
@@ -583,8 +570,6 @@ def _quality_order(dl_type, cap):
 
 def _plan_estimate(info, cap, is_admin, site):
     """Return (estimated_bytes_or_None, label) for what the engine will most likely download."""
-    if cap == AUTO:
-        cap = None
     if not info:
         return None, "Auto"
     if site == "youtube" and heights_available(info):
@@ -926,26 +911,9 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
             del c["file_id"]
             g["save_json_file"](g["CACHE_FILE"], cache)
         cap = CTX_QUALITY.get()
+        if cap is None:
+            cap = _recall_quality(user_id, url)
         site = site_of(url)
-        # QUALITY FIX: if YouTube video and no choice was made yet (cap is None),
-        # show the picker instead of auto-downloading or auto-serving cache.
-        # We do NOT use _recall_quality here: it made the 2nd paste skip the picker.
-        # AUTO (9999) means user already chose Auto in the picker, so do not show picker again.
-        if dl_type == "video" and site == "youtube" and cap is None:
-            info_for_picker = await probe(url, timeout=15)
-            if info_for_picker and heights_available(info_for_picker):
-                key = f"single_{user_id}_{int(time.time())}"
-                g["pending_single_links"][key] = url
-                title = _clean(info_for_picker.get("title"), 70)
-                dur = info_for_picker.get("duration") or 0
-                text = (f"🎬 {title}\n⏱ {int(dur // 60)}m {int(dur % 60)}s\n\n"
-                        f"Choose a quality:\n🎞 normal · ⚡ uses extra credits · 🚫 too big")
-                try:
-                    await bot.send_message(chat_id=chat_id, text=text, reply_markup=_yt_menu(info_for_picker, user_id, key))
-                except Exception:
-                    pass
-                return True
-            # probe failed / no heights: fall through to normal Auto download
         handled = await _cache_hit(bot, chat_id, user_id, url, dl_type, t, ckey, cap, site, is_admin, kb, cache)
         if handled is not None:
             return handled
@@ -980,7 +948,6 @@ def _yt_menu(info, user_id, key):
         rows.append([_yt_button(info, "youtube", H, f"{actual}p", dur, is_admin, key)])
     if hs and min(hs) < 360 and min(hs) not in seen:
         rows.append([_yt_button(info, "youtube", 0, f"{min(hs)}p (lowest)", dur, is_admin, key)])
-    rows.append([InlineKeyboardButton("🎵 Audio MP3 · 192kbps", callback_data=f"ytq_audio_{key}")])
     rows.append([InlineKeyboardButton("❌ Cancel", callback_data=f"ytq_cancel_{key}")])
     return InlineKeyboardMarkup(rows)
 
@@ -1014,43 +981,13 @@ async def _launch(context, chat_id, user_id, t, url, cap):
                                        parse_mode="Markdown", reply_markup=G["get_main_keyboard"](lang, user_id == _admin()))
 
 
-async def _launch_audio(context, chat_id, user_id, t, url):
-    """Start the audio download, same slot/queue logic as video."""
-    lang = G["get_lang"](user_id)
-    ckey = await G["get_canonical_key"](url, chat_id, context.bot)
-    cache = G["load_json_file"](G["CACHE_FILE"])
-    if ckey in cache:
-        await run_with_quality(context.bot, chat_id, user_id, url, "audio", t, None)
-        return
-    if await G["acquire_slot"]():
-        try:
-            await run_with_quality(context.bot, chat_id, user_id, url, "audio", t, None)
-        finally:
-            await G["release_slot"]()
-    else:
-        pos = G["download_queue"].qsize() + 1
-        await G["download_queue"].put({"func": run_with_quality, "args": (context.bot, chat_id, user_id, url, "audio", t, None), "kwargs": {}})
-        free_mb = shutil.disk_usage(".").free // (1024 * 1024)
-        await context.bot.send_message(chat_id=chat_id, text=t["server_busy"].format(G["active_downloads"], G["MAX_CONCURRENT_SHORT"], free_mb, pos),
-                                       parse_mode="Markdown", reply_markup=G["get_main_keyboard"](lang, user_id == _admin()))
-
-
 async def on_fmt_vid(update, context):
     q = update.callback_query
     try:
         key = q.data[len("fmt_vid_"):]
         url = G["pending_single_links"].get(key)
-        # QUALITY FIX: do not silently return to Auto when the link is missing.
-        # If the picker is enabled, a missing/expired link should tell the user
-        # to resend the link, not auto-download.
-        if not _cfg().get("yt_quality_menu", True):
-            return                                   # picker disabled: the normal flow continues
-        if not url or not YT_ID_RE.search(url):
-            try:
-                await q.message.edit_text("⚠️ Link expired, please send the link again.")
-            except Exception:
-                pass
-            raise ApplicationHandlerStop
+        if not url or not YT_ID_RE.search(url) or not _cfg().get("yt_quality_menu", True):
+            return                                   # not YouTube: the normal flow continues
         user_id, chat_id = q.from_user.id, q.message.chat_id
         t = G["LANGUAGES"].get(G["get_lang"](user_id), G["LANGUAGES"]["en"])
         try:
@@ -1073,9 +1010,13 @@ async def on_fmt_vid(update, context):
                 raise ApplicationHandlerStop
             # no quality list available: carry on with the normal automatic download (and say so)
             G["pending_single_links"].pop(key, None)
-            try: await q.message.edit_text("ℹ️ I couldn't load the quality list, so I'm downloading in Auto quality…")
+            why = ""
+            if user_id == _admin():
+                nf = len((info or {}).get("formats") or []) if info else 0
+                why = f"\n\n🧪 admin: formats={nf}, lookup error: {_LAST_PROBE_ERROR.get(url, 'none')}"
+            try: await q.message.edit_text("ℹ️ I couldn't load the quality list, so I'm downloading in Auto quality…" + why)
             except Exception: pass
-            await _launch(context, chat_id, user_id, t, url, AUTO)
+            await _launch(context, chat_id, user_id, t, url, None)
             raise ApplicationHandlerStop
         dur = info.get("duration") or 0
         title = _clean(info.get("title"), 70)
@@ -1110,18 +1051,9 @@ async def on_ytq(update, context):
     if not url:
         await q.answer("Expired, please send the link again.", show_alert=True)
         raise ApplicationHandlerStop
-    if capstr == "audio":
-        G["pending_single_links"].pop(key, None)
-        await q.answer()
-        try: await q.message.delete()
-        except Exception: pass
-        await _launch_audio(context, chat_id, user_id, t, url)
-        raise ApplicationHandlerStop
-    # QUALITY FIX: Auto is now AUTO (9999), not None, so the next step knows
-    # the user already made a choice and will not show the picker again.
-    cap = AUTO if capstr == "auto" else int(capstr)
+    cap = None if capstr == "auto" else int(capstr)
     info = peek_probe(url)                           # cached copy only: no waiting on the network here
-    if cap is not None and cap != AUTO and user_id != _admin() and info:
+    if cap is not None and user_id != _admin() and info:
         est = est_size(info, cap)
         d = evaluate("youtube", info.get("duration"), est, False, None)
         if d["action"] == "block":
@@ -1260,14 +1192,7 @@ async def on_checkjoin(update, context):
 # 9. admin panels: required channels + limits
 # =====================================================================
 def _cancel_kb():
-    # KEYBOARD FIX: Cancel keyboard must also be persistent for everyone,
-    # with the same "Paste a link here" hint, otherwise Telegram hides the
-    # main keyboard and shows the command list instead when you enter a panel.
-    return ReplyKeyboardMarkup(
-        [[KeyboardButton("❌ Cancel")]],
-        resize_keyboard=True, is_persistent=True, one_time_keyboard=False,
-        input_field_placeholder="Paste a link here 🔗"
-    )
+    return ReplyKeyboardMarkup([[KeyboardButton("❌ Cancel")]], resize_keyboard=True)
 
 
 def _main_kb(uid):
@@ -1474,71 +1399,7 @@ async def admin_router(update, context):
 
 
 # =====================================================================
-# 9b. YouTube link interceptor - MUST run before the main bot's cache
-#     fast-path. The main bot sends cached videos instantly without ever
-#     calling cached_download_and_send, so the picker in there never ran
-#     for cached links (this is what happened after restoring backup JSON:
-#     the cache came back, so every paste sent 1080p instantly).
-#     This handler catches the YouTube link message itself, shows the
-#     picker, and stops the main handler. It includes Audio so it can
-#     replace the old Video/Audio format chooser for YouTube links.
-# =====================================================================
-async def on_youtube_link(update, context):
-    msg = update.message
-    if msg is None or msg.from_user is None:
-        return
-    if msg.text is None:
-        return
-    text = (msg.text or "").strip()
-    if not text or text.startswith("/"):
-        return
-    if text in CANCEL_WORDS:
-        return
-    if text in _menu_texts():
-        return
-    chat = update.effective_chat
-    if chat is not None and chat.type != "private":
-        return
-    # do not intercept when user is in a panel / waiting for channel
-    if context.user_data.get("extras_state"):
-        return
-    try:
-        _st = G["load_linking_states"]()
-        if _st.get(str(msg.from_user.id)) == "waiting_for_channel":
-            return
-    except Exception:
-        pass
-    # find first YouTube URL in the message
-    url = None
-    for m in re.finditer(r"https?://\S+", text):
-        cand = m.group(0).rstrip(".,)")
-        if YT_ID_RE.search(cand):
-            url = cand
-            break
-    if not url:
-        return
-    if not _cfg().get("yt_quality_menu", True):
-        return
-    user_id, chat_id = msg.from_user.id, msg.chat_id
-    info = await probe(url, timeout=15)
-    if not info or not heights_available(info):
-        return  # let main bot do Auto, do not block
-    key = f"single_{user_id}_{int(time.time())}"
-    G["pending_single_links"][key] = url
-    title = _clean(info.get("title"), 70)
-    dur = info.get("duration") or 0
-    text_out = (f"🎬 {title}\n⏱ {int(dur // 60)}m {int(dur % 60)}s\n\n"
-                f"Choose a quality:\n🎞 normal · ⚡ uses extra credits · 🚫 too big")
-    try:
-        await msg.reply_text(text_out, reply_markup=_yt_menu(info, user_id, key))
-    except Exception:
-        return
-    raise ApplicationHandlerStop
-
-
-# =====================================================================
 # 10. "Change Batch Channel": cancel button, and links are never trapped
-#     + /menu handling (keyboard fix)
 # =====================================================================
 def _menu_texts():
     s = {"🔗 File-to-Link", "🟢 Bot Status", "🔄 Change Batch Channel", "📢 Broadcast", "⚡ Create Flash Drop",
@@ -1551,31 +1412,6 @@ def _menu_texts():
     return s
 
 
-async def on_menu_cmd(update, context):
-    """KEYBOARD FIX: /menu brings the main keyboard back at any time.
-    Registered in group -5, so it runs BEFORE gate (-4), batch (-3) and
-    admin (-2). It clears both flow states and restores the persistent keyboard."""
-    try:
-        user = update.effective_user
-        uid = user.id if user else None
-        if uid is not None:
-            try:
-                states = G["load_linking_states"]()
-                if str(uid) in states:
-                    states.pop(str(uid), None)
-                    G["save_linking_states"](states)
-            except Exception:
-                pass
-            try:
-                context.user_data.pop("extras_state", None)
-            except Exception:
-                pass
-            await update.message.reply_text("📋 Main menu is back 👇", reply_markup=_main_kb(uid))
-    except Exception as e:
-        logger.warning(f"menu cmd failed: {e}")
-    raise ApplicationHandlerStop
-
-
 async def batch_channel_router(update, context):
     msg = update.message
     if msg is None or msg.from_user is None:
@@ -1585,18 +1421,6 @@ async def batch_channel_router(update, context):
     lang = G["get_lang"](uid)
     t = G["LANGUAGES"].get(lang, G["LANGUAGES"]["en"])
     if text.split("@")[0] == "/menu":
-        # KEYBOARD FIX: /menu as plain text must also clear both states,
-        # otherwise the next message is still treated as a channel forward / panel input.
-        try:
-            _states = G["load_linking_states"]()
-            _states.pop(str(uid), None)
-            G["save_linking_states"](_states)
-        except Exception:
-            pass
-        try:
-            context.user_data.pop("extras_state", None)
-        except Exception:
-            pass
         await msg.reply_text("📋 Main menu is back 👇", reply_markup=_main_kb(uid))
         raise ApplicationHandlerStop
     if text == "🔄 Change Batch Channel":
@@ -1689,13 +1513,12 @@ def init(g):
                 if rep is not None:
                     rep.reset()
                 cap = CTX_QUALITY.get()
-                # QUALITY FIX: AUTO means "user chose Auto", do not treat it as a height cap.
-                if cap is not None and cap != AUTO:
+                if cap is not None:
                     m = re.search(r"height<=(\d+)", str(self.params.get("format") or ""))
                     if m and int(m.group(1)) > cap:
                         raise yt_dlp.utils.DownloadError("TIER_SKIPPED")
                 pre = CTX_PROBE.get()
-                if pre is not None and pre[0] == url and not a and not k:
+                if os.getenv("EXTRAS_REUSE_PROBE") == "1" and pre is not None and pre[0] == url and not a and not k:
                     try:                         # same result, but without another request to the site
                         return self.process_ie_result(copy.deepcopy(pre[1]), download=True)
                     except yt_dlp.utils.DownloadError:
@@ -1727,7 +1550,6 @@ def init(g):
         rows = [list(r) for r in kb.keyboard]
         if is_admin:
             rows.append([KeyboardButton("📏 Limits"), KeyboardButton("📢 Required Channels")])
-        # KEYBOARD FIX: persistent for EVERYONE (not just admin), with hint.
         # is_persistent: Telegram keeps the menu visible instead of letting it collapse/disappear
         return ReplyKeyboardMarkup(rows, resize_keyboard=True, is_persistent=True, one_time_keyboard=False,
                                    input_field_placeholder="Paste a link here 🔗")
@@ -1772,9 +1594,6 @@ def register(app):
     except Exception:
         pass
     admin = filters.User(user_id=G["ADMIN_ID"])
-    # KEYBOARD FIX: /menu in group -5 runs BEFORE gate (-4) so it brings the
-    # main keyboard back at any time, even mid-flow.
-    app.add_handler(CommandHandler("menu", on_menu_cmd), group=-5)
     app.add_handler(TypeHandler(Update, gate), group=-4)
     app.add_handler(MessageHandler(filters.ALL & filters.ChatType.PRIVATE, batch_channel_router), group=-3)
     app.add_handler(MessageHandler(filters.ALL & admin, admin_router), group=-2)
@@ -1782,6 +1601,3 @@ def register(app):
     app.add_handler(CallbackQueryHandler(on_admin_cb, pattern=r"^extras_"), group=-2)
     app.add_handler(CallbackQueryHandler(on_fmt_vid, pattern=r"^fmt_vid_"), group=-2)
     app.add_handler(CallbackQueryHandler(on_ytq, pattern=r"^ytq_"), group=-2)
-    # YouTube link interceptor: group -1 runs after gate (-4) / batch (-3) / admin (-2)
-    # but before the main bot (group 0), so it can stop the main bot's cached instant-send.
-    app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, on_youtube_link), group=-1)
