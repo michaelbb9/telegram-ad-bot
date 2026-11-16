@@ -1791,10 +1791,17 @@ async def check_all_required_channels(bot, user_id: int) -> list:
         cid = ch.get("chat_id")
         try:
             member = await bot.get_chat_member(chat_id=cid, user_id=user_id)
-            if getattr(member, "status", None) not in ("member", "administrator", "creator"):
+            if getattr(member, "status", None) not in ("member", "administrator", "creator", "restricted"):
                 missing.append(ch)
-        except Exception:
-            missing.append(ch)
+        except Exception as e:
+            msg = str(e).lower()
+            # Only treat "user not found / left / kicked / chat not found" as missing.
+            # Network errors, FloodWait, TimedOut, bot-not-in-channel -> fail OPEN (don't block).
+            if any(k in msg for k in ("left", "kicked", "not a member", "user not found", "chat not found", "member not found", "forbidden", "not participant")):
+                missing.append(ch)
+            else:
+                logger.warning(f"check_all_required_channels fail-open for {cid}: {e}")
+                continue
     return missing
 
 def build_join_channels_markup(missing_channels: list, verify_callback: str = "check_all_joins"):
@@ -1807,25 +1814,38 @@ def build_join_channels_markup(missing_channels: list, verify_callback: str = "c
     return InlineKeyboardMarkup(rows)
 
 async def enforce_channel_join(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    user = update.effective_user
-    if not user or user.id == ADMIN_ID:
+    # FAIL-OPEN: any error here must NEVER make the bot look dead. If the
+    # channel check itself fails (network, bot not in channel, bad config),
+    # let the user through and log it instead of blocking everyone.
+    try:
+        user = update.effective_user
+        if not user or user.id == ADMIN_ID:
+            return True
+        missing = await check_all_required_channels(context.bot, user.id)
+        if not missing:
+            return True
+        # Use plain text (no Markdown) - channel titles can contain _ * [ ] which
+        # previously raised "Can't parse entities" and killed the handler silently.
+        msg_text = (
+            f"🔒 Mandatory Channel Join Required\n\n"
+            f"You must join all {len(get_required_channels())} required channel(s) before using this bot.\n"
+            f"Remaining to join: {len(missing)}\n\n"
+            f"Join each channel below, then tap ✅ I Joined All Channels:"
+        )
+        kb = build_join_channels_markup(missing, "check_all_joins")
+        try:
+            if update.callback_query:
+                await update.callback_query.answer("Please join all required channels first!", show_alert=True)
+                await update.callback_query.message.reply_text(msg_text, reply_markup=kb)
+            elif update.effective_message:
+                await update.effective_message.reply_text(msg_text, reply_markup=kb)
+        except Exception as e:
+            logger.error(f"enforce_channel_join reply failed: {e}")
+            return True  # fail open - don't block if we can't even show the prompt
+        return False
+    except Exception as e:
+        logger.error(f"enforce_channel_join crashed (fail-open): {e}")
         return True
-    missing = await check_all_required_channels(context.bot, user.id)
-    if not missing:
-        return True
-    msg_text = (
-        f"🔒 **Mandatory Channel Join Required**\n\n"
-        f"You must join **all {len(get_required_channels())} required channel(s)** before using this bot.\n"
-        f"Remaining to join: **{len(missing)}**\n\n"
-        f"Join each channel below, then tap **✅ I Joined All Channels**:"
-    )
-    kb = build_join_channels_markup(missing, "check_all_joins")
-    if update.callback_query:
-        await update.callback_query.answer("❌ Please join all required channels first!", show_alert=True)
-        await update.callback_query.message.reply_text(msg_text, reply_markup=kb, parse_mode="Markdown")
-    elif update.effective_message:
-        await update.effective_message.reply_text(msg_text, reply_markup=kb, parse_mode="Markdown")
-    return False
 
 # ==============================================================================
 # FIX 2: Rich Link Metadata Extractor
@@ -3131,9 +3151,12 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if not extracted_urls:
         if "t.me/" in text and "start=" in text: await update.message.reply_text("👆 Please use the buttons above.", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         return
-    # FIX 1: Multi-channel enforcement - must join all required channels before downloading
-    if not await enforce_channel_join(update, context):
-        return
+    # FIX 1: Multi-channel enforcement - wrapped so a crash here can never silence the bot
+    try:
+        if not await enforce_channel_join(update, context):
+            return
+    except Exception as e:
+        logger.error(f"enforce_channel_join outer fail-open: {e}")
     if user_id != ADMIN_ID:
         tokens = load_tokens()
         user_profile = tokens.get(str(user_id), {})
@@ -3177,7 +3200,11 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
     url = extracted_urls[0]
     status_preview = await update.message.reply_text("🔍 Fetching link details...")
-    meta = await asyncio.to_thread(fetch_rich_media_info, url)
+    try:
+        meta = await asyncio.to_thread(fetch_rich_media_info, url)
+    except Exception as e:
+        logger.error(f"fetch_rich_media_info fail-open: {e}")
+        meta = {"ok": False, "title": "Media Link", "dur_str": "N/A", "duration": 0, "default_mb": 0.0, "quality_estimates": {}}
     try: await status_preview.delete()
     except: pass
     site_key = detect_site_key(url)
@@ -3197,7 +3224,13 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
         return
     payload_key = f"single_{user_id}_{int(time.time())}"
-    pending_single_links[payload_key] = {"url": url, "meta": meta, "site_key": site_key}
+    # EXTRAS COMPAT: keep pending_single_links[payload_key] as a plain URL string,
+    # exactly like the original bot. Meta lives in a separate dict so extras.py
+    # (which does url = pending_single_links[key] then url.lower()) never crashes.
+    pending_single_links[payload_key] = url
+    if "_single_meta" not in globals():
+        globals()["_single_meta"] = {}
+    globals()["_single_meta"][payload_key] = {"meta": meta, "site_key": site_key}
     info_card = (
         f"🎬 **{meta.get('title', 'Media Link')}**\n"
         f"👤 **Posted by:** {meta.get('author', 'Unknown')}\n"
@@ -3511,11 +3544,16 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, prefe
 
     status_msg = await bot.send_message(chat_id=chat_id, text=t["fetching"].format(dl_type) + f"\n`{ckey}`", parse_mode="Markdown")
     trace_list = []
+    try:
+        _ui_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        _ui_loop = None
     def ui_progress_updater(txt):
+        if _ui_loop is None: return
         try:
             asyncio.run_coroutine_threadsafe(
-                bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=txt, parse_mode="Markdown"),
-                bot._loop if hasattr(bot, "_loop") else asyncio.get_event_loop()
+                bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=txt),
+                _ui_loop
             )
         except Exception: pass
     try:
@@ -4155,6 +4193,15 @@ def run_telegram_bot():
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
         app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.ATTACHMENT, handle_user_upload))
         app.add_handler(CallbackQueryHandler(handle_buttons))
+        async def _global_error_handler(update, context):
+            logger.error(f"Global handler error: {context.error}", exc_info=context.error)
+            try:
+                if update and update.effective_message:
+                    await update.effective_message.reply_text("❌ Something went wrong, please try again.")
+            except Exception:
+                pass
+        from telegram.ext import TypeHandler as _TH
+        app.add_error_handler(_global_error_handler)
         await app.initialize()
         await app.start()
         asyncio.create_task(disk_cleaner_loop())
@@ -4201,19 +4248,26 @@ async def mtproto_upload(kind, chat_id, path, caption, status_msg=None, bot=None
     kwargs = dict(chat_id=chat_id, caption=caption, **extra)
     if MTPROTO["no_parse"] is not None: kwargs["parse_mode"] = MTPROTO["no_parse"]
     last_up_tick = [0.0]
+    # Capture the running loop NOW (in the bot's event-loop thread). The old code
+    # called asyncio.get_event_loop() / bot._loop inside the Pyrogram thread,
+    # which raises RuntimeError: There is no current event loop in thread.
+    try:
+        _bot_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        _bot_loop = None
     def _upload_progress(current, total):
-        if not status_msg or not bot or total <= 0: return
+        if not status_msg or not bot or total <= 0 or _bot_loop is None: return
         now = time.time()
         if now - last_up_tick[0] < 2.5 and current < total: return
         last_up_tick[0] = now
         pct = current * 100.0 / total
         filled = int(pct // 10)
         bar = "█" * filled + "░" * (10 - filled)
-        txt = f"📤 **Uploading...**\n`[{bar}] {pct:.0f}%` • {current/(1024*1024):.1f}/{total/(1024*1024):.1f}MB"
+        txt = f"📤 Uploading... [{bar}] {pct:.0f}% - {current/(1024*1024):.1f}/{total/(1024*1024):.1f}MB"
         try:
             asyncio.run_coroutine_threadsafe(
-                bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=txt, parse_mode="Markdown"),
-                bot._loop if hasattr(bot, "_loop") else asyncio.get_event_loop()
+                bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=txt),
+                _bot_loop
             )
         except Exception: pass
     kwargs["progress"] = _upload_progress
