@@ -1,3 +1,15 @@
+# ============================================================
+# BOT FIXED - DIRECTIONAL QUALITY v3 - 2026-11-16
+# THIS FILE IS CHANGED - search for: DIRECTIONAL / _quality_height / Admin Controls
+# Changes in this file:
+#  1. Required Channels + Download Limits as buttons (top + /admin)
+#  2. Join walkthrough with Join buttons + I've Joined (no raw ID warning)
+#  3. Quality selector 1080/720/480/360/240/Auto
+#  4. DIRECTIONAL cache: low cache + high want = DOWNLOAD high, never give low
+#  5. Metadata sent AFTER download, not before
+#  6. Credit system untouched
+# Rename this file to main.py when you deploy it
+# ============================================================
 # -*- coding: utf-8 -*-
 import time
 import json
@@ -1525,6 +1537,15 @@ def save_bot_settings(new_channels=None, new_limits=None):
         logger.error(f"save_bot_settings: {e}")
         return load_bot_settings()
 
+def _quality_height(q):
+    try:
+        s = str(q or "").lower().strip()
+        if s in ("worst", "original", "cached", "lux", "audio", "unknown", ""): return 0
+        s = s.replace("p", "")
+        return int(s) if s.isdigit() else 0
+    except Exception:
+        return 0
+
 def get_platform_limits(platform_key):
     """Per-platform {min, mb} from settings above, falling back to defaults."""
     try:
@@ -1667,9 +1688,21 @@ def get_cached_file(link_url, download_type="video", preferred_quality=None):
                     candidates.append(full)
         if not candidates: return None
         if pref and download_type == "video":
+            _want = _quality_height(pref)
             for full in candidates:
                 if f"_{pref}p" in os.path.basename(full):
                     return full
+            # DIRECTIONAL: cached HIGHER than wanted is fine (1080 cached, want 720 -> use 1080)
+            # Cached LOWER than wanted is NOT fine (360 cached, want 1080 -> None so we download 1080)
+            _better = []
+            for full in candidates:
+                _bn = os.path.basename(full)
+                for _q in ("1080p", "720p", "480p", "360p", "240p"):
+                    if f"_{_q}" in _bn and _quality_height(_q) >= _want:
+                        _better.append((_quality_height(_q), full))
+            if _better:
+                _better.sort(reverse=True)
+                return _better[0][1]
             return None
         return candidates[0]
     except Exception:
@@ -3873,7 +3906,15 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
     if _pref == "auto": _pref = ""
     if ckey in cache and cache[ckey].get("type") in ("video", "images", "audio"):
         cached_qualities = cache[ckey].get("qualities", {})
-        if dl_type == 'video' and _pref: qualities_order = [f"{_pref}p" if not _pref.endswith("p") else _pref]
+        if dl_type == 'video' and _pref:
+            _pref_q = f"{_pref}p" if not _pref.endswith("p") else _pref
+            _want_h = _quality_height(_pref_q)
+            # DIRECTIONAL: only cached qualities >= wanted count. Lower cached (360 when want 1080) is ignored -> fresh download of 1080.
+            # Higher cached (1080 when want 720) is used -> instant upgrade.
+            qualities_order = [q for q in ["1080p", "720p", "480p", "360p", "240p", "worst"] if _quality_height(q) >= _want_h]
+            if _pref_q in qualities_order:
+                qualities_order.remove(_pref_q)
+                qualities_order.insert(0, _pref_q)
         elif dl_type == 'video': qualities_order = ["1080p", "720p", "480p", "360p", "240p", "worst"]
         elif dl_type == 'audio': qualities_order = ["audio"]
         else: qualities_order = ["original"]
