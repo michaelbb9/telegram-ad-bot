@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V5 - FINAL DOWNLOAD - 2026-11-16 - DO NOT OPEN main.py
+# BOT V6 - SELF-CONTAINED QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
 # THIS IS A NEW FILE - NOT THE OLD main.py
 # First line check: if you see this header, you have the NEW file
 # Changes: buttons + join walkthrough + quality selector + DIRECTIONAL cache + PERSISTENT pending (no Expired)
@@ -4462,6 +4462,30 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await context.bot.send_message(chat_id=chat_id, text=t["batch_dest"].format(len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     if data.startswith("qsel_"):
+        # SELF-CONTAINED: qsel_1080_yt_VIDEOID carries the link itself, survives restart / Render wipe / 2 instances
+        if "_yt_" in data:
+            try:
+                _q2, _ytid = data.split("_yt_", 1)
+                _qual = _q2.split("_", 1)[1]
+                _url2 = f"https://www.youtube.com/watch?v={_ytid}"
+                await query.answer(f"Selected {_qual}p" if _qual != "auto" else "Selected Auto")
+                try: await query.message.delete()
+                except Exception: pass
+                PREF_QUALITY[user_id] = _qual
+                _can = await acquire_slot()
+                if _can:
+                    try: await cached_download_and_send(context.bot, chat_id, user_id, _url2, 'video', t, 1, preferred_quality=_qual, meta=None)
+                    finally:
+                        await release_slot(); PREF_QUALITY.pop(user_id, None)
+                else:
+                    _pos2 = download_queue.qsize()+1
+                    await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, user_id, _url2, 'video', t), 'kwargs': {'credit_cost': 1, 'preferred_quality': _qual, 'meta': None}})
+                    _free2 = shutil.disk_usage(".").free // (1024*1024)
+                    await context.bot.send_message(chat_id=chat_id, text=t["server_busy"].format(active_downloads, MAX_CONCURRENT_SHORT, _free2, _pos2), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+                return
+            except Exception as e:
+                logger.error(f"qsel yt decode: {e}")
+                # fall through to pending-dict path
         _parts = data.split("_", 2); _qual, _pkey = _parts[1], _parts[2]
         _sel = PENDING_QUALITY_SELECT.pop(_pkey, None)
         if not _sel:
@@ -4507,10 +4531,17 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if dl_type == 'video' and ('youtube.com' in url.lower() or 'youtu.be' in url.lower()):
             PENDING_QUALITY_SELECT[payload_key] = {"url": url, "credit_cost": _credit_cost, "meta": _meta0}
             _save_pending_file()
+            _ytid2 = ""
+            try: _ytid2 = youtube_id_from_url(url) or ""
+            except Exception: _ytid2 = ""
+            if _ytid2:
+                _qsuffix = f"yt_{_ytid2}"
+            else:
+                _qsuffix = payload_key
             _qkb = InlineKeyboardMarkup([
-                [InlineKeyboardButton("1080p", callback_data=f"qsel_1080_{payload_key}"), InlineKeyboardButton("720p", callback_data=f"qsel_720_{payload_key}")],
-                [InlineKeyboardButton("480p", callback_data=f"qsel_480_{payload_key}"), InlineKeyboardButton("360p", callback_data=f"qsel_360_{payload_key}")],
-                [InlineKeyboardButton("240p", callback_data=f"qsel_240_{payload_key}"), InlineKeyboardButton("Auto (best)", callback_data=f"qsel_auto_{payload_key}")],
+                [InlineKeyboardButton("1080p", callback_data=f"qsel_1080_{_qsuffix}"), InlineKeyboardButton("720p", callback_data=f"qsel_720_{_qsuffix}")],
+                [InlineKeyboardButton("480p", callback_data=f"qsel_480_{_qsuffix}"), InlineKeyboardButton("360p", callback_data=f"qsel_360_{_qsuffix}")],
+                [InlineKeyboardButton("240p", callback_data=f"qsel_240_{_qsuffix}"), InlineKeyboardButton("Auto (best)", callback_data=f"qsel_auto_{_qsuffix}")],
             ])
             await context.bot.send_message(chat_id=chat_id, text="🎞️ Select video quality:", reply_markup=_qkb)
             return
