@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V6 - SELF-CONTAINED QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
+# BOT V7 - MTProto wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
 # THIS IS A NEW FILE - NOT THE OLD main.py
 # First line check: if you see this header, you have the NEW file
 # Changes: buttons + join walkthrough + quality selector + DIRECTIONAL cache + PERSISTENT pending (no Expired)
@@ -1485,6 +1485,10 @@ def save_json_file(filename, data):
 # ===== SINGLE-FILE VERSION: SETTINGS LIVE HERE — NO SECOND FILE NEEDED =====
 # To change required channels or limits, edit ONLY this block, then restart.
 # Example: "required_channels": ["@yourchannel", -1001234567890]
+# PERMANENT channels go HERE - this survives Render restarts.
+# Button-added channels are saved to bot_settings.json, which Render WIPES on restart.
+# So for a channel that must stay forever, edit this line, e.g.:
+# "required_channels": ["@yourchannel", -1001234567890],
 INLINE_BOT_SETTINGS = {
     "required_channels": [],
     "platform_limits": {
@@ -1922,9 +1926,9 @@ async def send_meta_after(bot, chat_id, url, meta):
 def build_reqch_panel():
     chans = get_required_channels()
     if chans:
-        lines = ["📢 <b>Required Channels</b>", ""] + [f"{i+1}. {c}" for i, c in enumerate(chans)] + ["", "Add: tap ➕ then forward a channel message, or send @username / -100..."]
+        lines = ["📢 <b>Required Channels</b>", ""] + [f"{i+1}. {c}" for i, c in enumerate(chans)] + ["", "Add: tap ➕ then forward a channel message, or send @username / -100...", "⚠️ Button-saved channels last until next Render restart. For permanent, edit INLINE_BOT_SETTINGS in main.py."]
     else:
-        lines = ["📢 <b>Required Channels</b>", "", "None yet — everyone can use the bot.", "", "Tap ➕ to add your first required channel."]
+        lines = ["📢 <b>Required Channels</b>", "", "None yet — everyone can use the bot.", "", "Tap ➕ to add your first required channel.", "⚠️ Button-saved channels last until next Render restart. For permanent, edit INLINE_BOT_SETTINGS in main.py."]
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("➕ Add Channel", callback_data="reqch_add")],
         [InlineKeyboardButton("➖ Remove Channel", callback_data="reqch_remove_list")],
@@ -4871,6 +4875,15 @@ async def _tell_uploading(status_msg, path):
 async def send_video_file(bot, chat_id, target_id, path, caption, parse_mode, status_msg=None):
     if os.path.getsize(path) <= BOT_API_LIMIT_BYTES:
         with open(path, 'rb') as f: return await bot.send_video(chat_id=target_id, video=f, caption=caption, parse_mode=parse_mode)
+    # BUG 1 FIX: first download after restart fails because MTProto hasn't connected yet.
+    # Wait up to 25s for it instead of failing instantly - file is already cached, second try would have worked.
+    if not MTPROTO["ready"].is_set():
+        try:
+            await _tell_uploading(status_msg, path)
+        except Exception: pass
+        for _ in range(25):
+            if MTPROTO["ready"].is_set(): break
+            await asyncio.sleep(1)
     await _tell_uploading(status_msg, path)
     info = await asyncio.to_thread(probe_video, path)
     try:
