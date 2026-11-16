@@ -11,6 +11,14 @@ import shutil
 import hashlib
 import uuid
 import types
+import io
+import glob
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    _PIL_OK = True
+except Exception:
+    _PIL_OK = False
+    Image = ImageDraw = ImageFont = None
 import imageio_ffmpeg
 import yt_dlp
 try:
@@ -83,26 +91,23 @@ FILE_LINKS_FILE = "file_links.json"
 FILE_LINK_STATE_FILE = "file_link_states.json"
 FILE_LINK_STORAGE_ID = -1003906423952
 
-# ===== GUIDE: Required channels + Site limits + Progress state =====
-REQUIRED_CHANNELS_FILE = "required_channels.json"
-SITE_LIMITS_FILE = "site_limits.json"
-DEFAULT_SITE_LIMITS = {
-    "default": {"max_mins": 10, "max_mb": 200, "credit_mb": 100},
-    "youtube.com": {"max_mins": 10, "max_mb": 200, "credit_mb": 100},
-    "youtu.be": {"max_mins": 10, "max_mb": 200, "credit_mb": 100},
-    "tiktok.com": {"max_mins": 10, "max_mb": 200, "credit_mb": 100},
-    "instagram.com": {"max_mins": 10, "max_mb": 200, "credit_mb": 100},
-    "facebook.com": {"max_mins": 10, "max_mb": 200, "credit_mb": 100},
-}
-active_progress = {}
-pending_yt_quality = {}
+# ===== GUIDE PART 2 + 3 + 6: Config files =====
+DOWNLOAD_CFG_FILE = "download_config.json"
+REQ_CHANNELS_FILE = "required_channels.json"
+CACHE_DIR = "media_cache"
+os.makedirs(CACHE_DIR, exist_ok=True)
+_req_cache = {"ts": 0, "data": None}
+_active_progress = {}
+_pending_qualities = {}
+_pending_ad_refill = {}
 
 
 # ADDED arcade_backup.json HERE
 BACKUP_FILES = [
     CHANNELS_FILE, LANG_FILE, CONFIG_FILE, ACTIVITY_FILE, CACHE_FILE, 
     UPLOADS_FILE, UPLOAD_LIMITS_FILE, DRIP_FILE, FLOOD_FILE, BANNED_FILE,
-    FILE_LINKS_FILE, FILE_LINK_STATE_FILE, "arcade_backup.json"
+    FILE_LINKS_FILE, FILE_LINK_STATE_FILE, "arcade_backup.json",
+    DOWNLOAD_CFG_FILE, REQ_CHANNELS_FILE
 ]
 
 active_batch_sessions = {}
@@ -1443,6 +1448,517 @@ def save_json_file(filename, data):
     except Exception as e:
         logger.error(f"Save {filename}: {e}")
 
+# ===== GUIDE PART 2: Download config (Bot side) =====
+def load_download_cfg():
+    try:
+        # Try Flask first for single source of truth
+        r = requests.get(f"{WEB_BASE_URL}/api/download-config", headers=API_HEADERS, timeout=4)
+        if r.status_code == 200 and isinstance(r.json(), dict) and r.json():
+            return r.json()
+    except Exception:
+        pass
+    try:
+        with open(DOWNLOAD_CFG_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, dict) and data:
+                return data
+    except Exception:
+        pass
+    return {
+        "default_max_minutes": 10,
+        "default_max_mb": 200,
+        "credits_threshold_mb": 100,
+        "credits_for_large": 3,
+        "per_site": {
+            "youtube.com": {"max_minutes": 10, "max_mb": 200, "credits": 3},
+            "youtu.be": {"max_minutes": 10, "max_mb": 200, "credits": 3},
+            "tiktok.com": {"max_minutes": 10, "max_mb": 200, "credits": 3},
+            "instagram.com": {"max_minutes": 10, "max_mb": 200, "credits": 3},
+            "facebook.com": {"max_minutes": 10, "max_mb": 200, "credits": 3},
+            "twitter.com": {"max_minutes": 10, "max_mb": 200, "credits": 3},
+            "x.com": {"max_minutes": 10, "max_mb": 200, "credits": 3},
+            "vimeo.com": {"max_minutes": 10, "max_mb": 200, "credits": 3},
+        },
+        "admin_bypass": True,
+    }
+
+def save_download_cfg(cfg):
+    try:
+        with open(DOWNLOAD_CFG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"save_download_cfg: {e}")
+    try:
+        requests.post(f"{WEB_BASE_URL}/api/download-config", json=cfg, headers=API_HEADERS, timeout=4)
+    except Exception:
+        pass
+
+def site_cfg_for(url):
+    cfg = load_download_cfg()
+    try:
+        from urllib.parse import urlparse as _up
+        host = (_up(url).netloc or "").lower()
+    except Exception:
+        host = ""
+    for key, val in cfg.get("per_site", {}).items():
+        if key in host:
+            merged = {**cfg, **val}
+            return merged
+    return cfg
+
+def load_reward_cfg():
+    # GUIDE PART 3.5 + 11: Always read reward from file, every time - never cached default
+    try:
+        with open(REWARD_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, dict) and "reward" in data:
+                return data
+    except Exception:
+        pass
+    try:
+        r = requests.get(f"{WEB_BASE_URL}/get_reward", headers=API_HEADERS, timeout=4)
+        if r.status_code == 200:
+            j = r.json()
+            if "reward" in j:
+                return {"reward": j["reward"], "free": j.get("free", 4)}
+    except Exception:
+        pass
+    try:
+        cfg = load_json_file(CONFIG_FILE)
+        if "reward_amount" in cfg:
+            return {"reward": int(cfg["reward_amount"]), "free": int(cfg.get("free_amount", 4))}
+    except Exception:
+        pass
+    return {"reward": 1, "free": 4}
+
+def get_user_profile(user_id, tokens):
+    # Bot-side mirror of Flask get_user_profile + username tracking (Part 9)
+    user_id_str = str(user_id)
+    now = time.time()
+    if user_id_str not in tokens or not isinstance(tokens[user_id_str], dict):
+        tokens[user_id_str] = {
+            "user_id": int(user_id),
+            "downloads_left": get_free_amount(),
+            "batch_downloads_left": get_free_amount() * 5,
+            "last_reset": now,
+            "msg_start": 0,
+            "msg_end": 0,
+            "clicked_ad": False,
+            "verified": False,
+            "expires": 0,
+            "username": "",
+        }
+    else:
+        profile = tokens[user_id_str]
+        try:
+            if now - float(profile.get("last_reset", 0) or 0) >= 86400:
+                profile["downloads_left"] = get_free_amount()
+                profile["batch_downloads_left"] = get_free_amount() * 5
+                profile["last_reset"] = now
+                profile["verified"] = False
+        except Exception:
+            pass
+    return tokens[user_id_str]
+
+def update_user_username(user_id, username=None, first_name=None):
+    # Part 9: Store username in tokens profile on every update
+    if not username and not first_name:
+        return
+    try:
+        tokens = load_tokens()
+        if not isinstance(tokens, dict):
+            return
+        profile = tokens.get(str(user_id))
+        if not isinstance(profile, dict):
+            return
+        label = f"@{username}" if username else (first_name or "")
+        if label and profile.get("username") != label:
+            profile["username"] = label
+            # Also keep first_name for fallback
+            if first_name:
+                profile["first_name"] = first_name
+            save_tokens(tokens)
+    except Exception:
+        pass
+
+# ===== GUIDE PART 3: Required Channels =====
+def _load_req_channels():
+    try:
+        mtime = os.path.getmtime(REQ_CHANNELS_FILE)
+        if _req_cache["data"] is None or mtime != _req_cache["ts"]:
+            with open(REQ_CHANNELS_FILE, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            # Normalize: accept {"channels": [...]} or bare list or old int-list
+            if isinstance(raw, dict) and "channels" in raw:
+                chans = raw["channels"]
+            elif isinstance(raw, list):
+                chans = raw
+            else:
+                chans = []
+            norm = []
+            for c in chans:
+                if isinstance(c, dict) and "id" in c:
+                    norm.append({"id": str(c["id"]), "title": c.get("title", f"Channel {c['id']}"), "url": c.get("url", f"https://t.me/c/{str(c['id']).replace('-100','')}")})
+                elif isinstance(c, (int, str)):
+                    cid = str(c)
+                    norm.append({"id": cid, "title": f"Channel {cid}", "url": f"https://t.me/c/{cid.replace('-100','')}"})
+            _req_cache["data"] = {"channels": norm, "enforce_every_command": True}
+            _req_cache["ts"] = mtime
+        return _req_cache["data"]
+    except Exception:
+        # Try Flask as fallback
+        try:
+            r = requests.get(f"{WEB_BASE_URL}/api/required-channels", headers=API_HEADERS, timeout=4)
+            if r.status_code == 200:
+                j = r.json()
+                if isinstance(j, dict) and "channels" in j:
+                    return j
+        except Exception:
+            pass
+        return {"channels": [], "enforce_every_command": True}
+
+def _save_req_channels(cfg):
+    try:
+        with open(REQ_CHANNELS_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=4, ensure_ascii=False)
+        _req_cache["data"] = cfg
+        try:
+            _req_cache["ts"] = os.path.getmtime(REQ_CHANNELS_FILE)
+        except Exception:
+            pass
+    except Exception as e:
+        logger.error(f"_save_req_channels: {e}")
+    try:
+        requests.post(f"{WEB_BASE_URL}/api/required-channels", json=cfg, headers=API_HEADERS, timeout=4)
+    except Exception:
+        pass
+
+async def check_user_joined(bot_obj, user_id):
+    # Returns (ok, missing_list). Admin bypasses (admin is always in own channels).
+    if int(user_id) == ADMIN_ID:
+        return True, []
+    cfg = _load_req_channels()
+    channels = cfg.get("channels", [])
+    if not channels:
+        return True, []
+    missing = []
+    for ch in channels:
+        cid = ch["id"]
+        try:
+            # Telegram expects int for -100... IDs
+            try:
+                cid_int = int(cid)
+            except Exception:
+                cid_int = cid
+            member = await bot_obj.get_chat_member(chat_id=cid_int, user_id=user_id)
+            status = getattr(member, "status", "")
+            # PTB statuses: creator, administrator, member, restricted, left, kicked
+            if status in ("left", "kicked"):
+                missing.append(ch)
+            elif status == "restricted":
+                # restricted_out in guide maps to restricted + not member; treat restricted as missing if cannot send? Keep as missing to be safe
+                # But many channels restrict new members - treat as joined if status is restricted but still member-like
+                # Guide says treat restricted_out as missing, so we keep missing only for left/kicked to avoid false blocks.
+                # To match guide strictly, we check is_member if available
+                is_mem = getattr(member, "is_member", None)
+                if is_mem is False:
+                    missing.append(ch)
+        except Exception:
+            # Treat API failure as "not joined" so we don't leak (per guide)
+            missing.append(ch)
+    return (len(missing) == 0), missing
+
+async def enforce_required_channels(bot_obj, user_id, chat_id, reply_func=None):
+    # Helper used at top of every handler. Returns True if allowed, False if blocked (and message sent).
+    ok, missing = await check_user_joined(bot_obj, user_id)
+    if ok:
+        return True
+    btns = [[InlineKeyboardButton(f"➡️ Join {m['title']}", url=m["url"])] for m in missing]
+    btns.append([InlineKeyboardButton("✅ I've Joined — Retry", callback_data="recheck_join")])
+    text = "🚫 You must join **all** required channels to use this bot:\n\n" + "\n".join(f"• {m['title']}" for m in missing)
+    try:
+        if reply_func is not None:
+            await reply_func(text, reply_markup=InlineKeyboardMarkup(btns), parse_mode="Markdown")
+        else:
+            await bot_obj.send_message(chat_id=chat_id, text=text, reply_markup=InlineKeyboardMarkup(btns), parse_mode="Markdown")
+    except Exception as e:
+        logger.warning(f"enforce_required_channels send failed: {e}")
+    return False
+
+# ===== GUIDE PART 4: Progress Bar Image =====
+def make_progress_image(percent, filename="file", is_admin=False, debug_lines=None):
+    if not _PIL_OK:
+        return None
+    W, H = 720, 220
+    try:
+        img = Image.new("RGB", (W, H), (17, 18, 24))
+        d = ImageDraw.Draw(img)
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 26)
+            small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18)
+        except Exception:
+            font = ImageFont.load_default(); small = font
+        d.text((24, 20), f"📥 {str(filename)[:48]}", fill=(230, 230, 240), font=font)
+        bar_x, bar_y, bar_w, bar_h = 24, 78, W - 48, 34
+        d.rounded_rectangle([bar_x, bar_y, bar_x + bar_w, bar_y + bar_h], radius=14, fill=(40, 42, 52))
+        filled = int(bar_w * max(0, min(100, percent)) / 100)
+        if filled > 0:
+            d.rounded_rectangle([bar_x, bar_y, bar_x + filled, bar_y + bar_h], radius=14, fill=(36, 198, 107))
+        d.text((24, 128), f"{percent:.1f}%", fill=(255, 255, 255), font=font)
+        if is_admin and debug_lines:
+            y = 165
+            for line in debug_lines[-3:]:
+                d.text((24, y), str(line)[:100], fill=(180, 180, 200), font=small)
+                y += 18
+        else:
+            d.text((24, 168), "Please wait…", fill=(160, 162, 173), font=small)
+        bio = io.BytesIO(); bio.name = "progress.png"
+        img.save(bio, "PNG"); bio.seek(0)
+        return bio
+    except Exception as e:
+        logger.warning(f"make_progress_image: {e}")
+        return None
+
+def make_progress_hook(user_id, task_id):
+    def hook(d):
+        if d.get('status') == 'downloading':
+            try:
+                _active_progress[task_id] = {
+                    "pct": str(d.get('_percent_str', '0%')).strip(),
+                    "speed": str(d.get('_speed_str', '')).strip(),
+                    "debug": str(d.get('filename', ''))[:200],
+                    "downloaded": d.get('downloaded_bytes', 0),
+                    "total": d.get('total_bytes') or d.get('total_bytes_estimate') or 0,
+                }
+            except Exception:
+                pass
+    return hook
+
+async def on_progress(bot_obj, chat_id, msg_id, percent, filename, is_admin=False, debug_lines=None, _last_edit={"ts": 0}):
+    now = time.time()
+    if percent < 100 and now - _last_edit["ts"] < 2.5:
+        return
+    _last_edit["ts"] = now
+    # Try image first, fallback to text
+    buf = make_progress_image(percent, filename, is_admin, debug_lines)
+    if buf is not None:
+        try:
+            await bot_obj.edit_message_media(chat_id=chat_id, message_id=msg_id, media=InputMediaPhoto(media=buf, caption=f"⬇️ Downloading… {percent:.0f}%"))
+            return
+        except Exception:
+            pass
+    try:
+        filled = int(percent // 10)
+        bar = "█" * filled + "░" * (10 - filled)
+        text = f"📥 **Downloading...**\n`{bar}` {percent:.0f}%\n`{filename[:40]}`"
+        if is_admin and debug_lines:
+            text += "\n🐞 " + "\n".join(str(x)[:100] for x in debug_lines[-2:])
+        await bot_obj.edit_message_text(chat_id=chat_id, message_id=msg_id, text=text, parse_mode="Markdown")
+    except Exception:
+        pass
+
+async def poll_progress_image(bot_obj, chat_id, msg_id, user_id, task_id, stop_event, filename="file"):
+    is_admin = (int(user_id) == ADMIN_ID)
+    while not stop_event.is_set():
+        data = _active_progress.get(task_id, {})
+        pct_str = data.get("pct", "0%").replace("%", "").strip()
+        try:
+            pct = float(pct_str)
+        except Exception:
+            # Try bytes ratio
+            try:
+                tot = data.get("total") or 0
+                dl = data.get("downloaded") or 0
+                pct = (dl / tot * 100) if tot else 0
+            except Exception:
+                pct = 0
+        debug = [data.get("debug", "")] if data.get("debug") else []
+        await on_progress(bot_obj, chat_id, msg_id, pct, filename, is_admin=is_admin, debug_lines=debug)
+        await asyncio.sleep(2.5)
+
+# ===== GUIDE PART 5: Probe + Qualities + Limits =====
+def probe_video_url(url):
+    # NOTE: Named probe_video_url to avoid clobbering existing probe_video(path) which probes local files via ffmpeg
+    opts = {"quiet": True, "no_warnings": True, "skip_download": True}
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+        if info and 'entries' in info and info.get('entries'):
+            # Playlist: take first entry
+            try:
+                info = info['entries'][0]
+            except Exception:
+                pass
+        return info
+
+def pick_qualities(info):
+    fmts = []
+    seen = set()
+    for f in (info.get("formats", []) or []):
+        if f.get("vcodec") == "none":
+            continue
+        h = f.get("height") or 0
+        if h in seen:
+            continue
+        seen.add(h)
+        fmts.append({
+            "height": int(h),
+            "label": f"{h}p" if h else "audio",
+            "format_id": f.get("format_id", ""),
+            "filesize": f.get("filesize") or f.get("filesize_approx") or 0,
+            "ext": f.get("ext", "mp4"),
+        })
+    # Always include audio option
+    fmts_sorted = sorted([x for x in fmts if x["height"] > 0], key=lambda x: x["height"], reverse=True)
+    return fmts_sorted
+
+def check_limits(url, chosen_fmt, duration_sec, filesize_bytes, user_id, tokens):
+    # Returns (True, credits_needed, size_mb) or (False, error_msg) or ("NEED_CREDITS", credits_needed)
+    cfg = site_cfg_for(url)
+    # site_cfg_for merges per_site over defaults; per_site entries use max_minutes/max_mb/credits
+    max_min = cfg.get("max_minutes", cfg.get("default_max_minutes", 10))
+    max_mb = cfg.get("max_mb", cfg.get("default_max_mb", 200))
+    is_admin = (int(user_id) == ADMIN_ID)
+    minutes = (duration_sec or 0) / 60
+    size_mb = (filesize_bytes or 0) / (1024 * 1024)
+    if minutes > max_min and not is_admin:
+        return False, f"⏱️ Video is {minutes:.1f} min — max allowed is {max_min} min."
+    if size_mb > max_mb and not is_admin:
+        return False, f"📦 File is {size_mb:.0f} MB — max allowed is {max_mb} MB."
+    profile = get_user_profile(user_id, tokens)
+    credits_needed = 1
+    thresh = cfg.get("credits_threshold_mb", 100)
+    large = cfg.get("credits_for_large", cfg.get("credits", 3))
+    if size_mb > thresh:
+        credits_needed = int(large)
+    if profile.get("downloads_left", 0) < credits_needed and not is_admin:
+        return "NEED_CREDITS", credits_needed
+    return True, credits_needed, size_mb
+
+# ===== GUIDE PART 6: Filesystem Cache (best-quality only) =====
+def norm_url(url):
+    try:
+        from urllib.parse import urlparse as _up
+        u = _up(url)
+        return f"{u.netloc}{u.path}".lower()
+    except Exception:
+        return str(url).lower()
+
+def cache_path_for(url):
+    return os.path.join(CACHE_DIR, hashlib.md5(norm_url(url).encode()).hexdigest())
+
+def cache_lookup(url):
+    base = cache_path_for(url)
+    try:
+        files = glob.glob(base + "_*")
+        if not files:
+            return None
+        def _q(p):
+            try:
+                return int(p.rsplit("_", 1)[-1].split(".")[0])
+            except Exception:
+                return 0
+        files = sorted(files, key=_q, reverse=True)
+        best = files[0]
+        try:
+            q = _q(best)
+            sz = os.path.getsize(best) / (1024 * 1024)
+            return best, q, sz
+        except Exception:
+            return None
+    except Exception:
+        return None
+
+def cache_store(url, downloaded_path, quality):
+    try:
+        if not os.path.exists(downloaded_path):
+            return None
+        base = cache_path_for(url)
+        try:
+            q_int = int(str(quality).replace("p", "").replace("worst", "0"))
+        except Exception:
+            q_int = 0
+        dest = f"{base}_{q_int}{os.path.splitext(downloaded_path)[1] or '.mp4'}"
+        # If a higher-quality cache already exists, keep it (never downgrade cache)
+        existing = cache_lookup(url)
+        if existing and existing[1] >= q_int and os.path.exists(existing[0]):
+            return existing[0]
+        # Copy (not move) so caller can still send/delete original
+        shutil.copyfile(downloaded_path, dest)
+        return dest
+    except Exception as e:
+        logger.warning(f"cache_store: {e}")
+        return None
+
+# ===== GUIDE PART 8: Link Card =====
+def build_link_card(info):
+    views = info.get("view_count") or 0
+    likes = info.get("like_count") or 0
+    comments = info.get("comment_count") or 0
+    uploader = info.get("uploader") or info.get("channel") or info.get("uploader_id") or "Unknown"
+    desc = (info.get("description") or "")[:400]
+    regions = info.get("location") or "Global"
+    shares = "N/A (not exposed by platform)"
+    # Comment samples if available
+    sample = ""
+    try:
+        cmts = info.get("comments") or []
+        if cmts:
+            sample = "\n\n💬 **Top comments:**\n" + "\n".join(f"• {str(c.get('text',''))[:100]}" for c in cmts[:2])
+    except Exception:
+        pass
+    return (
+        f"🎬 **{info.get('title', 'Untitled')}**\n\n"
+        f"👤 **Poster:** {uploader}\n"
+        f"👁️ **Views:** {views:,}\n"
+        f"❤️ **Likes:** {likes:,}\n"
+        f"💬 **Comments:** {comments:,}\n"
+        f"🔁 **Shares:** {shares}\n"
+        f"🌍 **Regions:** {regions}\n\n"
+        f"📝 **Description:**\n{desc}..."
+        f"{sample}"
+    )
+
+# ===== GUIDE PART 9: Top 10 =====
+def top_users_text(tokens, n=10):
+    # Rank by total_interactions if available via ACTIVITY, else by downloads_left fallback
+    try:
+        activity = load_json_file(ACTIVITY_FILE)
+    except Exception:
+        activity = {}
+    scored = []
+    for uid, p in tokens.items():
+        if not isinstance(p, dict):
+            continue
+        inter = 0
+        try:
+            inter = int(activity.get(str(uid), {}).get("total_interactions", 0) or 0)
+        except Exception:
+            inter = 0
+        scored.append((uid, p, inter))
+    # Prefer interactions, fall back to downloads_left
+    scored.sort(key=lambda x: (x[2], x[1].get("downloads_left", 0)), reverse=True)
+    ranked = scored[:n]
+    lines = []
+    for i, (uid, p, inter) in enumerate(ranked, 1):
+        uname = p.get("username") or p.get("first_name") or "—"
+        lines.append(f"{i}. `{uid}` — {uname} (DL: {p.get('downloads_left',0)} | Interactions: {inter})")
+    return "\n".join(lines) if lines else "No users yet."
+
+# ===== GUIDE PART 10: Restore Safe =====
+def restore_file(path, backup_path):
+    if not os.path.exists(backup_path):
+        return False, "No backup found."
+    try:
+        with open(backup_path, "r", encoding="utf-8") as f:
+            json.load(f)
+    except Exception as e:
+        return False, f"Backup invalid: {e}"
+    if os.path.exists(path):
+        os.rename(path, path + ".pre-restore")
+    shutil.copyfile(backup_path, path)
+    return True, "Restored."
+
+
 YT_ID_RE = re.compile(
     r'(?:youtu\.be/|youtube\.com/(?:watch\?(?:[^#\s]*&)?v=|shorts/|live/|embed/)|music\.youtube\.com/watch\?(?:[^#\s]*&)?v=)'
     r'([A-Za-z0-9_-]{11})')
@@ -1619,14 +2135,24 @@ def is_banned(user_id):
     banned = load_json_file(BANNED_FILE)
     return str(user_id) in banned
 
-def track_user_activity(user_id):
+def track_user_activity(user_id, username=None, first_name=None):
     activity = load_json_file(ACTIVITY_FILE)
     user_str = str(user_id)
     now = time.time()
     if user_str not in activity: activity[user_str] = {"total_interactions": 0, "last_active": now}
     activity[user_str]["total_interactions"] += 1
     activity[user_str]["last_active"] = now
+    if username:
+        activity[user_str]["username"] = f"@{username}"
+    if first_name:
+        activity[user_str]["first_name"] = first_name
     save_json_file(ACTIVITY_FILE, activity)
+    # Also keep tokens profile username in sync (Part 9)
+    try:
+        if username or first_name:
+            update_user_username(user_id, username, first_name)
+    except Exception:
+        pass
 
 def get_lang(user_id):
     langs = load_json_file(LANG_FILE)
@@ -2216,7 +2742,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
     elif os.path.exists("cookies.txt"): cookiefile = "cookies.txt"
     ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL}
     if cookiefile: ydl_opts['cookiefile'] = cookiefile
-    # GUIDE: Progress hook - clean bar for users, debug for admin via poll_progress
+    # GUIDE PART 4: Progress hook - admin gets debug via poller, users get clean bar only
     if task_id is not None and user_id is not None:
         try:
             ydl_opts['progress_hooks'] = [make_progress_hook(user_id, task_id)]
@@ -2259,13 +2785,13 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
             ("360p", "bv*[height<=360]+ba/b[height<=360]"),
             ("worst", "worst")
         ]
-        # GUIDE: If user picked a quality (ytq_), start from that tier to save time
+        # GUIDE PART 5: If user picked a quality, start from that tier (no retry loop that gets stuck)
         if requested_quality:
-            rq = str(requested_quality).lower().replace("p", "")
-            order_map = {"1080": 0, "720": 1, "480": 2, "360": 3, "worst": 4, "audio": 4}
-            if rq in order_map:
-                start_idx = order_map[rq]
-                tiers = tiers[start_idx:] if start_idx < len(tiers) else tiers
+            _rq = str(requested_quality).lower().replace("p", "")
+            _order = {"1080": 0, "720": 1, "480": 2, "360": 3, "worst": 4}
+            if _rq in _order:
+                _si = _order[_rq]
+                tiers = tiers[_si:] if _si < len(tiers) else tiers
         too_big = False
         yt_blocked = False
         last_err = None
@@ -2353,6 +2879,7 @@ def get_main_keyboard(lang_code, is_admin):
         keyboard.append([KeyboardButton(t["menu_uploads"]), KeyboardButton("⚡ Create Flash Drop")])
         keyboard.append([KeyboardButton("🎁 Set Reward (1/2/3/5)"), KeyboardButton("📦 Set Free DL (2/3/4/5)")])
         keyboard.append([KeyboardButton("⚙️ Site Limits"), KeyboardButton("⚙️ Force-Sub Channels")])
+        keyboard.append([KeyboardButton("➕ Add Channel"), KeyboardButton("⚙️ Set Limit")])
         keyboard.append([KeyboardButton(t["menu_edit_welcome"])])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -2371,11 +2898,6 @@ def get_reward_amount():
     except: return 1
 def set_reward_amount(val):
     cfg = load_json_file(CONFIG_FILE); cfg["reward_amount"] = int(val); save_json_file(CONFIG_FILE, cfg)
-    # GUIDE: Sync reward to Flask so /get_reward and ad rewards use same value
-    try:
-        requests.post(f"{WEB_BASE_URL}/api/set-reward", json={"reward": int(val)}, headers=API_HEADERS, timeout=3)
-    except Exception as e:
-        logger.warning(f"Reward sync to Flask failed: {e}")
 def get_free_amount():
     try: return int(load_json_file(CONFIG_FILE).get("free_amount", 4))
     except: return 4
@@ -2384,267 +2906,6 @@ def set_free_amount(val):
 def get_free_disk_mb():
     try: return max(0, 512 - get_downloads_usage_mb())
     except: return 512
-
-# ===== GUIDE: Progress hook + Metadata + Site Limits + Force-Subscribe helpers =====
-def make_progress_hook(user_id, task_id):
-    def hook(d):
-        if d.get('status') == 'downloading':
-            try:
-                active_progress[task_id] = {
-                    "pct": str(d.get('_percent_str', '0%')).strip(),
-                    "speed": str(d.get('_speed_str', '')).strip(),
-                    "debug": str(d.get('filename', ''))[:200],
-                }
-            except Exception:
-                pass
-    return hook
-
-async def poll_progress(bot_obj, chat_id, msg_id, user_id, task_id, stop_event):
-    while not stop_event.is_set():
-        data = active_progress.get(task_id, {})
-        pct = data.get("pct", "0%")
-        speed = data.get("speed", "")
-        text = f"📥 **Downloading...** {pct} | {speed}"
-        if user_id == ADMIN_ID:
-            dbg = data.get('debug', '')
-            if dbg:
-                text += f"\n🐞 `{dbg}`"
-        try:
-            await bot_obj.edit_message_text(chat_id=chat_id, message_id=msg_id, text=text, parse_mode="Markdown")
-        except Exception:
-            pass
-        await asyncio.sleep(2)
-
-def fetch_full_metadata(url):
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True}
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            if not info:
-                return None
-            # Estimate size from best format if available
-            approx_mb = 0
-            try:
-                fmts = info.get('formats') or []
-                best = None
-                for f in fmts:
-                    if f.get('filesize') and f.get('vcodec') not in (None, 'none'):
-                        if best is None or f.get('filesize', 0) > best.get('filesize', 0):
-                            best = f
-                if best and best.get('filesize'):
-                    approx_mb = best['filesize'] / (1024 * 1024)
-                elif info.get('filesize'):
-                    approx_mb = info['filesize'] / (1024 * 1024)
-                elif info.get('filesize_approx'):
-                    approx_mb = info['filesize_approx'] / (1024 * 1024)
-            except Exception:
-                approx_mb = 0
-            return {
-                "title": (info.get("title") or "Unknown")[:80],
-                "views": info.get("view_count", 0) or 0,
-                "likes": info.get("like_count", 0) or 0,
-                "comments": info.get("comment_count", 0) or 0,
-                "uploader": info.get("uploader") or info.get("channel") or "Unknown",
-                "description": ((info.get("description") or "")[:150]).replace('\n', ' '),
-                "duration": info.get("duration", 0) or 0,
-                "size_mb": approx_mb,
-                "size": approx_mb * 1024 * 1024,
-            }
-    except Exception as e:
-        logger.warning(f"fetch_full_metadata failed: {e}")
-        return None
-
-def get_site_limits_config():
-    # Try Flask first, fallback to local CONFIG_FILE / file, then defaults
-    try:
-        r = requests.get(f"{WEB_BASE_URL}/api/site-limits", headers=API_HEADERS, timeout=4)
-        if r.status_code == 200 and isinstance(r.json(), dict) and r.json():
-            return r.json()
-    except Exception:
-        pass
-    try:
-        cfg = load_json_file(CONFIG_FILE)
-        if isinstance(cfg.get("site_limits"), dict) and cfg["site_limits"]:
-            return cfg["site_limits"]
-    except Exception:
-        pass
-    try:
-        local = load_json_file(SITE_LIMITS_FILE)
-        if isinstance(local, dict) and local:
-            return local
-    except Exception:
-        pass
-    return dict(DEFAULT_SITE_LIMITS)
-
-def get_site_limits(url):
-    all_limits = get_site_limits_config()
-    low = (url or "").lower()
-    for domain in ["youtube.com", "youtu.be", "tiktok.com", "instagram.com", "facebook.com"]:
-        if domain in low:
-            cfg = all_limits.get(domain) or all_limits.get("default") or DEFAULT_SITE_LIMITS["default"]
-            return {"max_mins": int(cfg.get("max_mins", 10)), "max_mb": int(cfg.get("max_mb", 200)), "credit_mb": int(cfg.get("credit_mb", 100))}
-    cfg = all_limits.get("default") or DEFAULT_SITE_LIMITS["default"]
-    return {"max_mins": int(cfg.get("max_mins", 10)), "max_mb": int(cfg.get("max_mb", 200)), "credit_mb": int(cfg.get("credit_mb", 100))}
-
-def set_site_limits_config(new_limits):
-    # Save locally + sync to Flask
-    try:
-        cfg = load_json_file(CONFIG_FILE)
-        cfg["site_limits"] = new_limits
-        save_json_file(CONFIG_FILE, cfg)
-    except Exception:
-        pass
-    try:
-        save_json_file(SITE_LIMITS_FILE, new_limits)
-    except Exception:
-        pass
-    try:
-        requests.post(f"{WEB_BASE_URL}/api/site-limits", json=new_limits, headers=API_HEADERS, timeout=4)
-    except Exception as e:
-        logger.warning(f"Site-limits sync to Flask failed: {e}")
-
-def get_youtube_formats(url):
-    try:
-        ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            heights = set()
-            for f in (info.get('formats') or []):
-                h = f.get('height')
-                if h and f.get('vcodec') not in (None, 'none'):
-                    heights.add(int(h))
-            ordered = []
-            for target in [1080, 720, 480, 360]:
-                if any(h >= target for h in heights):
-                    ordered.append(f"{target}p")
-            if not ordered:
-                ordered = ["720p", "480p", "360p"]
-            ordered.append("Audio")
-            # Deduplicate preserve order
-            seen = set(); out = []
-            for x in ordered:
-                if x not in seen:
-                    seen.add(x); out.append(x)
-            return out
-    except Exception as e:
-        logger.warning(f"get_youtube_formats failed: {e}")
-        return ["1080p", "720p", "480p", "Audio"]
-
-async def show_ad_refill_prompt(update_or_query, credit_cost, user_id=None, chat_id=None):
-    # Unified ad-refill prompt used when balance < credit_cost. Works for message or callback query.
-    try:
-        uid = user_id
-        cid = chat_id
-        msg_obj = None
-        if hasattr(update_or_query, 'message') and update_or_query.message is not None:
-            msg_obj = update_or_query.message
-            if uid is None:
-                uid = msg_obj.from_user.id
-            if cid is None:
-                cid = msg_obj.chat_id
-        elif hasattr(update_or_query, 'from_user'):
-            uid = uid or update_or_query.from_user.id
-        lang = get_lang(uid) if uid else "en"
-        t = LANGUAGES.get(lang, LANGUAGES["en"])
-        text = t.get("limit_reached", "⚠️ Limit Reached!") + f"\n\n💳 This file needs **{credit_cost} credits**. Watch 20s ad → Get +1 download!"
-        assigned = get_global_ab_network(uid) if uid else "adsterra"
-        if assigned == "monetag":
-            kb = adsgram_keyboard(uid, "wall", 0, 0)
-            if msg_obj is not None:
-                if kb:
-                    await msg_obj.reply_text(text, reply_markup=kb, parse_mode="Markdown")
-                else:
-                    await msg_obj.reply_text(text + "\n⚠️ Ad server busy, try again in a moment.", reply_markup=get_main_keyboard(lang, uid == ADMIN_ID))
-            elif cid:
-                from telegram import Bot as _Bot
-                pass
-            return
-        else:
-            bridge_link = f"{BRIDGE_URL}?user={uid}&start_msg=0&end_msg=0"
-            kb = InlineKeyboardMarkup([[InlineKeyboardButton(t.get("refill_btn", "🔓 Open Link & Refill +1"), url=bridge_link)], [InlineKeyboardButton(t.get("join_btn", "📢 Join Channel"), url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t.get("check_btn", "💜 Check Balance"), callback_data="verify_user")]])
-            if msg_obj is not None:
-                await msg_obj.reply_text(text + ADSTERRA_USER_GUIDE if 'ADSTERRA_USER_GUIDE' in globals() else text, reply_markup=kb, parse_mode="Markdown")
-            return
-    except Exception as e:
-        logger.error(f"show_ad_refill_prompt: {e}")
-
-def get_required_channels_list():
-    try:
-        r = requests.get(f"{WEB_BASE_URL}/api/required-channels", headers=API_HEADERS, timeout=4)
-        if r.status_code == 200 and isinstance(r.json(), list):
-            return [int(x) for x in r.json()]
-    except Exception:
-        pass
-    try:
-        local = load_json_file(REQUIRED_CHANNELS_FILE)
-        if isinstance(local, list):
-            return [int(x) for x in local]
-    except Exception:
-        pass
-    try:
-        cfg = load_json_file(CONFIG_FILE)
-        if isinstance(cfg.get("required_channels"), list):
-            return [int(x) for x in cfg["required_channels"]]
-    except Exception:
-        pass
-    return []
-
-def set_required_channels_list(channels):
-    cleaned = []
-    for ch in channels:
-        try:
-            cid = int(ch)
-            if cid not in cleaned:
-                cleaned.append(cid)
-        except Exception:
-            continue
-    try:
-        save_json_file(REQUIRED_CHANNELS_FILE, cleaned)
-    except Exception:
-        pass
-    try:
-        cfg = load_json_file(CONFIG_FILE)
-        cfg["required_channels"] = cleaned
-        save_json_file(CONFIG_FILE, cfg)
-    except Exception:
-        pass
-    try:
-        requests.post(f"{WEB_BASE_URL}/api/required-channels", json={"channels": cleaned}, headers=API_HEADERS, timeout=4)
-    except Exception as e:
-        logger.warning(f"Required-channels sync to Flask failed: {e}")
-    return cleaned
-
-async def check_force_subscribe(bot_obj, user_id, chat_id):
-    if user_id == ADMIN_ID:
-        return True
-    channels = get_required_channels_list()
-    if not channels:
-        return True
-    join_buttons = []
-    for ch_id in channels:
-        try:
-            member = await bot_obj.get_chat_member(chat_id=ch_id, user_id=user_id)
-            if getattr(member, "status", None) not in ("creator", "administrator", "member"):
-                raise ValueError("not member")
-        except Exception:
-            try:
-                ch_info = await bot_obj.get_chat(ch_id)
-                title = getattr(ch_info, "title", f"Channel {ch_id}")
-                username = getattr(ch_info, "username", None)
-                invite = getattr(ch_info, "invite_link", None)
-                url = invite or (f"https://t.me/{username}" if username else f"https://t.me/c/{str(ch_id).replace('-100', '')}")
-                join_buttons.append([InlineKeyboardButton(f"📢 Join {title}", url=url)])
-            except Exception:
-                join_buttons.append([InlineKeyboardButton(f"📢 Join Channel {ch_id}", url=f"https://t.me/c/{str(ch_id).replace('-100', '')}")])
-    if join_buttons:
-        join_buttons.append([InlineKeyboardButton("✅ I have joined all", callback_data="verify_joins")])
-        try:
-            await bot_obj.send_message(chat_id, "⚠️ **You must join these channels to use the bot:**", reply_markup=InlineKeyboardMarkup(join_buttons), parse_mode="Markdown")
-        except Exception as e:
-            logger.warning(f"Force-sub message failed: {e}")
-        return False
-    return True
-
 
 def deduct_download_counter(user_id, is_batch=False):
     try: requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": is_batch}, headers=API_HEADERS, timeout=3)
@@ -2765,9 +3026,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
     t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
     if is_banned(user_id): await update.message.reply_text(t["banned"]); return
-    # GUIDE: Force-subscribe check
-    if not await check_force_subscribe(context.bot, user_id, update.message.chat_id): return
-    track_user_activity(user_id)
+    # GUIDE PART 3: Required channels checked EVERY time (users can leave later)
+    if not await enforce_required_channels(context.bot, user_id, update.message.chat_id, reply_func=update.message.reply_text):
+        return
+    track_user_activity(user_id, username=update.message.from_user.username, first_name=update.message.from_user.first_name)
+    update_user_username(user_id, update.message.from_user.username, update.message.from_user.first_name)
     args = context.args
     lang = get_lang(user_id)
     
@@ -2960,8 +3223,12 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_id = update.message.from_user.id
     t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
     if is_banned(user_id): await update.message.reply_text(t["banned"]); return
-    # GUIDE: Force-subscribe check
-    if not await check_force_subscribe(context.bot, user_id, update.message.chat_id): return
+    # GUIDE PART 3: Required channels every time
+    if not await enforce_required_channels(context.bot, user_id, update.message.chat_id, reply_func=update.message.reply_text):
+        return
+    # Username sync only - track_user_activity is called once below to avoid double-count
+    try: update_user_username(user_id, update.message.from_user.username, update.message.from_user.first_name)
+    except Exception: pass
     if await file_link_add_media(update, context): return
     chat_id = update.message.chat_id
     track_user_activity(user_id)
@@ -3029,48 +3296,48 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     chat_id = update.message.chat_id
     t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
     if is_banned(user_id): await update.message.reply_text(t["banned"]); return
-    # GUIDE: Admin config states (Site Limits / Force-Sub) take priority
-    _support_early = load_json_file(SUPPORT_STATES_FILE)
-    _early_state = _support_early.get(str(user_id), {})
-    if isinstance(_early_state, dict) and _early_state.get("mode") == "admin_site_limits_waiting" and user_id == ADMIN_ID:
+    # GUIDE PART 9: Sync username on every message (track_user_activity is called once later to avoid double-count)
+    try:
+        update_user_username(user_id, update.message.from_user.username, update.message.from_user.first_name)
+    except Exception:
+        pass
+    # GUIDE PART 2/5: Admin Site Limits text input - format: domain max_mins max_mb credits (e.g. youtube.com 10 200 3)
+    _sup_early = load_json_file(SUPPORT_STATES_FILE)
+    _early = _sup_early.get(str(user_id), {})
+    if isinstance(_early, dict) and _early.get("mode") == "admin_site_limits_waiting" and user_id == ADMIN_ID:
         _parts = text.strip().split()
         try:
             if len(_parts) == 4:
-                _domain, _mins, _mb, _credit = _parts[0].lower(), int(_parts[1]), int(_parts[2]), int(_parts[3])
-                _limits = get_site_limits_config()
-                _limits[_domain] = {"max_mins": _mins, "max_mb": _mb, "credit_mb": _credit}
-                set_site_limits_config(_limits)
-                del _support_early[str(user_id)]; save_json_file(SUPPORT_STATES_FILE, _support_early)
-                await update.message.reply_text(f"✅ Site Limits saved: {_domain} = {_mins} mins / {_mb}MB / { _credit}MB = 3 credits", reply_markup=get_main_keyboard(lang if 'lang' in locals() else get_lang(user_id), True))
+                _dom, _mins, _mb, _cr = _parts[0].lower(), int(_parts[1]), int(_parts[2]), int(_parts[3])
+                _cfg_sl = load_download_cfg(); _cfg_sl.setdefault("per_site", {})[_dom] = {"max_minutes": _mins, "max_mb": _mb, "credits": _cr}; save_download_cfg(_cfg_sl)
+                del _sup_early[str(user_id)]; save_json_file(SUPPORT_STATES_FILE, _sup_early)
+                await update.message.reply_text(f"✅ Site Limits saved: {_dom} = {_mins} mins / {_mb}MB / {_cr} credits", reply_markup=get_main_keyboard(get_lang(user_id), True))
             else:
-                await update.message.reply_text("❌ Format: `domain max_mins max_mb credit_mb`\nExample: `youtube.com 10 200 100`", parse_mode="Markdown")
+                await update.message.reply_text("❌ Format: `domain max_mins max_mb credits`\nExample: `youtube.com 10 200 3`", parse_mode="Markdown")
         except Exception as e:
             await update.message.reply_text(f"❌ Invalid numbers: {e}")
         return
-    if isinstance(_early_state, dict) and _early_state.get("mode") == "admin_force_sub_waiting" and user_id == ADMIN_ID:
+    if isinstance(_early, dict) and _early.get("mode") == "admin_force_sub_waiting" and user_id == ADMIN_ID:
         _txt = text.strip()
-        _ch_id = None
-        try:
-            if _txt.lstrip("-").isdigit():
-                _ch_id = int(_txt)
-        except Exception:
-            pass
-        # Forwarded channel message also handled below via forward_origin, but ID path is here
-        if _ch_id is not None:
-            _chs = get_required_channels_list()
-            if _ch_id not in _chs:
-                _chs.append(_ch_id)
-                set_required_channels_list(_chs)
-                await update.message.reply_text(f"✅ Force-Sub channel added: `{_ch_id}`\nCurrent: {_chs}", parse_mode="Markdown", reply_markup=get_main_keyboard(get_lang(user_id), True))
+        if _txt.lstrip("-").isdigit():
+            _cid = _txt
+            _cfg_fs = _load_req_channels()
+            if not any(str(c.get("id")) == str(_cid) for c in _cfg_fs.get("channels", [])):
+                _cfg_fs["channels"].append({"id": str(_cid), "title": f"Channel {_cid}", "url": f"https://t.me/c/{str(_cid).replace('-100','')}"})
+                _save_req_channels(_cfg_fs)
+                await update.message.reply_text(f"✅ Force-Sub channel added: `{_cid}`", parse_mode="Markdown", reply_markup=get_main_keyboard(get_lang(user_id), True))
             else:
-                await update.message.reply_text(f"ℹ️ Already in list: `{_ch_id}`", parse_mode="Markdown", reply_markup=get_main_keyboard(get_lang(user_id), True))
-            del _support_early[str(user_id)]; save_json_file(SUPPORT_STATES_FILE, _support_early)
+                await update.message.reply_text(f"ℹ️ Already in list: `{_cid}`", parse_mode="Markdown", reply_markup=get_main_keyboard(get_lang(user_id), True))
+            del _sup_early[str(user_id)]; save_json_file(SUPPORT_STATES_FILE, _sup_early)
+            _ls_c = load_linking_states()
+            if str(user_id) in _ls_c: del _ls_c[str(user_id)]; save_linking_states(_ls_c)
             return
         await update.message.reply_text("❌ Send Channel ID like `-100123456789` or forward a message from the channel.", reply_markup=get_main_keyboard(get_lang(user_id), True))
         return
-    # GUIDE: Force-subscribe check (skip for admin config buttons themselves)
-    if text.strip() not in ("⚙️ Site Limits", "⚙️ Force-Sub Channels"):
-        if not await check_force_subscribe(context.bot, user_id, chat_id): return
+    # GUIDE PART 3: Required channels checked every time (skip for admin config buttons)
+    if text.strip() not in ("⚙️ Site Limits", "⚙️ Force-Sub Channels", "➕ Add Channel", "⚙️ Set Limit"):
+        if not await enforce_required_channels(context.bot, user_id, chat_id, reply_func=update.message.reply_text):
+            return
     if "http" in text.lower():
         flood, wait = is_flood(user_id)
         if flood: await update.message.reply_text(f"🐢 **Slow down!** You sent {FLOOD_LIMIT} links in last minute.\nWait {wait}s before next link.", parse_mode="Markdown"); return
@@ -3101,26 +3368,32 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     linking_states = load_linking_states()
     if text.strip() == "❌ Cancel" and linking_states.get(str(user_id)) == "waiting_for_channel":
         linking_states.pop(str(user_id), None); save_linking_states(linking_states)
-        await update.message.reply_text("❌ Cancelled.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+        _st_c = load_json_file(SUPPORT_STATES_FILE)
+        if str(user_id) in _st_c: del _st_c[str(user_id)]; save_json_file(SUPPORT_STATES_FILE, _st_c)
+        await update.message.reply_text("❌ Cancelled. Batch channel unchanged.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         return
     if linking_states.get(str(user_id)) == "waiting_for_channel":
-        # GUIDE: Admin Force-Sub channel add via forwarded message
-        _sup = load_json_file(SUPPORT_STATES_FILE)
-        if isinstance(_sup.get(str(user_id)), dict) and _sup[str(user_id)].get("mode") == "admin_force_sub_waiting" and user_id == ADMIN_ID:
+        # GUIDE PART 3.4: Add-Channel by forwarding - if awaiting_channel_forward, save to required_channels.json
+        _sup_fw = load_json_file(SUPPORT_STATES_FILE)
+        if isinstance(_sup_fw.get(str(user_id)), dict) and _sup_fw[str(user_id)].get("mode") == "awaiting_channel_forward" and user_id == ADMIN_ID:
             _f_origin = getattr(update.message, "forward_origin", None)
             _f_chat2 = None
             if _f_origin and getattr(_f_origin, "type", None) == "channel":
                 _f_chat2 = getattr(_f_origin, "chat", None)
             if _f_chat2 is None:
                 _f_chat2 = getattr(update.message, "forward_from_chat", None)
-            if _f_chat2 is not None:
-                _chs2 = get_required_channels_list()
-                if int(_f_chat2.id) not in _chs2:
-                    _chs2.append(int(_f_chat2.id)); set_required_channels_list(_chs2)
-                del _sup[str(user_id)]; save_json_file(SUPPORT_STATES_FILE, _sup)
-                linking_states.pop(str(user_id), None); save_linking_states(linking_states)
-                await update.message.reply_text(f"✅ Force-Sub channel added: {getattr(_f_chat2, 'title', _f_chat2.id)} (`{_f_chat2.id}`)", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
-                return
+            if _f_chat2 is None:
+                await update.message.reply_text("❌ Please forward a message directly from your channel, not a copied message.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
+            _cfg_fw = _load_req_channels()
+            if not any(str(c.get("id")) == str(_f_chat2.id) for c in _cfg_fw.get("channels", [])):
+                _cfg_fw["channels"].append({"id": str(_f_chat2.id), "title": getattr(_f_chat2, "title", f"Channel {_f_chat2.id}"), "url": f"https://t.me/{getattr(_f_chat2, 'username', '')}" if getattr(_f_chat2, "username", None) else f"https://t.me/c/{str(_f_chat2.id).replace('-100','')}"})
+                _save_req_channels(_cfg_fw)
+                await update.message.reply_text(f"✅ Saved channel **{getattr(_f_chat2, 'title', _f_chat2.id)}** (`{_f_chat2.id}`).", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
+            else:
+                await update.message.reply_text("ℹ️ Already in list.", reply_markup=get_main_keyboard(lang, True))
+            del _sup_fw[str(user_id)]; save_json_file(SUPPORT_STATES_FILE, _sup_fw)
+            linking_states.pop(str(user_id), None); save_linking_states(linking_states)
+            return
         forward_origin = getattr(update.message, "forward_origin", None)
         f_chat = None
         if forward_origin and getattr(forward_origin, "type", None) == "channel": f_chat = getattr(forward_origin, "chat", None)
@@ -3151,24 +3424,20 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if record.get("max_clicks", 0) and record.get("clicks", 0) >= record["max_clicks"]: await update.message.reply_text(t["link_limit_reached"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
         await send_file_link_payload(update, context, token, record)
         return
-    menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🔗 File-to-Link", "🟢 Bot Status", "🔄 Change Batch Channel", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel", "⚙️ Site Limits", "⚙️ Force-Sub Channels", t.get("menu_edit_welcome", "✏️ Edit Welcome Msg")]
+    menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🔗 File-to-Link", "🟢 Bot Status", "🔄 Change Batch Channel", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel", "⚙️ Site Limits", "⚙️ Force-Sub Channels", "➕ Add Channel", "⚙️ Set Limit", t.get("menu_edit_welcome", "✏️ Edit Welcome Msg")]
     if text in menu_texts:
         if text != t["menu_upload"]:
             context.user_data.pop("admin_vault_upload_mode", None)
         support_states = load_json_file(SUPPORT_STATES_FILE)
         if str(user_id) in support_states: del support_states[str(user_id)]; save_json_file(SUPPORT_STATES_FILE, support_states)
     if text.strip() == "🔗 File-to-Link": await file_to_link_command(update, context); return
-    if text.strip() == "❌ Cancel" and load_linking_states().get(str(user_id)) == "waiting_for_channel":
-        _ls = load_linking_states(); _ls.pop(str(user_id), None); save_linking_states(_ls)
-        await update.message.reply_text("❌ Cancelled.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-        return
     if text.strip() == "🔄 Change Batch Channel":
         linking_states = load_linking_states()
         linking_states[str(user_id)] = "waiting_for_channel"
         save_linking_states(linking_states)
-        # GUIDE: Batch Cancel button
+        # GUIDE PART 7: Batch Cancel - show Cancel button
         kb_cancel = ReplyKeyboardMarkup([[KeyboardButton("❌ Cancel")]], resize_keyboard=True)
-        await update.message.reply_text(t["change_channel_prompt"], parse_mode="Markdown", reply_markup=kb_cancel)
+        await update.message.reply_text(t["change_channel_prompt"] + "\n\nTap ❌ to cancel.", parse_mode="Markdown", reply_markup=kb_cancel)
         return
     fl_states = load_json_file(FILE_LINK_STATE_FILE)
     fl_state = fl_states.get(str(user_id))
@@ -3182,35 +3451,37 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text(t["password_saved"], reply_markup=file_link_keyboard(fl_state))
         return
     if text == "⚙️ Site Limits" and user_id == ADMIN_ID:
-        _cur = get_site_limits_config()
-        _txt = "⚙️ **Site Limits**\n\nCurrent:\n"
-        for _d, _c in _cur.items():
-            _txt += f"• `{_d}`: {_c.get('max_mins')} mins / {_c.get('max_mb')}MB / {_c.get('credit_mb')}MB = 3 credits\n"
-        _txt += "\nSend in this format to change:\n`domain max_mins max_mb credit_mb`\nExample: `youtube.com 10 200 100`\n\nOr tap a preset below:"
-        _kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("YouTube 10m/200MB", callback_data="sitelimit_youtube.com_10_200_100"), InlineKeyboardButton("TikTok 10m/200MB", callback_data="sitelimit_tiktok.com_10_200_100")],
-            [InlineKeyboardButton("YouTube 20m/300MB", callback_data="sitelimit_youtube.com_20_300_100")],
-        ])
-        _st = load_json_file(SUPPORT_STATES_FILE); _st[str(user_id)] = {"mode": "admin_site_limits_waiting"}; save_json_file(SUPPORT_STATES_FILE, _st)
-        await update.message.reply_text(_txt, parse_mode="Markdown", reply_markup=_kb)
+        cfg = load_download_cfg()
+        lines = [f"🌐 {k}: {v.get('max_minutes')}min / {v.get('max_mb')}MB / {v.get('credits', 3)}cr" for k, v in cfg.get("per_site", {}).items()]
+        txt = "⚙️ **Download limits per site:**\n\n" + "\n".join(lines) + "\n\nSend: `youtube.com 10 200 3`\nFormat: site minutes MB credits"
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("YouTube 10m/200MB", callback_data="sitelimit_youtube.com_10_200_3"), InlineKeyboardButton("TikTok 10m/200MB", callback_data="sitelimit_tiktok.com_10_200_3")], [InlineKeyboardButton("❌ Close", callback_data="admin_close")]])
+        st = load_json_file(SUPPORT_STATES_FILE); st[str(user_id)] = {"mode": "admin_site_limits_waiting"}; save_json_file(SUPPORT_STATES_FILE, st)
+        await update.message.reply_text(txt, parse_mode="Markdown", reply_markup=kb)
         return
     if text == "⚙️ Force-Sub Channels" and user_id == ADMIN_ID:
-        _chs = get_required_channels_list()
-        _txt2 = "⚙️ **Force-Sub Channels**\n\nCurrent required channels:\n"
-        if not _chs:
-            _txt2 += "• None - bot is open to all\n"
+        chs = _load_req_channels().get("channels", [])
+        txt2 = "⚙️ **Force-Sub Channels**\n\nCurrent required channels:\n"
+        if not chs:
+            txt2 += "• None - bot is open to all\n"
         else:
-            for _c in _chs:
-                _txt2 += f"• `{_c}`\n"
-        _txt2 += "\nForward a message from the channel, or send the Channel ID (e.g. `-100123456789`).\nTo remove, tap Remove below."
-        _rows2 = []
-        for _c in _chs:
-            _rows2.append([InlineKeyboardButton(f"❌ Remove {_c}", callback_data=f"forcesub_remove_{_c}")])
-        _rows2.append([InlineKeyboardButton("❌ Cancel", callback_data="forcesub_cancel")])
-        _st2 = load_json_file(SUPPORT_STATES_FILE); _st2[str(user_id)] = {"mode": "admin_force_sub_waiting"}; save_json_file(SUPPORT_STATES_FILE, _st2)
-        # Also set linking state so forwarded channel messages are caught
-        _ls2 = load_linking_states(); _ls2[str(user_id)] = "waiting_for_channel"; save_linking_states(_ls2)
-        await update.message.reply_text(_txt2, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(_rows2) if _rows2 else get_main_keyboard(lang, True))
+            for c in chs:
+                txt2 += f"• {c.get('title')} (`{c.get('id')}`)\n"
+        txt2 += "\nForward a message from the channel, or send the Channel ID (e.g. `-100123456789`)."
+        rows2 = []
+        for c in chs:
+            rows2.append([InlineKeyboardButton(f"❌ Remove {c.get('title')}", callback_data=f"forcesub_remove_{c.get('id')}")])
+        rows2.append([InlineKeyboardButton("❌ Cancel", callback_data="forcesub_cancel")])
+        st2 = load_json_file(SUPPORT_STATES_FILE); st2[str(user_id)] = {"mode": "admin_force_sub_waiting"}; save_json_file(SUPPORT_STATES_FILE, st2)
+        ls2 = load_linking_states(); ls2[str(user_id)] = "waiting_for_channel"; save_linking_states(ls2)
+        await update.message.reply_text(txt2, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(rows2) if rows2 else get_main_keyboard(lang, True))
+        return
+    if text == "➕ Add Channel" and user_id == ADMIN_ID:
+        st3 = load_json_file(SUPPORT_STATES_FILE); st3[str(user_id)] = {"mode": "awaiting_channel_forward"}; save_json_file(SUPPORT_STATES_FILE, st3)
+        ls3 = load_linking_states(); ls3[str(user_id)] = "waiting_for_channel"; save_linking_states(ls3)
+        await update.message.reply_text("Send me **one forwarded message from the channel** you want to add.\nTap ❌ to cancel.", parse_mode="Markdown", reply_markup=ReplyKeyboardMarkup([[KeyboardButton("❌ Cancel")]], resize_keyboard=True))
+        return
+    if text == "⚙️ Set Limit" and user_id == ADMIN_ID:
+        await update.message.reply_text("Send: `/setlimit youtube.com 10 200 3`\nFormat: site minutes MB credits\nOr tap Site Limits for presets.", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
         return
     if text == "💾 Disk Config" and user_id == ADMIN_ID:
         current = get_min_free_disk_mb()
@@ -3383,51 +3654,37 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     title, dur = fetch_url_metadata(url)
     try: await status_preview.delete()
     except: pass
-    # GUIDE: Metadata + Limits + Credit check
-    meta = None
+    # GUIDE PART 8 + 5: Probe with yt-dlp, build link card, show qualities with limits
+    _info = None
+    _quals = []
     try:
-        meta = await asyncio.to_thread(fetch_full_metadata, url)
-    except Exception:
-        meta = None
-    if meta:
+        _info = await asyncio.to_thread(probe_video_url, url)
+    except Exception as e:
+        logger.warning(f"probe_video_url failed: {e}")
+        _info = None
+    if _info and isinstance(_info, dict):
         try:
-            _min = int(meta.get("duration", 0) // 60); _sec = int(meta.get("duration", 0) % 60)
-            await update.message.reply_text(f"🎬 **{meta['title']}**\n👤 {meta['uploader']}\n👁 {meta['views']} | 👍 {meta['likes']} | 💬 {meta['comments']}\n⏱️ {_min}:{_sec:02d} | 📦 ~{meta.get('size_mb', 0):.0f}MB\n📝 {meta['description']}...", parse_mode="Markdown")
+            _card = build_link_card(_info)
+            await update.message.reply_text(_card, parse_mode="Markdown")
         except Exception:
             pass
-        _limits = get_site_limits(url)
-        _dur_mins = (meta.get("duration", 0) or 0) / 60
-        _size_mb = meta.get("size_mb", 0) or 0
-        if _dur_mins > _limits['max_mins'] and _size_mb > _limits['max_mb'] and user_id != ADMIN_ID:
-            await update.message.reply_text(f"❌ Video exceeds maximum limits ({_limits['max_mins']} mins & {_limits['max_mb']}MB).", reply_markup=get_main_keyboard(lang, False))
-            return
-        _credit_cost = 3 if _size_mb > _limits['credit_mb'] else 1
-        if user_id != ADMIN_ID:
-            _tokens = load_tokens()
-            _left = 0
-            try:
-                _left = int(_tokens.get(str(user_id), {}).get("downloads_left", 0) or 0)
-            except Exception:
-                _left = 0
-            if _left < _credit_cost:
-                await show_ad_refill_prompt(update, _credit_cost, user_id=user_id, chat_id=chat_id)
-                return
-            # Store credit cost for fmt handler to deduct correctly - reuse tokens via check-download later
-            pending_yt_quality[f"cost_{user_id}"] = _credit_cost
+        try:
+            _quals = pick_qualities(_info)
+        except Exception:
+            _quals = []
     payload_key = f"single_{user_id}_{int(time.time())}"
     pending_single_links[payload_key] = url
-    # GUIDE: YouTube Quality Selection
-    if "youtube.com" in url.lower() or "youtu.be" in url.lower():
-        try:
-            _formats = await asyncio.to_thread(get_youtube_formats, url)
-        except Exception:
-            _formats = ["1080p", "720p", "480p", "Audio"]
-        _rows = []
-        for _i in range(0, len(_formats), 2):
-            _rows.append([InlineKeyboardButton(_q, callback_data=f"ytq_{_q}_{payload_key}") for _q in _formats[_i:_i+2]])
-        _rows.append([InlineKeyboardButton(t["btn_audio"], callback_data=f"fmt_aud_{payload_key}")])
-        _rows.append([InlineKeyboardButton("📋 Format Menu", callback_data=f"fmt_vid_{payload_key}")])
-        await update.message.reply_text(f"🎬 {title}\n⏱️ {dur}\n\n🎯 **Select Quality:**", reply_markup=InlineKeyboardMarkup(_rows), parse_mode="Markdown")
+    _pending_qualities[payload_key] = {"url": url, "info": _info or {}, "qualities": _quals}
+    # GUIDE PART 5: If qualities available, show them with size + credits; else fallback to old format menu
+    if _quals:
+        _rows_q = []
+        for _q in _quals:
+            _sz_q = (_q.get("filesize", 0) or 0) / (1024*1024)
+            _cr_q = 3 if _sz_q > 100 else 1
+            _rows_q.append([InlineKeyboardButton(f"{_q['height']}p • {_sz_q:.0f}MB • {_cr_q}cr", callback_data=f"qpick_{_q['height']}_{payload_key}")])
+        _rows_q.append([InlineKeyboardButton(t["btn_audio"], callback_data=f"fmt_aud_{payload_key}")])
+        _rows_q.append([InlineKeyboardButton(t["btn_image"], callback_data=f"fmt_img_{payload_key}")])
+        await update.message.reply_text(f"🎬 {title}\n⏱️ {dur}\n\n🎯 **Select Quality:** (over-limit qualities will offer lower options)", reply_markup=InlineKeyboardMarkup(_rows_q), parse_mode="Markdown")
         return
     keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"fmt_vid_{payload_key}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"fmt_aud_{payload_key}")],[InlineKeyboardButton(t["btn_image"], callback_data=f"fmt_img_{payload_key}")]]
     await update.message.reply_text(f"🎬 {title}\n⏱️ {dur}\n\n{t['ask_format']}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
@@ -3444,24 +3701,33 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         
     document = update.message.document
     if user_id == ADMIN_ID and document.file_name in BACKUP_FILES:
-        # GUIDE: Restore safeguard - warn admin before overwrite
-        await update.message.reply_text(f"⚠️ Restoring {document.file_name}. This will overwrite current data.", parse_mode="HTML")
+        # GUIDE PART 10: Restore Safe - never delete, only rename to .pre-restore, validate first
+        await update.message.reply_text(f"⚠️ Restoring {document.file_name}. This will overwrite current data (old file kept as .pre-restore).", parse_mode="HTML")
         await update.message.reply_text(f"🔄 Restoring <b>{document.file_name}</b>...", parse_mode="HTML")
         try:
             file = await context.bot.get_file(document.file_id)
             temp_path = f"temp_{document.file_name}"
             await file.download_to_drive(temp_path)
-            with open(temp_path, 'r') as f: data = json.load(f)
-            os.replace(temp_path, document.file_name)
-            await update.message.reply_text(t["restore_success"].format(document.file_name, len(data) if isinstance(data, dict) else len(data)), parse_mode="HTML", reply_markup=get_main_keyboard(get_lang(user_id), True))
-            return
-        except json.JSONDecodeError:
-            await update.message.reply_text(t["restore_invalid_json"].format(document.file_name), parse_mode="HTML", reply_markup=get_main_keyboard(get_lang(user_id), True))
-            if os.path.exists(f"temp_{document.file_name}"): os.remove(f"temp_{document.file_name}")
+            ok, msg = restore_file(document.file_name, temp_path)
+            if os.path.exists(temp_path):
+                try: os.remove(temp_path)
+                except Exception: pass
+            if not ok:
+                await update.message.reply_text(t["restore_invalid_json"].format(document.file_name) if "invalid" in msg.lower() else t["restore_failed"].format(msg), parse_mode="HTML", reply_markup=get_main_keyboard(get_lang(user_id), True))
+                return
+            # Count for success message
+            try:
+                with open(document.file_name, "r", encoding="utf-8") as _f: _data = json.load(_f)
+                _cnt = len(_data) if isinstance(_data, (dict, list)) else 0
+            except Exception:
+                _cnt = 0
+            await update.message.reply_text(t["restore_success"].format(document.file_name, _cnt), parse_mode="HTML", reply_markup=get_main_keyboard(get_lang(user_id), True))
             return
         except Exception as e:
             await update.message.reply_text(t["restore_failed"].format(str(e)), reply_markup=get_main_keyboard(get_lang(user_id), True))
-            if os.path.exists(f"temp_{document.file_name}"): os.remove(f"temp_{document.file_name}")
+            if os.path.exists(f"temp_{document.file_name}"):
+                try: os.remove(f"temp_{document.file_name}")
+                except Exception: pass
             return
 
     # Flash Drop takes priority over normal .txt batch-link parsing for admin uploads.
@@ -3507,17 +3773,10 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             if net == "monetag": adsgram_count+=1
             else: adsterra_count+=1
         except: adsterra_count+=1
+    # GUIDE PART 9: Top 10 with ID + username (via tokens + activity)
+    top_text = top_users_text(tokens, n=10)
+    # Keep sorted_users for other counts if needed
     sorted_users = sorted(activity.items(), key=lambda x: x[1].get("total_interactions",0), reverse=True)[:10]
-    top_text = ""
-    for idx,(uid,info) in enumerate(sorted_users,1):
-        try:
-            user_obj = await context.bot.get_chat(int(uid))
-            _name = getattr(user_obj, "first_name", "") or ""
-            _uname = f"@{user_obj.username}" if getattr(user_obj, "username", None) else "No Username"
-            _display = f"{_name} ({_uname})" if _name else _uname
-        except Exception:
-            _display = f"User {uid}"
-        top_text += f"{idx}. {_display} — `{uid}` — {info.get('total_interactions',0)}\n"
     if not top_text: top_text="No activity yet"
     free_mb = shutil.disk_usage(".").free // (1024*1024)
     used_mb = get_downloads_usage_mb()
@@ -3628,6 +3887,44 @@ async def set_mtproto_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, requested_quality=None):
     cache = load_json_file(CACHE_FILE)
     ckey = await get_canonical_key(url, chat_id, bot)
+    # GUIDE PART 6: Filesystem cache FIRST - one entry per URL, best quality only
+    if dl_type in ("video", "audio"):
+        _fs = cache_lookup(url)
+        if _fs:
+            _fpath, _fq, _fsz = _fs
+            try:
+                _tokens_fs = load_tokens()
+                _info_fs = None
+                try:
+                    _info_fs = await asyncio.to_thread(probe_video_url, url)
+                except Exception:
+                    _info_fs = None
+                _dur_fs = (_info_fs.get("duration", 0) if isinstance(_info_fs, dict) else 0) or 0
+                _res_fs = check_limits(url, {"height": _fq, "filesize": _fsz*1024*1024}, _dur_fs, _fsz*1024*1024, user_id, _tokens_fs)
+                _ok_fs = _res_fs[0]
+                _extra_fs = _res_fs[1] if len(_res_fs) > 1 else ""
+                if _ok_fs is True:
+                    _kb_fs = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
+                    if dl_type == 'video':
+                        _sent_fs = await send_video_file(bot, chat_id, chat_id, _fpath, f"🎬 [{_fq}p] Cached • {ckey}", "Markdown", None)
+                    else:
+                        _sent_fs = await send_audio_file(bot, chat_id, _fpath, f"🎵 Cached • {ckey}", "Markdown", None)
+                    _warn_fs = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=_kb_fs)
+                    try:
+                        asyncio.create_task(schedule_deletion(bot, chat_id, [_sent_fs.message_id, _warn_fs.message_id], 540))
+                    except Exception:
+                        pass
+                    deduct_download_counter(user_id, is_batch=False)
+                    return True
+                elif _ok_fs == "NEED_CREDITS":
+                    # Fall through to ad refill via normal flow - do not serve without credits
+                    pass
+                else:
+                    # Over limit - block, do not serve stale cache
+                    await bot.send_message(chat_id=chat_id, text=str(_extra_fs), reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
+                    return True
+            except Exception as e:
+                logger.warning(f"Filesystem cache send failed: {e}")
     
     if ckey in cache and "file_id" in cache[ckey] and "qualities" not in cache[ckey]:
         cache[ckey]["qualities"] = {"720p": {"file_id": cache[ckey]["file_id"], "vault_msg_id": cache[ckey].get("vault_msg_id"), "size": cache[ckey].get("size", "unknown")}}
@@ -3656,12 +3953,11 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, reque
         else: qualities_order = ["original"]
             
         best_cached_quality = None
-        # 1. Try to find exact match
         for q in qualities_order:
             if q in cached_qualities:
                 best_cached_quality = q
                 break
-        # 2. Fallback: If exact match not found, serve the HIGHEST cached quality to save resources
+        # GUIDE PART 6: Fallback - serve HIGHEST cached quality if exact not found (never re-download)
         if not best_cached_quality and cached_qualities:
             for q in ["1080p", "720p", "480p", "360p", "worst", "original", "audio"]:
                 if q in cached_qualities:
@@ -3716,10 +4012,10 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, reque
         if free_mb < min_free + 150: effective_max_mb = min(effective_max_mb, 50)
             
         LAST_CAROUSEL_TRACE.clear()
-        # GUIDE: Start progress poller - clean bar for users, debug for admin
+        # GUIDE PART 4: Progress image poller - clean bar for users, debug for admin, throttled 2.5s
         _task_id = str(uuid.uuid4())
         _stop_event = asyncio.Event()
-        _poller = asyncio.create_task(poll_progress(bot, chat_id, status_msg.message_id, user_id, _task_id, _stop_event))
+        _poller = asyncio.create_task(poll_progress_image(bot, chat_id, status_msg.message_id, user_id, _task_id, _stop_event, filename=ckey))
         try:
             file_paths, res, size = await asyncio.wait_for(
                 asyncio.to_thread(download_media_engine, url, dl_type, effective_max_mb, user_id, _task_id, requested_quality), timeout=420)
@@ -3730,7 +4026,14 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, reque
                 _poller.cancel()
             except Exception:
                 pass
-            active_progress.pop(_task_id, None)
+            _active_progress.pop(_task_id, None)
+        # GUIDE PART 6: Store best-quality file to filesystem cache (never downgrade)
+        try:
+            if file_paths and res:
+                _q_store = res.replace("p", "") if isinstance(res, str) else 0
+                cache_store(url, file_paths[0], _q_store)
+        except Exception:
+            pass
         if user_id == ADMIN_ID and LAST_CAROUSEL_TRACE:
             try:
                 await bot.send_message(chat_id=chat_id, text="🧪 Carousel trace:\n" + "\n".join(LAST_CAROUSEL_TRACE)[:3500])
@@ -3824,21 +4127,79 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_id = query.from_user.id
     t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
     if is_banned(user_id): await query.answer(t["banned"], show_alert=True); return
-    # GUIDE: verify_joins is the re-check button - do not block it
-    if query.data == "verify_joins":
-        _ok = await check_force_subscribe(context.bot, user_id, query.message.chat_id)
-        if _ok:
+    track_user_activity(user_id, username=query.from_user.username, first_name=query.from_user.first_name)
+    # GUIDE PART 3: recheck_join - user tapped "I've Joined — Retry"
+    if query.data == "recheck_join":
+        ok, missing = await check_user_joined(context.bot, user_id)
+        if ok:
             await query.answer("✅ All joined! You can now use the bot.", show_alert=True)
             try: await query.message.edit_text("✅ All joined! Send a link to start.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
             except Exception: pass
         else:
+            btns = [[InlineKeyboardButton(f"➡️ Join {m['title']}", url=m["url"])] for m in missing]
+            btns.append([InlineKeyboardButton("✅ I've Joined — Retry", callback_data="recheck_join")])
             await query.answer("❌ You have not joined all channels yet.", show_alert=True)
+            try: await query.message.edit_text("🚫 You must join **all** required channels to use this bot:\n\n" + "\n".join(f"• {m['title']}" for m in missing), reply_markup=InlineKeyboardMarkup(btns), parse_mode="Markdown")
+            except Exception: pass
         return
-    # GUIDE: Force-subscribe check for all other buttons
-    if not await check_force_subscribe(context.bot, user_id, query.message.chat_id): 
-        await query.answer("⚠️ Join required channels first.", show_alert=True)
+    # GUIDE PART 7: Batch Cancel via callback
+    if query.data == "cancel_batch":
+        # Clear any awaiting batch channel state
+        try:
+            _ls = load_linking_states(); _ls.pop(str(user_id), None); save_linking_states(_ls)
+        except Exception: pass
+        try:
+            _st = load_json_file(SUPPORT_STATES_FILE)
+            if str(user_id) in _st and _st[str(user_id)].get("mode") in ("awaiting_batch_channel", "admin_force_sub_waiting"):
+                del _st[str(user_id)]; save_json_file(SUPPORT_STATES_FILE, _st)
+        except Exception: pass
+        await query.answer("Cancelled")
+        try: await query.message.edit_text("❌ Cancelled. Batch channel unchanged.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
+        except Exception: pass
         return
-    track_user_activity(user_id)
+    if query.data == "change_batch_channel":
+        _ls = load_linking_states(); _ls[str(user_id)] = "waiting_for_channel"; save_linking_states(_ls)
+        await query.answer()
+        try: await query.message.edit_text("Send a **link** or **forward a message** from the new batch channel.\nTap ❌ to cancel.", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="cancel_batch")]]))
+        except Exception: pass
+        return
+    if query.data == "admin_close" and user_id == ADMIN_ID:
+        await query.answer("Closed")
+        try: await query.message.delete()
+        except Exception: pass
+        return
+    # GUIDE PART 5.4: cfg_limits menu
+    if query.data == "cfg_limits" and user_id == ADMIN_ID:
+        cfg = load_download_cfg()
+        lines = [f"🌐 {k}: {v.get('max_minutes')}min / {v.get('max_mb')}MB / {v.get('credits', v.get('credits_for_large', 3))}cr" for k, v in cfg.get("per_site", {}).items()]
+        await query.answer()
+        try: await query.message.edit_text("⚙️ **Download limits per site:**\n\n" + "\n".join(lines) + "\n\nSend: `/setlimit youtube.com 10 200 3`\nFormat: site minutes MB credits", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Close", callback_data="admin_close")]]))
+        except Exception: pass
+        return
+    # GUIDE PART 11: Ad refill flow
+    if query.data == "watch_ad_refill":
+        # Keep existing ad URL - do NOT change (use BRIDGE_URL)
+        bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
+        await query.answer()
+        try: await query.message.edit_text("🎬 Watch the ad, then tap **✅ Done** below.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("▶️ Open Ad", url=bridge_link)], [InlineKeyboardButton("✅ Done", callback_data="ad_done")]]), parse_mode="Markdown")
+        except Exception: pass
+        return
+    if query.data == "ad_done":
+        tokens = load_tokens()
+        profile = get_user_profile(user_id, tokens)
+        reward = int(load_reward_cfg().get("reward", 1))
+        profile["downloads_left"] = int(profile.get("downloads_left", 0) or 0) + reward
+        profile["batch_downloads_left"] = int(profile.get("batch_downloads_left", 0) or 0) + reward * 5
+        save_tokens(tokens)
+        await query.answer(f"✅ +{reward} credit(s)", show_alert=True)
+        try: await query.message.edit_text(f"✅ +{reward} credit(s). You now have {profile['downloads_left']}.\nReturn to the download and pick your quality again.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
+        except Exception: pass
+        return
+    # GUIDE PART 3: Enforce required channels for all other buttons (except verify_user / monetag which are ad flows)
+    if query.data not in ("verify_user", "monetag_check", "monetag_fallback", "admin_skip_ad", "verify_joins"):
+        if not await enforce_required_channels(context.bot, user_id, query.message.chat_id, reply_func=None):
+            await query.answer("⚠️ Join required channels first.", show_alert=True)
+            return
     data = query.data
     chat_id = query.message.chat_id
     lang = get_lang(user_id)
@@ -4084,58 +4445,93 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         keyboard = [[InlineKeyboardButton(t["btn_chat"], callback_data=f"dest_chat_{dl_type}_{payload_key}")], [InlineKeyboardButton(t["btn_chan"], callback_data=f"dest_chan_{dl_type}_{payload_key}")], [InlineKeyboardButton("🔄 Change Channel", callback_data="change_channel")]]
         await context.bot.send_message(chat_id=chat_id, text=t["batch_dest"].format(len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
-    if data.startswith("ytq_"):
-        # GUIDE: YouTube quality selection - format is ytq_<Quality>_<payload_key> where quality may be 1080p/720p/Audio
+    # GUIDE PART 5: Quality picker selection - qpick_<height>_<payload_key>
+    if data.startswith("qpick_"):
         try:
-            _rest = data[len("ytq_"):]
-            # payload_key contains underscores: single_<user>_<time>, so split from right
-            # Quality is first token before next underscore, but Audio has no p; handle by splitting once
-            _q, _pkey = _rest.split("_", 1)
-            # _pkey still contains single_... ; if quality was like 1080p, _q is 1080p, good. If quality had underscore, not expected.
-            _url = pending_single_links.get(_pkey)
-            if not _url:
+            _rest = data[len("qpick_"):]
+            _h_str, _pkey = _rest.split("_", 1)
+            _height = int(_h_str)
+            _entry = _pending_qualities.get(_pkey)
+            _url_q = pending_single_links.get(_pkey)
+            if not _entry and not _url_q:
                 await query.answer(t["batch_expired"], show_alert=True); return
-            await query.answer(f"Quality {_q} selected")
+            if not _url_q:
+                _url_q = _entry.get("url")
+            _info_q = _entry.get("info") if _entry else None
+            if _info_q is None:
+                try: _info_q = await asyncio.to_thread(probe_video_url, _url_q)
+                except Exception: _info_q = {}
+            _quals = _entry.get("qualities") if _entry else []
+            _chosen = None
+            for _qq in _quals:
+                if int(_qq.get("height", 0)) == _height:
+                    _chosen = _qq; break
+            if _chosen is None:
+                _chosen = {"height": _height, "filesize": 0}
+            _tokens_q = load_tokens()
+            _dur_q = (_info_q.get("duration", 0) if isinstance(_info_q, dict) else 0) or 0
+            _res_q = check_limits(_url_q, _chosen, _dur_q, _chosen.get("filesize", 0), user_id, _tokens_q)
+            if _res_q[0] is False:
+                _err = _res_q[1]
+                _lower = [q for q in _quals if int(q.get("height", 0)) < _height]
+                if not _lower:
+                    await query.answer(_err, show_alert=True)
+                    try: await query.message.edit_text(_err, reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+                    except Exception: pass
+                    return
+                # Show lower-quality options
+                _rows_low = []
+                for _lq in _lower:
+                    _sz_low = (_lq.get("filesize", 0) or 0) / (1024*1024)
+                    _rows_low.append([InlineKeyboardButton(f"{_lq['height']}p • {_sz_low:.0f}MB", callback_data=f"qpick_{_lq['height']}_{_pkey}")])
+                await query.answer(_err, show_alert=True)
+                try: await query.message.edit_text(_err + "\n\nTry a lower quality:", reply_markup=InlineKeyboardMarkup(_rows_low), parse_mode="Markdown")
+                except Exception: pass
+                return
+            if _res_q[0] == "NEED_CREDITS":
+                _need = _res_q[1]
+                _prof = get_user_profile(user_id, _tokens_q)
+                _have = int(_prof.get("downloads_left", 0) or 0)
+                # Preserve quality for after refill
+                _pending_ad_refill[f"refill_{user_id}"] = {"url": _url_q, "payload": _pkey, "height": _height}
+                await query.answer(f"Need {_need} credits", show_alert=True)
+                try: await query.message.edit_text(f"🔒 This file needs **{_need} credits** but you only have {_have}.\nWatch an ad to refill?", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎬 Watch Ad to Refill", callback_data="watch_ad_refill")]]), parse_mode="Markdown")
+                except Exception: pass
+                return
+            # OK - download with requested quality
+            await query.answer(f"Quality {_height}p selected")
             try: await query.message.delete()
             except Exception: pass
-            _dl_type = 'audio' if _q.lower() == "audio" else 'video'
-            _req_q = None if _q.lower() == "audio" else _q
-            # Credit check already done in handle_media_link, but re-check for safety
             _can = await acquire_slot()
             if _can:
-                try: await cached_download_and_send(context.bot, chat_id, user_id, _url, _dl_type, t, requested_quality=_req_q)
+                try: await cached_download_and_send(context.bot, chat_id, user_id, _url_q, "video", t, requested_quality=f"{_height}p")
                 finally: await release_slot()
             else:
-                await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, user_id, _url, _dl_type, t), 'kwargs': {'requested_quality': _req_q}})
+                await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, user_id, _url_q, "video", t), 'kwargs': {'requested_quality': f"{_height}p"}})
                 await context.bot.send_message(chat_id=chat_id, text=t["queued"].format(download_queue.qsize()), reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            pending_single_links.pop(_pkey, None)
+            _pending_qualities.pop(_pkey, None); pending_single_links.pop(_pkey, None)
         except Exception as e:
-            logger.error(f"ytq handler: {e}")
+            logger.error(f"qpick handler: {e}")
             await query.answer("❌ Failed, try again.", show_alert=True)
         return
     if data.startswith("sitelimit_") and user_id == ADMIN_ID:
         try:
             _parts = data[len("sitelimit_"):].rsplit("_", 3)
             _dom, _mins, _mb, _cr = _parts[0], int(_parts[1]), int(_parts[2]), int(_parts[3])
-            _lims = get_site_limits_config(); _lims[_dom] = {"max_mins": _mins, "max_mb": _mb, "credit_mb": _cr}; set_site_limits_config(_lims)
-            _st = load_json_file(SUPPORT_STATES_FILE)
-            if str(user_id) in _st: del _st[str(user_id)]; save_json_file(SUPPORT_STATES_FILE, _st)
+            _cfg = load_download_cfg(); _cfg.setdefault("per_site", {})[_dom] = {"max_minutes": _mins, "max_mb": _mb, "credits": _cr}; save_download_cfg(_cfg)
             await query.answer(f"✅ {_dom} = {_mins}m / {_mb}MB", show_alert=True)
-            await query.message.edit_text(f"✅ Site Limits saved: `{_dom}` = {_mins} mins / {_mb}MB / {_cr}MB = 3 credits", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
+            try: await query.message.edit_text(f"✅ Updated **{_dom}**: {_mins}min / {_mb}MB / {_cr} credits.", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
+            except Exception: pass
         except Exception as e:
             await query.answer(f"❌ {e}", show_alert=True)
         return
     if data.startswith("forcesub_remove_") and user_id == ADMIN_ID:
         try:
-            _rem = int(data.replace("forcesub_remove_", ""))
-            _chs = get_required_channels_list()
-            if _rem in _chs: _chs.remove(_rem); set_required_channels_list(_chs)
+            _rem = data.replace("forcesub_remove_", "")
+            _cfg_r = _load_req_channels(); _cfg_r["channels"] = [c for c in _cfg_r.get("channels", []) if str(c.get("id")) != str(_rem)]; _save_req_channels(_cfg_r)
             await query.answer(f"✅ Removed {_rem}", show_alert=True)
-            await query.message.edit_text(f"✅ Removed `{_rem}`. Remaining: {_chs if _chs else 'None'}", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
-            _st = load_json_file(SUPPORT_STATES_FILE)
-            if str(user_id) in _st: del _st[str(user_id)]; save_json_file(SUPPORT_STATES_FILE, _st)
-            _ls = load_linking_states()
-            if str(user_id) in _ls: del _ls[str(user_id)]; save_linking_states(_ls)
+            try: await query.message.edit_text(f"✅ Removed `{_rem}`. Remaining: {len(_cfg_r['channels'])} channels.", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
+            except Exception: pass
         except Exception as e:
             await query.answer(f"❌ {e}", show_alert=True)
         return
@@ -4387,6 +4783,37 @@ async def ad_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     await update.message.reply_text(build_ad_info_text(update.effective_user.id), reply_markup=get_main_keyboard("en", True))
 
+async def add_channel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id != ADMIN_ID:
+        return
+    # GUIDE PART 3.4: Set state awaiting_channel_forward
+    st = load_json_file(SUPPORT_STATES_FILE); st[str(user_id)] = {"mode": "awaiting_channel_forward"}; save_json_file(SUPPORT_STATES_FILE, st)
+    ls = load_linking_states(); ls[str(user_id)] = "waiting_for_channel"; save_linking_states(ls)
+    await update.message.reply_text("Send me **one forwarded message from the channel** you want to add.\nTap ❌ to cancel.", parse_mode="Markdown", reply_markup=ReplyKeyboardMarkup([[KeyboardButton("❌ Cancel")]], resize_keyboard=True))
+
+async def set_limit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    parts = (update.message.text or "").split()
+    if len(parts) != 5:
+        await update.message.reply_text("Usage: /setlimit youtube.com 10 200 3"); return
+    _, site, mins, mb, cr = parts
+    try:
+        cfg = load_download_cfg()
+        cfg.setdefault("per_site", {})[site] = {"max_minutes": int(mins), "max_mb": int(mb), "credits": int(cr)}
+        save_download_cfg(cfg)
+        await update.message.reply_text(f"✅ Updated **{site}**: {mins}min / {mb}MB / {cr} credits.", parse_mode="Markdown")
+    except Exception as e:
+        await update.message.reply_text(f"❌ {e}")
+
+async def cfg_limits_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    cfg = load_download_cfg()
+    lines = [f"🌐 {k}: {v.get('max_minutes')}min / {v.get('max_mb')}MB / {v.get('credits', 3)}cr" for k, v in cfg.get("per_site", {}).items()]
+    await update.message.reply_text("⚙️ **Download limits per site:**\n\n" + "\n".join(lines) + "\n\nSend: `/setlimit youtube.com 10 200 3`", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Close", callback_data="admin_close")]]))
+
 def run_telegram_bot():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -4413,6 +4840,9 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("restore", restore_command))
         app.add_handler(CommandHandler("setdisk", set_disk_command))
         app.add_handler(CommandHandler("setmtproto", set_mtproto_command))
+        app.add_handler(CommandHandler("addchannel", add_channel_cmd))
+        app.add_handler(CommandHandler("setlimit", set_limit_command))
+        app.add_handler(CommandHandler("cfglimits", cfg_limits_command))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
         app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.ATTACHMENT, handle_user_upload))
