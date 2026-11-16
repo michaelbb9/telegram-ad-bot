@@ -99,6 +99,7 @@ active_batch_sessions = {}
 pending_batch_payloads = {}
 paused_batches = {}
 pending_single_links = {}
+pending_ad_retry = {}  # V32: {user_id: {url, dl_type, requested_quality, meta}} - saved when ad-refill blocks a download, so verify can bring back quality picker
 
 MAX_CONCURRENT_SHORT = 3
 MIN_FREE_DISK_MB = 150
@@ -2870,6 +2871,20 @@ def get_free_disk_mb():
     try: return max(0, 512 - get_downloads_usage_mb())
     except: return 512
 
+def deduct_extra_credits(user_id, extra):
+    # V32: /check-download dedupes rapid calls to 1, so heavy cost was only ever 1. Deduct the remaining (cost-1) directly via tokens save.
+    if not extra or int(extra) <= 0:
+        return
+    try:
+        _toks = load_tokens()
+        _prof = _toks.get(str(user_id))
+        if isinstance(_prof, dict) and "downloads_left" in _prof:
+            _prof["downloads_left"] = max(0, int(_prof.get("downloads_left") or 0) - int(extra))
+            _toks[str(user_id)] = _prof
+            save_tokens(_toks)
+    except Exception as _e:
+        logger.warning(f"deduct_extra_credits fail: {_e}")
+
 def deduct_download_counter(user_id, is_batch=False):
     try: requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": is_batch}, headers=API_HEADERS, timeout=3)
     except: pass
@@ -2907,6 +2922,37 @@ async def queue_processor(bot):
         except Exception as e:
             logger.error(f"Queue proc: {e}")
             await asyncio.sleep(1)
+
+async def addchannel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # V32 FIX: /addchannel never reached handle_media_link because MessageHandler uses ~filters.COMMAND. This CommandHandler is the real entry point.
+    user_id = update.message.from_user.id
+    lang = get_lang(user_id)
+    if user_id != ADMIN_ID:
+        await update.message.reply_text("❌ Only admin can add required channels.", reply_markup=get_main_keyboard(lang, False))
+        return
+    args = (update.message.text or "").strip().split()
+    if len(args) < 2:
+        await update.message.reply_text("Usage: /addchannel @username  or  /addchannel https://t.me/username\nExample: /addchannel @faqandaupport", reply_markup=get_main_keyboard(lang, True))
+        return
+    raw = args[1].strip()
+    uname = raw.split("/")[-1].strip().lstrip("@").split("?")[0].strip()
+    if not uname or len(uname) < 4:
+        await update.message.reply_text("❌ Invalid channel username.", reply_markup=get_main_keyboard(lang, True))
+        return
+    chs = get_required_channels()
+    if any(c.get("username", "").lstrip("@").lower() == uname.lower() for c in chs):
+        await update.message.reply_text(f"Already required: @{uname}", reply_markup=get_main_keyboard(lang, True))
+        return
+    title = f"@{uname}"
+    try:
+        _chat = await context.bot.get_chat(f"@{uname}")
+        if getattr(_chat, "title", None):
+            title = _chat.title
+    except Exception as _e:
+        logger.warning(f"addchannel get_chat @{uname}: {_e} - still adding, bot may not be in channel yet")
+    chs.append({"username": f"@{uname}", "url": f"https://t.me/{uname}", "title": title})
+    save_required_channels(chs)
+    await update.message.reply_text(f"✅ Added required channel @{uname} ({title}). Users must now join {len(chs)} channel(s).", reply_markup=get_main_keyboard(lang, True))
 
 async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     track_user_activity(update.message.from_user.id)
@@ -3176,6 +3222,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                 if _b_cost > 1:
                     _have_b = _v27_get_user_credits(user_id)
                     if _have_b < _b_cost:
+                        pending_ad_retry[user_id] = {"url": url, "dl_type": download_type, "requested_quality": None, "meta": _b_meta, "chat_id": chat_id}
                         await send_ad_refill_prompt(bot, chat_id, user_id, t, _b_cost, _have_b, f"🎬 Batch item {index} is ~{_b_chk['estimated_mb']:.1f} MB - needs {_b_cost} credits.")
                         paused_batches[user_id] = {"urls": urls, "next_index": index-1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
                         break
@@ -3236,6 +3283,9 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     save_json_file(CACHE_FILE, cache)
                 except Exception as e: logger.error(f"Vault save: {e}")
                 os.remove(file_paths[0])
+                # V32: batch heavy - top-of-loop check-download already paid 1, pay remaining via tokens save so total = _b_cost
+                if download_type == "video" and user_id != ADMIN_ID and _b_cost > 1:
+                    deduct_extra_credits(user_id, _b_cost - 1)
                 await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
                 success_count += 1
             else:
@@ -3600,6 +3650,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             if is_single_link:
                 msg_start = msg_end = 0
                 pending_single_links[f"retry_{user_id}"] = extracted_urls[0]
+                pending_ad_retry[user_id] = {"url": extracted_urls[0], "dl_type": "video", "requested_quality": None, "meta": None, "chat_id": chat_id}
             else:
                 msg_start = user_profile.get("msg_start", 0)
                 msg_end = user_profile.get("msg_end", 0)
@@ -3922,6 +3973,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, reque
                             if _v27_cached_cost > 1:
                                 _v27_have = _v27_get_user_credits(user_id)
                                 if _v27_have < _v27_cached_cost:
+                                    pending_ad_retry[user_id] = {"url": url, "dl_type": dl_type, "requested_quality": requested_quality, "meta": None, "chat_id": chat_id}
                                     await send_ad_refill_prompt(bot, chat_id, user_id, t, _v27_cached_cost, _v27_have, f"📦 Cached video is {sz} - needs {_v27_cached_cost} credits (over {_v27_limits.get(chr(104)+chr(101)+chr(97)+chr(118)+chr(121)+chr(95)+chr(109)+chr(98))}MB).")
                                     return False
                     kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
@@ -3937,10 +3989,9 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, reque
                     cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
                     save_json_file(CACHE_FILE, cache)
                     deduct_download_counter(user_id, is_batch=False)
-                    # V27: cached heavy - original deduct above paid 1, pay the remaining 2 so total is 3. Normal cached stays 1.
+                    # V32: cached heavy - original deduct paid 1, pay remaining via tokens save (check-download dedupes rapid calls). Total = exact cost.
                     if dl_type == "video" and not _v27_is_admin and _v27_cached_cost > 1:
-                        for _ in range(_v27_cached_cost - 1):
-                            deduct_download_counter(user_id, is_batch=False)
+                        deduct_extra_credits(user_id, _v27_cached_cost - 1)
                     return True
             except Exception as e:
                 logger.error(f"Cache send fail {ckey} {best_cached_quality}: {e}")
@@ -3955,8 +4006,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, reque
                         save_json_file(CACHE_FILE, cache)
                         deduct_download_counter(user_id, is_batch=False)
                         if dl_type == "video" and not _v27_is_admin and _v27_cached_cost > 1:
-                            for _ in range(_v27_cached_cost - 1):
-                                deduct_download_counter(user_id, is_batch=False)
+                            deduct_extra_credits(user_id, _v27_cached_cost - 1)
                         return True
                 except Exception as e2:
                     logger.error(f"Vault fallback fail: {e2}")
@@ -3999,6 +4049,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, reque
         if _v27_need > 1:
             _v27_have = _v27_get_user_credits(user_id)
             if _v27_have < _v27_need:
+                pending_ad_retry[user_id] = {"url": url, "dl_type": dl_type, "requested_quality": requested_quality, "meta": _v27_meta, "chat_id": chat_id}
                 await send_ad_refill_prompt(bot, chat_id, user_id, t, _v27_need, _v27_have, f"🎬 This video is ~{_v27_chk['estimated_mb']:.1f} MB / {_v27_format_duration(_v27_chk['duration_sec'])} - needs {_v27_need} credits (over {_v27_limits['heavy_mb']}MB).")
                 return False
     _v27_title = (_v27_meta.get("title") if _v27_meta else "your file") or "your file"
@@ -4063,6 +4114,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, reque
                         for _p in file_paths:
                             try: os.remove(_p)
                             except: pass
+                        pending_ad_retry[user_id] = {"url": url, "dl_type": dl_type, "requested_quality": requested_quality, "meta": _v27_meta, "chat_id": chat_id}
                         await send_ad_refill_prompt(bot, chat_id, user_id, t, _v27_actual_cost, _v27_have2, f"🎬 This video is {_v27_actual_mb:.1f} MB - needs {_v27_actual_cost} credits.")
                         try: await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
                         except: pass
@@ -4147,10 +4199,9 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, reque
             pass
         await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
         deduct_download_counter(user_id, is_batch=False)
-        # V27: heavy fresh download - original deduct above paid 1, pay remaining so total is 3. Normal stays 1. Admin still pays 1 as original.
+        # V32: heavy fresh - original deduct paid 1, pay remaining via tokens save. Total = exact heavy_cost (e.g. 3). Admin still 1 as original.
         if dl_type == "video" and not _v27_is_admin and _v27_final_cost > 1:
-            for _ in range(_v27_final_cost - 1):
-                deduct_download_counter(user_id, is_batch=False)
+            deduct_extra_credits(user_id, _v27_final_cost - 1)
         await bot.send_message(chat_id=chat_id, text=t["download_success"], reply_markup=kb)
         return True
     except Exception as e:
@@ -4703,6 +4754,31 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             try: await deliver_bundle(context.bot, user_id, msg_start, msg_end)
             except Exception as e: await context.bot.send_message(chat_id=chat_id, text=f"❌ {e}", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
             return
+        # V32: pending_ad_retry from heavy block takes priority over old retry_ key
+        if user_id in pending_ad_retry:
+            _retry2 = pending_ad_retry.pop(user_id, None)
+            if _retry2 and _retry2.get("url"):
+                _rurl2 = _retry2["url"]
+                _rpk2 = f"single_{user_id}_{int(time.time())}"
+                pending_single_links[_rpk2] = _rurl2
+                if _retry2.get("meta"):
+                    try: pending_single_links[_rpk2 + "_meta"] = _retry2["meta"]
+                    except: pass
+                if _retry2.get("dl_type", "video") == "video" and get_platform_key(_rurl2) == "youtube":
+                    _rlim2 = get_platform_limits("youtube")
+                    _rqkb2 = [
+                        [InlineKeyboardButton("🎬 1080p (largest)", callback_data=f"qual_1080p_{_rpk2}")],
+                        [InlineKeyboardButton("🎬 720p (HD)", callback_data=f"qual_720p_{_rpk2}")],
+                        [InlineKeyboardButton("🎬 480p", callback_data=f"qual_480p_{_rpk2}")],
+                        [InlineKeyboardButton("🎬 360p (small)", callback_data=f"qual_360p_{_rpk2}")],
+                        [InlineKeyboardButton("🎬 240p (smallest)", callback_data=f"qual_240p_{_rpk2}")],
+                        [InlineKeyboardButton("⚡ Auto (best that fits limit)", callback_data=f"qual_auto_{_rpk2}")],
+                    ]
+                    await context.bot.send_message(chat_id=chat_id, text=f"✅ Refilled! Now pick quality again:\n🎬 Limit: {_rlim2['max_minutes']} mins • {_rlim2['max_mb']} MB • over {_rlim2['heavy_mb']}MB = {_rlim2['heavy_cost']} credits", reply_markup=InlineKeyboardMarkup(_rqkb2), parse_mode="HTML")
+                else:
+                    _rfkb2 = [[InlineKeyboardButton(t["btn_video"], callback_data=f"fmt_vid_{_rpk2}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"fmt_aud_{_rpk2}")],[InlineKeyboardButton(t["btn_image"], callback_data=f"fmt_img_{_rpk2}")]]
+                    await context.bot.send_message(chat_id=chat_id, text="✅ Refilled! Pick format to continue:", reply_markup=InlineKeyboardMarkup(_rfkb2))
+                return
         retry_url = pending_single_links.pop(f"retry_{user_id}", None)
         if retry_url:
             can_dl = await acquire_slot()
@@ -4791,6 +4867,31 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             keyboard = [[InlineKeyboardButton("▶️ Resume Batch +1", callback_data="resume_batch")]]
             await query.message.reply_text(t["resume_prompt"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             return
+        # V32: if ad-refill blocked a download, bring back the picker instead of saying 'send again'. Quality picker for YouTube video, format picker otherwise.
+        if user_id in pending_ad_retry:
+            _retry = pending_ad_retry.pop(user_id, None)
+            if _retry and _retry.get("url"):
+                _rurl = _retry["url"]
+                _rpk = f"single_{user_id}_{int(time.time())}"
+                pending_single_links[_rpk] = _rurl
+                if _retry.get("meta"):
+                    try: pending_single_links[_rpk + "_meta"] = _retry["meta"]
+                    except: pass
+                if _retry.get("dl_type", "video") == "video" and get_platform_key(_rurl) == "youtube":
+                    _rlim = get_platform_limits("youtube")
+                    _rqkb = [
+                        [InlineKeyboardButton("🎬 1080p (largest)", callback_data=f"qual_1080p_{_rpk}")],
+                        [InlineKeyboardButton("🎬 720p (HD)", callback_data=f"qual_720p_{_rpk}")],
+                        [InlineKeyboardButton("🎬 480p", callback_data=f"qual_480p_{_rpk}")],
+                        [InlineKeyboardButton("🎬 360p (small)", callback_data=f"qual_360p_{_rpk}")],
+                        [InlineKeyboardButton("🎬 240p (smallest)", callback_data=f"qual_240p_{_rpk}")],
+                        [InlineKeyboardButton("⚡ Auto (best that fits limit)", callback_data=f"qual_auto_{_rpk}")],
+                    ]
+                    await query.message.reply_text(f"✅ Refilled! Now pick quality again:\n🎬 Limit: {_rlim['max_minutes']} mins • {_rlim['max_mb']} MB • over {_rlim['heavy_mb']}MB = {_rlim['heavy_cost']} credits", reply_markup=InlineKeyboardMarkup(_rqkb), parse_mode="HTML")
+                else:
+                    _rfkb = [[InlineKeyboardButton(t["btn_video"], callback_data=f"fmt_vid_{_rpk}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"fmt_aud_{_rpk}")],[InlineKeyboardButton(t["btn_image"], callback_data=f"fmt_img_{_rpk}")]]
+                    await query.message.reply_text("✅ Refilled! Pick format to continue:", reply_markup=InlineKeyboardMarkup(_rfkb))
+                return
         if msg_start==0: 
             await query.message.reply_text(t["refilled_download"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
             return
@@ -4890,6 +4991,7 @@ def run_telegram_bot():
             await app.bot.set_my_commands([BotCommand("start", "Start bot"), BotCommand("filetolink", "Create a File-to-Link"), BotCommand("language", "Choose language"), BotCommand("stats", "View download balance")])
         except Exception as e: logger.warning(f"Could not set bot menu commands: {e}")
         app.add_handler(CommandHandler("start", start))
+        app.add_handler(CommandHandler("addchannel", addchannel_command))  # V32: /addchannel was blocked by ~filters.COMMAND
         app.add_handler(CommandHandler("filetolink", file_to_link_command))
         app.add_handler(CommandHandler("language", language_command))
         app.add_handler(CommandHandler("stats", stats))
