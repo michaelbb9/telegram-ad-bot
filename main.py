@@ -1717,9 +1717,12 @@ async def schedule_deletion(bot, chat_id, message_ids, delay):
         except: pass
 
 def fetch_url_metadata(url):
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True}
+    # V3: single android+web client, like downloader. No probing loop.
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        _o = {'quiet': True, 'no_warnings': True, 'skip_download': True}
+        if "youtube.com" in url.lower() or "youtu.be" in url.lower():
+            _o = _yt_opts(_o)
+        with yt_dlp.YoutubeDL(_o) as ydl:
             info = ydl.extract_info(url, download=False)
             if 'entries' in info and info['entries']: info = info['entries'][0]
             title = info.get('title', 'Unknown')[:60]
@@ -1727,7 +1730,8 @@ def fetch_url_metadata(url):
             mins, secs = divmod(duration, 60)
             dur = f"{mins}m {secs}s" if mins else f"{secs}s"
             return title, dur
-    except: return "Media Link", "N/A"
+    except Exception:
+        return "Media Link", "N/A"
 
 def scrape_html_images(url, cookiefile=None):
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -2205,6 +2209,28 @@ def download_with_lux(url, output_dir, cap_bytes, cookiefile=None):
     return None
 
 
+
+# --- YouTube fix V3 - improvised from ORIGINAL downloader ---
+# Original downloader was simple: tiers + format_sort res:<h> + Lux fallback.
+# It broke in 2026 for 2 reasons:
+#  A) It always used default YouTube client, which now returns SABR-only
+#     formats with no URL -> every tier fails "Requested format is not available".
+#  B) It did `break` on first 403 / "not a bot" / 429, so it never tried
+#     lower tiers and never reached Lux.
+# V3 keeps original structure, but:
+#  - Always sets player_client android+web for YouTube (the 2026 SABR fix).
+#    No probing loop - probing did 6x extract_info and itself caused 429s.
+#  - Keeps original format_sort idea, but as a SORT, not as a format overwrite.
+#  - Never breaks on 403/429, tries all tiers, then tries 'best', then Lux
+#    even if YouTube blocked yt-dlp (Lux uses a different method).
+def _yt_opts(opts):
+    o = dict(opts)
+    o["extractor_args"] = {"youtube": {"player_client": ["android", "web"]}}
+    o["noplaylist"] = True
+    o["retries"] = 3
+    o["socket_timeout"] = 30
+    return o
+
 def download_media_engine(url: str, download_type: str, max_mb=None, user_id=None, task_id=None, requested_quality=None):
     cap_mb = int(max_mb or get_mtproto_max_mb())
     cap_bytes = cap_mb * 1024 * 1024
@@ -2216,6 +2242,9 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
     elif os.path.exists("cookies.txt"): cookiefile = "cookies.txt"
     ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL}
     if cookiefile: ydl_opts['cookiefile'] = cookiefile
+    # V3: YouTube always gets android+web client, other sites untouched by extractor_args
+    if "youtube.com" in url.lower() or "youtu.be" in url.lower():
+        ydl_opts = _yt_opts(ydl_opts)
     # GUIDE: Progress hook - clean bar for users, debug for admin via poll_progress
     if task_id is not None and user_id is not None:
         try:
@@ -2252,11 +2281,14 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
             if os.path.getsize(path) > 1000: return [path], "original", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("NO_IMAGES")
     else:
-        # FIX (quality only, ytq_ flow unchanged): 2 stacked bugs caused 'Requested format is not available'
-        # 1) Loop overwrote format with 'bv*+ba/b' (no height cap), so picking 480p still tried BEST.
-        # 2) Each tier had no '/b/best' tail, so a missing merged combo killed the whole tier.
+        # V3: improvised from ORIGINAL downloader.
+        # Original: tiers with bv*[height<=h]+ba, then format_sort res:<h>.
+        # Bug was it OVERWROTE format with bv*+ba/b, losing the cap.
+        # Fix: keep the capped format AND keep format_sort as a sort.
+        # Also prefer mp4/m4a so Telegram can play it, and always end with /b/best.
         def _fmt_for(h):
             return (
+                f"bv*[height<={h}][ext=mp4]+ba[ext=m4a]/"
                 f"bv*[height<={h}]+ba/b[height<={h}]/"
                 f"bv*[width<={h}]+ba/b[width<={h}]/"
                 f"b[height<={h}]/b/best"
@@ -2270,6 +2302,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
             ("144p", _fmt_for(144)),
             ("worst", "bv*+ba/b/best"),
             ("worst2", "worst/best"),
+            ("combined", "18/22/17/best"),
         ]
         # GUIDE: If user picked a quality (ytq_), start from that tier to save time.
         # Requested quality is a MAX, not exact. Map any height (incl. old 1280p/1440p) to nearest tier <= it.
@@ -2306,9 +2339,13 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
             try:
                 opts = dict(ydl_opts)
                 opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, f'%(id)s_{qual_name}.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
-                # FIX: DO NOT overwrite format here. Old code overwrote it with an
-                # uncapped best-format selector which removed the height cap
-                # and made ytq_ 480p/720p still try BEST. _fmt_for above already caps it.
+                # ORIGINAL IDEA, KEPT: format_sort res:<h> prefers that height.
+                # But NEVER overwrite 'format' with bv*+ba/b - that was the old bug.
+                try:
+                    _h_for_sort = int(''.join(ch for ch in qual_name if ch.isdigit()) or 1080)
+                    opts['format_sort'] = [f"res:{_h_for_sort}", "ext:mp4:m4a"]
+                except Exception:
+                    opts['format_sort'] = ["res", "ext:mp4:m4a"]
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=True)
                     try:
@@ -2338,10 +2375,11 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
             except Exception as e:
                 last_err = e
                 msg = str(e)
-                if "not a bot" in msg or "Sign in to confirm" in msg or "HTTP Error 429" in msg:
+                # V3: NEVER break here. Original broke on first 403/429 and
+                # never tried lower tiers or Lux. Just mark blocked and continue.
+                if "not a bot" in msg or "Sign in to confirm" in msg or "HTTP Error 429" in msg or "403" in msg:
                     yt_blocked = True
-                    break
-                if "Unsupported URL" in msg or "403" in msg:
+                if "Unsupported URL" in msg:
                     break
                 continue
 
@@ -2355,8 +2393,26 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
             if insta_files:
                 shutil.rmtree(os.path.dirname(insta_files[0]), ignore_errors=True)
 
-        # Last-resort independent engine. It is only called after yt-dlp tiers fail.
-        if not too_big and not yt_blocked:
+        # V3: last yt-dlp attempt - plain 'best' with tv client.
+        # Some VEVO / SABR videos only expose a combined 'best' on tv.
+        if not too_big:
+            try:
+                _best_opts = dict(ydl_opts)
+                _best_opts["extractor_args"] = {"youtube": {"player_client": ["tv", "web_embedded"]}}
+                _best_opts.update({'format': 'best/bestvideo+bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s_best.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
+                with yt_dlp.YoutubeDL(_best_opts) as ydl:
+                    _info = ydl.extract_info(url, download=True)
+                    _path = ydl.prepare_filename(_info)
+                    if not os.path.exists(_path) and os.path.exists(os.path.splitext(_path)[0] + ".mp4"):
+                        _path = os.path.splitext(_path)[0] + ".mp4"
+                    if os.path.exists(_path) and os.path.getsize(_path) > 1000 and os.path.getsize(_path) <= cap_bytes:
+                        return [_path], "best", f"{os.path.getsize(_path)/(1024*1024):.1f}MB"
+            except Exception as e:
+                last_err = e
+
+        # Last-resort independent engine. V3: try Lux EVEN IF yt-dlp was blocked.
+        # Original skipped Lux when yt_blocked=True, so a 403 killed everything.
+        if not too_big:
             lux_path = download_with_lux(url, output_dir, cap_bytes, cookiefile)
             if lux_path:
                 return [lux_path], "lux", f"{os.path.getsize(lux_path)/(1024*1024):.1f}MB"
@@ -2449,13 +2505,15 @@ async def poll_progress(bot_obj, chat_id, msg_id, user_id, task_id, stop_event):
         await asyncio.sleep(2)
 
 def fetch_full_metadata(url):
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True}
+    # V3: single android+web client, like downloader.
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        _o = {'quiet': True, 'no_warnings': True, 'skip_download': True}
+        if "youtube.com" in url.lower() or "youtu.be" in url.lower():
+            _o = _yt_opts(_o)
+        with yt_dlp.YoutubeDL(_o) as ydl:
             info = ydl.extract_info(url, download=False)
             if not info:
                 return None
-            # Estimate size from best format if available
             approx_mb = 0
             try:
                 fmts = info.get('formats') or []
@@ -2537,16 +2595,19 @@ def set_site_limits_config(new_limits):
         logger.warning(f"Site-limits sync to Flask failed: {e}")
 
 def get_youtube_formats(url):
+    # V3: single android+web client, like downloader. If it fails, return
+    # honest ["Best","Audio"], not fake 1080/720/480.
     try:
-        ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        _o = {'quiet': True, 'no_warnings': True, 'skip_download': True}
+        if "youtube.com" in url.lower() or "youtu.be" in url.lower():
+            _o = _yt_opts(_o)
+        with yt_dlp.YoutubeDL(_o) as ydl:
             info = ydl.extract_info(url, download=False)
             heights = set()
             for f in (info.get('formats') or []):
                 h = f.get('height')
                 w = f.get('width') or 0
                 if h and f.get('vcodec') not in (None, 'none'):
-                    # FIX: use SHORT side, so vertical 720x1280 shows as 720p, not 1280p
                     eff = min(w, h) if (w and h) else max(w, h)
                     heights.add(int(eff))
             ordered = []
@@ -2554,9 +2615,8 @@ def get_youtube_formats(url):
                 if any(h >= target for h in heights):
                     ordered.append(f"{target}p")
             if not ordered:
-                ordered = ["720p", "480p", "360p"]
+                return ["Best", "Audio"]
             ordered.append("Audio")
-            # Deduplicate preserve order
             seen = set(); out = []
             for x in ordered:
                 if x not in seen:
@@ -2564,7 +2624,7 @@ def get_youtube_formats(url):
             return out
     except Exception as e:
         logger.warning(f"get_youtube_formats failed: {e}")
-        return ["1080p", "720p", "480p", "Audio"]
+        return ["Best", "Audio"]
 
 async def show_ad_refill_prompt(update_or_query, credit_cost, user_id=None, chat_id=None):
     # Unified ad-refill prompt used when balance < credit_cost. Works for message or callback query.
@@ -3457,12 +3517,13 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         try:
             _formats = await asyncio.to_thread(get_youtube_formats, url)
         except Exception:
-            _formats = ["1080p", "720p", "480p", "Audio"]
+            _formats = ["Best", "Audio"]
         _rows = []
         for _i in range(0, len(_formats), 2):
             _rows.append([InlineKeyboardButton(_q, callback_data=f"ytq_{_q}_{payload_key}") for _q in _formats[_i:_i+2]])
-        _rows.append([InlineKeyboardButton(t["btn_audio"], callback_data=f"fmt_aud_{payload_key}")])
-        _rows.append([InlineKeyboardButton("📋 Format Menu", callback_data=f"fmt_vid_{payload_key}")])
+        # V2: NO duplicate rows. ytq_ rows above already include Audio.
+        # Old code added Audio (MP3) + Format Menu here, which bypassed the
+        # quality you just picked (fmt_ calls cached_download without requested_quality).
         await update.message.reply_text(f"🎬 {title}\n⏱️ {dur}\n\n🎯 **Select Quality:**", reply_markup=InlineKeyboardMarkup(_rows), parse_mode="Markdown")
         return
     keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"fmt_vid_{payload_key}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"fmt_aud_{payload_key}")],[InlineKeyboardButton(t["btn_image"], callback_data=f"fmt_img_{payload_key}")]]
@@ -3687,10 +3748,13 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, reque
 
     if ckey in cache and cache[ckey].get("type") in ("video", "images", "audio"):
         cached_qualities = cache[ckey].get("qualities", {})
+        # ORIGINAL CACHE BEHAVIOUR - KEPT ON PURPOSE (user likes it):
+        # If you pick a lower quality but a higher one is already cached,
+        # send the higher one instantly. Quality pick only matters for
+        # FRESH downloads below, not for cache hits.
         if dl_type == 'video': qualities_order = ["1080p", "720p", "480p", "360p", "worst"]
         elif dl_type == 'audio': qualities_order = ["audio"]
         else: qualities_order = ["original"]
-            
         best_cached_quality = None
         # 1. Try to find exact match
         for q in qualities_order:
