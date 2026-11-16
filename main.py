@@ -1,14 +1,10 @@
 # ============================================================
-# BOT FIXED - DIRECTIONAL QUALITY v3 - 2026-11-16
-# THIS FILE IS CHANGED - search for: DIRECTIONAL / _quality_height / Admin Controls
-# Changes in this file:
-#  1. Required Channels + Download Limits as buttons (top + /admin)
-#  2. Join walkthrough with Join buttons + I've Joined (no raw ID warning)
-#  3. Quality selector 1080/720/480/360/240/Auto
-#  4. DIRECTIONAL cache: low cache + high want = DOWNLOAD high, never give low
-#  5. Metadata sent AFTER download, not before
-#  6. Credit system untouched
-# Rename this file to main.py when you deploy it
+# BOT V5 - FINAL DOWNLOAD - 2026-11-16 - DO NOT OPEN main.py
+# THIS IS A NEW FILE - NOT THE OLD main.py
+# First line check: if you see this header, you have the NEW file
+# Changes: buttons + join walkthrough + quality selector + DIRECTIONAL cache + PERSISTENT pending (no Expired)
+# Verify: search for _save_pending_file (should be 5+), DIRECTIONAL (5+), Admin Controls
+# Rename this file to main.py on Render
 # ============================================================
 # -*- coding: utf-8 -*-
 import time
@@ -115,6 +111,23 @@ RESTORE_BLOCKLIST = {"bot_settings.json", "bot_config.json"}
 # PART 7/8: credit cost of the pending single-link download (payload_key -> 1 or 3)
 PENDING_CREDIT_COST = {}
 PENDING_QUALITY_SELECT = {}
+PENDING_FILE = "pending_single.json"
+def _load_pending_file():
+    try:
+        d = load_json_file(PENDING_FILE)
+        if isinstance(d, dict):
+            pending_single_links.update(d.get("links", {}) or {})
+            PENDING_CREDIT_COST.update(d.get("costs", {}) or {})
+            PENDING_META.update(d.get("meta", {}) or {})
+            PENDING_QUALITY_SELECT.update(d.get("quality", {}) or {})
+    except Exception:
+        pass
+def _save_pending_file():
+    try:
+        save_json_file(PENDING_FILE, {"links": dict(pending_single_links), "costs": dict(PENDING_CREDIT_COST), "meta": dict(PENDING_META), "quality": dict(PENDING_QUALITY_SELECT)})
+    except Exception:
+        pass
+_load_pending_file()
 PENDING_META = {}
 PREF_QUALITY = {}
 
@@ -3663,10 +3676,11 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 _why.append(f"📦 Est. size {float(meta.get('est_size_mb') or 0):.1f} MB exceeds {_plat_limits['mb']} MB limit for {_plat_key}")
             await update.message.reply_text("❌ Cannot download this link:\n" + "\n".join(_why), reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
             return
-    payload_key = f"single_{user_id}_{int(time.time())}"
+    payload_key = f"single_{user_id}_{int(time.time()*1000)}"
     pending_single_links[payload_key] = url
     PENDING_META[payload_key] = meta
-    PENDING_CREDIT_COST[payload_key] = _credit_cost  # PART 4: carried to fmt_ callback -> cached_download_and_send
+    PENDING_CREDIT_COST[payload_key] = _credit_cost
+    _save_pending_file()  # PART 4: carried to fmt_ callback -> cached_download_and_send
     keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"fmt_vid_{payload_key}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"fmt_aud_{payload_key}")],[InlineKeyboardButton(t["btn_image"], callback_data=f"fmt_img_{payload_key}")]]
     _cost_line = f"\n💳 Cost: {_credit_cost} credit{'s' if _credit_cost != 1 else ''}" if _credit_cost > 1 else ""
     await update.message.reply_text(f"🎬 {title}\n⏱️ {dur}{_cost_line}\n\n{t['ask_format']}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
@@ -4451,7 +4465,11 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         _parts = data.split("_", 2); _qual, _pkey = _parts[1], _parts[2]
         _sel = PENDING_QUALITY_SELECT.pop(_pkey, None)
         if not _sel:
-            await query.answer("Expired, send the link again", show_alert=True); return
+            _load_pending_file()
+            _sel = PENDING_QUALITY_SELECT.pop(_pkey, None)
+        if not _sel:
+            await query.answer("This button expired - bot restarted. Send the link again.", show_alert=True); return
+        _save_pending_file()
         _url2 = _sel["url"]; _cc2 = _sel.get("credit_cost", 1); _meta2 = _sel.get("meta")
         await query.answer(f"Selected {_qual}p" if _qual != "auto" else "Selected Auto")
         try: await query.message.delete()
@@ -4471,7 +4489,13 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if data.startswith("fmt_"):
         parts = data.split("_",2); fmt_type, payload_key = parts[1], parts[2]
         url = pending_single_links.pop(payload_key, None)
-        if not url: await query.answer(t["batch_expired"], show_alert=True); return
+        if not url:
+            _load_pending_file()
+            url = pending_single_links.pop(payload_key, None)
+        if not url:
+            await query.answer("This button expired - bot restarted. Send the link again.", show_alert=True)
+            return
+        _save_pending_file()
         _credit_cost = PENDING_CREDIT_COST.pop(payload_key, 1)
         _meta0 = PENDING_META.pop(payload_key, None)
         await query.answer(t["checking_vault"])
@@ -4482,6 +4506,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         elif fmt_type == 'sub': dl_type='subtitles'
         if dl_type == 'video' and ('youtube.com' in url.lower() or 'youtu.be' in url.lower()):
             PENDING_QUALITY_SELECT[payload_key] = {"url": url, "credit_cost": _credit_cost, "meta": _meta0}
+            _save_pending_file()
             _qkb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("1080p", callback_data=f"qsel_1080_{payload_key}"), InlineKeyboardButton("720p", callback_data=f"qsel_720_{payload_key}")],
                 [InlineKeyboardButton("480p", callback_data=f"qsel_480_{payload_key}"), InlineKeyboardButton("360p", callback_data=f"qsel_360_{payload_key}")],
