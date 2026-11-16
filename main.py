@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V7 - MTProto wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
+# BOT V8 - SELF-CONTAINED VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
 # THIS IS A NEW FILE - NOT THE OLD main.py
 # First line check: if you see this header, you have the NEW file
 # Changes: buttons + join walkthrough + quality selector + DIRECTIONAL cache + PERSISTENT pending (no Expired)
@@ -3685,9 +3685,15 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     PENDING_META[payload_key] = meta
     PENDING_CREDIT_COST[payload_key] = _credit_cost
     _save_pending_file()  # PART 4: carried to fmt_ callback -> cached_download_and_send
-    keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"fmt_vid_{payload_key}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"fmt_aud_{payload_key}")],[InlineKeyboardButton(t["btn_image"], callback_data=f"fmt_img_{payload_key}")]]
+    # SELF-CONTAINED fmt: for YouTube, button carries video ID itself (survives restart). For others, URL is in message text as fallback.
+    _fmt_suffix = payload_key
+    try:
+        _yid_fmt = youtube_id_from_url(url) or ""
+        if _yid_fmt: _fmt_suffix = f"yt_{_yid_fmt}"
+    except Exception: pass
+    keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"fmt_vid_{_fmt_suffix}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"fmt_aud_{_fmt_suffix}")],[InlineKeyboardButton(t["btn_image"], callback_data=f"fmt_img_{_fmt_suffix}")]]
     _cost_line = f"\n💳 Cost: {_credit_cost} credit{'s' if _credit_cost != 1 else ''}" if _credit_cost > 1 else ""
-    await update.message.reply_text(f"🎬 {title}\n⏱️ {dur}{_cost_line}\n\n{t['ask_format']}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await update.message.reply_text(f"🎬 {title}\n⏱️ {dur}{_cost_line}\n\n{t['ask_format']}\n\n🔗 {url}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
@@ -4516,13 +4522,25 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     if data.startswith("fmt_"):
         parts = data.split("_",2); fmt_type, payload_key = parts[1], parts[2]
-        url = pending_single_links.pop(payload_key, None)
-        if not url:
-            _load_pending_file()
+        url = None
+        # 1) Self-contained YouTube ID: fmt_vid_yt_VIDEOID - survives restart, no memory needed
+        if payload_key.startswith("yt_"):
+            url = f"https://www.youtube.com/watch?v={payload_key[3:]}"
+        else:
             url = pending_single_links.pop(payload_key, None)
-        if not url:
-            await query.answer("This button expired - bot restarted. Send the link again.", show_alert=True)
-            return
+            if not url:
+                _load_pending_file()
+                url = pending_single_links.pop(payload_key, None)
+            if not url:
+                # 2) Fallback: URL is in the format-menu message text itself (🔗 https://...)
+                try:
+                    _mtxt = query.message.text or query.message.caption or ""
+                    _m = re.search(r"https?://\S+", _mtxt)
+                    if _m: url = _m.group(0).rstrip(").,]")
+                except Exception: pass
+            if not url:
+                await query.answer("This button expired - bot restarted. Send the link again.", show_alert=True)
+                return
         _save_pending_file()
         _credit_cost = PENDING_CREDIT_COST.pop(payload_key, 1)
         _meta0 = PENDING_META.pop(payload_key, None)
