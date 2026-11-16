@@ -100,6 +100,7 @@ pending_batch_payloads = {}
 paused_batches = {}
 pending_single_links = {}
 pending_ad_retry = {}  # V32: {user_id: {url, dl_type, requested_quality, meta}} - saved when ad-refill blocks a download, so verify can bring back quality picker
+adding_required_channel = set()  # V33: admin user_ids waiting to add a required channel by forward / ID / username
 
 MAX_CONCURRENT_SHORT = 3
 MIN_FREE_DISK_MB = 150
@@ -1965,13 +1966,21 @@ def _v27_cost_for_size_mb(size_mb, limits, duration_sec=0):
         return heavy_cost
     return normal_cost
 def _v29_quality_rank(q):
-    return {"1080p": 5, "720p": 4, "480p": 3, "360p": 2, "240p": 1, "worst": 0, "cached": 99, "auto": 99, "best": 99}.get(str(q or "").lower(), 99)
+    # V33: old 240p files were saved as "worst" (no 240p bucket). Treat worst as 240p rank so 240p requests hit old cache instead of re-downloading forever.
+    return {"1080p": 5, "720p": 4, "480p": 3, "360p": 2, "240p": 1, "worst": 1, "cached": 99, "auto": 99, "best": 99}.get(str(q or "").lower(), 99)
 def _v29_highest_cached(cached_qualities):
     order = ["1080p", "720p", "480p", "360p", "240p", "worst"]
     for q in order:
         if q in (cached_qualities or {}):
             return q
     return None
+
+def _v33_normalize_cached_qualities(cached_qualities):
+    # V33: old cache has 240p saved as "worst". If only worst exists, expose it as 240p too so picker + hit logic see it.
+    cq = dict(cached_qualities or {})
+    if "worst" in cq and "240p" not in cq:
+        cq["240p"] = cq["worst"]
+    return cq
 def _v27_get_user_credits(user_id):
     try:
         _toks = load_tokens()
@@ -2007,16 +2016,83 @@ def get_required_channels():
             u = c.strip()
             if not u:
                 continue
-            uname = u if u.startswith("@") else "@" + u.split("/")[-1]
-            out.append({"username": uname, "url": f"https://t.me/{uname.lstrip('@')}", "title": uname})
-        elif isinstance(c, dict) and c.get("username"):
-            uname = c["username"] if c["username"].startswith("@") else "@" + c["username"]
-            out.append({"username": uname, "url": c.get("url") or f"https://t.me/{uname.lstrip('@')}", "title": c.get("title") or uname})
+            # V33: string may be an ID like -100123... or a username
+            if u.lstrip("-").isdigit():
+                out.append({"username": "", "id": int(u), "url": "", "title": f"Channel {u}"})
+            else:
+                uname = u if u.startswith("@") else "@" + u.split("/")[-1]
+                out.append({"username": uname, "url": f"https://t.me/{uname.lstrip('@')}", "title": uname})
+        elif isinstance(c, dict):
+            # V33: keep id, username, url, title. Id-only (private) channels must NOT be dropped - that was "says saved but won't save".
+            _id = c.get("id") or c.get("chat_id") or c.get("channel_id")
+            _uname = (c.get("username") or "").strip()
+            if _uname and not _uname.startswith("@"):
+                _uname = "@" + _uname.split("/")[-1]
+            if not _uname and not _id:
+                continue
+            _url = c.get("url") or (f"https://t.me/{_uname.lstrip('@')}" if _uname else "")
+            _title = c.get("title") or _uname or (f"Channel {_id}" if _id else "Channel")
+            _entry = {"username": _uname, "url": _url, "title": _title}
+            if _id:
+                try: _entry["id"] = int(_id)
+                except: pass
+            out.append(_entry)
     return out
 def save_required_channels(channels):
     save_json_file(REQUIRED_CHANNELS_FILE, {"channels": channels})
     return channels
+async def add_required_channel_by_ref(bot, ref):
+    # V33: ref can be @username, username, t.me link, -100... ID, or a Chat object. Returns (ok, message, entry).
+    # Resolve via get_chat so we get real title + id + username, then verify save by re-reading.
+    try:
+        _chat = None
+        _ref_str = str(ref).strip() if not hasattr(ref, "id") else None
+        if hasattr(ref, "id") and hasattr(ref, "title"):
+            _chat = ref
+        elif _ref_str:
+            _s = _ref_str.strip()
+            # ID
+            if _s.lstrip("-").isdigit():
+                try: _chat = await bot.get_chat(int(_s))
+                except Exception as _e: return False, f"❌ Could not find channel ID {_s}. Make sure the bot is in that channel. ({str(_e)[:120]})", None
+            else:
+                # username / link
+                _u = _s.split("/")[-1].strip().lstrip("@").split("?")[0].strip()
+                if not _u: return False, "❌ Invalid channel. Send @username, t.me link, -100... ID, or forward a message from the channel.", None
+                try: _chat = await bot.get_chat(f"@{_u}")
+                except Exception as _e: return False, f"❌ Could not find @{_u}. Make sure the channel exists and the bot is in it. ({str(_e)[:120]})", None
+        if _chat is None:
+            return False, "❌ Could not resolve that channel.", None
+        _cid = getattr(_chat, "id", None)
+        _title = getattr(_chat, "title", None) or getattr(_chat, "username", None) or f"Channel {_cid}"
+        _uname = getattr(_chat, "username", None)
+        _uname_fmt = f"@{_uname}" if _uname else ""
+        _url = f"https://t.me/{_uname}" if _uname else ""
+        chs = get_required_channels()
+        # dedupe by id OR username
+        for c in chs:
+            if _cid and c.get("id") and int(c.get("id")) == int(_cid): return False, f"Already required: {_title} ({_uname_fmt or _cid})", None
+            if _uname_fmt and (c.get("username") or "").lower() == _uname_fmt.lower(): return False, f"Already required: {_title} ({_uname_fmt})", None
+        _entry = {"username": _uname_fmt, "url": _url, "title": _title}
+        if _cid: _entry["id"] = int(_cid)
+        chs.append(_entry)
+        save_required_channels(chs)
+        # V33: verify save - re-read, don't just say saved
+        _after = get_required_channels()
+        _found = False
+        for c in _after:
+            if _cid and c.get("id") and int(c.get("id")) == int(_cid): _found = True; break
+            if _uname_fmt and (c.get("username") or "").lower() == _uname_fmt.lower(): _found = True; break
+        if not _found:
+            return False, "❌ Save failed - please try again. The channel was not in the list after saving.", None
+        return True, f"✅ Added required channel {_title} ({_uname_fmt or _cid}). Users must now join {len(_after)} channel(s).", _entry
+    except Exception as _e:
+        logger.warning(f"add_required_channel_by_ref fail: {_e}")
+        return False, f"❌ Could not add channel: {str(_e)[:200]}", None
+
 async def check_required_channels(bot, user_id):
+    # V34 STRICT: never treat "cannot verify" as "joined". Old code did `continue` on bot-not-in-channel / chat-not-found / any error,
+    # so if bot was not in the channel, EVERY user passed. Now unverifiable = missing (blocked), with reason so admin can fix it.
     if user_id == ADMIN_ID:
         return True, []
     channels = get_required_channels()
@@ -2024,30 +2100,101 @@ async def check_required_channels(bot, user_id):
         return True, []
     missing = []
     for ch in channels:
-        uname = ch.get("username") or ""
-        try:
-            member = await bot.get_chat_member(chat_id=uname, user_id=user_id)
-            st = getattr(member, "status", "")
-            if st in ("creator", "administrator", "member", "restricted"):
+        _chat_ref = ch.get("id") or ch.get("username") or ""
+        uname = ch.get("username") or str(_chat_ref)
+        _tried = []
+        _verified = False
+        _last_err = None
+        # Try ID first, then username as fallback - if ID is stale (channel migrated) username may still work
+        _refs = []
+        if ch.get("id"): _refs.append(ch.get("id"))
+        if ch.get("username"): _refs.append(ch.get("username"))
+        if not _refs: _refs = [_chat_ref]
+        for _ref in _refs:
+            if _ref in _tried: continue
+            _tried.append(_ref)
+            try:
+                member = await bot.get_chat_member(chat_id=_ref, user_id=user_id)
+                st = str(getattr(member, "status", "")).lower()
+                if st in ("creator", "administrator", "member", "restricted"):
+                    _verified = True
+                    break
+                # left / kicked / etc = definitely NOT in channel
+                _bad = dict(ch); _bad["reason"] = f"status={st}"
+                missing.append(_bad)
+                _verified = True  # we DID verify - they are not in it, don't try other ref
+                break
+            except Exception as e:
+                _last_err = e
+                _msg = str(e).lower()
+                # "member not found" / "user not found" / "not a member" / "left" / "kicked" = user is NOT in channel
+                if any(x in _msg for x in ["member not found", "user not found", "not a member", "user is not a member", "left", "kicked", "deactivated", "bot was kicked"]):
+                    _bad = dict(ch); _bad["reason"] = f"not_member: {str(e)[:120]}"
+                    missing.append(_bad)
+                    _verified = True
+                    break
+                # Anything else (bot not in channel, chat not found, forbidden, peer, timeout, flood) = CANNOT VERIFY - block, don't pass
+                # Keep trying other ref, if all fail we mark unverifiable below
                 continue
-            missing.append(ch)
-        except Exception as e:
-            msg = str(e).lower()
-            if "chat not found" in msg or "bot is not a member" in msg or "bot was blocked" in msg or "user not found" in msg or "peer" in msg:
-                logger.warning(f"Required channel check skipped {uname}: {e}")
-                continue
-            if "not a member" in msg or "left" in msg or "kicked" in msg or "member not found" in msg:
-                missing.append(ch)
-                continue
-            logger.warning(f"Required channel check error {uname}: {e}")
+        if _verified:
             continue
+        # All refs failed to verify - block as unverifiable
+        _bad = dict(ch)
+        _err = str(_last_err)[:160] if _last_err else "unknown"
+        if any(x in _err.lower() for x in ["bot is not a member", "bot was blocked", "bot is not", "chat not found", "forbidden", "peer", "chat not found"]):
+            _bad["reason"] = "unverifiable_bot_not_in_channel"
+            _bad["detail"] = _err
+        else:
+            _bad["reason"] = "unverifiable"
+            _bad["detail"] = _err
+        logger.warning(f"Required channel UNVERIFIABLE {uname}: {_err} - blocking user {user_id} (old code would have let them through)")
+        missing.append(_bad)
     return (len(missing) == 0), missing
+
+async def check_bot_in_required_channels(bot):
+    # V34: admin helper - tells admin which required channels the bot itself is NOT in, so the check can actually work.
+    # Returns list of {channel, ok, detail}. Bot must be a member/admin of a channel for get_chat_member(user) to work.
+    out = []
+    try:
+        _me = await bot.get_me()
+        _bot_id = getattr(_me, "id", None)
+    except Exception as e:
+        return [{"channel": None, "ok": False, "detail": f"get_me failed: {e}"}]
+    for ch in get_required_channels():
+        _refs = []
+        if ch.get("id"): _refs.append(ch.get("id"))
+        if ch.get("username"): _refs.append(ch.get("username"))
+        _ok = False; _detail = ""
+        for _ref in _refs:
+            try:
+                _m = await bot.get_chat_member(chat_id=_ref, user_id=_bot_id)
+                _st = str(getattr(_m, "status", "")).lower()
+                if _st in ("creator", "administrator", "member", "restricted"):
+                    _ok = True; _detail = f"bot status={_st}"; break
+                _detail = f"bot status={_st}"
+            except Exception as e:
+                _detail = str(e)[:160]
+                continue
+        out.append({"channel": ch, "ok": _ok, "detail": _detail})
+    return out
 async def send_must_join_message(bot, chat_id, missing, lang="en"):
     rows = []
     for ch in missing:
         rows.append([InlineKeyboardButton(f"📢 Join {ch.get('title') or ch.get('username')}", url=ch.get("url") or f"https://t.me/{ch.get('username','').lstrip('@')}")])
     rows.append([InlineKeyboardButton("✅ I Joined - Check Again", callback_data="check_joined")])
-    txt = "🔒 <b>Join required channels to use this bot</b>\n\nYou must join <b>every</b> channel below. I check every time, so if you leave you will be locked again.\n\nMissing:\n" + "\n".join([f"• {c.get('title') or c.get('username')} ({c.get('username')})" for c in missing])
+    _lines = []
+    for c in missing:
+        _label = f"{c.get('title') or c.get('username') or c.get('id')}"
+        _u = c.get('username') or (f"ID {c.get('id')}" if c.get('id') else "")
+        if c.get("reason") == "unverifiable_bot_not_in_channel":
+            _lines.append(f"• {_label} ({_u}) - ⚠️ I can't verify this channel yet because I'm not in it. Admin needs to add me to the channel first, then tap Check Again.")
+        elif c.get("reason") == "unverifiable":
+            _lines.append(f"• {_label} ({_u}) - ⚠️ Could not verify right now. Try Check Again in a moment.")
+        elif str(c.get("reason","")).startswith("status="):
+            _lines.append(f"• {_label} ({_u}) - you are not in this channel ({c.get('reason')})")
+        else:
+            _lines.append(f"• {_label} ({_u})")
+    txt = "🔒 <b>Join required channels to use this bot</b>\n\nYou must join <b>every</b> channel below. I check every time, so if you leave you will be locked again.\n\nMissing:\n" + "\n".join(_lines)
     try:
         await bot.send_message(chat_id=chat_id, text=txt, reply_markup=InlineKeyboardMarkup(rows), parse_mode="HTML")
     except Exception as e:
@@ -2730,6 +2877,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, requested_q
                         elif actual_height >= 720: best_quality = "720p"
                         elif actual_height >= 480: best_quality = "480p"
                         elif actual_height >= 360: best_quality = "360p"
+                        elif actual_height >= 240: best_quality = "240p"
                         else: best_quality = "worst"
                         return [path], best_quality, f"{os.path.getsize(path)/(1024*1024):.1f}MB"
                     last_err = RuntimeError("yt-dlp produced no output file")
@@ -2777,6 +2925,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, requested_q
                             elif actual_height >= 720: best_quality = "720p"
                             elif actual_height >= 480: best_quality = "480p"
                             elif actual_height >= 360: best_quality = "360p"
+                            elif actual_height >= 240: best_quality = "240p"
                             else: best_quality = "worst"
                             return [path], best_quality, f"{os.path.getsize(path)/(1024*1024):.1f}MB"
                 except Exception as e:
@@ -2925,34 +3074,34 @@ async def queue_processor(bot):
 
 async def addchannel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # V32 FIX: /addchannel never reached handle_media_link because MessageHandler uses ~filters.COMMAND. This CommandHandler is the real entry point.
+    # V33: accepts @username, username, t.me link, -100... ID. Forwarded channel messages are handled in handle_media_link when adding mode is on.
     user_id = update.message.from_user.id
     lang = get_lang(user_id)
     if user_id != ADMIN_ID:
         await update.message.reply_text("❌ Only admin can add required channels.", reply_markup=get_main_keyboard(lang, False))
         return
+    # If admin forwarded a channel message with /addchannel caption, use the forwarded chat
+    _fwd = getattr(update.message, "forward_origin", None)
+    if _fwd and getattr(_fwd, "type", None) == "channel" and getattr(_fwd, "chat", None) is not None:
+        _ok, _msg, _ = await add_required_channel_by_ref(context.bot, _fwd.chat)
+        await update.message.reply_text(_msg, reply_markup=get_main_keyboard(lang, True))
+        adding_required_channel.discard(user_id)
+        return
+    _fwd2 = getattr(update.message, "forward_from_chat", None)
+    if _fwd2 is not None:
+        _ok, _msg, _ = await add_required_channel_by_ref(context.bot, _fwd2)
+        await update.message.reply_text(_msg, reply_markup=get_main_keyboard(lang, True))
+        adding_required_channel.discard(user_id)
+        return
     args = (update.message.text or "").strip().split()
     if len(args) < 2:
-        await update.message.reply_text("Usage: /addchannel @username  or  /addchannel https://t.me/username\nExample: /addchannel @faqandaupport", reply_markup=get_main_keyboard(lang, True))
+        adding_required_channel.add(user_id)
+        await update.message.reply_text("📢 Add required channel - pick one:\n1️⃣ Forward any message from the channel to me\n2️⃣ Send @username\n3️⃣ Send t.me link\n4️⃣ Send channel ID like -1001234567890\n\nOr send: /addchannel @username", reply_markup=get_main_keyboard(lang, True))
         return
     raw = args[1].strip()
-    uname = raw.split("/")[-1].strip().lstrip("@").split("?")[0].strip()
-    if not uname or len(uname) < 4:
-        await update.message.reply_text("❌ Invalid channel username.", reply_markup=get_main_keyboard(lang, True))
-        return
-    chs = get_required_channels()
-    if any(c.get("username", "").lstrip("@").lower() == uname.lower() for c in chs):
-        await update.message.reply_text(f"Already required: @{uname}", reply_markup=get_main_keyboard(lang, True))
-        return
-    title = f"@{uname}"
-    try:
-        _chat = await context.bot.get_chat(f"@{uname}")
-        if getattr(_chat, "title", None):
-            title = _chat.title
-    except Exception as _e:
-        logger.warning(f"addchannel get_chat @{uname}: {_e} - still adding, bot may not be in channel yet")
-    chs.append({"username": f"@{uname}", "url": f"https://t.me/{uname}", "title": title})
-    save_required_channels(chs)
-    await update.message.reply_text(f"✅ Added required channel @{uname} ({title}). Users must now join {len(chs)} channel(s).", reply_markup=get_main_keyboard(lang, True))
+    _ok, _msg, _ = await add_required_channel_by_ref(context.bot, raw)
+    await update.message.reply_text(_msg, reply_markup=get_main_keyboard(lang, True))
+    if _ok: adding_required_channel.discard(user_id)
 
 async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     track_user_activity(update.message.from_user.id)
@@ -3049,7 +3198,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 await send_must_join_message(context.bot, update.message.chat_id, _ms, get_lang(user_id))
                 return
     except Exception as _e:
+        # V34: never let a gate error = pass. Block and ask to try again.
         logger.warning(f"start gate: {_e}")
+        await update.message.reply_text("⚠️ Could not verify channel membership. Tap Check Again in a moment.")
+        return
     args = context.args
     lang = get_lang(user_id)
     
@@ -3121,7 +3273,11 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                 active_batch_sessions[user_id] = False
                 return
         except Exception as _e:
+            # V34: gate error = block, not pass
             logger.warning(f"batch gate: {_e}")
+            await send_must_join_message(bot, chat_id, [{"title": "Required Channels", "username": "", "reason": "unverifiable", "detail": str(_e)[:120]}], lang)
+            active_batch_sessions[user_id] = False
+            return
     active_batch_sessions[user_id] = True
     stop_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop Batch", callback_data="stop_batch")]])
     batch_notice = await bot.send_message(chat_id=chat_id, text=t["batch_start"].format(download_type.upper(), len(urls)), reply_markup=stop_markup, parse_mode="Markdown")
@@ -3173,7 +3329,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             
             if ckey in cache and cache[ckey].get("type") == "video":
                 qualities_order = ["1080p", "720p", "480p", "360p", "worst"]
-                cached_qualities = cache[ckey].get("qualities", {})
+                cached_qualities = _v33_normalize_cached_qualities(cache[ckey].get("qualities", {}))
                 best_cached_quality = None
                 for q in qualities_order:
                     if q in cached_qualities:
@@ -3389,6 +3545,27 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             _ls_c.pop(str(user_id), None); save_linking_states(_ls_c)
             await update.message.reply_text("❌ Cancelled. Back to main menu.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
             return
+    # V33: adding-required-channel mode - admin forwarded a channel message OR sent @username / t.me link / -100... ID as plain text
+    if user_id == ADMIN_ID and user_id in adding_required_channel:
+        _is_fwd = getattr(update.message, "forward_origin", None) is not None or getattr(update.message, "forward_from_chat", None) is not None
+        _fwd_chat = None
+        _fo = getattr(update.message, "forward_origin", None)
+        if _fo and getattr(_fo, "type", None) == "channel": _fwd_chat = getattr(_fo, "chat", None)
+        if _fwd_chat is None: _fwd_chat = getattr(update.message, "forward_from_chat", None)
+        if _fwd_chat is not None:
+            _ok, _msg, _ = await add_required_channel_by_ref(context.bot, _fwd_chat)
+            await update.message.reply_text(_msg, reply_markup=get_main_keyboard(lang, True))
+            if _ok: adding_required_channel.discard(user_id)
+            return
+        _txt_add = text.strip()
+        # plain identifier: @user, t.me/..., -100..., or just username
+        if _txt_add.startswith("@") or "t.me/" in _txt_add or _txt_add.lstrip("-").isdigit() or (len(_txt_add) >= 4 and " " not in _txt_add and "http" not in _txt_add.lower()):
+            _ok, _msg, _ = await add_required_channel_by_ref(context.bot, _txt_add)
+            await update.message.reply_text(_msg, reply_markup=get_main_keyboard(lang, True))
+            if _ok: adding_required_channel.discard(user_id)
+            return
+        # else fall through to normal handling (admin typed something else - cancel adding mode)
+        adding_required_channel.discard(user_id)
     # V28 FIX: gate ONLY for links and download menus, not every message. Gating support / language / cancel deadlocked users.
     _is_download_intent = ("http" in text.lower()) or text.strip() in ("🔄 Change Batch Channel", "🔗 File-to-Link", "📢 Broadcast", "⚡ Create Flash Drop")
     if user_id != ADMIN_ID and _is_download_intent and not text.strip().startswith("/addchannel"):
@@ -3398,7 +3575,10 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 await send_must_join_message(context.bot, chat_id, _missing_g, lang)
                 return
         except Exception as _e:
+            # V34: gate error = block, not pass
             logger.warning(f"gate check: {_e}")
+            await send_must_join_message(context.bot, chat_id, [{"title": "Required Channels", "username": "", "reason": "unverifiable", "detail": str(_e)[:120]}], lang)
+            return
     if text == t.get("menu_edit_welcome", "✏️ Edit Welcome Msg") and user_id == ADMIN_ID:
         support_states = load_json_file(SUPPORT_STATES_FILE)
         support_states[str(user_id)] = {"mode": "admin_edit_welcome"}
@@ -3497,7 +3677,8 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if text.strip() == "📢 Required Channels" and user_id == ADMIN_ID:
         _chs = get_required_channels()
         _txt = "📢 <b>Required Channels</b>\nUsers must join EVERY channel below (checked every time).\n\n" + "\n".join([f"• {c.get('title')} - {c.get('username')} - {c.get('url')}" for c in _chs]) + "\n\nTo add: send <code>/addchannel @username</code>\nTo remove: tap a channel below."
-        _rows = [[InlineKeyboardButton(f"🗑️ Remove {c.get('username')}", callback_data=f"req_remove_{c.get('username','').lstrip('@')}")] for c in _chs]
+        _rows = [[InlineKeyboardButton(f"🗑️ Remove {c.get('username') or c.get('id')}", callback_data=f"req_remove_{c.get('username','').lstrip('@')}")] for c in _chs]
+        _rows.append([InlineKeyboardButton("🔍 Check if bot is in all channels", callback_data="req_check_bot")])
         _rows.append([InlineKeyboardButton("➕ Add Channel - send /addchannel @name", callback_data="req_add_help")])
         _rows.append([InlineKeyboardButton("❌ Close", callback_data="req_close")])
         await update.message.reply_text(_txt, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(_rows))
@@ -4260,9 +4441,14 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if _joined2:
             await query.answer("✅ All joined! You can now use the bot.", show_alert=True)
             try: await query.message.edit_text("✅ All required channels joined! Send a link to download.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            except: pass
+            except:
+                try: await query.message.reply_text("✅ All required channels joined! Send a link to download.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+                except: pass
         else:
             await query.answer("❌ Still missing some channels.", show_alert=True)
+            # V33: send a visible message, not just the alert - user must see which channel is still missing
+            try: await query.message.reply_text("❌ Still missing - see below. Join every channel, then tap Check Again.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+            except: pass
             await send_must_join_message(context.bot, chat_id, _missing2, lang)
         return
     if data.startswith("limits_") and user_id == ADMIN_ID:
@@ -4355,16 +4541,37 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             try: await query.message.delete()
             except: pass
             return
+        if data == "req_check_bot":
+            await query.answer("Checking bot in channels...")
+            _bot_checks = await check_bot_in_required_channels(context.bot)
+            _lines = []
+            for _bc in _bot_checks:
+                _ch = _bc.get("channel") or {}
+                _label = _ch.get("title") or _ch.get("username") or str(_ch.get("id"))
+                if _bc.get("ok"):
+                    _lines.append(f"✅ {_label} - bot is in it ({_bc.get('detail')}) - check will work")
+                else:
+                    _lines.append(f"❌ {_label} - BOT NOT IN CHANNEL ({_bc.get('detail')}). Add the bot to this channel as member/admin, then tap Check Again. Until then users will be blocked because I can't verify them.")
+            await query.message.reply_text("🔍 <b>Bot in required channels?</b>\n\n" + "\n\n".join(_lines) + "\n\nIf any shows ❌, the join check cannot work for that channel - add the bot first.", parse_mode="HTML")
+            return
         if data == "req_add_help":
             await query.answer()
-            await query.message.reply_text("To add a required channel, send:\n<code>/addchannel @username</code>\nExample: <code>/addchannel @booksaufio</code>", parse_mode="HTML")
+            adding_required_channel.add(user_id)
+            await query.message.reply_text("📢 Add required channel - pick one:\n1️⃣ Forward any message from the channel to me\n2️⃣ Send @username\n3️⃣ Send t.me link\n4️⃣ Send channel ID like -1001234567890\n\nOr send: <code>/addchannel @username</code>", parse_mode="HTML")
             return
         if data.startswith("req_remove_"):
             _uname = data.replace("req_remove_", "")
             _chs = get_required_channels()
+            # V34: match by username OR by id (for ID-only channels, callback carries empty username - fall back to matching title/id via stored list order)
+            _before = len(_chs)
             _chs = [c for c in _chs if c.get("username","").lstrip("@").lower() != _uname.lower()]
+            if len(_chs) == _before and _uname == "":
+                # ID-only entry - remove first entry with no username
+                for _idx, _c in enumerate(list(_chs)):
+                    if not _c.get("username"):
+                        del _chs[_idx]; break
             save_required_channels(_chs)
-            await query.answer(f"Removed @{_uname}", show_alert=True)
+            await query.answer(f"Removed @{_uname}" if _uname else "Removed channel", show_alert=True)
             try: await query.message.edit_text(f"✅ Removed @{_uname}. Now {len(_chs)} required channel(s).", reply_markup=get_main_keyboard(lang, True))
             except: pass
             return
@@ -4378,7 +4585,11 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 await send_must_join_message(context.bot, chat_id, _m, lang)
                 return
         except Exception as _e:
+            # V34: gate error = block, not pass
             logger.warning(f"button gate: {_e}")
+            await query.answer("Could not verify channel membership - try again", show_alert=True)
+            await send_must_join_message(context.bot, chat_id, [{"title": "Required Channels", "username": "", "reason": "unverifiable", "detail": str(_e)[:120]}], lang)
+            return
     if data.startswith("qual_"):
         _parts = data.split("_", 2)
         if len(_parts) == 3:
