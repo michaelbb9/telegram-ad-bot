@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V8 - SELF-CONTAINED VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
+# BOT V9 - YT auto-retry (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
 # THIS IS A NEW FILE - NOT THE OLD main.py
 # First line check: if you see this header, you have the NEW file
 # Changes: buttons + join walkthrough + quality selector + DIRECTIONAL cache + PERSISTENT pending (no Expired)
@@ -2857,7 +2857,43 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                 return [lux_path], "lux", f"{os.path.getsize(lux_path)/(1024*1024):.1f}MB"
 
         if yt_blocked:
-            raise ValueError("SITE_BLOCKED")
+            # RETRY: YouTube often blocks the 1st hit (429 / not-a-bot) but lets the 2nd through.
+            # Wait 5s and retry the tiers once before giving up, so user doesn't have to resend.
+            try:
+                import time as _time_retry
+                _time_retry.sleep(5)
+            except Exception: pass
+            yt_blocked = False
+            for qual_name, fmt in tiers:
+                try:
+                    opts = dict(ydl_opts)
+                    opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, f'%(id)s_{qual_name}.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
+                    if qual_name != "worst":
+                        opts.update({'format': 'bv*+ba/b', 'format_sort': [f"res:{qual_name[:-1]}"]})
+                    with yt_dlp.YoutubeDL(opts) as ydl:
+                        info = ydl.extract_info(url, download=True)
+                        path = ydl.prepare_filename(info)
+                        if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0]+".mp4"): path = os.path.splitext(path)[0]+".mp4"
+                        if os.path.exists(path):
+                            if os.path.getsize(path) > cap_bytes:
+                                os.remove(path); continue
+                            w, h = info.get('width') or 0, info.get('height') or 0
+                            actual_height = min(w, h) if (w and h) else max(w, h)
+                            if actual_height >= 1080: best_quality = "1080p"
+                            elif actual_height >= 720: best_quality = "720p"
+                            elif actual_height >= 480: best_quality = "480p"
+                            elif actual_height >= 360: best_quality = "360p"
+                            elif actual_height >= 240: best_quality = "240p"
+                            else: best_quality = "worst"
+                            save_to_file_cache(url, "video", path)
+                            return [path], best_quality, f"{os.path.getsize(path)/(1024*1024):.1f}MB"
+                except Exception as e2:
+                    _msg2 = str(e2)
+                    if "not a bot" in _msg2 or "Sign in to confirm" in _msg2 or "HTTP Error 429" in _msg2:
+                        yt_blocked = True; break
+                    continue
+            if yt_blocked:
+                raise ValueError("SITE_BLOCKED")
         if too_big or last_err is None:
             raise ValueError("FILE_TOO_LARGE")
         raise last_err
