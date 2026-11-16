@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V9 - YT auto-retry (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
+# BOT V10 - Format menu Markdown crash fix (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
 # THIS IS A NEW FILE - NOT THE OLD main.py
 # First line check: if you see this header, you have the NEW file
 # Changes: buttons + join walkthrough + quality selector + DIRECTIONAL cache + PERSISTENT pending (no Expired)
@@ -3729,7 +3729,16 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     except Exception: pass
     keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"fmt_vid_{_fmt_suffix}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"fmt_aud_{_fmt_suffix}")],[InlineKeyboardButton(t["btn_image"], callback_data=f"fmt_img_{_fmt_suffix}")]]
     _cost_line = f"\n💳 Cost: {_credit_cost} credit{'s' if _credit_cost != 1 else ''}" if _credit_cost > 1 else ""
-    await update.message.reply_text(f"🎬 {title}\n⏱️ {dur}{_cost_line}\n\n{t['ask_format']}\n\n🔗 {url}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    # V10 FIX: URL/title can contain _ * [ ] which breaks Markdown and crashes with
+    # "Can't parse entities" -> bot gives NO response. Send plain text, fall back if Markdown fails.
+    _fmt_text = f"🎬 {title}\n⏱️ {dur}{_cost_line}\n\n{t['ask_format']}\n\n🔗 {url}"
+    try:
+        await update.message.reply_text(_fmt_text, reply_markup=InlineKeyboardMarkup(keyboard))
+    except Exception:
+        try:
+            await update.message.reply_text(f"🎬 Video found\n⏱️ {dur}\n\n{t['ask_format']}\n\n🔗 {url}", reply_markup=InlineKeyboardMarkup(keyboard))
+        except Exception as e2:
+            logger.error(f"format menu send fail: {e2}")
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
