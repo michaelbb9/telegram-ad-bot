@@ -2177,6 +2177,37 @@ async def check_bot_in_required_channels(bot):
                 continue
         out.append({"channel": ch, "ok": _ok, "detail": _detail})
     return out
+async def check_required_channels_as_user(bot, user_id):
+    # V35: same strict check but WITHOUT admin bypass, so admin can test "would I be blocked as a normal user?"
+    _channels = get_required_channels()
+    if not _channels: return True, []
+    # Temporarily call strict logic by inlining: reuse check_required_channels but with a fake non-admin id is wrong (it checks that id).
+    # Instead, duplicate the strict loop here with the real user_id and no admin early-return.
+    missing = []
+    for ch in _channels:
+        _refs = []
+        if ch.get("id"): _refs.append(ch.get("id"))
+        if ch.get("username"): _refs.append(ch.get("username"))
+        if not _refs: _refs = [ch.get("id") or ch.get("username") or ""]
+        _verified = False; _last_err = None
+        for _ref in _refs:
+            try:
+                member = await bot.get_chat_member(chat_id=_ref, user_id=user_id)
+                st = str(getattr(member, "status", "")).lower()
+                if st in ("creator", "administrator", "member", "restricted"):
+                    _verified = True; break
+                _bad = dict(ch); _bad["reason"] = f"status={st}"; missing.append(_bad); _verified = True; break
+            except Exception as e:
+                _last_err = e; _msg = str(e).lower()
+                if any(x in _msg for x in ["member not found", "user not found", "not a member", "user is not a member", "left", "kicked"]):
+                    _bad = dict(ch); _bad["reason"] = f"not_member: {str(e)[:120]}"; missing.append(_bad); _verified = True; break
+                continue
+        if _verified: continue
+        _bad = dict(ch); _err = str(_last_err)[:160] if _last_err else "unknown"
+        _bad["reason"] = "unverifiable_bot_not_in_channel" if any(x in _err.lower() for x in ["bot is not a member", "chat not found", "forbidden", "peer"]) else "unverifiable"
+        _bad["detail"] = _err; missing.append(_bad)
+    return (len(missing) == 0), missing
+
 async def send_must_join_message(bot, chat_id, missing, lang="en"):
     rows = []
     for ch in missing:
@@ -2947,7 +2978,17 @@ def download_media_engine(url: str, download_type: str, max_mb=None, requested_q
                         path = ydl.prepare_filename(info)
                         if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0]+".mp4"): path = os.path.splitext(path)[0]+".mp4"
                         if os.path.exists(path) and os.path.getsize(path) <= cap_bytes:
-                            return [path], "best", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
+                            # V35: don't save as "best" - cache lookup never finds "best". Map to real height.
+                            _w2, _h2 = info.get('width') or 0, info.get('height') or 0
+                            _ah2 = min(_w2, _h2) if (_w2 and _h2) else max(_w2, _h2)
+                            if _ah2 >= 1080: _bq2 = "1080p"
+                            elif _ah2 >= 720: _bq2 = "720p"
+                            elif _ah2 >= 480: _bq2 = "480p"
+                            elif _ah2 >= 360: _bq2 = "360p"
+                            elif _ah2 >= 240: _bq2 = "240p"
+                            elif _ah2 > 0: _bq2 = "worst"
+                            else: _bq2 = "720p"
+                            return [path], _bq2, f"{os.path.getsize(path)/(1024*1024):.1f}MB"
                         elif os.path.exists(path):
                             os.remove(path)
                 except Exception as e:
@@ -3566,19 +3607,23 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             return
         # else fall through to normal handling (admin typed something else - cancel adding mode)
         adding_required_channel.discard(user_id)
-    # V28 FIX: gate ONLY for links and download menus, not every message. Gating support / language / cancel deadlocked users.
-    _is_download_intent = ("http" in text.lower()) or text.strip() in ("🔄 Change Batch Channel", "🔗 File-to-Link", "📢 Broadcast", "⚡ Create Flash Drop")
-    if user_id != ADMIN_ID and _is_download_intent and not text.strip().startswith("/addchannel"):
-        try:
-            _joined_g, _missing_g = await check_required_channels(context.bot, user_id)
-            if not _joined_g:
-                await send_must_join_message(context.bot, chat_id, _missing_g, lang)
+    # V36: gate EVERYTHING for non-admin - old code only gated if text contained "http", so test account could get in via buttons / forwards / other paths.
+    # Allowlist = things that must work before joining: support, language, cancel, check-joined, /start. Everything else (links, menus, downloads) is gated.
+    _gate_allow = text.strip() in ("❌ Cancel", "💬 Support", "🌐 Language", "⬅️ Back", "✅ I Joined - Check Again") or text.strip().startswith("/start") or text.strip().startswith("/addchannel")
+    if user_id != ADMIN_ID and not _gate_allow:
+        # V28: don't gate support-writing state - user is already talking to support, let them finish
+        _sup = load_json_file(SUPPORT_STATES_FILE)
+        if not (str(user_id) in _sup and _sup[str(user_id)].get("mode") == "user_writing"):
+            try:
+                _joined_g, _missing_g = await check_required_channels(context.bot, user_id)
+                if not _joined_g:
+                    await send_must_join_message(context.bot, chat_id, _missing_g, lang)
+                    return
+            except Exception as _e:
+                # V34: gate error = block, not pass
+                logger.warning(f"gate check: {_e}")
+                await send_must_join_message(context.bot, chat_id, [{"title": "Required Channels", "username": "", "reason": "unverifiable", "detail": str(_e)[:120]}], lang)
                 return
-        except Exception as _e:
-            # V34: gate error = block, not pass
-            logger.warning(f"gate check: {_e}")
-            await send_must_join_message(context.bot, chat_id, [{"title": "Required Channels", "username": "", "reason": "unverifiable", "detail": str(_e)[:120]}], lang)
-            return
     if text == t.get("menu_edit_welcome", "✏️ Edit Welcome Msg") and user_id == ADMIN_ID:
         support_states = load_json_file(SUPPORT_STATES_FILE)
         support_states[str(user_id)] = {"mode": "admin_edit_welcome"}
@@ -3679,6 +3724,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         _txt = "📢 <b>Required Channels</b>\nUsers must join EVERY channel below (checked every time).\n\n" + "\n".join([f"• {c.get('title')} - {c.get('username')} - {c.get('url')}" for c in _chs]) + "\n\nTo add: send <code>/addchannel @username</code>\nTo remove: tap a channel below."
         _rows = [[InlineKeyboardButton(f"🗑️ Remove {c.get('username') or c.get('id')}", callback_data=f"req_remove_{c.get('username','').lstrip('@')}")] for c in _chs]
         _rows.append([InlineKeyboardButton("🔍 Check if bot is in all channels", callback_data="req_check_bot")])
+        _rows.append([InlineKeyboardButton("🧪 Test MY join status (as normal user)", callback_data="req_test_my_join")])
         _rows.append([InlineKeyboardButton("➕ Add Channel - send /addchannel @name", callback_data="req_add_help")])
         _rows.append([InlineKeyboardButton("❌ Close", callback_data="req_close")])
         await update.message.reply_text(_txt, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(_rows))
@@ -3911,6 +3957,39 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             temp_path = f"temp_{document.file_name}"
             await file.download_to_drive(temp_path)
             with open(temp_path, 'r') as f: data = json.load(f)
+            # V36: /restore must NOT affect live bot. Old code overwrote cache + required_channels with stale backup and
+            # wiped the 240p you just downloaded + the channel you just added. Now SKIP those 2 files entirely - live data kept.
+            if document.file_name in (CACHE_FILE, REQUIRED_CHANNELS_FILE):
+                if os.path.exists(temp_path): os.remove(temp_path)
+                await update.message.reply_text(f"⏭️ Skipped <b>{document.file_name}</b> - live data kept, not overwritten. /restore should not affect the bot.", parse_mode="HTML", reply_markup=get_main_keyboard(get_lang(user_id), True))
+                return
+            if False:
+                _cur = load_json_file(document.file_name)
+                if document.file_name == CACHE_FILE and isinstance(data, dict) and isinstance(_cur, dict):
+                    _merged = dict(data)
+                    _merged.update(_cur)  # current wins, backup only fills missing keys
+                    data = _merged
+                    with open(document.file_name, 'w') as _of: json.dump(data, _of)
+                    if os.path.exists(temp_path): os.remove(temp_path)
+                    await update.message.reply_text(f"✅ Restored <b>{document.file_name}</b> (merged - kept your current cache, added {len(data)} entries, did NOT wipe new downloads).", parse_mode="HTML", reply_markup=get_main_keyboard(get_lang(user_id), True))
+                    return
+                if document.file_name == REQUIRED_CHANNELS_FILE:
+                    # both may be {"channels": [...]} or list
+                    def _as_list(_d):
+                        if isinstance(_d, list): return _d
+                        if isinstance(_d, dict) and isinstance(_d.get("channels"), list): return _d["channels"]
+                        return []
+                    _cur_list = _as_list(_cur); _bak_list = _as_list(data)
+                    _seen = set()
+                    _merged_list = []
+                    for _c in (_cur_list + _bak_list):
+                        _key = (str(_c.get("id")) if isinstance(_c, dict) and _c.get("id") else "") + "|" + (str(_c.get("username","")).lower() if isinstance(_c, dict) else str(_c))
+                        if _key in _seen: continue
+                        _seen.add(_key); _merged_list.append(_c)
+                    with open(document.file_name, 'w') as _of: json.dump({"channels": _merged_list}, _of)
+                    if os.path.exists(temp_path): os.remove(temp_path)
+                    await update.message.reply_text(f"✅ Restored <b>{document.file_name}</b> (merged - kept your current channels, total {len(_merged_list)}, did NOT wipe new channels).", parse_mode="HTML", reply_markup=get_main_keyboard(get_lang(user_id), True))
+                    return
             os.replace(temp_path, document.file_name)
             await update.message.reply_text(t["restore_success"].format(document.file_name, len(data) if isinstance(data, dict) else len(data)), parse_mode="HTML", reply_markup=get_main_keyboard(get_lang(user_id), True))
             return
@@ -4116,8 +4195,10 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, reque
     # =================================================
 
     if ckey in cache and cache[ckey].get("type") in ("video", "images", "audio"):
-        cached_qualities = cache[ckey].get("qualities", {})
-        if dl_type == 'video': qualities_order = ["1080p", "720p", "480p", "360p", "240p", "worst"]
+        # V35: was missing normalisation here (only batch had it). Old 240p saved as "worst" now maps to 240p.
+        cached_qualities = _v33_normalize_cached_qualities(cache[ckey].get("qualities", {}))
+        # V35: fresh download fallback saves as "best" - include it as highest, otherwise "best" cache never hits
+        if dl_type == 'video': qualities_order = ["best", "1080p", "720p", "480p", "360p", "240p", "worst"]
         elif dl_type == 'audio': qualities_order = ["audio"]
         else: qualities_order = ["original"]
             
@@ -4251,12 +4332,23 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, reque
         except Exception as _dl_e:
             _dl_msg = str(_dl_e)
             if requested_quality and ("Requested format" in _dl_msg or "format is not available" in _dl_msg or "No video formats" in _dl_msg):
+                # V36: old code retried with None = 1080p first. That downloads 1080p, deletes as too big, then 720p, deletes... looks stuck at 0% forever.
+                # For small picks (240p/360p) retry with worst (smallest) - if that fails, fail fast with a clear error instead of hanging on 1080p.
+                _retry_q = "worst" if str(requested_quality).lower() in ("240p", "360p") else None
+                _retry_label = "worst (smallest)" if _retry_q == "worst" else "original best quality"
                 try:
-                    await bot.send_message(chat_id=chat_id, text=f"⚠️ Picked quality {requested_quality} not available for this video, retrying with original best quality...")
+                    await bot.send_message(chat_id=chat_id, text=f"⚠️ Picked quality {requested_quality} not available for this video, retrying with {_retry_label}...")
                 except:
                     pass
-                file_paths, res, size = await asyncio.wait_for(
-                    asyncio.to_thread(download_media_engine, url, dl_type, effective_max_mb, None, _v27_progress_job, _v27_limits), timeout=420)
+                try:
+                    file_paths, res, size = await asyncio.wait_for(
+                        asyncio.to_thread(download_media_engine, url, dl_type, effective_max_mb, _retry_q, _v27_progress_job, _v27_limits), timeout=180)
+                except Exception as _retry_e:
+                    # V36: don't hang - tell user clearly instead of stuck at 0%
+                    try:
+                        await bot.send_message(chat_id=chat_id, text=f"❌ Could not download this video at {requested_quality} or {_retry_label}. YouTube may not offer that quality for this video. Try Auto or a different video.")
+                    except: pass
+                    raise _retry_e
             else:
                 raise
         # V28 FIX: do NOT cancel progress here - keep it for uploading phase. Only mark downloading done, set phase to uploading.
@@ -4554,6 +4646,15 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     _lines.append(f"❌ {_label} - BOT NOT IN CHANNEL ({_bc.get('detail')}). Add the bot to this channel as member/admin, then tap Check Again. Until then users will be blocked because I can't verify them.")
             await query.message.reply_text("🔍 <b>Bot in required channels?</b>\n\n" + "\n\n".join(_lines) + "\n\nIf any shows ❌, the join check cannot work for that channel - add the bot first.", parse_mode="HTML")
             return
+        if data == "req_test_my_join":
+            await query.answer("Checking your join status as a normal user...")
+            _joined_t, _missing_t = await check_required_channels_as_user(context.bot, user_id)
+            if _joined_t:
+                await query.message.reply_text("✅ As a normal user you WOULD pass - you have joined every required channel.\n\nNote: as admin you are always exempt, so you never see the prompt. Test with a second account to see the prompt.", parse_mode="HTML")
+            else:
+                await query.message.reply_text("❌ As a normal user you WOULD BE BLOCKED - see below.", parse_mode="HTML")
+                await send_must_join_message(context.bot, chat_id, _missing_t, lang)
+            return
         if data == "req_add_help":
             await query.answer()
             adding_required_channel.add(user_id)
@@ -4576,8 +4677,11 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             except: pass
             return
         await query.answer(); return
-    # V27 gate for download buttons only - other buttons (support, lang, etc) are NOT gated here, they are gated in handle_media_link if needed
-    if user_id != ADMIN_ID and data.startswith(("fmt_", "qual_", "batchtype_", "dest_", "change_channel")):
+    # V36: gate EVERY button for non-admin - old code only gated fmt_/qual_/etc, so test account could use other buttons to get in.
+    # Allowlist = check_joined itself, language, support, cancel, close - everything else is gated.
+    # V36: ad buttons already check channels inside their own handlers - don't double-gate them here, leave ad flow untouched
+    _btn_allow = data in ("check_joined", "req_close", "cancel_linking", "close", "verify_user", "monetag_check", "adsgram_check", "monetag_fallback", "admin_sim_ad") or data.startswith(("lang_", "support_", "cancel_", "set_lang", "open_support", "monetag_", "adsgram_"))
+    if user_id != ADMIN_ID and not _btn_allow:
         try:
             _j, _m = await check_required_channels(context.bot, user_id)
             if not _j:
