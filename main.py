@@ -1430,6 +1430,25 @@ def save_json_file(filename, data):
     except Exception as e:
         logger.error(f"Save {filename}: {e}")
 
+
+def get_required_channel_config():
+    cfg = load_json_file(CONFIG_FILE)
+    saved = cfg.get("required_channel") if isinstance(cfg, dict) else None
+    if isinstance(saved, dict) and saved.get("chat_id"):
+        return {"chat_id": saved.get("chat_id"), "url": saved.get("url") or PUBLIC_CHANNEL_URL, "title": saved.get("title") or "Required channel"}
+    return {"chat_id": PUBLIC_CHANNEL_USERNAME, "url": PUBLIC_CHANNEL_URL, "title": "Public channel"}
+
+def set_required_channel(chat_id, url, title="Required channel"):
+    cfg = load_json_file(CONFIG_FILE)
+    cfg["required_channel"] = {"chat_id": chat_id, "url": url, "title": title}
+    save_json_file(CONFIG_FILE, cfg)
+
+def required_channel_url():
+    return get_required_channel_config().get("url") or PUBLIC_CHANNEL_URL
+
+def required_channel_chat_id():
+    return get_required_channel_config().get("chat_id") or PUBLIC_CHANNEL_USERNAME
+
 YT_ID_RE = re.compile(
     r'(?:youtu\.be/|youtube\.com/(?:watch\?(?:[^#\s]*&)?v=|shorts/|live/|embed/)|music\.youtube\.com/watch\?(?:[^#\s]*&)?v=)'
     r'([A-Za-z0-9_-]{11})')
@@ -1661,7 +1680,7 @@ def adsgram_keyboard(user_id, kind="wall", msg_start=0, msg_end=0, extra_rows=No
     url = f"{WEB_BASE_URL}/monetag?n={nonce}&k={kind}"
     rows = [
         [InlineKeyboardButton(f"📺 Watch Monetag Ad +{get_reward_amount()}", web_app=WebAppInfo(url=url))],
-        [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
+        [InlineKeyboardButton("📢 Join Public Channel 💜", url=required_channel_url())],
         [InlineKeyboardButton(f"✅ Check & Get +{get_reward_amount()}", callback_data="monetag_check")],
         [InlineKeyboardButton("↪️ Use Adsterra fallback (after 2 failures)", callback_data="monetag_fallback")],
     ]
@@ -2482,6 +2501,7 @@ def get_main_keyboard(lang_code, is_admin):
         keyboard.append([KeyboardButton("💾 Disk Config"), KeyboardButton("⚡ MTProto Config")])
         keyboard.append([KeyboardButton(t["menu_uploads"]), KeyboardButton("⚡ Create Flash Drop")])
         keyboard.append([KeyboardButton("🎁 Set Reward (1/2/3/5)"), KeyboardButton("📦 Set Free DL (2/3/4/5)")])
+        keyboard.append([KeyboardButton("📏 Download Limits"), KeyboardButton("📢 Required Channel")])
         keyboard.append([KeyboardButton(t["menu_edit_welcome"])])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -2563,7 +2583,7 @@ async def prompt_for_download_credits(bot, chat_id, user_id, required, available
     save_tokens(tokens)
     bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
     keyboard = [[InlineKeyboardButton(f"🔓 Watch ad for +{reward} credits", url=bridge_link)],
-                [InlineKeyboardButton("📢 Join public channel", url=PUBLIC_CHANNEL_URL)],
+                [InlineKeyboardButton("📢 Join public channel", url=required_channel_url())],
                 [InlineKeyboardButton("✅ Check & claim", callback_data="verify_user")]]
     await bot.send_message(chat_id=chat_id,
         text=f"⚠️ This download requires {required} credits, but your available balance is {available}.\nWatch the sponsor ad to refill your balance.",
@@ -2682,9 +2702,9 @@ async def send_file_link_payload(update: Update, context: ContextTypes.DEFAULT_T
     user_id = update.effective_user.id
     t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
     try:
-        member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_USERNAME, user_id=user_id)
+        member = await context.bot.get_chat_member(chat_id=required_channel_chat_id(), user_id=user_id)
         if member.status not in ("member", "administrator", "creator"): raise ValueError("not joined")
-    except Exception: await update.effective_message.reply_text("📢 Join our required channel first: " + PUBLIC_CHANNEL_URL); return
+    except Exception: await update.effective_message.reply_text("📢 Join our required channel first: " + required_channel_url()); return
     for item in record.get("items", []): await context.bot.copy_message(chat_id=user_id, from_chat_id=FILE_LINK_STORAGE_ID, message_id=item["message_id"])
     record["clicks"] = record.get("clicks", 0) + 1
     links = load_json_file(FILE_LINKS_FILE); links[token] = record; save_json_file(FILE_LINKS_FILE, links)
@@ -2741,7 +2761,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
     tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": int(msg_start), "msg_end": int(msg_end), "clicked_ad": False, "verified": False, "expires": time.time() + 600}
     save_tokens(tokens)
-    keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch", url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
+    keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch", url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=required_channel_url())], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
     if user_id == ADMIN_ID: keyboard.append([InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")])
     try:
         tut = await context.bot.forward_message(chat_id=user_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
@@ -2992,12 +3012,76 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     chat_id = update.message.chat_id
     t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
     if is_banned(user_id): await update.message.reply_text(t["banned"]); return
+    if user_id == ADMIN_ID and context.user_data.get("admin_site_limit_wait"):
+        context.user_data.pop("admin_site_limit_wait", None)
+        parts = text.strip().split()
+        chosen_domain = context.user_data.pop("admin_site_limit_domain", None)
+        if chosen_domain and len(parts) == 2:
+            domain, minute_text, size_text = chosen_domain, parts[0], parts[1]
+        elif len(parts) == 3:
+            domain, minute_text, size_text = parts[0].lower().removeprefix("www."), parts[1], parts[2]
+        else:
+            await update.message.reply_text("Send: minutes MB (for selected platform), or domain.com minutes MB for a custom domain.", reply_markup=get_main_keyboard(get_lang(user_id), True)); return
+        try: minutes, size_mb = int(minute_text), int(size_text)
+        except ValueError:
+            await update.message.reply_text("Minutes and MB must be whole numbers."); return
+        if not re.fullmatch(r"[a-z0-9.-]+", domain) or not (1 <= minutes <= 240 and 1 <= size_mb <= 2000):
+            await update.message.reply_text("Invalid settings. Domain must be valid; minutes 1–240 and size 1–2000 MB."); return
+        cfg = load_json_file(CONFIG_FILE); cfg.setdefault("site_limits", {})[domain] = {"max_duration_minutes": minutes, "max_size_mb": size_mb}; save_json_file(CONFIG_FILE, cfg)
+        await update.message.reply_text(f"✅ Saved {domain}: {minutes} minutes / {size_mb} MB", reply_markup=get_main_keyboard(get_lang(user_id), True)); return
+    if user_id == ADMIN_ID and context.user_data.get("admin_required_channel_wait"):
+        context.user_data.pop("admin_required_channel_wait", None)
+        forward_origin = getattr(update.message, "forward_origin", None)
+        forwarded_chat = getattr(forward_origin, "chat", None) if forward_origin else getattr(update.message, "forward_from_chat", None)
+        channel = text.strip()
+        try:
+            if forwarded_chat is not None:
+                chat = forwarded_chat
+                chat_id_to_save = chat.id
+                username = getattr(chat, "username", None)
+                url = ("https://t.me/" + username) if username else required_channel_url()
+            elif channel.startswith("@"):
+                chat = await context.bot.get_chat(channel)
+                chat_id_to_save = chat.id
+                username = getattr(chat, "username", None) or channel.lstrip("@")
+                url = "https://t.me/" + username
+            else:
+                await update.message.reply_text("Please send a public channel @username or forward a post from the channel."); return
+            bot_member = await context.bot.get_chat_member(chat_id_to_save, context.bot.id)
+            if bot_member.status not in ("administrator", "creator"):
+                await update.message.reply_text("⚠️ Make the bot an administrator in that channel first."); return
+            set_required_channel(chat_id_to_save, url, getattr(chat, "title", channel or "Required channel"))
+            await update.message.reply_text(f"✅ Required channel updated to {getattr(chat, 'title', channel or 'Channel')}\n{url}", reply_markup=get_main_keyboard(get_lang(user_id), True))
+        except Exception as exc:
+            await update.message.reply_text(f"❌ Could not verify channel. Check the channel and bot admin access.\n{exc}")
+        return
     if "http" in text.lower():
         flood, wait = is_flood(user_id)
         if flood: await update.message.reply_text(f"🐢 **Slow down!** You sent {FLOOD_LIMIT} links in last minute.\nWait {wait}s before next link.", parse_mode="Markdown"); return
     track_user_activity(user_id)
     lang = get_lang(user_id)
-    
+
+    if user_id == ADMIN_ID and text == "📏 Download Limits":
+        cfg = load_json_file(CONFIG_FILE)
+        limits = cfg.get("site_limits", {})
+        rows = []
+        for domain in ("instagram.com", "tiktok.com", "youtube.com", "facebook.com", "x.com", "reddit.com", "pinterest.com", "snapchat.com"):
+            item = limits.get(domain, {"max_duration_minutes": 10, "max_size_mb": 200})
+            rows.append(f"• {domain}: {item.get('max_duration_minutes', 10)} min / {item.get('max_size_mb', 200)} MB")
+        kb = [[InlineKeyboardButton("Instagram", callback_data="sitepick_instagram.com"), InlineKeyboardButton("TikTok", callback_data="sitepick_tiktok.com")],
+              [InlineKeyboardButton("YouTube", callback_data="sitepick_youtube.com"), InlineKeyboardButton("Facebook", callback_data="sitepick_facebook.com")],
+              [InlineKeyboardButton("X / Twitter", callback_data="sitepick_x.com"), InlineKeyboardButton("Reddit", callback_data="sitepick_reddit.com")],
+              [InlineKeyboardButton("Pinterest", callback_data="sitepick_pinterest.com"), InlineKeyboardButton("Snapchat", callback_data="sitepick_snapchat.com")],
+              [InlineKeyboardButton("✍️ Custom domain", callback_data="sitepick_custom")]]
+        await update.message.reply_text("📏 *Download Limits*\nChoose a platform to edit. Defaults are 10 minutes / 200 MB.\n\n" + "\n".join(rows), parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+        return
+    if user_id == ADMIN_ID and text == "📢 Required Channel":
+        ch = get_required_channel_config()
+        kb = [[InlineKeyboardButton("🔗 Set / Change Channel", callback_data="required_channel_set")],
+              [InlineKeyboardButton("♻️ Use default channel", callback_data="required_channel_default")]]
+        await update.message.reply_text(f"📢 *Required Join Channel*\nCurrent: {ch.get('title','Channel')}\nLink: {ch.get('url')}\n\nSet a new public channel by forwarding one of its posts here, or use its @username.", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+        return
+
     if text == t.get("menu_edit_welcome", "✏️ Edit Welcome Msg") and user_id == ADMIN_ID:
         support_states = load_json_file(SUPPORT_STATES_FILE)
         support_states[str(user_id)] = {"mode": "admin_edit_welcome"}
@@ -3157,7 +3241,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             b_left = profile.get("batch_downloads_left", get_free_amount()*5)
             await update.message.reply_text(t["stats_msg"].format(d_left, b_left), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         return
-    if text == t["menu_join"]: await update.message.reply_text(f"[Join]({PUBLIC_CHANNEL_URL})", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
+    if text == t["menu_join"]: await update.message.reply_text(f"[Join]({required_channel_url()})", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
     if text == t["menu_help"]:
         keyboard = [[InlineKeyboardButton("💬 Open Support", callback_data="open_support")]]
         await update.message.reply_text(f"Support: [Help]({HELP_CHANNEL_URL})", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
@@ -3224,7 +3308,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                     await asyncio.sleep(0.2)
                 except: pass
                 bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
-                keyboard = [[InlineKeyboardButton(f"🔓 Open Link & Watch Timer ⏰ 20s +{get_reward_amount()}", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(f"💜 Check & Get Files ✅ +{get_reward_amount()}", callback_data="verify_user")]]
+                keyboard = [[InlineKeyboardButton(f"🔓 Open Link & Watch Timer ⏰ 20s +{get_reward_amount()}", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=required_channel_url())], [InlineKeyboardButton(f"💜 Check & Get Files ✅ +{get_reward_amount()}", callback_data="verify_user")]]
                 await update.message.reply_text(t["limit_reached"] + ADSTERRA_USER_GUIDE.replace("+1", f"+{get_reward_amount()}"), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 return
     if active_batch_sessions.get(user_id, False): return
@@ -3686,7 +3770,30 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     data = query.data
     chat_id = query.message.chat_id
     lang = get_lang(user_id)
-    
+
+    if data.startswith("sitepick_") and user_id == ADMIN_ID:
+        domain = data[len("sitepick_"):]
+        if domain == "custom":
+            context.user_data["admin_site_limit_wait"] = True
+            await query.answer()
+            await query.message.reply_text("✍️ Send the domain, max duration in minutes and max size in MB.\nExample: instagram.com 10 200", reply_markup=get_main_keyboard(lang, True))
+            return
+        context.user_data["admin_site_limit_domain"] = domain
+        context.user_data["admin_site_limit_wait"] = True
+        await query.answer()
+        await query.message.reply_text(f"✍️ Send the maximum duration and size for {domain}.\nExample: 10 200", reply_markup=get_main_keyboard(lang, True))
+        return
+    if data == "required_channel_set" and user_id == ADMIN_ID:
+        context.user_data["admin_required_channel_wait"] = True
+        await query.answer()
+        await query.message.reply_text("Forward a post from the channel you want users to join, or send its @username. The bot must be an administrator there.", reply_markup=get_main_keyboard(lang, True))
+        return
+    if data == "required_channel_default" and user_id == ADMIN_ID:
+        cfg = load_json_file(CONFIG_FILE); cfg.pop("required_channel", None); save_json_file(CONFIG_FILE, cfg)
+        await query.answer("Default channel restored")
+        await query.message.reply_text(f"✅ Required channel reset to {required_channel_url()}", reply_markup=get_main_keyboard(lang, True))
+        return
+
     if data.startswith("fl_"):
         states = load_json_file(FILE_LINK_STATE_FILE)
         state = states.get(str(user_id))
@@ -3752,7 +3859,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                         else: await query.message.reply_text(t["fl_ad_busy"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
                     else:
                         bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
-                        reward_kb = [[InlineKeyboardButton(f"🔓 Open Link & Watch Timer ⏰ 20s +{get_reward_amount()}", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(f"💜 Check & Get +{get_reward_amount()}", callback_data="verify_user")]]
+                        reward_kb = [[InlineKeyboardButton(f"🔓 Open Link & Watch Timer ⏰ 20s +{get_reward_amount()}", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=required_channel_url())], [InlineKeyboardButton(f"💜 Check & Get +{get_reward_amount()}", callback_data="verify_user")]]
                         await query.message.reply_text(t["limit_reached"] + ADSTERRA_USER_GUIDE.replace("+1", f"+{get_reward_amount()}"), reply_markup=InlineKeyboardMarkup(reward_kb), parse_mode="Markdown")
                     return
                 profile["downloads_left"] = remaining - 1
@@ -4083,7 +4190,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     if data == "verify_user":
         try:
-            member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_USERNAME, user_id=user_id)
+            member = await context.bot.get_chat_member(chat_id=required_channel_chat_id(), user_id=user_id)
             if member.status not in ["creator","administrator","member"]: await query.answer(t["join_channel_first_alert"], show_alert=True); return
         except: await query.answer(t["join_channel_first"], show_alert=True); return
         tokens = load_tokens()
@@ -4163,7 +4270,7 @@ async def send_adsterra_test(message, user_id):
         tokens[uid] = {"user_id": int(user_id), "downloads_left": free, "batch_downloads_left": free * 5, "last_reset": now, "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": now + 600}
     save_tokens(tokens)
     bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
-    keyboard = [[InlineKeyboardButton(f"🔓 Open Link & Watch Timer ⏰ 20s +{get_reward_amount()}", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(f"💜 Check & Get Files ✅ +{get_reward_amount()}", callback_data="verify_user")]]
+    keyboard = [[InlineKeyboardButton(f"🔓 Open Link & Watch Timer ⏰ 20s +{get_reward_amount()}", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=required_channel_url())], [InlineKeyboardButton(f"💜 Check & Get Files ✅ +{get_reward_amount()}", callback_data="verify_user")]]
     await message.reply_text(ADSTERRA_TEST_TEXT.replace("+1", f"+{get_reward_amount()}").replace("4 FREE downloads", f"{get_free_amount()} FREE downloads"), reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def send_test_ad(message, user_id):
