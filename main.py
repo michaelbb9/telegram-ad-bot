@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V10 - Format menu Markdown crash fix (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
+# BOT V11 - Refill shows format+quality picker, no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
 # THIS IS A NEW FILE - NOT THE OLD main.py
 # First line check: if you see this header, you have the NEW file
 # Changes: buttons + join walkthrough + quality selector + DIRECTIONAL cache + PERSISTENT pending (no Expired)
@@ -4148,6 +4148,64 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
         except: pass
         return False
 
+
+async def _resume_pending_link_to_format_menu(bot, chat_id, user_id, retry_url, t):
+    """V11: After refill, show Video/Audio/Images + quality picker instead of auto-downloading.
+    Same menu as a fresh link send. Never calls cached_download_and_send directly."""
+    meta = None
+    try:
+        meta = await asyncio.to_thread(get_social_metadata, retry_url)
+    except Exception:
+        meta = None
+    if meta:
+        title = meta.get("title", "N/A")
+        _d = int(meta.get("duration_sec") or 0)
+        dur = f"{_d // 60}m {_d % 60:02d}s" if _d else "N/A"
+    else:
+        try:
+            title, dur = fetch_url_metadata(retry_url)
+        except Exception:
+            title, dur = "N/A", "N/A"
+    _credit_cost = 1
+    if meta:
+        try:
+            _plat_key = detect_platform_key(retry_url, meta.get("platform", ""))
+            _plat_limits = get_platform_limits(_plat_key)
+            _credit_cost, _time_ok, _size_ok = calculate_cost_and_limits(meta, _plat_limits)
+            if user_id != ADMIN_ID and (not _time_ok or not _size_ok):
+                _why = []
+                if not _time_ok:
+                    _why.append(f"⏱️ Duration {float(meta.get('duration_sec') or 0)/60:.1f} min exceeds {_plat_limits['min']} min limit for {_plat_key}")
+                if not _size_ok:
+                    _why.append(f"📦 Est. size {float(meta.get('est_size_mb') or 0):.1f} MB exceeds {_plat_limits['mb']} MB limit for {_plat_key}")
+                await bot.send_message(chat_id=chat_id, text="❌ Cannot download this link:\n" + "\n".join(_why))
+                return True
+        except Exception:
+            _credit_cost = 1
+    payload_key = f"single_{user_id}_{int(time.time()*1000)}"
+    pending_single_links[payload_key] = retry_url
+    PENDING_META[payload_key] = meta
+    PENDING_CREDIT_COST[payload_key] = _credit_cost
+    _save_pending_file()
+    _fmt_suffix = payload_key
+    try:
+        _yid_fmt = youtube_id_from_url(retry_url) or ""
+        if _yid_fmt:
+            _fmt_suffix = f"yt_{_yid_fmt}"
+    except Exception:
+        pass
+    keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"fmt_vid_{_fmt_suffix}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"fmt_aud_{_fmt_suffix}")],[InlineKeyboardButton(t["btn_image"], callback_data=f"fmt_img_{_fmt_suffix}")]]
+    _cost_line = f"\n💳 Cost: {_credit_cost} credit{'s' if _credit_cost != 1 else ''}" if _credit_cost > 1 else ""
+    _fmt_text = f"✅ Refilled! Your link is ready:\n\n🎬 {title}\n⏱️ {dur}{_cost_line}\n\n{t['ask_format']}\n\n🔗 {retry_url}"
+    try:
+        await bot.send_message(chat_id=chat_id, text=_fmt_text, reply_markup=InlineKeyboardMarkup(keyboard))
+    except Exception:
+        try:
+            await bot.send_message(chat_id=chat_id, text=f"✅ Refilled!\n\n🎬 Video found\n⏱️ {dur}\n\n{t['ask_format']}\n\n🔗 {retry_url}", reply_markup=InlineKeyboardMarkup(keyboard))
+        except Exception as e2:
+            logger.error(f"resume format menu fail: {e2}")
+    return True
+
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     user_id = query.from_user.id
@@ -4669,13 +4727,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
         retry_url = pending_single_links.pop(f"retry_{user_id}", None)
         if retry_url:
-            can_dl = await acquire_slot()
-            if can_dl:
-                try: await cached_download_and_send(context.bot, chat_id, user_id, retry_url, "video", t)
-                finally: await release_slot()
-            else:
-                await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, user_id, retry_url, "video", t), 'kwargs': {}})
-                await context.bot.send_message(chat_id=chat_id, text=t["queued"].format(download_queue.qsize()), reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+            # V11: do NOT auto-download - show format + quality picker so user can choose
+            try: _save_pending_file()
+            except Exception: pass
+            await _resume_pending_link_to_format_menu(context.bot, chat_id, user_id, retry_url, t)
             return
         await context.bot.send_message(chat_id=chat_id, text=t["refilled_send_again"].format(reward), reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         return
@@ -4751,6 +4806,14 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if user_id in paused_batches:
             keyboard = [[InlineKeyboardButton("▶️ Resume Batch +1", callback_data="resume_batch")]]
             await query.message.reply_text(t["resume_prompt"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            return
+        # V11: Adsterra refill - if user had a pending link, show format + quality picker (don't ask to resend)
+        _retry_v = pending_single_links.get(f"retry_{user_id}")
+        if _retry_v:
+            pending_single_links.pop(f"retry_{user_id}", None)
+            try: _save_pending_file()
+            except Exception: pass
+            await _resume_pending_link_to_format_menu(context.bot, chat_id, user_id, _retry_v, t)
             return
         if msg_start==0: 
             await query.message.reply_text(t["refilled_download"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
