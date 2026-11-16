@@ -2558,6 +2558,11 @@ async def file_link_add_media(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def file_to_link_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
+    ok, missing = await check_required_channels(context.bot, user_id)
+    if not ok:
+        await prompt_join_required(context.bot, update.effective_chat.id, user_id, missing)
+        return
+    user_id = update.effective_user.id
     t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
     if is_banned(user_id): await update.effective_message.reply_text(t["banned"]); return
     states = load_json_file(FILE_LINK_STATE_FILE)
@@ -2663,6 +2668,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0):
     if not urls: return
+    ok, missing = await check_required_channels(bot, user_id)
+    if not ok:
+        await prompt_join_required(bot, chat_id, user_id, missing)
+        return
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
     success_count = fail_count = 0
@@ -3432,6 +3441,11 @@ async def set_mtproto_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     except ValueError: await update.message.reply_text("❌ Invalid number.", reply_markup=get_main_keyboard("en", True))
 
 async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
+    # Hard gate: no download if required channels not joined
+    ok, missing = await check_required_channels(bot, user_id)
+    if not ok:
+        await prompt_join_required(bot, chat_id, user_id, missing)
+        return False
     cache = load_json_file(CACHE_FILE)
     ckey = await get_canonical_key(url, chat_id, bot)
     
@@ -3614,10 +3628,17 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_id = query.from_user.id
     t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
     if is_banned(user_id): await query.answer(t["banned"], show_alert=True); return
-    track_user_activity(user_id)
+    track_user_activity(user_id, getattr(query.from_user, "username", None))
     data = query.data
     chat_id = query.message.chat_id
     lang = get_lang(user_id)
+    # Always re-check required channels on every button (except the check/cancel buttons themselves)
+    if data not in ("check_required_channels", "cancel_channel_link", "reqch_list", "reqch_clear", "reqch_add") and not str(data).startswith("reqch_"):
+        ok, missing = await check_required_channels(context.bot, user_id)
+        if not ok:
+            await query.answer("Join the required channels first", show_alert=True)
+            await prompt_join_required(context.bot, chat_id, user_id, missing)
+            return
     
     if data.startswith("fl_"):
         states = load_json_file(FILE_LINK_STATE_FILE)
