@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V18 - From V17 + pause ALWAYS has ad buttons (Monetag fail -> Adsterra + Resume), batch deduct verified + shows before->after, old V16 paused resumes deduct # BOT V17 - From V16 + batch credits fixed: 1 batch = 3, ad adds to ONE counter only, no per-link /check-download (V11 base) + persistent menu grid + batch ad after 3 + batch images (incl mixed fallback) + audio retry + expanded block detection + lux even when blocked + skip poisoned file-cache (no android-first, no probe), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
+# BOT V21 - From V20 + USER 1-tap bug: WebApp polls vault /monetag-status every sec while done, vault adds +3 per poll (3->159 on 1 tap). Batch now LOCAL file only, vault batch ignored # BOT V20 - From V19 + USER acc fix: one ad reward per pause only (Check tap 50x gave 3->159), clamp Batch Left to 30, stats clamps bugged 159/171 # BOT V19 - From V18 + admin ALSO deducts 3 (was exempt but still got +3/ad, so admin only went up 159->171), admin pause = Resume-only no ad, V19 marker # BOT V18 - From V17 + pause ALWAYS has ad buttons (Monetag fail -> Adsterra + Resume), batch deduct verified + shows before->after, old V16 paused resumes deduct # BOT V17 - From V16 + batch credits fixed: 1 batch = 3, ad adds to ONE counter only, no per-link /check-download (V11 base) + persistent menu grid + batch ad after 3 + batch images (incl mixed fallback) + audio retry + expanded block detection + lux even when blocked + skip poisoned file-cache (no android-first, no probe), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
 # THIS IS A NEW FILE - NOT THE OLD main.py
 # First line check: if you see this header, you have the NEW file
 # Changes: buttons + join walkthrough + quality selector + DIRECTIONAL cache + PERSISTENT pending (no Expired)
@@ -1659,17 +1659,61 @@ async def _poll_progress(bot, chat_id, status_msg, download_key, user_id):
         if st.get("status") == "finished":
             break
 
+MAX_BATCH_LEFT = 30  # V20: cap so a bugged 159/171 can never run away again. Legit max is free (3) + a few ads.
+BATCH_CREDITS_FILE = "batch_credits.json"  # V21: bot-local only. Vault's batch_left is IGNORED - vault polls /monetag-status every second while done, so 1 tap added +3 dozens of times (3 -> 159). Local file is written once per tap, never polled.
+def _load_batch_file():
+    try:
+        import json as _js, os as _os
+        if _os.path.exists(BATCH_CREDITS_FILE):
+            with open(BATCH_CREDITS_FILE, "r", encoding="utf-8") as _f: return _js.load(_f)
+    except Exception: pass
+    return {}
+def _save_batch_file(d):
+    try:
+        import json as _js
+        with open(BATCH_CREDITS_FILE, "w", encoding="utf-8") as _f: _js.dump(d, _f)
+    except Exception as e: logger.error(f"save_batch_file: {e}")
+def _get_local_batch(user_id):
+    # V21: first run migrates from vault, but CAPPED at 3 - vault's 159/171 was polluted, do NOT migrate it.
+    _d = _load_batch_file()
+    _k = str(user_id)
+    if _k in _d:
+        try: return min(MAX_BATCH_LEFT, int(_d[_k] or 0))
+        except Exception: return BATCH_AD_AFTER
+    # First V21 run: start fresh at 3 (vault's number is untrusted). Don't copy 159.
+    _d[_k] = BATCH_AD_AFTER; _save_batch_file(_d)
+    return BATCH_AD_AFTER
+def _set_local_batch(user_id, val):
+    _d = _load_batch_file(); _d[str(user_id)] = max(0, min(MAX_BATCH_LEFT, int(val))); _save_batch_file(_d); return _d[str(user_id)]
+def _clamp_batch(prof):
+    # V20: if web vault has a bugged 159/171 from old double-add, clamp it to 30 on next read, don't let it keep growing.
+    try:
+        _b = int(prof.get("batch_downloads_left", BATCH_AD_AFTER) or 0)
+        if _b > MAX_BATCH_LEFT:
+            prof["batch_downloads_left"] = MAX_BATCH_LEFT
+    except Exception:
+        pass
+    return prof
 def _add_credits(user_id, kind, amount):
-    # V17: ad adds (+=) to ONE counter only. Old code did (= reward) to BOTH, so ad could DECREASE you if you had more than reward left.
+    # V17: ad adds (+=) to ONE counter only. V20: + clamp + never add twice for same pause (see reward_given flag).
     try:
         tokens = load_tokens()
         prof = tokens.get(str(user_id))
         if not isinstance(prof, dict):
             prof = {"user_id": int(user_id), "downloads_left": get_free_amount(), "batch_downloads_left": BATCH_AD_AFTER, "last_reset": time.time(), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
+        if kind == "batch":
+            # V21: batch goes to LOCAL file only, never to vault. Vault's /monetag-status polling would re-add it.
+            _cur = _get_local_batch(user_id)
+            _new = _set_local_batch(user_id, _cur + int(amount))
+            # Also keep vault's copy clamped so it doesn't show 159 if anything still reads it.
+            prof = _clamp_batch(prof); prof["batch_downloads_left"] = min(MAX_BATCH_LEFT, _new)
+            tokens[str(user_id)] = prof; save_tokens(tokens)
+            return prof
+        prof = _clamp_batch(prof)
         if kind == "single":
             prof["downloads_left"] = int(prof.get("downloads_left", 0) or 0) + int(amount)
         else:
-            prof["batch_downloads_left"] = int(prof.get("batch_downloads_left", 0) or 0) + int(amount)
+            prof["batch_downloads_left"] = min(MAX_BATCH_LEFT, int(prof.get("batch_downloads_left", 0) or 0) + int(amount))
         tokens[str(user_id)] = prof
         save_tokens(tokens)
         return prof
@@ -1681,31 +1725,18 @@ def _deduct_batch_start(user_id):
     # V18: ONE batch = 3 batch credits, deducted ONCE at start. Returns (ok, new_left, old_left).
     # V17 bug: save_tokens could silently fail / be overwritten by a stale read, so Stats still showed old value.
     # V18 verifies by re-loading after save and retries.
+    # V21: deduct from LOCAL batch file only. Vault's batch_left is ignored (it was polluted to 159 by polling).
     try:
-        tokens = load_tokens()
-        prof = tokens.get(str(user_id))
-        if not isinstance(prof, dict):
-            prof = {"user_id": int(user_id), "downloads_left": get_free_amount(), "batch_downloads_left": BATCH_AD_AFTER, "last_reset": time.time(), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
-        left = int(prof.get("batch_downloads_left", BATCH_AD_AFTER) or 0)
+        left = _get_local_batch(user_id)
         if left < BATCH_COST:
             return False, left, left
-        new_left = left - BATCH_COST
-        prof["batch_downloads_left"] = new_left
-        tokens[str(user_id)] = prof
-        save_tokens(tokens)
-        for _ in range(2):
-            try:
-                _chk = load_tokens().get(str(user_id), {})
-                if int(_chk.get("batch_downloads_left", new_left) or 0) == new_left:
-                    break
-                _cur = int(_chk.get("batch_downloads_left", left) or 0)
-                if _cur >= BATCH_COST:
-                    _chk["batch_downloads_left"] = _cur - BATCH_COST
-                    _tok2 = load_tokens(); _tok2[str(user_id)] = _chk; save_tokens(_tok2)
-                    new_left = _cur - BATCH_COST
-                    break
-            except Exception:
-                break
+        new_left = _set_local_batch(user_id, left - BATCH_COST)
+        # Keep vault copy in sync (clamped) so any old reader doesn't see 159, but local is source of truth.
+        try:
+            tokens = load_tokens(); prof = tokens.get(str(user_id), {})
+            if not isinstance(prof, dict): prof = {"user_id": int(user_id), "downloads_left": get_free_amount(), "batch_downloads_left": new_left, "last_reset": time.time()}
+            prof["batch_downloads_left"] = new_left; tokens[str(user_id)] = prof; save_tokens(tokens)
+        except Exception: pass
         return True, new_left, left
     except Exception as e:
         logger.error(f"deduct_batch: {e}")
@@ -3291,12 +3322,18 @@ async def _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destina
     paused_batches[user_id] = {"urls": urls, "next_index": index, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type, "reason": reason, "paid": (reason == "after_3")}
     # V17: after_3 ad does NOT give credits (batch already paid 3). need_credits ad gives +reward batch credits.
     if reason == "after_3":
-        _pause_text = f"⏸️ **Batch paused after 3 links** ({index}/{len(urls)})\nWatch ad to continue next 3 — no extra credits, batch already paid 3."
+        _pause_text = f"⏸️ **[V21] Batch paused after 3 links** ({index}/{len(urls)})\nWatch ad to continue next 3 — no extra credits, batch already paid 3."
     else:
         _pause_text = t["limit_batch"].format(index, len(urls))
     # V18: NEVER send pause with no buttons. V17 bug: if adsgram_keyboard returned None (monetag-start failed),
     # bot sent text with reply_markup=None, so user saw "Watch ad" but had no button to tap - stuck.
     # Now: Monetag first, if it fails fall back to Adsterra. Always include Check + Resume so user is never stuck.
+    # V19: Admin pause = Resume-only, no ad needed. Normal pause = ad buttons (V18).
+    if user_id == ADMIN_ID:
+        _pause_text = _pause_text + "\n👑 Admin: tap Resume to continue (no ad needed, but batch already paid 3)."
+        keyboard = [[InlineKeyboardButton("▶️ Resume Batch (Admin)", callback_data="resume_batch")]]
+        await bot.send_message(chat_id=chat_id, text=_pause_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        return
     assigned_network = get_global_ab_network(user_id)
     bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
     try:
@@ -3307,7 +3344,7 @@ async def _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destina
         _prof.update({"msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600})
         tokens[str(user_id)] = _prof
         save_tokens(tokens)
-        _cur_batch = int(_prof.get("batch_downloads_left", BATCH_AD_AFTER) or 0)
+        _cur_batch = _get_local_batch(user_id)  # V21: local truth
     except Exception:
         _cur_batch = BATCH_AD_AFTER
     _pause_text = _pause_text + f"\n📊 Batch Left: {_cur_batch}"
@@ -3337,15 +3374,20 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
     active_batch_sessions[user_id] = True
     # V17: ONE batch = 3 batch credits, deducted ONCE at start, never per link. Batch never touches downloads_left.
     # Old code called /check-download on EVERY link - that endpoint deducts again, so 2 links could cost 6 and numbers jumped.
-    if user_id != ADMIN_ID and not already_paid and start_index == 0:
+    # V19: ADMIN ALSO deducts 3. V18 bug: admin was exempt from deduct but still got +3 per ad, so admin Batch Left only went UP (159 -> 171).
+    # Admin still does NOT need to watch ad to resume after 3 - he gets Resume-only - but he DOES pay 3 like everyone else, so stats are testable.
+    if not already_paid and start_index == 0:
         _ok, _new_left, _old_left = _deduct_batch_start(user_id)
         if not _ok:
-            # Not enough batch credits - pause BEFORE starting, ad will give +reward batch credits.
-            await _pause_batch_for_ad(bot, user_id, chat_id, urls, 0, target_destination_id, download_type, t, reason="need_credits")
-            if user_id in active_batch_sessions: del active_batch_sessions[user_id]
-            return
-        _cost_msg = f"\n💳 Batch cost: -3 batch credits | Batch Left: {_old_left} → {_new_left}"
-    elif user_id != ADMIN_ID and already_paid:
+            if user_id == ADMIN_ID:
+                _cost_msg = f"\n💳 Batch cost: -3 (admin free batch, had {_old_left}) | Batch Left: {_old_left}"
+            else:
+                await _pause_batch_for_ad(bot, user_id, chat_id, urls, 0, target_destination_id, download_type, t, reason="need_credits")
+                if user_id in active_batch_sessions: del active_batch_sessions[user_id]
+                return
+        else:
+            _cost_msg = f"\n💳 [V21] Batch cost: -3 batch credits | Batch Left: {_old_left} → {_new_left}"
+    elif already_paid:
         _cost_msg = "\n▶️ Resumed - batch already paid 3, no extra credits."
     else:
         _cost_msg = ""
@@ -3375,7 +3417,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     success_count += 1
                     batch_ad_counter += 1
                     # V16: after 3 in this run, pause for ad/refill (admin exempt, like web-block pause)
-                    if user_id != ADMIN_ID and batch_ad_counter >= BATCH_AD_AFTER and index < len(urls):
+                    if batch_ad_counter >= BATCH_AD_AFTER and index < len(urls):  # V19: admin also pauses, but _pause gives admin Resume-only (no ad)
                         await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, reason="after_3")
                         break
                     continue
@@ -3397,7 +3439,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                         await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
                         success_count += 1
                         batch_ad_counter += 1
-                        if user_id != ADMIN_ID and batch_ad_counter >= BATCH_AD_AFTER and index < len(urls):
+                        if batch_ad_counter >= BATCH_AD_AFTER and index < len(urls):  # V19: admin also pauses, but _pause gives admin Resume-only (no ad)
                             await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, reason="after_3")
                             break
                         continue
@@ -3423,7 +3465,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                         await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
                         success_count += 1
                         batch_ad_counter += 1
-                        if user_id != ADMIN_ID and batch_ad_counter >= BATCH_AD_AFTER and index < len(urls):
+                        if batch_ad_counter >= BATCH_AD_AFTER and index < len(urls):  # V19: admin also pauses, but _pause gives admin Resume-only (no ad)
                             await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, reason="after_3")
                             break
                         continue
@@ -3463,7 +3505,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                 await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
                 success_count += 1
                 batch_ad_counter += 1
-                if user_id != ADMIN_ID and batch_ad_counter >= BATCH_AD_AFTER and index < len(urls):
+                if batch_ad_counter >= BATCH_AD_AFTER and index < len(urls):  # V19: admin also pauses, but _pause gives admin Resume-only (no ad)
                     await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, reason="after_3")
                     break
                 await asyncio.sleep(3)
@@ -3489,7 +3531,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
                     success_count += 1
                     batch_ad_counter += 1
-                    if user_id != ADMIN_ID and batch_ad_counter >= BATCH_AD_AFTER and index < len(urls):
+                    if batch_ad_counter >= BATCH_AD_AFTER and index < len(urls):  # V19: admin also pauses, but _pause gives admin Resume-only (no ad)
                         await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, reason="after_3")
                         break
                 else:
@@ -3509,7 +3551,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
                     success_count += 1
                     batch_ad_counter += 1
-                    if user_id != ADMIN_ID and batch_ad_counter >= BATCH_AD_AFTER and index < len(urls):
+                    if batch_ad_counter >= BATCH_AD_AFTER and index < len(urls):  # V19: admin also pauses, but _pause gives admin Resume-only (no ad)
                         await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, reason="after_3")
                         break
             else:
@@ -3814,7 +3856,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             tokens = load_tokens()
             profile = tokens.get(str(user_id), {})
             d_left = profile.get("downloads_left", get_free_amount())
-            b_left = profile.get("batch_downloads_left", BATCH_AD_AFTER)
+            b_left = _get_local_batch(user_id)  # V21: local is truth, vault's 159/171 ignored
             await update.message.reply_text(t["stats_msg"].format(d_left, b_left), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         return
     if text == t["menu_join"]: await update.message.reply_text(f"[Join]({PUBLIC_CHANNEL_URL})", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
@@ -5035,15 +5077,20 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if not token_data.get("verified", False): await query.answer(t["finish_timer_first"], show_alert=True); return
         msg_start, msg_end = token_data.get("msg_start",0), token_data.get("msg_end",0)
         reward = get_reward_amount()
-        # V17: ad adds (+=) to ONE counter only. Old code overwrote BOTH to reward, so ad could DECREASE you (165 -> 3).
+        # V20: ONE reward per pause. Old code left paused_batches in place, so tapping Check & Get 5x gave +15, 50x gave +150 (3 -> 159 bug).
+        # Now: if this pause already gave a reward, don't add again, just show Resume.
         if user_id in paused_batches:
             _pr = paused_batches[user_id].get("reason")
-            if _pr == "need_credits":
+            if paused_batches[user_id].get("reward_given"):
+                pass  # already rewarded for this pause, don't double-add
+            elif _pr == "need_credits":
                 _add_credits(user_id, "batch", reward)
+                paused_batches[user_id]["reward_given"] = True
             elif _pr == "after_3":
                 pass  # mid-batch ad: no credits change, batch already paid 3
             else:
                 _add_credits(user_id, "single", reward)
+                paused_batches[user_id]["reward_given"] = True
         elif pending_single_links.get(f"retry_{user_id}"):
             _add_credits(user_id, "single", reward)
         else:
