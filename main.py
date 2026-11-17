@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V28 - From V27 + V16 ad cold-start fix: adsgram_start/status retry 2x 15s, /testad Retry button. Batch fix kept. # BOT V27 - From V16, BATCH ONLY: 1 batch=3 no matter links, batch ad ONLY batch, single ad ONLY normal, cap 5/5, pause after every 3. Ad server functions UNTOUCHED. # BOT V16 - From V15 (V11 base) + persistent menu grid + batch ad after 3 + batch images (incl mixed fallback) + audio retry + expanded block detection + lux even when blocked + skip poisoned file-cache (no android-first, no probe), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
+# BOT V31 - From V30 + credits ALSO saved in user_activity.json (backup), vault failure/reset can't wipe 5/2 to 4/3. # BOT V30 - From V29 + vault timeout fix: load/save_tokens retry 2x 15s, My Stats never shows fake 4/3 on vault timeout. 24h fix kept. # BOT V29 - From V28 + 24h reset never lowers you (max, not overwrite), so leave/rejoin can't reset 5/2 to 4/3. # BOT V28 - From V27 + V16 ad cold-start fix: adsgram_start/status retry 2x 15s, /testad Retry button. Batch fix kept. # BOT V27 - From V16, BATCH ONLY: 1 batch=3 no matter links, batch ad ONLY batch, single ad ONLY normal, cap 5/5, pause after every 3. Ad server functions UNTOUCHED. # BOT V16 - From V15 (V11 base) + persistent menu grid + batch ad after 3 + batch images (incl mixed fallback) + audio retry + expanded block detection + lux even when blocked + skip poisoned file-cache (no android-first, no probe), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
 # THIS IS A NEW FILE - NOT THE OLD main.py
 # First line check: if you see this header, you have the NEW file
 # Changes: buttons + join walkthrough + quality selector + DIRECTIONAL cache + PERSISTENT pending (no Expired)
@@ -2218,15 +2218,67 @@ def _add_normal_v27(user_id, amt):
 
 
 def load_tokens():
+    # V30: V16 did 1 try, 5s - vault cold-start times out, returns {}, My Stats then shows fake defaults 4/3. Now 2 tries, 15s.
+    for _attempt in range(2):
+        try:
+            response = requests.get(f"{WEB_BASE_URL}/get_tokens", headers=API_HEADERS, timeout=15)
+            if response.status_code == 200:
+                _tok = response.json()
+                # V31: if vault reset a user down (e.g. 5->4), restore higher backup from activity, never lower.
+                return _restore_credits_from_activity(_tok if isinstance(_tok, dict) else {})
+        except Exception as e: logger.error(f"Tokens attempt {_attempt+1}: {e}")
+    # V31: vault didn't answer at all - return activity backup, not {}.
     try:
-        response = requests.get(f"{WEB_BASE_URL}/get_tokens", headers=API_HEADERS, timeout=5)
-        if response.status_code == 200: return response.json()
-    except Exception as e: logger.error(f"Tokens: {e}")
+        _act = load_json_file(ACTIVITY_FILE)
+        _tok2 = {}
+        for _uid, _a in _act.items():
+            if isinstance(_a, dict) and ("saved_downloads_left" in _a or "saved_batch_left" in _a):
+                _tok2[str(_uid)] = {"user_id": int(_uid), "downloads_left": int(_a.get("saved_downloads_left", get_free_amount()) or 0), "batch_downloads_left": int(_a.get("saved_batch_left", 3) or 0), "last_reset": _a.get("saved_last_reset", time.time())}
+        if _tok2: return _tok2
+    except Exception: pass
     return {}
 
+def _backup_credits_to_activity(tokens):
+    # V31: credits MUST also live in user_activity.json, not only vault. If vault fails/resets, activity restores them.
+    try:
+        _act = load_json_file(ACTIVITY_FILE)
+        for _uid, _prof in (tokens or {}).items():
+            if not isinstance(_prof, dict): continue
+            _a = _act.get(str(_uid), {})
+            if "downloads_left" in _prof: _a["saved_downloads_left"] = int(_prof.get("downloads_left", 0) or 0)
+            if "batch_downloads_left" in _prof: _a["saved_batch_left"] = int(_prof.get("batch_downloads_left", 0) or 0)
+            if "last_reset" in _prof: _a["saved_last_reset"] = _prof.get("last_reset")
+            _act[str(_uid)] = _a
+        save_json_file(ACTIVITY_FILE, _act)
+    except Exception as e: logger.error(f"Backup credits: {e}")
+def _restore_credits_from_activity(tokens):
+    # V31: if vault returned empty / missing user, fill from activity backup, don't show fake 4/3.
+    try:
+        _act = load_json_file(ACTIVITY_FILE)
+        for _uid, _a in _act.items():
+            if not isinstance(_a, dict): continue
+            if str(_uid) not in (tokens or {}) or not isinstance(tokens.get(str(_uid)), dict):
+                if "saved_downloads_left" in _a or "saved_batch_left" in _a:
+                    tokens[str(_uid)] = {"user_id": int(_uid), "downloads_left": int(_a.get("saved_downloads_left", get_free_amount()) or 0), "batch_downloads_left": int(_a.get("saved_batch_left", 3) or 0), "last_reset": _a.get("saved_last_reset", time.time())}
+            else:
+                # Vault has user but maybe reset to free - if activity backup is higher, keep higher (never lower on vault reset)
+                _prof = tokens[str(_uid)]
+                if "saved_downloads_left" in _a and int(_a.get("saved_downloads_left", 0) or 0) > int(_prof.get("downloads_left", 0) or 0):
+                    _prof["downloads_left"] = int(_a.get("saved_downloads_left"))
+                if "saved_batch_left" in _a and int(_a.get("saved_batch_left", 0) or 0) > int(_prof.get("batch_downloads_left", 0) or 0):
+                    _prof["batch_downloads_left"] = int(_a.get("saved_batch_left"))
+    except Exception as e: logger.error(f"Restore credits: {e}")
+    return tokens
 def save_tokens(tokens):
-    try: requests.post(f"{WEB_BASE_URL}/save_tokens", json=tokens, headers=API_HEADERS, timeout=5)
-    except Exception as e: logger.error(f"Save tokens: {e}")
+    # V31: always backup to activity first, so vault failure can't lose credits.
+    try: _backup_credits_to_activity(tokens)
+    except Exception: pass
+    # V30: same retry, so a cold vault doesn't silently drop a credit change.
+    for _attempt in range(2):
+        try:
+            r = requests.post(f"{WEB_BASE_URL}/save_tokens", json=tokens, headers=API_HEADERS, timeout=15)
+            if r.status_code == 200: return
+        except Exception as e: logger.error(f"Save tokens attempt {_attempt+1}: {e}")
 
 def adsgram_start(user_id, kind="wall", msg_start=0, msg_end=0):
     # V28: V16 did 1 try, 8s - vault cold-start takes >8s, so 1st/2nd tap failed, 3rd worked. Now 2 tries, 15s each.
@@ -3796,6 +3848,10 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         else:
             tokens = load_tokens()
             profile = tokens.get(str(user_id), {})
+            if not tokens or str(user_id) not in tokens:
+                # V30: vault didn't answer - don't show fake 4/3. Tell user to retry, don't pretend it reset.
+                await update.message.reply_text("⚠️ Vault busy (cold start), your credits didn't reset - tap My Stats again in a few seconds.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+                return
             d_left = profile.get("downloads_left", get_free_amount())
             b_left = _get_batch(user_id)  # V27: local batch, cap 5
             # V27: cap normal to 5 on read too (old 9 -> 5)
@@ -4596,7 +4652,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 if not isinstance(profile, dict): profile = {"user_id": int(user_id), "downloads_left": get_free_amount(), "batch_downloads_left": BATCH_AD_AFTER, "last_reset": time.time()}
                 try:
                     last_reset = float(profile.get("last_reset", 0) or 0)
-                    if time.time() - last_reset >= 86400: profile["downloads_left"] = get_free_amount(); profile["batch_downloads_left"] = BATCH_AD_AFTER; profile["last_reset"] = time.time()
+                    if time.time() - last_reset >= 86400: profile["downloads_left"] = max(int(profile.get("downloads_left", 0) or 0), get_free_amount()); profile["batch_downloads_left"] = max(int(profile.get("batch_downloads_left", 0) or 0), BATCH_AD_AFTER); profile["last_reset"] = time.time()  # V29: 24h reset never lowers you - 5 stays 5, 2 stays 2, only tops up if below free
                 except: pass
                 remaining = int(profile.get("downloads_left", get_free_amount()) or 0)
                 if remaining <= 0:
