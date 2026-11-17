@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V27 - From V16, BATCH ONLY: 1 batch=3 no matter links, batch ad ONLY batch, single ad ONLY normal, cap 5/5, pause after every 3. Ad server functions UNTOUCHED. # BOT V16 - From V15 (V11 base) + persistent menu grid + batch ad after 3 + batch images (incl mixed fallback) + audio retry + expanded block detection + lux even when blocked + skip poisoned file-cache (no android-first, no probe), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
+# BOT V28 - From V27 + V16 ad cold-start fix: adsgram_start/status retry 2x 15s, /testad Retry button. Batch fix kept. # BOT V27 - From V16, BATCH ONLY: 1 batch=3 no matter links, batch ad ONLY batch, single ad ONLY normal, cap 5/5, pause after every 3. Ad server functions UNTOUCHED. # BOT V16 - From V15 (V11 base) + persistent menu grid + batch ad after 3 + batch images (incl mixed fallback) + audio retry + expanded block detection + lux even when blocked + skip poisoned file-cache (no android-first, no probe), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
 # THIS IS A NEW FILE - NOT THE OLD main.py
 # First line check: if you see this header, you have the NEW file
 # Changes: buttons + join walkthrough + quality selector + DIRECTIONAL cache + PERSISTENT pending (no Expired)
@@ -2229,18 +2229,25 @@ def save_tokens(tokens):
     except Exception as e: logger.error(f"Save tokens: {e}")
 
 def adsgram_start(user_id, kind="wall", msg_start=0, msg_end=0):
-    try:
-        r = requests.post(f"{WEB_BASE_URL}/monetag-start", json={"user_id": int(user_id), "kind": kind, "msg_start": int(msg_start), "msg_end": int(msg_end), "secret": API_SECRET}, timeout=8)
-        if r.status_code == 200: return r.json().get("nonce")
-        logger.error(f"adsgram_start HTTP {r.status_code}: {r.text[:200]}")
-    except Exception as e: logger.error(f"adsgram_start: {e}")
+    # V28: V16 did 1 try, 8s - vault cold-start takes >8s, so 1st/2nd tap failed, 3rd worked. Now 2 tries, 15s each.
+    for _attempt in range(2):
+        try:
+            r = requests.post(f"{WEB_BASE_URL}/monetag-start", json={"user_id": int(user_id), "kind": kind, "msg_start": int(msg_start), "msg_end": int(msg_end), "secret": API_SECRET}, timeout=15)
+            if r.status_code == 200: return r.json().get("nonce")
+            logger.error(f"adsgram_start HTTP {r.status_code}: {r.text[:200]}")
+        except Exception as e: logger.error(f"adsgram_start attempt {_attempt+1}: {e}")
+        try:
+            import time as _time; _time.sleep(1)
+        except Exception: pass
     return None
 
 def adsgram_status(user_id):
-    try:
-        r = requests.post(f"{WEB_BASE_URL}/monetag-status", json={"user_id": int(user_id), "secret": API_SECRET}, timeout=8)
-        if r.status_code == 200: return r.json()
-    except Exception as e: logger.error(f"adsgram_status: {e}")
+    # V28: same cold-start retry as adsgram_start, so Check & Get doesn't say expired on first tap.
+    for _attempt in range(2):
+        try:
+            r = requests.post(f"{WEB_BASE_URL}/monetag-status", json={"user_id": int(user_id), "secret": API_SECRET}, timeout=15)
+            if r.status_code == 200: return r.json()
+        except Exception as e: logger.error(f"adsgram_status attempt {_attempt+1}: {e}")
     return {"status": "error"}
 
 def adsgram_keyboard(user_id, kind="wall", msg_start=0, msg_end=0, extra_rows=None):
@@ -4905,6 +4912,11 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.message.reply_text(t["monetag_fallback_prompt"] + ADSTERRA_USER_GUIDE, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔓 Open Adsterra Link", url=bridge_link)], [InlineKeyboardButton("✅ Check & Get +1", callback_data="verify_user")]]), parse_mode="Markdown")
         await query.answer(t["adsterra_ready"], show_alert=True)
         return
+    if data == "retry_testad":
+        try: await query.message.delete()
+        except: pass
+        await send_adsgram_test(query.message, user_id)
+        return
     if data in ("monetag_check", "adsgram_check"):
         st = adsgram_status(user_id)
         if st.get("status") == "pending": await query.answer(t["finish_monetag"], show_alert=True); return
@@ -5089,7 +5101,10 @@ TEST_AD_TEXT = "🧪 AD PLACEMENT TEST\n\n1️⃣ User sends link\n2️⃣ User 
 async def send_adsgram_test(message, user_id):
     extra = [[InlineKeyboardButton("🛠 Admin: simulate ad finished", callback_data="admin_sim_ad")]] if user_id == ADMIN_ID else None
     kb = adsgram_keyboard(user_id, "test", 0, 0, extra)
-    if not kb: await message.reply_text("⚠️ Ad server not reachable.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)); return
+    if not kb:
+        # V28: V16 just said not reachable, user had to spam /testad 3x. Now give Retry button that does same retry.
+        _retry_kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Retry Ad Server", callback_data="retry_testad")]])
+        await message.reply_text("⚠️ Ad server waking up (cold start), tap Retry - it usually works on 2nd try.", reply_markup=_retry_kb); return
     await message.reply_text(TEST_AD_TEXT, reply_markup=kb)
 
 ADSTERRA_TEST_TEXT = "🧪 AD PLACEMENT TEST (Adsterra)\n\n1️⃣ User sends link\n2️⃣ LIMIT REACHED screen appears\n3️⃣ Stay 20s on ad page\n4️⃣ Tap Check & Get +1\n\n👇 TRY THE AD NOW:" + ADSTERRA_USER_GUIDE
