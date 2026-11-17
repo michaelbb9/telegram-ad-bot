@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V11 - Refill shows format+quality picker, no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
+# BOT V12 - Audio first-hit retry + error never silent + V11 fixes, no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
 # THIS IS A NEW FILE - NOT THE OLD main.py
 # First line check: if you see this header, you have the NEW file
 # Changes: buttons + join walkthrough + quality selector + DIRECTIONAL cache + PERSISTENT pending (no Expired)
@@ -2755,17 +2755,38 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
     # ============================================================
     
     if download_type == 'audio':
-        ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            base = os.path.splitext(ydl.prepare_filename(info))[0]
-            path = f"{base}.mp3"
-            if os.path.exists(path):
-                if os.path.getsize(path) > cap_bytes:
-                    os.remove(path)
-                    raise ValueError("FILE_TOO_LARGE")
-                save_to_file_cache(url, "audio", path)  # PART 2: cache fresh file for next time
-                return [path], "audio", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
+        # V12: same YouTube first-hit retry as video. YouTube often blocks 1st hit (429 / not-a-bot)
+        # but lets 2nd through - without this, audio fails first time then works on resend.
+        for _attempt in range(2):
+            try:
+                ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    base = os.path.splitext(ydl.prepare_filename(info))[0]
+                    path = f"{base}.mp3"
+                    if os.path.exists(path):
+                        if os.path.getsize(path) > cap_bytes:
+                            os.remove(path)
+                            raise ValueError("FILE_TOO_LARGE")
+                        save_to_file_cache(url, "audio", path)  # PART 2: cache fresh file for next time
+                        return [path], "audio", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
+                raise ValueError("FILE_NOT_FOUND")
+            except ValueError as _ve:
+                # FILE_TOO_LARGE / FILE_NOT_FOUND are real - don't retry those
+                raise
+            except Exception as _ae:
+                _msg = str(_ae).lower()
+                _blocked = ("not a bot" in _msg or "sign in to confirm" in _msg or "http error 429" in _msg or "429" in _msg)
+                if _blocked and _attempt == 0:
+                    try:
+                        import time as _t_retry
+                        _t_retry.sleep(5)
+                    except Exception:
+                        pass
+                    continue
+                if _blocked:
+                    raise ValueError("SITE_BLOCKED")
+                raise
         raise ValueError("FILE_NOT_FOUND")
     elif download_type == 'images':
         img_url = scrape_html_images(url, cookiefile)
@@ -4144,8 +4165,14 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
         elif isinstance(e, (asyncio.TimeoutError, TimeoutError)): err = "⚠️ This is taking too long, so I stopped. Please try again later."
         else: err = t["error_generic"]
         kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
-        try: await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=err, reply_markup=kb)
-        except: pass
+        # V12: error must never be silent. If editing Fetching... fails, send a fresh message.
+        try:
+            await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=err, reply_markup=kb)
+        except Exception:
+            try:
+                await bot.send_message(chat_id=chat_id, text=err, reply_markup=kb)
+            except Exception:
+                pass
         return False
 
 
