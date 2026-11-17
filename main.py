@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V15 - From V11 clean base + audio retry + expanded block detection + lux even when blocked + skip poisoned file-cache (no android-first, no probe), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
+# BOT V16 - From V15 (V11 base) + persistent menu grid + batch ad after 3 + batch images (incl mixed fallback) + audio retry + expanded block detection + lux even when blocked + skip poisoned file-cache (no android-first, no probe), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
 # THIS IS A NEW FILE - NOT THE OLD main.py
 # First line check: if you see this header, you have the NEW file
 # Changes: buttons + join walkthrough + quality selector + DIRECTIONAL cache + PERSISTENT pending (no Expired)
@@ -100,6 +100,7 @@ CACHE_FOLDER = "./download_cache/"
 # PART 4: defaults — overridden per-platform by bot_settings.json
 DEFAULT_MIN_LIMIT = 10
 DEFAULT_MB_LIMIT = 200
+BATCH_AD_AFTER = 3  # V16: batch pauses for ad/refill after every 3 downloads (was 20 via free*5)
 THRESHOLD_3CREDIT_MB = 100
 # PART 6: pending /setbatchchannel state (user_id -> True while waiting for a forwarded channel msg)
 USER_PENDING_BATCH_CHANNEL = {}
@@ -1900,7 +1901,7 @@ async def send_join_prompt(bot, chat_id, user_id, missing):
         except Exception as e:
             logger.error(f"send_join_prompt: {e}")
 
-async def send_meta_after(bot, chat_id, url, meta):
+async def send_meta_after(bot, chat_id, url, meta, user_id=None):
     try:
         m = meta
         if m is None:
@@ -1913,11 +1914,16 @@ async def send_meta_after(bot, chat_id, url, meta):
         card = format_social_metadata(m)
         if not card:
             return
+        # V16: attach main keyboard so grid stays after metadata card (it is the last message).
+        _mkb = None
+        if user_id is not None:
+            try: _mkb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
+            except Exception: _mkb = None
         try:
-            await bot.send_message(chat_id=chat_id, text=card, parse_mode="Markdown")
+            await bot.send_message(chat_id=chat_id, text=card, parse_mode="Markdown", reply_markup=_mkb)
         except Exception:
             try:
-                await bot.send_message(chat_id=chat_id, text=card)
+                await bot.send_message(chat_id=chat_id, text=card, reply_markup=_mkb)
             except Exception:
                 pass
     except Exception as e:
@@ -2942,7 +2948,12 @@ def get_main_keyboard(lang_code, is_admin):
         keyboard.append([KeyboardButton(t["menu_uploads"]), KeyboardButton("⚡ Create Flash Drop")])
         keyboard.append([KeyboardButton("🎁 Set Reward (1/2/3/5)"), KeyboardButton("📦 Set Free DL (2/3/4/5)")])
         keyboard.append([KeyboardButton(t["menu_edit_welcome"])])
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    # V16 FIX: grid disappears because keyboard was not persistent and input had no placeholder.
+    # is_persistent=True keeps the grid button always visible, placeholder shows "Send link" when tapped.
+    try:
+        return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False, is_persistent=True, input_field_placeholder="Send link \U0001F517")
+    except TypeError:
+        return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_downloads_usage_mb():
     try:
@@ -3203,11 +3214,27 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         except Exception as e2: logger.error(f"Copy failed: {e2}")
     await update.message.reply_text("👇 **CONTENT LOCKED 🔒**" + ADSTERRA_USER_GUIDE, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
+async def _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t):
+    # V16: pause after 3, show ad/refill, resume continues from next_index. Same ad logic as web-block pause.
+    paused_batches[user_id] = {"urls": urls, "next_index": index, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
+    assigned_network = get_global_ab_network(user_id)
+    if assigned_network == "monetag":
+        kb = adsgram_keyboard(user_id, "wall", 0, 0)
+        await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=kb, parse_mode="Markdown")
+    else:
+        bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
+        tokens = load_tokens()
+        tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
+        save_tokens(tokens)
+        keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)]]
+        await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
 async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0):
     if not urls: return
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
     success_count = fail_count = 0
+    batch_ad_counter = 0  # V16: counts successes in THIS run only, resets on resume so ad shows every 3
     active_batch_sessions[user_id] = True
     stop_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop Batch", callback_data="stop_batch")]])
     batch_notice = await bot.send_message(chat_id=chat_id, text=t["batch_start"].format(download_type.upper(), len(urls)), reply_markup=stop_markup, parse_mode="Markdown")
@@ -3253,10 +3280,35 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     save_json_file(CACHE_FILE, cache)
                     await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
                     success_count += 1
+                    batch_ad_counter += 1
+                    # V16: after 3 in this run, pause for ad/refill (admin exempt, like web-block pause)
+                    if user_id != ADMIN_ID and batch_ad_counter >= BATCH_AD_AFTER and index < len(urls):
+                        await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t)
+                        break
                     continue
                 except Exception as e: logger.error(f"Batch carousel cache fail {ckey}: {e}")
             # =============================================
             
+            # V16: images cache hit - for images batch, and for video batch where link is actually an image (mixed batch).
+            if ckey in cache and cache[ckey].get("type") == "images":
+                _cq = cache[ckey].get("qualities", {})
+                if "original" in _cq:
+                    try:
+                        _cached_img = _cq["original"]
+                        sent = await bot.send_photo(chat_id=target_destination_id, photo=_cached_img["file_id"], caption=f"Item {index}/{len(urls)} ⚡ Cached [original]")
+                        if target_destination_id == chat_id:
+                            warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
+                            asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
+                        cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
+                        save_json_file(CACHE_FILE, cache)
+                        await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+                        success_count += 1
+                        batch_ad_counter += 1
+                        if user_id != ADMIN_ID and batch_ad_counter >= BATCH_AD_AFTER and index < len(urls):
+                            await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t)
+                            break
+                        continue
+                    except Exception as e: logger.error(f"Batch image cache fail {ckey}: {e}")
             if ckey in cache and cache[ckey].get("type") == "video":
                 qualities_order = ["1080p", "720p", "480p", "360p", "240p", "worst"]
                 cached_qualities = cache[ckey].get("qualities", {})
@@ -3277,6 +3329,10 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                         save_json_file(CACHE_FILE, cache)
                         await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
                         success_count += 1
+                        batch_ad_counter += 1
+                        if user_id != ADMIN_ID and batch_ad_counter >= BATCH_AD_AFTER and index < len(urls):
+                            await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t)
+                            break
                         continue
                     except Exception as e: logger.error(f"Batch cache fail {ckey}: {e}")
             
@@ -3285,7 +3341,21 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             effective_max_mb = mtproto_limit_mb()
             if free_mb < min_free + 150: effective_max_mb = min(effective_max_mb, 50)
                 
-            file_paths, res, size = await asyncio.to_thread(download_media_engine, url, download_type, effective_max_mb)
+            # V16: fresh download - if video fails and link is actually an image (mixed batch), fall back to images engine.
+            _eff_dl_type = download_type
+            file_paths, res, size = None, None, None
+            try:
+                file_paths, res, size = await asyncio.to_thread(download_media_engine, url, download_type, effective_max_mb)
+            except Exception:
+                file_paths = None
+            if (not file_paths) and download_type in ("video", "audio"):
+                try:
+                    _fp2, _res2, _sz2 = await asyncio.to_thread(download_media_engine, url, "images", effective_max_mb)
+                    if _fp2:
+                        file_paths, res, size = _fp2, _res2, _sz2
+                        _eff_dl_type = "images"
+                except Exception:
+                    file_paths = None
 
             # ===== EDIT D2: batch fresh carousel =====
             if file_paths and res == "carousel":
@@ -3299,26 +3369,56 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     shutil.rmtree(os.path.dirname(file_paths[0]), ignore_errors=True)
                 await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
                 success_count += 1
+                batch_ad_counter += 1
+                if user_id != ADMIN_ID and batch_ad_counter >= BATCH_AD_AFTER and index < len(urls):
+                    await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t)
+                    break
                 await asyncio.sleep(3)
                 continue
             # =========================================
 
             if file_paths and os.path.exists(file_paths[0]):
-                qual_tag = f"[{res}]"
-                sent = await send_video_file(bot, chat_id, target_destination_id, file_paths[0], f"Item {index}/{len(urls)} {qual_tag} Size {size}", None, status_msg)
-                if target_destination_id == chat_id:
-                    warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
-                    asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
-                try:
-                    vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent.video.file_id, caption=f"{ckey} [{res}]")
-                    cache = load_json_file(CACHE_FILE)
-                    if ckey not in cache: cache[ckey] = {"type": "video", "timestamp": time.time(), "qualities": {}, "hits": 0}
-                    cache[ckey]["qualities"][res] = {"file_id": sent.video.file_id, "vault_msg_id": vmsg.message_id, "size": size}
-                    save_json_file(CACHE_FILE, cache)
-                except Exception as e: logger.error(f"Vault save: {e}")
-                os.remove(file_paths[0])
-                await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
-                success_count += 1
+                # V16: images batch / image fallback sends as photo, not video. Same image engine as single download.
+                if _eff_dl_type == "images" and res == "original":
+                    sent = await bot.send_photo(chat_id=target_destination_id, photo=open(file_paths[0], 'rb'), caption=f"Item {index}/{len(urls)} [original] Size {size}")
+                    if target_destination_id == chat_id:
+                        warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
+                        asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
+                    try:
+                        vmsg = await bot.send_photo(chat_id=VIDEO_VAULT_ID, photo=sent.photo[-1].file_id, caption=ckey)
+                        cache = load_json_file(CACHE_FILE)
+                        if ckey not in cache: cache[ckey] = {"type": "images", "timestamp": time.time(), "qualities": {}, "hits": 0}
+                        cache[ckey]["type"] = "images"
+                        cache[ckey]["qualities"]["original"] = {"file_id": sent.photo[-1].file_id, "vault_msg_id": vmsg.message_id, "size": size}
+                        save_json_file(CACHE_FILE, cache)
+                    except Exception as e: logger.error(f"Vault save img: {e}")
+                    os.remove(file_paths[0])
+                    await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+                    success_count += 1
+                    batch_ad_counter += 1
+                    if user_id != ADMIN_ID and batch_ad_counter >= BATCH_AD_AFTER and index < len(urls):
+                        await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t)
+                        break
+                else:
+                    qual_tag = f"[{res}]"
+                    sent = await send_video_file(bot, chat_id, target_destination_id, file_paths[0], f"Item {index}/{len(urls)} {qual_tag} Size {size}", None, status_msg)
+                    if target_destination_id == chat_id:
+                        warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
+                        asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
+                    try:
+                        vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent.video.file_id, caption=f"{ckey} [{res}]")
+                        cache = load_json_file(CACHE_FILE)
+                        if ckey not in cache: cache[ckey] = {"type": "video", "timestamp": time.time(), "qualities": {}, "hits": 0}
+                        cache[ckey]["qualities"][res] = {"file_id": sent.video.file_id, "vault_msg_id": vmsg.message_id, "size": size}
+                        save_json_file(CACHE_FILE, cache)
+                    except Exception as e: logger.error(f"Vault save: {e}")
+                    os.remove(file_paths[0])
+                    await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+                    success_count += 1
+                    batch_ad_counter += 1
+                    if user_id != ADMIN_ID and batch_ad_counter >= BATCH_AD_AFTER and index < len(urls):
+                        await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t)
+                        break
             else:
                 await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}] {t['failed_generic']}")
                 fail_count += 1
@@ -3621,7 +3721,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             tokens = load_tokens()
             profile = tokens.get(str(user_id), {})
             d_left = profile.get("downloads_left", get_free_amount())
-            b_left = profile.get("batch_downloads_left", get_free_amount()*5)
+            b_left = profile.get("batch_downloads_left", BATCH_AD_AFTER)
             await update.message.reply_text(t["stats_msg"].format(d_left, b_left), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         return
     if text == t["menu_join"]: await update.message.reply_text(f"[Join]({PUBLIC_CHANNEL_URL})", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
@@ -3707,7 +3807,8 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if len(extracted_urls) > 1:
         payload_key = f"batch_{user_id}_{int(time.time())}"
         pending_batch_payloads[payload_key] = extracted_urls
-        keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"batchtype_video_{payload_key}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"batchtype_audio_{payload_key}")]]
+        # V16: batch had no Images option, so image links failed. Add it - same image engine as single.
+        keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"batchtype_video_{payload_key}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"batchtype_audio_{payload_key}")],[InlineKeyboardButton(t["btn_image"], callback_data=f"batchtype_images_{payload_key}")]]
         await update.message.reply_text(t["batch_detected"].format(len(extracted_urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     url = extracted_urls[0]
@@ -3831,7 +3932,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if not urls: await update.message.reply_text(t["no_links"], reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)); return
         payload_key = f"batch_{user_id}_{int(time.time())}"
         pending_batch_payloads[payload_key] = urls
-        keyboard = [[InlineKeyboardButton("🎬 Video", callback_data=f"batchtype_video_{payload_key}")]]
+        # V16: .txt batch had only Video, so image links failed. Add Audio + Images.
+        keyboard = [[InlineKeyboardButton("🎬 Video", callback_data=f"batchtype_video_{payload_key}")],[InlineKeyboardButton("🎵 Audio", callback_data=f"batchtype_audio_{payload_key}")],[InlineKeyboardButton("🖼️ Images", callback_data=f"batchtype_images_{payload_key}")]]
         await update.message.reply_text(t["batch_count"].format(len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     except Exception as e: logger.error(f"File: {e}")
 
@@ -3989,7 +4091,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
             cache[ckey]["hits"] = cache[ckey].get("hits", 0) + 1
             save_json_file(CACHE_FILE, cache)
             deduct_credits(user_id, credit_cost, is_batch=False)
-            await send_meta_after(bot, chat_id, url, meta)
+            await send_meta_after(bot, chat_id, url, meta, user_id=user_id)
             return True
         except Exception as e:
             logger.error(f"Carousel cache hit failed {ckey}: {e}")  # falls through to re-download
@@ -4038,7 +4140,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
                     cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
                     save_json_file(CACHE_FILE, cache)
                     deduct_credits(user_id, credit_cost, is_batch=False)
-                    await send_meta_after(bot, chat_id, url, meta)
+                    await send_meta_after(bot, chat_id, url, meta, user_id=user_id)
                     return True
             except Exception as e:
                 logger.error(f"Cache send fail {ckey} {best_cached_quality}: {e}")
@@ -4052,7 +4154,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
                         cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
                         save_json_file(CACHE_FILE, cache)
                         deduct_credits(user_id, credit_cost, is_batch=False)
-                        await send_meta_after(bot, chat_id, url, meta)
+                        await send_meta_after(bot, chat_id, url, meta, user_id=user_id)
                         return True
                 except Exception as e2:
                     logger.error(f"Vault fallback fail: {e2}")
@@ -4101,7 +4203,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
             await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
             deduct_credits(user_id, credit_cost, is_batch=False)
             await bot.send_message(chat_id=chat_id, text=t["download_success"], reply_markup=kb)
-            await send_meta_after(bot, chat_id, url, meta)
+            await send_meta_after(bot, chat_id, url, meta, user_id=user_id)
             return True
         # =============================================
 
@@ -4144,7 +4246,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
         deduct_credits(user_id, credit_cost, is_batch=False)
         
         await bot.send_message(chat_id=chat_id, text=t["download_success"], reply_markup=kb)
-        await send_meta_after(bot, chat_id, url, meta)
+        await send_meta_after(bot, chat_id, url, meta, user_id=user_id)
         return True
     except Exception as e:
         try:
@@ -4168,7 +4270,10 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
         elif isinstance(e, (asyncio.TimeoutError, TimeoutError)): err = "⚠️ This is taking too long, so I stopped. Please try again later."
         else: err = t["error_generic"]
         kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
-        try: await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=err, reply_markup=kb)
+        # V16: edit_message_text cannot carry a ReplyKeyboard (only Inline). Edit text only, then send a new msg with kb so grid re-appears.
+        try: await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=err)
+        except: pass
+        try: await bot.send_message(chat_id=chat_id, text="\U0001F447 Send another link \U0001F517", reply_markup=kb)
         except: pass
         return False
 
@@ -4407,10 +4512,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             if not items: await query.answer("Send at least one file first", show_alert=True); return
             if user_id != ADMIN_ID:
                 tokens = load_tokens(); profile = tokens.get(str(user_id))
-                if not isinstance(profile, dict): profile = {"user_id": int(user_id), "downloads_left": get_free_amount(), "batch_downloads_left": get_free_amount()*5, "last_reset": time.time()}
+                if not isinstance(profile, dict): profile = {"user_id": int(user_id), "downloads_left": get_free_amount(), "batch_downloads_left": BATCH_AD_AFTER, "last_reset": time.time()}
                 try:
                     last_reset = float(profile.get("last_reset", 0) or 0)
-                    if time.time() - last_reset >= 86400: profile["downloads_left"] = get_free_amount(); profile["batch_downloads_left"] = get_free_amount()*5; profile["last_reset"] = time.time()
+                    if time.time() - last_reset >= 86400: profile["downloads_left"] = get_free_amount(); profile["batch_downloads_left"] = BATCH_AD_AFTER; profile["last_reset"] = time.time()
                 except: pass
                 remaining = int(profile.get("downloads_left", get_free_amount()) or 0)
                 if remaining <= 0:
@@ -4811,7 +4916,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if user_str not in tokens:
             if user_id != ADMIN_ID: await query.answer(t["watch_timer_first"], show_alert=True); return
             reward = get_reward_amount()
-            tokens[user_str] = {"user_id": int(user_id), "downloads_left": reward, "batch_downloads_left": reward * 5, "last_reset": time.time(), "msg_start": 0, "msg_end": 0, "clicked_ad": True, "verified": True, "expires": time.time() + 600}
+            tokens[user_str] = {"user_id": int(user_id), "downloads_left": reward, "batch_downloads_left": reward, "last_reset": time.time(), "msg_start": 0, "msg_end": 0, "clicked_ad": True, "verified": True, "expires": time.time() + 600}
             save_tokens(tokens)
             await query.answer(t["test_ad_verified"], show_alert=True)
             await query.message.reply_text(t["test_ad_verified_msg"], parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
@@ -4821,7 +4926,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         msg_start, msg_end = token_data.get("msg_start",0), token_data.get("msg_end",0)
         reward = get_reward_amount()
         tokens[user_str]["downloads_left"] = reward
-        tokens[user_str]["batch_downloads_left"] = reward * 5
+        tokens[user_str]["batch_downloads_left"] = reward
         tokens[user_str]["verified"] = True
         tokens[user_str]["msg_start"] = 0
         tokens[user_str]["msg_end"] = 0
