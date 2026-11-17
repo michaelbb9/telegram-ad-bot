@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V13 - YouTube android client bypass + expanded block detection + lux even when blocked (from V11 base), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
+# BOT V14 - Quality fix: web-first client + poisoned cache check (from V13) + expanded block detection + lux even when blocked (from V11 base), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
 # THIS IS A NEW FILE - NOT THE OLD main.py
 # First line check: if you see this header, you have the NEW file
 # Changes: buttons + join walkthrough + quality selector + DIRECTIONAL cache + PERSISTENT pending (no Expired)
@@ -2728,6 +2728,19 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
     # same link previously produced exactly this kind of file.
     if download_type in ("video", "audio", "images"):
         _cached = get_cached_file(url, download_type, preferred_quality=preferred_quality)
+        # V14 FIX: V13 poisoned file-cache - a 360p video saved as _720p.mp4 (tier name, not actual).
+        # Probe the cached file: if its real height is lower than wanted, ignore cache and re-download.
+        if _cached and download_type == "video" and preferred_quality:
+            try:
+                _want_h = _quality_height(preferred_quality)
+                if _want_h > 0:
+                    _pinfo = probe_video(_cached)
+                    _pw, _ph = _pinfo.get("width") or 0, _pinfo.get("height") or 0
+                    _actual_h = min(_pw, _ph) if (_pw and _ph) else max(_pw, _ph)
+                    if _actual_h and _actual_h < _want_h:
+                        _cached = None
+            except Exception:
+                pass
         if _cached:
             _copy = os.path.join(output_dir, os.path.basename(_cached))
             try:
@@ -2740,10 +2753,10 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
     cookiefile = None
     if "tiktok.com" in url.lower() and os.path.exists("tiktok_cookies.txt"): cookiefile = "tiktok_cookies.txt"
     elif os.path.exists("cookies.txt"): cookiefile = "cookies.txt"
-    # V13: YouTube now blocks the default web player client (Sign in / 403 / no formats).
-    # Use android+ios+web clients - this is why retrying twice with web client failed twice.
+    # V14 FIX: web FIRST for quality, android LAST as fallback. V13 had android first,
+    # so yt-dlp only saw Android's low formats (360p) even when you picked 720p/1080p.
     ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL,
-                'extractor_args': {'youtube': {'player_client': ['android', 'ios', 'web']}},
+                'extractor_args': {'youtube': {'player_client': ['web', 'ios', 'android']}},
                 'youtube_include_dash_manifest': False}
     # PART 1: clean progress (users) / debug log (admin) — hook records, poller edits Telegram message
     if user_id is not None and progress_key:
