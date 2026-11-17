@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V24 - From V23 (V16 rebuild) + HARD CAP 5 downloads / 5 batch, no one can ever have 159 again. If you have 4 + ad +3 you get 5, not 7. Old 159 clamps to 5 on next Stats. # BOT V23 - Rebuilt CLEAN from V16 (which had working Monetag test ad) + batch-only fixes: deduct 3 once, local batch file, Monetag-only pause, one reward per pause, no per-link check. Test-ad / single code UNTOUCHED. # BOT V16 - From V15 (V11 base) + persistent menu grid + batch ad after 3 + batch images (incl mixed fallback) + audio retry + expanded block detection + lux even when blocked + skip poisoned file-cache (no android-first, no probe), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
+# BOT V25 - From V16, BATCH CREDIT FIX ONLY, Monetag untouched. 1 batch = 3 no matter links, batch ad adds ONLY batch, single ad adds ONLY downloads, cap 5/5, pause after every 3. # BOT V16 Rebuilt CLEAN from V16 (which had working Monetag test ad) + batch-only fixes: deduct 3 once, local batch file, Monetag-only pause, one reward per pause, no per-link check. Test-ad / single code UNTOUCHED. # BOT V16 - From V15 (V11 base) + persistent menu grid + batch ad after 3 + batch images (incl mixed fallback) + audio retry + expanded block detection + lux even when blocked + skip poisoned file-cache (no android-first, no probe), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
 # THIS IS A NEW FILE - NOT THE OLD main.py
 # First line check: if you see this header, you have the NEW file
 # Changes: buttons + join walkthrough + quality selector + DIRECTIONAL cache + PERSISTENT pending (no Expired)
@@ -3270,7 +3270,7 @@ async def _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destina
     # NEVER wipe tokens (V16 Adsterra branch wiped downloads/batch to 0). NEVER fallback to Adsterra when ad_mode=monetag.
     paused_batches[user_id] = {"urls": urls, "next_index": index, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type, "reason": reason, "paid": (reason == "after_3")}
     if reason == "after_3":
-        _pause_text = f"⏸️ [V24] Batch paused after 3 links ({index}/{len(urls)})\nWatch Monetag ad to continue next 3 — no extra credits, batch already paid 3."
+        _pause_text = f"⏸️ [V25] Batch paused after 3 links ({index}/{len(urls)})\nWatch Monetag ad to continue next 3 — no extra credits, batch already paid 3."
     else:
         _pause_text = f"⚠️ [V23] Batch Limit Reached at {index} of {len(urls)}\nWatch Monetag ad → +3 batch credits to continue."
     if user_id == ADMIN_ID:
@@ -3290,7 +3290,7 @@ async def _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destina
         else:
             # V23: Monetag busy -> Retry Monetag, NOT Adsterra. Adsterra only if ad_mode=adsterra (handled below).
             kb2 = [[InlineKeyboardButton("🔄 Retry Monetag Ad", callback_data="retry_pause")], [InlineKeyboardButton("✅ Check & Get +1 (Monetag)", callback_data="monetag_check")], [InlineKeyboardButton("▶️ Resume Batch", callback_data="resume_batch")]]
-            await bot.send_message(chat_id=chat_id, text=_pause_text + "\n⚠️ Monetag busy, tap Retry — Adsterra is OFF (you set Monetag only).", reply_markup=InlineKeyboardMarkup(kb2), parse_mode="Markdown")
+            await bot.send_message(chat_id=chat_id, text=_pause_text + "\n⚠️ Monetag busy, tap Retry to try Monetag again.", reply_markup=InlineKeyboardMarkup(kb2), parse_mode="Markdown")
     else:
         bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
         # V23: preserve credits - V16 wiped them here.
@@ -3320,7 +3320,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                 if user_id in active_batch_sessions: del active_batch_sessions[user_id]
                 return
         else:
-            _cost_msg = f"\n💳 [V24] Batch cost: -3 batch credits | Batch Left: {_old_left} → {_new_left}"
+            _cost_msg = f"\n💳 [V25] Batch cost: -3 batch credits | Batch Left: {_old_left} → {_new_left}"
     elif already_paid:
         _cost_msg = "\n▶️ Resumed - batch already paid 3, no extra credits."
     else:
