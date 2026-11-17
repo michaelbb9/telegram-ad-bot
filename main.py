@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V16 - From V15 (V11 base) + persistent menu grid + batch ad after 3 + batch images (incl mixed fallback) + audio retry + expanded block detection + lux even when blocked + skip poisoned file-cache (no android-first, no probe), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
+# BOT V17 - From V16 + batch credits fixed: 1 batch = 3, ad adds to ONE counter only, no per-link /check-download (V11 base) + persistent menu grid + batch ad after 3 + batch images (incl mixed fallback) + audio retry + expanded block detection + lux even when blocked + skip poisoned file-cache (no android-first, no probe), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
 # THIS IS A NEW FILE - NOT THE OLD main.py
 # First line check: if you see this header, you have the NEW file
 # Changes: buttons + join walkthrough + quality selector + DIRECTIONAL cache + PERSISTENT pending (no Expired)
@@ -101,6 +101,7 @@ CACHE_FOLDER = "./download_cache/"
 DEFAULT_MIN_LIMIT = 10
 DEFAULT_MB_LIMIT = 200
 BATCH_AD_AFTER = 3  # V16: batch pauses for ad/refill after every 3 downloads (was 20 via free*5)
+BATCH_COST = 3  # V17: ONE batch = 3 batch credits, no matter how many links in it
 THRESHOLD_3CREDIT_MB = 100
 # PART 6: pending /setbatchchannel state (user_id -> True while waiting for a forwarded channel msg)
 USER_PENDING_BATCH_CHANNEL = {}
@@ -1658,14 +1659,62 @@ async def _poll_progress(bot, chat_id, status_msg, download_key, user_id):
         if st.get("status") == "finished":
             break
 
+def _add_credits(user_id, kind, amount):
+    # V17: ad adds (+=) to ONE counter only. Old code did (= reward) to BOTH, so ad could DECREASE you if you had more than reward left.
+    try:
+        tokens = load_tokens()
+        prof = tokens.get(str(user_id))
+        if not isinstance(prof, dict):
+            prof = {"user_id": int(user_id), "downloads_left": get_free_amount(), "batch_downloads_left": BATCH_AD_AFTER, "last_reset": time.time(), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
+        if kind == "single":
+            prof["downloads_left"] = int(prof.get("downloads_left", 0) or 0) + int(amount)
+        else:
+            prof["batch_downloads_left"] = int(prof.get("batch_downloads_left", 0) or 0) + int(amount)
+        tokens[str(user_id)] = prof
+        save_tokens(tokens)
+        return prof
+    except Exception as e:
+        logger.error(f"add_credits: {e}")
+        return None
+
+def _deduct_batch_start(user_id):
+    # V17: ONE batch = BATCH_COST (3) batch credits, deducted ONCE at start. Returns (ok, new_left).
+    try:
+        tokens = load_tokens()
+        prof = tokens.get(str(user_id))
+        if not isinstance(prof, dict):
+            prof = {"user_id": int(user_id), "downloads_left": get_free_amount(), "batch_downloads_left": BATCH_AD_AFTER, "last_reset": time.time(), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
+        left = int(prof.get("batch_downloads_left", BATCH_AD_AFTER) or 0)
+        if left < BATCH_COST:
+            return False, left
+        prof["batch_downloads_left"] = left - BATCH_COST
+        tokens[str(user_id)] = prof
+        save_tokens(tokens)
+        return True, left - BATCH_COST
+    except Exception as e:
+        logger.error(f"deduct_batch: {e}")
+        return False, 0
+
 def deduct_credits(user_id, credit_cost=1, is_batch=False):
-    """Deduct N credits (Part 4: >100MB costs 3). One web-API call per credit."""
+    # V17: SINGLE downloads only. Deduct ONCE from downloads_left via load/save.
+    # Old code called /check-download N times - that endpoint deducts AGAIN on every call, so 1 download could deduct 2-3x and batch_left jumped around.
+    # Batch never calls this - it uses _deduct_batch_start once.
+    if is_batch:
+        return
     try:
         n = max(1, int(credit_cost or 1))
     except Exception:
         n = 1
-    for _ in range(n):
-        deduct_download_counter(user_id, is_batch=is_batch)
+    try:
+        tokens = load_tokens()
+        prof = tokens.get(str(user_id))
+        if not isinstance(prof, dict):
+            return
+        prof["downloads_left"] = max(0, int(prof.get("downloads_left", 0) or 0) - n)
+        tokens[str(user_id)] = prof
+        save_tokens(tokens)
+    except Exception as e:
+        logger.error(f"deduct_credits: {e}")
 
 # --- PART 2: file cache keyed ONLY by link (quality ignored) ---
 # NOTE: the spec's hash(link) is NOT used — Python's hash() is randomised per
@@ -2981,8 +3030,9 @@ def get_free_disk_mb():
     except: return 512
 
 def deduct_download_counter(user_id, is_batch=False):
-    try: requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": is_batch}, headers=API_HEADERS, timeout=3)
-    except: pass
+    # V17: DISABLED - /check-download deducts on every call, so using it for both "check" and "deduct" double-counted.
+    # All credit changes now go through deduct_credits / _deduct_batch_start / _add_credits (load/save only).
+    return
 
 async def acquire_slot():
     global active_downloads
@@ -3201,7 +3251,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         else: await update.message.reply_text("⚠️ Ad server busy, try again in a moment.")
         return
     bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
-    tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": int(msg_start), "msg_end": int(msg_end), "clicked_ad": False, "verified": False, "expires": time.time() + 600}
+    # V17: preserve credits - old code wiped downloads_left + batch_left here (165 -> 3 bug).
+    _prof2 = tokens.get(str(user_id))
+    if not isinstance(_prof2, dict):
+        _prof2 = {"user_id": int(user_id), "downloads_left": get_free_amount(), "batch_downloads_left": BATCH_AD_AFTER, "last_reset": time.time()}
+    _prof2.update({"msg_start": int(msg_start), "msg_end": int(msg_end), "clicked_ad": False, "verified": False, "expires": time.time() + 600})
+    tokens[str(user_id)] = _prof2
     save_tokens(tokens)
     keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch", url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
     if user_id == ADMIN_ID: keyboard.append([InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")])
@@ -3214,52 +3269,56 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         except Exception as e2: logger.error(f"Copy failed: {e2}")
     await update.message.reply_text("👇 **CONTENT LOCKED 🔒**" + ADSTERRA_USER_GUIDE, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
-async def _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t):
-    # V16: pause after 3, show ad/refill, resume continues from next_index. Same ad logic as web-block pause.
-    paused_batches[user_id] = {"urls": urls, "next_index": index, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
+async def _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, reason="after_3"):
+    # V17: reason after_3 = mid-batch, already paid 3, ad only resumes (no credits change).
+    # reason need_credits = not enough batch credits at start, ad gives +reward batch credits.
+    paused_batches[user_id] = {"urls": urls, "next_index": index, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type, "reason": reason, "paid": (reason == "after_3")}
+    # V17: after_3 ad does NOT give credits (batch already paid 3). need_credits ad gives +reward batch credits.
+    if reason == "after_3":
+        _pause_text = f"⏸️ **Batch paused after 3 links** ({index}/{len(urls)})\nWatch ad to continue next 3 — no extra credits, batch already paid 3."
+    else:
+        _pause_text = t["limit_batch"].format(index, len(urls))
     assigned_network = get_global_ab_network(user_id)
     if assigned_network == "monetag":
         kb = adsgram_keyboard(user_id, "wall", 0, 0)
-        await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=kb, parse_mode="Markdown")
+        await bot.send_message(chat_id=chat_id, text=_pause_text, reply_markup=kb, parse_mode="Markdown")
     else:
         bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
         tokens = load_tokens()
-        tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
+        _prof3 = tokens.get(str(user_id))
+        if not isinstance(_prof3, dict):
+            _prof3 = {"user_id": int(user_id), "downloads_left": get_free_amount(), "batch_downloads_left": BATCH_AD_AFTER, "last_reset": time.time()}
+        _prof3.update({"msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600})
+        tokens[str(user_id)] = _prof3
         save_tokens(tokens)
         keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)]]
-        await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await bot.send_message(chat_id=chat_id, text=_pause_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
-async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0):
+async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0, already_paid=False):
     if not urls: return
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
     success_count = fail_count = 0
     batch_ad_counter = 0  # V16: counts successes in THIS run only, resets on resume so ad shows every 3
     active_batch_sessions[user_id] = True
+    # V17: ONE batch = 3 batch credits, deducted ONCE at start, never per link. Batch never touches downloads_left.
+    # Old code called /check-download on EVERY link - that endpoint deducts again, so 2 links could cost 6 and numbers jumped.
+    if user_id != ADMIN_ID and not already_paid and start_index == 0:
+        _ok, _new_left = _deduct_batch_start(user_id)
+        if not _ok:
+            # Not enough batch credits - pause BEFORE starting, ad will give +reward batch credits.
+            await _pause_batch_for_ad(bot, user_id, chat_id, urls, 0, target_destination_id, download_type, t, reason="need_credits")
+            if user_id in active_batch_sessions: del active_batch_sessions[user_id]
+            return
+        _cost_msg = f"\n💳 Batch cost: -3 batch credits | Batch Left: {_new_left}"
+    elif user_id != ADMIN_ID and already_paid:
+        _cost_msg = "\n▶️ Resumed - batch already paid 3, no extra credits."
+    else:
+        _cost_msg = ""
     stop_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop Batch", callback_data="stop_batch")]])
-    batch_notice = await bot.send_message(chat_id=chat_id, text=t["batch_start"].format(download_type.upper(), len(urls)), reply_markup=stop_markup, parse_mode="Markdown")
+    batch_notice = await bot.send_message(chat_id=chat_id, text=t["batch_start"].format(download_type.upper(), len(urls)) + _cost_msg, reply_markup=stop_markup, parse_mode="Markdown")
     for index, url in enumerate(urls[start_index:], start=start_index+1):
         if not active_batch_sessions.get(user_id, False): break
-        try:
-            response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": True}, headers=API_HEADERS, timeout=5)
-            res_data = response.json() if response.status_code == 200 else {}
-        except: res_data = {"status": "allowed"}
-        tokens = load_tokens()
-        d_left = tokens.get(str(user_id), {}).get("downloads_left", 4)
-        if res_data.get("status") != "allowed" and d_left <= 0 and user_id != ADMIN_ID:
-            assigned_network = get_global_ab_network(user_id)
-            if assigned_network == "monetag":
-                paused_batches[user_id] = {"urls": urls, "next_index": index-1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
-                kb = adsgram_keyboard(user_id, "wall", 0, 0)
-                await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=kb, parse_mode="Markdown")
-                break
-            bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
-            tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
-            save_tokens(tokens)
-            paused_batches[user_id] = {"urls": urls, "next_index": index-1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
-            keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)]]
-            await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-            break
         status_msg = await bot.send_message(chat_id=chat_id, text=f"📥 [{index}/{len(urls)}] {t['dl_video']}")
         try:
             ckey = await get_canonical_key(url, chat_id, bot)
@@ -3283,7 +3342,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     batch_ad_counter += 1
                     # V16: after 3 in this run, pause for ad/refill (admin exempt, like web-block pause)
                     if user_id != ADMIN_ID and batch_ad_counter >= BATCH_AD_AFTER and index < len(urls):
-                        await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t)
+                        await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, reason="after_3")
                         break
                     continue
                 except Exception as e: logger.error(f"Batch carousel cache fail {ckey}: {e}")
@@ -3305,7 +3364,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                         success_count += 1
                         batch_ad_counter += 1
                         if user_id != ADMIN_ID and batch_ad_counter >= BATCH_AD_AFTER and index < len(urls):
-                            await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t)
+                            await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, reason="after_3")
                             break
                         continue
                     except Exception as e: logger.error(f"Batch image cache fail {ckey}: {e}")
@@ -3331,7 +3390,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                         success_count += 1
                         batch_ad_counter += 1
                         if user_id != ADMIN_ID and batch_ad_counter >= BATCH_AD_AFTER and index < len(urls):
-                            await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t)
+                            await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, reason="after_3")
                             break
                         continue
                     except Exception as e: logger.error(f"Batch cache fail {ckey}: {e}")
@@ -3371,7 +3430,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                 success_count += 1
                 batch_ad_counter += 1
                 if user_id != ADMIN_ID and batch_ad_counter >= BATCH_AD_AFTER and index < len(urls):
-                    await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t)
+                    await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, reason="after_3")
                     break
                 await asyncio.sleep(3)
                 continue
@@ -3397,7 +3456,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     success_count += 1
                     batch_ad_counter += 1
                     if user_id != ADMIN_ID and batch_ad_counter >= BATCH_AD_AFTER and index < len(urls):
-                        await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t)
+                        await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, reason="after_3")
                         break
                 else:
                     qual_tag = f"[{res}]"
@@ -3417,7 +3476,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     success_count += 1
                     batch_ad_counter += 1
                     if user_id != ADMIN_ID and batch_ad_counter >= BATCH_AD_AFTER and index < len(urls):
-                        await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t)
+                        await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, reason="after_3")
                         break
             else:
                 await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}] {t['failed_generic']}")
@@ -4826,7 +4885,11 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if st.get("status") != "fallback_available": await query.answer(t["monetag_failed_twice"], show_alert=True); return
         bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
         tokens = load_tokens()
-        tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
+        _prof4 = tokens.get(str(user_id))
+        if not isinstance(_prof4, dict):
+            _prof4 = {"user_id": int(user_id), "downloads_left": get_free_amount(), "batch_downloads_left": BATCH_AD_AFTER, "last_reset": time.time()}
+        _prof4.update({"msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600})
+        tokens[str(user_id)] = _prof4
         save_tokens(tokens)
         await query.message.reply_text(t["monetag_fallback_prompt"] + ADSTERRA_USER_GUIDE, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔓 Open Adsterra Link", url=bridge_link)], [InlineKeyboardButton("✅ Check & Get +1", callback_data="verify_user")]]), parse_mode="Markdown")
         await query.answer(t["adsterra_ready"], show_alert=True)
@@ -4846,7 +4909,15 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.answer(t["sponsor_viewed"].format(reward), show_alert=True)
         paused = paused_batches.pop(user_id, None)
         if paused:
-            asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"]))
+            # V17: after_3 = no credits change, just resume (already paid). need_credits = ad gives +reward batch credits, then batch deducts 3 on start.
+            if paused.get("reason") == "need_credits":
+                _add_credits(user_id, "batch", reward)
+                asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"], already_paid=False))
+            elif paused.get("reason") == "after_3":
+                asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"], already_paid=True))
+            else:
+                # Old paused without reason (before V17) - treat as after_3 resume, no credits change.
+                asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"], already_paid=True))
             return
         msg_start, msg_end = int(st.get("msg_start", 0)), int(st.get("msg_end", 0))
         if msg_start > 0:
@@ -4856,11 +4927,14 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
         retry_url = pending_single_links.pop(f"retry_{user_id}", None)
         if retry_url:
-            # V11: do NOT auto-download - show format + quality picker so user can choose
+            # V17: single ad adds +reward to Downloads Left ONLY (not batch).
+            _add_credits(user_id, "single", reward)
             try: _save_pending_file()
             except Exception: pass
             await _resume_pending_link_to_format_menu(context.bot, chat_id, user_id, retry_url, t)
             return
+        # V17: plain ad (no paused batch, no pending single) = single ad, +reward to Downloads Left only.
+        _add_credits(user_id, "single", reward)
         await context.bot.send_message(chat_id=chat_id, text=t["refilled_send_again"].format(reward), reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         return
     if data.startswith("adsgram_complete_") or data in ("adsgram_resume_batch",): await query.answer(t["outdated_button"], show_alert=True); return
@@ -4875,7 +4949,9 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if not paused: await query.answer(t["batch_expired"], show_alert=True); return
         await query.answer(t["resuming"])
         await query.message.delete()
-        asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"]))
+        # V17: after_3 resume = already paid, no deduct. need_credits resume = deduct 3 (ad already gave +reward in verify_user).
+        _already = (paused.get("reason") == "after_3" or paused.get("paid") is True)
+        asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"], already_paid=_already))
         return
     if data.startswith("dest_chat_") or data.startswith("dest_chan_"):
         parts = data.split("_",3); action_type, dl_type, payload_key = parts[1], parts[2], parts[3]
@@ -4925,8 +5001,21 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if not token_data.get("verified", False): await query.answer(t["finish_timer_first"], show_alert=True); return
         msg_start, msg_end = token_data.get("msg_start",0), token_data.get("msg_end",0)
         reward = get_reward_amount()
-        tokens[user_str]["downloads_left"] = reward
-        tokens[user_str]["batch_downloads_left"] = reward
+        # V17: ad adds (+=) to ONE counter only. Old code overwrote BOTH to reward, so ad could DECREASE you (165 -> 3).
+        if user_id in paused_batches:
+            _pr = paused_batches[user_id].get("reason")
+            if _pr == "need_credits":
+                _add_credits(user_id, "batch", reward)
+            elif _pr == "after_3":
+                pass  # mid-batch ad: no credits change, batch already paid 3
+            else:
+                _add_credits(user_id, "single", reward)
+        elif pending_single_links.get(f"retry_{user_id}"):
+            _add_credits(user_id, "single", reward)
+        else:
+            _add_credits(user_id, "single", reward)
+        tokens = load_tokens()
+        tokens[user_str] = tokens.get(user_str, {})
         tokens[user_str]["verified"] = True
         tokens[user_str]["msg_start"] = 0
         tokens[user_str]["msg_end"] = 0
@@ -4993,7 +5082,7 @@ async def send_adsterra_test(message, user_id):
     if uid in tokens and isinstance(tokens[uid], dict): tokens[uid].update({"msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": now + 600})
     else:
         free = get_free_amount()
-        tokens[uid] = {"user_id": int(user_id), "downloads_left": free, "batch_downloads_left": free * 5, "last_reset": now, "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": now + 600}
+        tokens[uid] = {"user_id": int(user_id), "downloads_left": free, "batch_downloads_left": BATCH_AD_AFTER, "last_reset": now, "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": now + 600}
     save_tokens(tokens)
     bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
     keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")]]
