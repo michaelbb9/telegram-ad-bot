@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V12 - Audio first-hit retry + error never silent + V11 fixes, no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
+# BOT V13 - YouTube android client bypass + expanded block detection + lux even when blocked (from V11 base), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
 # THIS IS A NEW FILE - NOT THE OLD main.py
 # First line check: if you see this header, you have the NEW file
 # Changes: buttons + join walkthrough + quality selector + DIRECTIONAL cache + PERSISTENT pending (no Expired)
@@ -2740,7 +2740,11 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
     cookiefile = None
     if "tiktok.com" in url.lower() and os.path.exists("tiktok_cookies.txt"): cookiefile = "tiktok_cookies.txt"
     elif os.path.exists("cookies.txt"): cookiefile = "cookies.txt"
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL}
+    # V13: YouTube now blocks the default web player client (Sign in / 403 / no formats).
+    # Use android+ios+web clients - this is why retrying twice with web client failed twice.
+    ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL,
+                'extractor_args': {'youtube': {'player_client': ['android', 'ios', 'web']}},
+                'youtube_include_dash_manifest': False}
     # PART 1: clean progress (users) / debug log (admin) — hook records, poller edits Telegram message
     if user_id is not None and progress_key:
         ydl_opts['progress_hooks'] = [make_progress_hook(user_id, progress_key)]
@@ -2755,8 +2759,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
     # ============================================================
     
     if download_type == 'audio':
-        # V12: same YouTube first-hit retry as video. YouTube often blocks 1st hit (429 / not-a-bot)
-        # but lets 2nd through - without this, audio fails first time then works on resend.
+        # V13: audio also retries once on YouTube block (was missing - first hit failed, second worked)
         for _attempt in range(2):
             try:
                 ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
@@ -2771,12 +2774,11 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                         save_to_file_cache(url, "audio", path)  # PART 2: cache fresh file for next time
                         return [path], "audio", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
                 raise ValueError("FILE_NOT_FOUND")
-            except ValueError as _ve:
-                # FILE_TOO_LARGE / FILE_NOT_FOUND are real - don't retry those
+            except ValueError:
                 raise
             except Exception as _ae:
-                _msg = str(_ae).lower()
-                _blocked = ("not a bot" in _msg or "sign in to confirm" in _msg or "http error 429" in _msg or "429" in _msg)
+                _m = str(_ae).lower()
+                _blocked = ("not a bot" in _m or "sign in to confirm" in _m or "429" in _m or "403" in _m or "forbidden" in _m or "failed to extract" in _m or "player response" in _m or "no video formats" in _m or "unable to download" in _m)
                 if _blocked and _attempt == 0:
                     try:
                         import time as _t_retry
@@ -2851,11 +2853,13 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                     last_err = RuntimeError("yt-dlp produced no output file")
             except Exception as e:
                 last_err = e
-                msg = str(e)
-                if "not a bot" in msg or "Sign in to confirm" in msg or "HTTP Error 429" in msg:
+                # V13: YouTube block has many wordings - check lowercased, not exact case.
+                # Old code only caught "not a bot / 429" so 403 / extract failures fell through as generic.
+                msg = str(e).lower()
+                if ("not a bot" in msg or "sign in to confirm" in msg or "429" in msg or "403" in msg or "forbidden" in msg or "failed to extract" in msg or "player response" in msg or "no video formats" in msg or "unable to download" in msg or "requested format" in msg):
                     yt_blocked = True
                     break
-                if "Unsupported URL" in msg or "403" in msg:
+                if "unsupported url" in msg:
                     break
                 continue
 
@@ -2870,8 +2874,9 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
             if insta_files:
                 shutil.rmtree(os.path.dirname(insta_files[0]), ignore_errors=True)
 
-        # Last-resort independent engine. It is only called after yt-dlp tiers fail.
-        if not too_big and not yt_blocked:
+        # Last-resort independent engine. V13: try it even when YouTube blocked yt-dlp -
+        # old code skipped it when blocked, so it never got a chance before giving up.
+        if not too_big:
             lux_path = download_with_lux(url, output_dir, cap_bytes, cookiefile)
             if lux_path:
                 save_to_file_cache(url, "video", lux_path)  # PART 2
@@ -2909,8 +2914,8 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                             save_to_file_cache(url, "video", path)
                             return [path], best_quality, f"{os.path.getsize(path)/(1024*1024):.1f}MB"
                 except Exception as e2:
-                    _msg2 = str(e2)
-                    if "not a bot" in _msg2 or "Sign in to confirm" in _msg2 or "HTTP Error 429" in _msg2:
+                    _msg2 = str(e2).lower()
+                    if ("not a bot" in _msg2 or "sign in to confirm" in _msg2 or "429" in _msg2 or "403" in _msg2 or "forbidden" in _msg2 or "failed to extract" in _msg2 or "player response" in _msg2 or "no video formats" in _msg2 or "unable to download" in _msg2):
                         yt_blocked = True; break
                     continue
             if yt_blocked:
@@ -4165,14 +4170,8 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
         elif isinstance(e, (asyncio.TimeoutError, TimeoutError)): err = "⚠️ This is taking too long, so I stopped. Please try again later."
         else: err = t["error_generic"]
         kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
-        # V12: error must never be silent. If editing Fetching... fails, send a fresh message.
-        try:
-            await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=err, reply_markup=kb)
-        except Exception:
-            try:
-                await bot.send_message(chat_id=chat_id, text=err, reply_markup=kb)
-            except Exception:
-                pass
+        try: await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=err, reply_markup=kb)
+        except: pass
         return False
 
 
