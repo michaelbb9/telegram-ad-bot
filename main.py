@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V14 - Quality fix: web-first client + poisoned cache check (from V13) + expanded block detection + lux even when blocked (from V11 base), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
+# BOT V15 - From V11 clean base + audio retry + expanded block detection + lux even when blocked + skip poisoned file-cache (no android-first, no probe), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
 # THIS IS A NEW FILE - NOT THE OLD main.py
 # First line check: if you see this header, you have the NEW file
 # Changes: buttons + join walkthrough + quality selector + DIRECTIONAL cache + PERSISTENT pending (no Expired)
@@ -2726,21 +2726,12 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
     # Safe because save_to_file_cache() is only called for single-file video/audio/images
     # downloads — carousel URLs never write a single-file entry, so a hit here means the
     # same link previously produced exactly this kind of file.
-    if download_type in ("video", "audio", "images"):
+    # V15: if user picked an explicit video quality, skip on-disk file-cache.
+    # V13/V14 poisoned it (360p content saved as _720p). Fresh download guarantees the picked quality.
+    # Telegram cache (stores real quality) still handles instant hits. No probing - probing hung V14.
+    _skip_file_cache = (download_type == "video" and preferred_quality and str(preferred_quality).lower() not in ("", "auto"))
+    if download_type in ("video", "audio", "images") and not _skip_file_cache:
         _cached = get_cached_file(url, download_type, preferred_quality=preferred_quality)
-        # V14 FIX: V13 poisoned file-cache - a 360p video saved as _720p.mp4 (tier name, not actual).
-        # Probe the cached file: if its real height is lower than wanted, ignore cache and re-download.
-        if _cached and download_type == "video" and preferred_quality:
-            try:
-                _want_h = _quality_height(preferred_quality)
-                if _want_h > 0:
-                    _pinfo = probe_video(_cached)
-                    _pw, _ph = _pinfo.get("width") or 0, _pinfo.get("height") or 0
-                    _actual_h = min(_pw, _ph) if (_pw and _ph) else max(_pw, _ph)
-                    if _actual_h and _actual_h < _want_h:
-                        _cached = None
-            except Exception:
-                pass
         if _cached:
             _copy = os.path.join(output_dir, os.path.basename(_cached))
             try:
@@ -2753,11 +2744,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
     cookiefile = None
     if "tiktok.com" in url.lower() and os.path.exists("tiktok_cookies.txt"): cookiefile = "tiktok_cookies.txt"
     elif os.path.exists("cookies.txt"): cookiefile = "cookies.txt"
-    # V14 FIX: web FIRST for quality, android LAST as fallback. V13 had android first,
-    # so yt-dlp only saw Android's low formats (360p) even when you picked 720p/1080p.
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL,
-                'extractor_args': {'youtube': {'player_client': ['web', 'ios', 'android']}},
-                'youtube_include_dash_manifest': False}
+    ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL}
     # PART 1: clean progress (users) / debug log (admin) — hook records, poller edits Telegram message
     if user_id is not None and progress_key:
         ydl_opts['progress_hooks'] = [make_progress_hook(user_id, progress_key)]
@@ -2772,7 +2759,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
     # ============================================================
     
     if download_type == 'audio':
-        # V13: audio also retries once on YouTube block (was missing - first hit failed, second worked)
+        # V15 (from V11): audio had no retry, video did. First audio hit blocked -> wait 5s -> retry once.
         for _attempt in range(2):
             try:
                 ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
@@ -2866,8 +2853,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                     last_err = RuntimeError("yt-dlp produced no output file")
             except Exception as e:
                 last_err = e
-                # V13: YouTube block has many wordings - check lowercased, not exact case.
-                # Old code only caught "not a bot / 429" so 403 / extract failures fell through as generic.
+                # V15: block has many wordings - check lowercased. V11 only caught exact "not a bot / 429".
                 msg = str(e).lower()
                 if ("not a bot" in msg or "sign in to confirm" in msg or "429" in msg or "403" in msg or "forbidden" in msg or "failed to extract" in msg or "player response" in msg or "no video formats" in msg or "unable to download" in msg or "requested format" in msg):
                     yt_blocked = True
@@ -2887,8 +2873,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
             if insta_files:
                 shutil.rmtree(os.path.dirname(insta_files[0]), ignore_errors=True)
 
-        # Last-resort independent engine. V13: try it even when YouTube blocked yt-dlp -
-        # old code skipped it when blocked, so it never got a chance before giving up.
+        # Last-resort independent engine. V15: try it even when blocked - V11 skipped it when blocked.
         if not too_big:
             lux_path = download_with_lux(url, output_dir, cap_bytes, cookiefile)
             if lux_path:
