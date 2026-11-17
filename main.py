@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V17 - From V16 + batch credits fixed: 1 batch = 3, ad adds to ONE counter only, no per-link /check-download (V11 base) + persistent menu grid + batch ad after 3 + batch images (incl mixed fallback) + audio retry + expanded block detection + lux even when blocked + skip poisoned file-cache (no android-first, no probe), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
+# BOT V18 - From V17 + pause ALWAYS has ad buttons (Monetag fail -> Adsterra + Resume), batch deduct verified + shows before->after, old V16 paused resumes deduct # BOT V17 - From V16 + batch credits fixed: 1 batch = 3, ad adds to ONE counter only, no per-link /check-download (V11 base) + persistent menu grid + batch ad after 3 + batch images (incl mixed fallback) + audio retry + expanded block detection + lux even when blocked + skip poisoned file-cache (no android-first, no probe), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
 # THIS IS A NEW FILE - NOT THE OLD main.py
 # First line check: if you see this header, you have the NEW file
 # Changes: buttons + join walkthrough + quality selector + DIRECTIONAL cache + PERSISTENT pending (no Expired)
@@ -1678,7 +1678,9 @@ def _add_credits(user_id, kind, amount):
         return None
 
 def _deduct_batch_start(user_id):
-    # V17: ONE batch = BATCH_COST (3) batch credits, deducted ONCE at start. Returns (ok, new_left).
+    # V18: ONE batch = 3 batch credits, deducted ONCE at start. Returns (ok, new_left, old_left).
+    # V17 bug: save_tokens could silently fail / be overwritten by a stale read, so Stats still showed old value.
+    # V18 verifies by re-loading after save and retries.
     try:
         tokens = load_tokens()
         prof = tokens.get(str(user_id))
@@ -1686,14 +1688,28 @@ def _deduct_batch_start(user_id):
             prof = {"user_id": int(user_id), "downloads_left": get_free_amount(), "batch_downloads_left": BATCH_AD_AFTER, "last_reset": time.time(), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
         left = int(prof.get("batch_downloads_left", BATCH_AD_AFTER) or 0)
         if left < BATCH_COST:
-            return False, left
-        prof["batch_downloads_left"] = left - BATCH_COST
+            return False, left, left
+        new_left = left - BATCH_COST
+        prof["batch_downloads_left"] = new_left
         tokens[str(user_id)] = prof
         save_tokens(tokens)
-        return True, left - BATCH_COST
+        for _ in range(2):
+            try:
+                _chk = load_tokens().get(str(user_id), {})
+                if int(_chk.get("batch_downloads_left", new_left) or 0) == new_left:
+                    break
+                _cur = int(_chk.get("batch_downloads_left", left) or 0)
+                if _cur >= BATCH_COST:
+                    _chk["batch_downloads_left"] = _cur - BATCH_COST
+                    _tok2 = load_tokens(); _tok2[str(user_id)] = _chk; save_tokens(_tok2)
+                    new_left = _cur - BATCH_COST
+                    break
+            except Exception:
+                break
+        return True, new_left, left
     except Exception as e:
         logger.error(f"deduct_batch: {e}")
-        return False, 0
+        return False, 0, 0
 
 def deduct_credits(user_id, credit_cost=1, is_batch=False):
     # V17: SINGLE downloads only. Deduct ONCE from downloads_left via load/save.
@@ -3278,20 +3294,38 @@ async def _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destina
         _pause_text = f"⏸️ **Batch paused after 3 links** ({index}/{len(urls)})\nWatch ad to continue next 3 — no extra credits, batch already paid 3."
     else:
         _pause_text = t["limit_batch"].format(index, len(urls))
+    # V18: NEVER send pause with no buttons. V17 bug: if adsgram_keyboard returned None (monetag-start failed),
+    # bot sent text with reply_markup=None, so user saw "Watch ad" but had no button to tap - stuck.
+    # Now: Monetag first, if it fails fall back to Adsterra. Always include Check + Resume so user is never stuck.
     assigned_network = get_global_ab_network(user_id)
+    bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
+    try:
+        tokens = load_tokens()
+        _prof = tokens.get(str(user_id))
+        if not isinstance(_prof, dict):
+            _prof = {"user_id": int(user_id), "downloads_left": get_free_amount(), "batch_downloads_left": BATCH_AD_AFTER, "last_reset": time.time()}
+        _prof.update({"msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600})
+        tokens[str(user_id)] = _prof
+        save_tokens(tokens)
+        _cur_batch = int(_prof.get("batch_downloads_left", BATCH_AD_AFTER) or 0)
+    except Exception:
+        _cur_batch = BATCH_AD_AFTER
+    _pause_text = _pause_text + f"\n📊 Batch Left: {_cur_batch}"
     if assigned_network == "monetag":
         kb = adsgram_keyboard(user_id, "wall", 0, 0)
-        await bot.send_message(chat_id=chat_id, text=_pause_text, reply_markup=kb, parse_mode="Markdown")
+        if kb is not None:
+            try:
+                _rows = list(kb.inline_keyboard)
+                _rows.append([InlineKeyboardButton("▶️ Resume Batch", callback_data="resume_batch")])
+                kb = InlineKeyboardMarkup(_rows)
+            except Exception:
+                pass
+            await bot.send_message(chat_id=chat_id, text=_pause_text, reply_markup=kb, parse_mode="Markdown")
+        else:
+            keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch Ad (Adsterra)", url=bridge_link)], [InlineKeyboardButton("✅ Check & Get", callback_data="verify_user")], [InlineKeyboardButton("▶️ Resume Batch", callback_data="resume_batch")]]
+            await bot.send_message(chat_id=chat_id, text=_pause_text + "\n⚠️ Monetag busy, use Adsterra link above.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     else:
-        bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
-        tokens = load_tokens()
-        _prof3 = tokens.get(str(user_id))
-        if not isinstance(_prof3, dict):
-            _prof3 = {"user_id": int(user_id), "downloads_left": get_free_amount(), "batch_downloads_left": BATCH_AD_AFTER, "last_reset": time.time()}
-        _prof3.update({"msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600})
-        tokens[str(user_id)] = _prof3
-        save_tokens(tokens)
-        keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)]]
+        keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)], [InlineKeyboardButton("✅ Check & Get", callback_data="verify_user")], [InlineKeyboardButton("▶️ Resume Batch", callback_data="resume_batch")]]
         await bot.send_message(chat_id=chat_id, text=_pause_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0, already_paid=False):
@@ -3304,13 +3338,13 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
     # V17: ONE batch = 3 batch credits, deducted ONCE at start, never per link. Batch never touches downloads_left.
     # Old code called /check-download on EVERY link - that endpoint deducts again, so 2 links could cost 6 and numbers jumped.
     if user_id != ADMIN_ID and not already_paid and start_index == 0:
-        _ok, _new_left = _deduct_batch_start(user_id)
+        _ok, _new_left, _old_left = _deduct_batch_start(user_id)
         if not _ok:
             # Not enough batch credits - pause BEFORE starting, ad will give +reward batch credits.
             await _pause_batch_for_ad(bot, user_id, chat_id, urls, 0, target_destination_id, download_type, t, reason="need_credits")
             if user_id in active_batch_sessions: del active_batch_sessions[user_id]
             return
-        _cost_msg = f"\n💳 Batch cost: -3 batch credits | Batch Left: {_new_left}"
+        _cost_msg = f"\n💳 Batch cost: -3 batch credits | Batch Left: {_old_left} → {_new_left}"
     elif user_id != ADMIN_ID and already_paid:
         _cost_msg = "\n▶️ Resumed - batch already paid 3, no extra credits."
     else:
@@ -4916,8 +4950,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             elif paused.get("reason") == "after_3":
                 asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"], already_paid=True))
             else:
-                # Old paused without reason (before V17) - treat as after_3 resume, no credits change.
-                asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"], already_paid=True))
+                # V18: Old paused without reason = from V16, which never deducted at start. Resume must deduct 3 (not skip).
+                asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"], already_paid=False))
             return
         msg_start, msg_end = int(st.get("msg_start", 0)), int(st.get("msg_end", 0))
         if msg_start > 0:
