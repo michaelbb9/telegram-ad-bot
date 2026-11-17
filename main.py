@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V31 - From V30 + credits ALSO saved in user_activity.json (backup), vault failure/reset can't wipe 5/2 to 4/3. # BOT V30 - From V29 + vault timeout fix: load/save_tokens retry 2x 15s, My Stats never shows fake 4/3 on vault timeout. 24h fix kept. # BOT V29 - From V28 + 24h reset never lowers you (max, not overwrite), so leave/rejoin can't reset 5/2 to 4/3. # BOT V28 - From V27 + V16 ad cold-start fix: adsgram_start/status retry 2x 15s, /testad Retry button. Batch fix kept. # BOT V27 - From V16, BATCH ONLY: 1 batch=3 no matter links, batch ad ONLY batch, single ad ONLY normal, cap 5/5, pause after every 3. Ad server functions UNTOUCHED. # BOT V16 - From V15 (V11 base) + persistent menu grid + batch ad after 3 + batch images (incl mixed fallback) + audio retry + expanded block detection + lux even when blocked + skip poisoned file-cache (no android-first, no probe), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
+# BOT V32 - From V31 + fix stale backup undoing download (2->5): backup only fills missing users, never overwrites vault. # BOT V31 - From V30 + credits ALSO saved in user_activity.json (backup), vault failure/reset can't wipe 5/2 to 4/3. # BOT V30 - From V29 + vault timeout fix: load/save_tokens retry 2x 15s, My Stats never shows fake 4/3 on vault timeout. 24h fix kept. # BOT V29 - From V28 + 24h reset never lowers you (max, not overwrite), so leave/rejoin can't reset 5/2 to 4/3. # BOT V28 - From V27 + V16 ad cold-start fix: adsgram_start/status retry 2x 15s, /testad Retry button. Batch fix kept. # BOT V27 - From V16, BATCH ONLY: 1 batch=3 no matter links, batch ad ONLY batch, single ad ONLY normal, cap 5/5, pause after every 3. Ad server functions UNTOUCHED. # BOT V16 - From V15 (V11 base) + persistent menu grid + batch ad after 3 + batch images (incl mixed fallback) + audio retry + expanded block detection + lux even when blocked + skip poisoned file-cache (no android-first, no probe), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
 # THIS IS A NEW FILE - NOT THE OLD main.py
 # First line check: if you see this header, you have the NEW file
 # Changes: buttons + join walkthrough + quality selector + DIRECTIONAL cache + PERSISTENT pending (no Expired)
@@ -2252,7 +2252,7 @@ def _backup_credits_to_activity(tokens):
         save_json_file(ACTIVITY_FILE, _act)
     except Exception as e: logger.error(f"Backup credits: {e}")
 def _restore_credits_from_activity(tokens):
-    # V31: if vault returned empty / missing user, fill from activity backup, don't show fake 4/3.
+    # V32: ONLY fill missing users. Never overwrite a real vault value - vault deducts normal downloads via /check-download (not via save_tokens), so activity backup is stale and would undo a download (2 -> 5).
     try:
         _act = load_json_file(ACTIVITY_FILE)
         for _uid, _a in _act.items():
@@ -2260,13 +2260,7 @@ def _restore_credits_from_activity(tokens):
             if str(_uid) not in (tokens or {}) or not isinstance(tokens.get(str(_uid)), dict):
                 if "saved_downloads_left" in _a or "saved_batch_left" in _a:
                     tokens[str(_uid)] = {"user_id": int(_uid), "downloads_left": int(_a.get("saved_downloads_left", get_free_amount()) or 0), "batch_downloads_left": int(_a.get("saved_batch_left", 3) or 0), "last_reset": _a.get("saved_last_reset", time.time())}
-            else:
-                # Vault has user but maybe reset to free - if activity backup is higher, keep higher (never lower on vault reset)
-                _prof = tokens[str(_uid)]
-                if "saved_downloads_left" in _a and int(_a.get("saved_downloads_left", 0) or 0) > int(_prof.get("downloads_left", 0) or 0):
-                    _prof["downloads_left"] = int(_a.get("saved_downloads_left"))
-                if "saved_batch_left" in _a and int(_a.get("saved_batch_left", 0) or 0) > int(_prof.get("batch_downloads_left", 0) or 0):
-                    _prof["batch_downloads_left"] = int(_a.get("saved_batch_left"))
+            # else: vault has a real value - trust vault, don't restore stale backup
     except Exception as e: logger.error(f"Restore credits: {e}")
     return tokens
 def save_tokens(tokens):
