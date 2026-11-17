@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V21 - From V20 + USER 1-tap bug: WebApp polls vault /monetag-status every sec while done, vault adds +3 per poll (3->159 on 1 tap). Batch now LOCAL file only, vault batch ignored # BOT V20 - From V19 + USER acc fix: one ad reward per pause only (Check tap 50x gave 3->159), clamp Batch Left to 30, stats clamps bugged 159/171 # BOT V19 - From V18 + admin ALSO deducts 3 (was exempt but still got +3/ad, so admin only went up 159->171), admin pause = Resume-only no ad, V19 marker # BOT V18 - From V17 + pause ALWAYS has ad buttons (Monetag fail -> Adsterra + Resume), batch deduct verified + shows before->after, old V16 paused resumes deduct # BOT V17 - From V16 + batch credits fixed: 1 batch = 3, ad adds to ONE counter only, no per-link /check-download (V11 base) + persistent menu grid + batch ad after 3 + batch images (incl mixed fallback) + audio retry + expanded block detection + lux even when blocked + skip poisoned file-cache (no android-first, no probe), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
+# BOT V22 - From V21 + MONETAG-ONLY: batch pause never falls back to Adsterra when Monetag busy (was showing Adsterra though you set Monetag), Retry Monetag button instead, need_credits text says +3 batch credits not downloads # BOT V21 - From V20 + USER 1-tap bug: WebApp polls vault /monetag-status every sec while done, vault adds +3 per poll (3->159 on 1 tap). Batch now LOCAL file only, vault batch ignored # BOT V20 - From V19 + USER acc fix: one ad reward per pause only (Check tap 50x gave 3->159), clamp Batch Left to 30, stats clamps bugged 159/171 # BOT V19 - From V18 + admin ALSO deducts 3 (was exempt but still got +3/ad, so admin only went up 159->171), admin pause = Resume-only no ad, V19 marker # BOT V18 - From V17 + pause ALWAYS has ad buttons (Monetag fail -> Adsterra + Resume), batch deduct verified + shows before->after, old V16 paused resumes deduct # BOT V17 - From V16 + batch credits fixed: 1 batch = 3, ad adds to ONE counter only, no per-link /check-download (V11 base) + persistent menu grid + batch ad after 3 + batch images (incl mixed fallback) + audio retry + expanded block detection + lux even when blocked + skip poisoned file-cache (no android-first, no probe), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
 # THIS IS A NEW FILE - NOT THE OLD main.py
 # First line check: if you see this header, you have the NEW file
 # Changes: buttons + join walkthrough + quality selector + DIRECTIONAL cache + PERSISTENT pending (no Expired)
@@ -3322,9 +3322,10 @@ async def _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destina
     paused_batches[user_id] = {"urls": urls, "next_index": index, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type, "reason": reason, "paid": (reason == "after_3")}
     # V17: after_3 ad does NOT give credits (batch already paid 3). need_credits ad gives +reward batch credits.
     if reason == "after_3":
-        _pause_text = f"⏸️ **[V21] Batch paused after 3 links** ({index}/{len(urls)})\nWatch ad to continue next 3 — no extra credits, batch already paid 3."
+        _pause_text = f"⏸️ **[V22] Batch paused after 3 links** ({index}/{len(urls)})\nWatch ad to continue next 3 — no extra credits, batch already paid 3."
     else:
-        _pause_text = t["limit_batch"].format(index, len(urls))
+        # V22: need_credits is a BATCH pause, not a single-download pause. Old text said "+3 downloads" - wrong, it gives +3 batch credits.
+        _pause_text = f"⚠️ [V22] Batch Limit Reached at {index} of {len(urls)}\nWatch Monetag ad → +3 batch credits to continue.\nBatch already paid 3 will be deducted on resume if needed." 
     # V18: NEVER send pause with no buttons. V17 bug: if adsgram_keyboard returned None (monetag-start failed),
     # bot sent text with reply_markup=None, so user saw "Watch ad" but had no button to tap - stuck.
     # Now: Monetag first, if it fails fall back to Adsterra. Always include Check + Resume so user is never stuck.
@@ -3348,6 +3349,8 @@ async def _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destina
     except Exception:
         _cur_batch = BATCH_AD_AFTER
     _pause_text = _pause_text + f"\n📊 Batch Left: {_cur_batch}"
+    # V22: MONETAG-ONLY. You set ad_mode=monetag, so NEVER show Adsterra here. Old code fell back to Adsterra when Monetag was busy ("Monetag busy, use Adsterra") - that's the screenshot bug.
+    # If Monetag is busy, show Retry Monetag + Check & Get (monetag_check), NO Adsterra link.
     if assigned_network == "monetag":
         kb = adsgram_keyboard(user_id, "wall", 0, 0)
         if kb is not None:
@@ -3359,9 +3362,10 @@ async def _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destina
                 pass
             await bot.send_message(chat_id=chat_id, text=_pause_text, reply_markup=kb, parse_mode="Markdown")
         else:
-            keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch Ad (Adsterra)", url=bridge_link)], [InlineKeyboardButton("✅ Check & Get", callback_data="verify_user")], [InlineKeyboardButton("▶️ Resume Batch", callback_data="resume_batch")]]
-            await bot.send_message(chat_id=chat_id, text=_pause_text + "\n⚠️ Monetag busy, use Adsterra link above.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            keyboard = [[InlineKeyboardButton("🔄 Retry Monetag Ad", callback_data="retry_pause")], [InlineKeyboardButton("✅ Check & Get +1 (Monetag)", callback_data="monetag_check")], [InlineKeyboardButton("▶️ Resume Batch", callback_data="resume_batch")]]
+            await bot.send_message(chat_id=chat_id, text=_pause_text + "\n⚠️ Monetag busy, tap Retry — Adsterra is OFF (you set Monetag only).", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     else:
+        # ad_mode=adsterra explicitly set - only then show Adsterra. If ad_mode=auto, get_global_ab_network already split, so this is a real Adsterra user.
         keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)], [InlineKeyboardButton("✅ Check & Get", callback_data="verify_user")], [InlineKeyboardButton("▶️ Resume Batch", callback_data="resume_batch")]]
         await bot.send_message(chat_id=chat_id, text=_pause_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
@@ -3386,7 +3390,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                 if user_id in active_batch_sessions: del active_batch_sessions[user_id]
                 return
         else:
-            _cost_msg = f"\n💳 [V21] Batch cost: -3 batch credits | Batch Left: {_old_left} → {_new_left}"
+            _cost_msg = f"\n💳 [V22] Batch cost: -3 batch credits | Batch Left: {_old_left} → {_new_left}"
     elif already_paid:
         _cost_msg = "\n▶️ Resumed - batch already paid 3, no extra credits."
     else:
@@ -5019,6 +5023,16 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.answer(t["stopping"], show_alert=True)
         try: await query.edit_message_text(t["stopped"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         except: pass
+        return
+    if data == "retry_pause":
+        _paused = paused_batches.get(user_id)
+        if not _paused:
+            await query.answer(t["batch_expired"], show_alert=True); return
+        await query.answer("Retrying Monetag…")
+        try: await query.message.delete()
+        except: pass
+        _lang2 = get_lang(user_id); _t2 = LANGUAGES.get(_lang2, LANGUAGES["en"])
+        await _pause_batch_for_ad(context.bot, user_id, _paused.get("chat_id", chat_id), _paused.get("urls", []), _paused.get("next_index", 0), _paused.get("target_destination_id"), _paused.get("dl_type", "video"), _t2, reason=_paused.get("reason", "after_3"))
         return
     if data == "resume_batch":
         paused = paused_batches.pop(user_id, None)
