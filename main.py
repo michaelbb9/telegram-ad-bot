@@ -2966,17 +2966,37 @@ def get_downloads_usage_mb():
         return total // (1024*1024)
     except: return 0
 
+def _sync_credit_config(**updates):
+    try:
+        response = requests.post(
+            f"{WEB_BASE_URL}/set-credit-config", json=updates,
+            headers=API_HEADERS, timeout=8,
+        )
+        if response.status_code != 200 or response.json().get("status") != "success":
+            logger.error("Credit config sync failed: HTTP %s %s", response.status_code, response.text[:180])
+            return False
+        return True
+    except Exception as exc:
+        logger.error("Credit config sync failed: %s", exc)
+        return False
+
 def get_reward_amount():
     # The configured ad reward is shared by normal and batch credits, each capped at 5.
     try: return max(0, min(MAX_USER_CREDITS, int(load_json_file(CONFIG_FILE).get("reward_amount", 3))))
     except: return 3
 def set_reward_amount(val):
-    cfg = load_json_file(CONFIG_FILE); cfg["reward_amount"] = max(0, min(MAX_USER_CREDITS, int(val))); save_json_file(CONFIG_FILE, cfg)
+    val = max(0, min(MAX_USER_CREDITS, int(val)))
+    if not _sync_credit_config(reward=val): return False
+    cfg = load_json_file(CONFIG_FILE); cfg["reward_amount"] = val; save_json_file(CONFIG_FILE, cfg)
+    return True
 def get_free_amount():
     try: return max(0, min(MAX_USER_CREDITS, int(load_json_file(CONFIG_FILE).get("free_amount", 4))))
     except: return 4
 def set_free_amount(val):
-    cfg = load_json_file(CONFIG_FILE); cfg["free_amount"] = max(0, min(MAX_USER_CREDITS, int(val))); save_json_file(CONFIG_FILE, cfg)
+    val = max(0, min(MAX_USER_CREDITS, int(val)))
+    if not _sync_credit_config(free=val): return False
+    cfg = load_json_file(CONFIG_FILE); cfg["free_amount"] = val; save_json_file(CONFIG_FILE, cfg)
+    return True
 def get_free_disk_mb():
     try: return max(0, 512 - get_downloads_usage_mb())
     except: return 512
@@ -3051,7 +3071,8 @@ async def acquire_slot():
     async with download_lock:
         free_mb = shutil.disk_usage(".").free // (1024*1024)
         min_free = get_min_free_disk_mb()
-        if active_downloads < MAX_CONCURRENT_SHORT and free_mb > min_free:
+        required_reserve = min_free + (49 * (active_downloads + 1))
+        if active_downloads < MAX_CONCURRENT_SHORT and free_mb > required_reserve:
             active_downloads += 1
             return True
         return False
@@ -3065,12 +3086,15 @@ async def queue_processor(bot):
         try:
             job = await download_queue.get()
             while True:
-                free_mb = shutil.disk_usage(".").free // (1024*1024)
-                min_free = get_min_free_disk_mb()
-                async with download_lock: can_run = active_downloads < MAX_CONCURRENT_SHORT and free_mb > min_free
+                async with download_lock:
+                    free_mb = shutil.disk_usage(".").free // (1024*1024)
+                    min_free = get_min_free_disk_mb()
+                    required_reserve = min_free + (49 * (active_downloads + 1))
+                    can_run = active_downloads < MAX_CONCURRENT_SHORT and free_mb > required_reserve
+                    if can_run:
+                        active_downloads += 1
                 if can_run: break
                 await asyncio.sleep(2)
-            async with download_lock: active_downloads += 1
             try: await job['func'](*job['args'], **job['kwargs'])
             except Exception as e: logger.error(f"Queue job: {e}")
             finally:
@@ -3104,6 +3128,36 @@ def file_link_keyboard(state):
           [InlineKeyboardButton(f"📎 Files: {len(state.get('items', []))}", callback_data="fl_refresh")],
           [InlineKeyboardButton("✅ Create Link", callback_data="fl_create"), InlineKeyboardButton("❌ Cancel", callback_data="fl_cancel")]]
     return InlineKeyboardMarkup(kb)
+
+async def clear_password_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Clear a draft password, or /clearpassword <token> on a link the user owns."""
+    user_id = update.effective_user.id
+    t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
+    args = context.args or []
+    if args:
+        supplied = str(args[0]).strip()
+        match = re.search(r"(?:start=)?fl_([A-Za-z0-9_-]+)", supplied)
+        token = match.group(1) if match else supplied
+        links = load_json_file(FILE_LINKS_FILE)
+        record = links.get(token)
+        if not record or int(record.get("creator_id", 0) or 0) != int(user_id):
+            await update.effective_message.reply_text("❌ Link not found, or it does not belong to you.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
+            return
+        record["password"] = ""
+        links[token] = record
+        save_json_file(FILE_LINKS_FILE, links)
+        await update.effective_message.reply_text("✅ Password removed from that link.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
+        return
+    states = load_json_file(FILE_LINK_STATE_FILE)
+    state = states.get(str(user_id))
+    if state and state.get("mode") in ("file_link_set_password", "collecting"):
+        state.setdefault("settings", {})["password"] = ""
+        state["mode"] = "collecting"
+        states[str(user_id)] = state
+        save_json_file(FILE_LINK_STATE_FILE, states)
+        await update.effective_message.reply_text("✅ Password cleared. Your File-to-Link draft is still open.", reply_markup=file_link_keyboard(state))
+        return
+    await update.effective_message.reply_text("To remove a password from an existing link, send /clearpassword followed by its link token. For a draft, open File-to-Link first.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
 
 async def file_link_add_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     if not update.effective_message or not update.effective_user: return False
@@ -3296,7 +3350,7 @@ async def _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destina
         keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)]]
         await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
-async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0):
+async def _process_url_batch_inner(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0):
     if not urls: return
     lang = get_lang(user_id)
     t = LANGUAGES.get(lang, LANGUAGES["en"])
@@ -3538,6 +3592,28 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
     if user_id not in paused_batches:
         dest = t["batch_done_chan"].format(success_count, fail_count, success_count) if target_destination_id != chat_id else t["batch_done"].format(success_count, fail_count, success_count)
         await bot.send_message(chat_id=chat_id, text=dest, reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID), parse_mode="Markdown")
+
+async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0):
+    """Run the whole sequential batch under one disk/concurrency slot."""
+    if not urls:
+        return
+    acquired = False
+    for _ in range(15):
+        if await acquire_slot():
+            acquired = True
+            break
+        await asyncio.sleep(2)
+    if not acquired:
+        await bot.send_message(
+            chat_id=chat_id,
+            text="⚠️ The server is busy or low on free disk space. Your batch was not started; please try again shortly.",
+            reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID),
+        )
+        return
+    try:
+        await _process_url_batch_inner(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=start_index)
+    finally:
+        await release_slot()
 
 async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
@@ -4663,15 +4739,17 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except: pass
         return
     if data.startswith("set_free_") and user_id == ADMIN_ID:
-        val = int(data.replace("set_free_", "")); set_free_amount(val)
-        await query.answer(t["free_set"].format(val), show_alert=True)
-        try: await query.message.edit_text(t["free_updated"].format(val), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
+        val = int(data.replace("set_free_", ""))
+        ok = set_free_amount(val)
+        await query.answer(t["free_set"].format(val) if ok else "Backend could not save the free-credit setting. No change was applied.", show_alert=True)
+        try: await query.message.edit_text(t["free_updated"].format(val) if ok else "❌ Free-credit setting was not changed. Check the Flask service and try again.", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
         except: pass
         return
     if data.startswith("set_reward_") and user_id == ADMIN_ID:
-        val = int(data.replace("set_reward_", "")); set_reward_amount(val)
-        await query.answer(t["reward_set"].format(val), show_alert=True)
-        try: await query.message.edit_text(t["reward_updated"].format(val), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
+        val = int(data.replace("set_reward_", ""))
+        ok = set_reward_amount(val)
+        await query.answer(t["reward_set"].format(val) if ok else "Backend could not save the ad reward setting. No change was applied.", show_alert=True)
+        try: await query.message.edit_text(t["reward_updated"].format(val) if ok else "❌ Ad reward setting was not changed. Check the Flask service and try again.", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
         except: pass
         return
     if data.startswith("set_ad_") and user_id == ADMIN_ID:
@@ -5142,6 +5220,7 @@ def run_telegram_bot():
         except Exception as e: logger.warning(f"Could not set bot menu commands: {e}")
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CommandHandler("filetolink", file_to_link_command))
+        app.add_handler(CommandHandler("clearpassword", clear_password_command))
         app.add_handler(CommandHandler("language", language_command))
         app.add_handler(CommandHandler("stats", stats))
         app.add_handler(CommandHandler("status", status_command))
@@ -5185,11 +5264,16 @@ BOT_API_LIMIT_BYTES = 49 * 1024 * 1024
 MTPROTO = {"client": None, "loop": None, "ready": threading.Event(), "no_parse": None}
 
 def mtproto_limit_mb():
-    max_mb = get_mtproto_max_mb()
-    min_free = get_min_free_disk_mb()
-    spare = (shutil.disk_usage(".").free // (1024*1024)) - min_free
-    if not MTPROTO["ready"].is_set(): return 49
-    return int(max(50, min(max_mb, spare // max(1, active_downloads))))
+    max_mb = max(50, int(get_mtproto_max_mb()))
+    min_free = max(0, int(get_min_free_disk_mb()))
+    spare = max(0, (shutil.disk_usage(".").free // (1024*1024)) - min_free)
+    # Telegram Bot API fallback is capped below 50 MB. When MTProto is online,
+    # divide the remaining disk allowance among concurrent downloads; do not
+    # force a 50 MB minimum when that would exceed the configured disk reserve.
+    if not MTPROTO["ready"].is_set():
+        return min(49, spare)
+    per_download = spare // max(1, active_downloads)
+    return max(1, min(max_mb, per_download))
 
 def probe_video(path):
     import subprocess
