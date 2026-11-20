@@ -199,8 +199,6 @@ LANGUAGES = {
         "ad_panel_prompt": "⚙️ Ad Panel\nCurrent: {}",
         "password_saved": "🔐 Password saved.",
     "password_removed": "🔓 Password removed.",
-    "batch_pause_msg": "⏸️ **Batch paused at {}/{}**\nWatch ad to resume — **0 credits**, just continues.",
-    "batch_out_msg": "⚠️ **Batch out of credits at {}/{}**\nWatch ad → +{} **Batch only** to continue.",
         "password_too_long": "Password must be 64 chars or fewer.",
         "file_to_link_prompt": "🔗 **File-to-Link**\nSend the file(s) you want to share.",
         "link_invalid_expired": "❌ This link is invalid or expired.",
@@ -2206,21 +2204,12 @@ def adsgram_keyboard(user_id, kind="wall", msg_start=0, msg_end=0, extra_rows=No
     nonce = adsgram_start(user_id, kind, msg_start, msg_end)
     if not nonce: return None
     url = f"{WEB_BASE_URL}/monetag?n={nonce}&k={kind}"
-    if kind == "batch_pause":
-        # FIX: Pause-after-3 ad gives 0 credits, only resumes. Must NOT say +3 / +1.
-        rows = [
-            [InlineKeyboardButton("📺 Watch Ad to Resume (0 credits)", web_app=WebAppInfo(url=url))],
-            [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
-            [InlineKeyboardButton("✅ Check & Resume", callback_data="monetag_check")],
-            [InlineKeyboardButton("↪️ Use Adsterra fallback (after 2 failures)", callback_data="monetag_fallback")],
-        ]
-    else:
-        rows = [
-            [InlineKeyboardButton(f"📺 Watch Monetag Ad +{get_reward_amount()}", web_app=WebAppInfo(url=url))],
-            [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
-            [InlineKeyboardButton("✅ Check & Get +1", callback_data="monetag_check")],
-            [InlineKeyboardButton("↪️ Use Adsterra fallback (after 2 failures)", callback_data="monetag_fallback")],
-        ]
+    rows = [
+        [InlineKeyboardButton(f"📺 Watch Monetag Ad +{get_reward_amount()}", web_app=WebAppInfo(url=url))],
+        [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
+        [InlineKeyboardButton("✅ Check & Get +1", callback_data="monetag_check")],
+        [InlineKeyboardButton("↪️ Use Adsterra fallback (after 2 failures)", callback_data="monetag_fallback")],
+    ]
     if extra_rows: rows.extend(extra_rows)
     return InlineKeyboardMarkup(rows)
 
@@ -3337,10 +3326,8 @@ async def _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destina
         paused_batches.pop(user_id, None)
     assigned_network = get_global_ab_network(user_id)
     if assigned_network == "monetag":
-        kb = adsgram_keyboard(user_id, "batch_pause", 0, 0)
-        # FIX: Pause ad = 0 credits. Use batch_pause_msg, NOT limit_batch (+3).
-        _pause_txt = t.get("batch_pause_msg", "⏸️ Batch paused at {}/{} — Watch ad to resume (0 credits).").format(index, len(urls))
-        await bot.send_message(chat_id=chat_id, text=_pause_txt, reply_markup=kb, parse_mode="Markdown")
+        kb = adsgram_keyboard(user_id, "wall", 0, 0)
+        await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=kb, parse_mode="Markdown")
     else:
         bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
         if not prepare_ad_session(user_id, 0, 0):
@@ -3396,9 +3383,8 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             reset_batch_ad_progress(user_id)
             if get_global_ab_network(user_id) == "monetag":
                 paused_batches[user_id] = {"urls": urls, "next_index": index-1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
-                kb = adsgram_keyboard(user_id, "batch", 0, 0)
-                _out_txt = t.get("batch_out_msg", "⚠️ Batch out of credits at {}/{} — Watch ad → +{} Batch only.").format(index, len(urls), get_reward_amount())
-                await bot.send_message(chat_id=chat_id, text=_out_txt, reply_markup=kb, parse_mode="Markdown")
+                kb = adsgram_keyboard(user_id, "wall", 0, 0)
+                await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=kb, parse_mode="Markdown")
                 break
             bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
             if not prepare_ad_session(user_id, 0, 0):
@@ -3965,7 +3951,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 msg_end = user_profile.get("msg_end", 0)
             assigned_network = get_global_ab_network(user_id)
             if assigned_network == "monetag":
-                kb = adsgram_keyboard(user_id, "single", msg_start, msg_end)
+                kb = adsgram_keyboard(user_id, "wall", msg_start, msg_end)
                 if kb: await update.message.reply_text(t["limit_reached"], reply_markup=kb, parse_mode="Markdown")
                 else: await update.message.reply_text("⚠️ Ad server busy, try again in a moment.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
                 return
@@ -4718,7 +4704,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     await query.answer(t["fl_daily_limit"], show_alert=True)
                     assigned_network = get_global_ab_network(user_id)
                     if assigned_network == "monetag":
-                        kb = adsgram_keyboard(user_id, "single", 0, 0)
+                        kb = adsgram_keyboard(user_id, "wall", 0, 0)
                         if kb: await query.message.reply_text(t["limit_reached"], reply_markup=kb, parse_mode="Markdown")
                         else: await query.message.reply_text(t["fl_ad_busy"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
                     else:
@@ -5033,11 +5019,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.answer(t["ad_verified_added"].format(reward), show_alert=True)
             await context.bot.send_message(chat_id=chat_id, text=t["test_ad_completed"].format(reward), reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
             return
-        if st.get("kind") == "batch_pause":
-            # FIX: Pause ad = 0 credits. Do NOT say "Refilled +3".
-            await query.answer("✅ Ad watched — resuming batch (0 credits)", show_alert=True)
-        else:
-            await query.answer(t["sponsor_viewed"].format(reward), show_alert=True)
+        await query.answer(t["sponsor_viewed"].format(reward), show_alert=True)
         paused = paused_batches.pop(user_id, None)
         if paused:
             asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"]))
