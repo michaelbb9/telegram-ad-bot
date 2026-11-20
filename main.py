@@ -146,8 +146,6 @@ active_batch_sessions = {}
 pending_batch_payloads = {}
 paused_batches = {}
 pending_single_links = {}
-# ONLY FIX - batch pause Adsterra: track kind so pause ad gives +1 Batch (not +1 Downloads)
-AD_KIND_BY_USER = {}
 
 MAX_CONCURRENT_SHORT = 3
 MIN_FREE_DISK_MB = 150
@@ -200,9 +198,6 @@ LANGUAGES = {
         "reward_panel_prompt": "🎁 REWARD PANEL\nCurrent: +{} download per 20s ad",
         "ad_panel_prompt": "⚙️ Ad Panel\nCurrent: {}",
         "password_saved": "🔐 Password saved.",
-    "password_removed": "🔓 Password removed.",
-    "batch_pause_msg": "⏸️ **Batch paused at {}/{}**\nWatch ad to resume — **0 credits**, just continues.",
-    "batch_out_msg": "⚠️ **Batch out of credits at {}/{}**\nWatch ad → +{} **Batch only** to continue.",
         "password_too_long": "Password must be 64 chars or fewer.",
         "file_to_link_prompt": "🔗 **File-to-Link**\nSend the file(s) you want to share.",
         "link_invalid_expired": "❌ This link is invalid or expired.",
@@ -2171,20 +2166,6 @@ def load_tokens():
     except Exception as e: logger.error(f"Tokens: {e}")
     return {}
 
-def get_user_profile_from_flask(user_id):
-    # FIX: My Stats used /get_tokens which NEVER calls get_user_profile (no 24h refill),
-    # while /check-download DOES call it (refill). So My Stats showed stale 0, then File-to-Link
-    # silently refilled to free then deducted 1 -> 0->1 jump. This calls the new /get-profile
-    # endpoint which uses the SAME get_user_profile logic as /check-download, so both agree.
-    try:
-        r = requests.post(f"{WEB_BASE_URL}/get-profile", json={"user_id": int(user_id)}, headers=API_HEADERS, timeout=5)
-        if r.status_code == 200:
-            d = r.json()
-            if isinstance(d, dict) and "downloads_left" in d:
-                return d
-    except Exception as e: logger.error(f"get-profile: {e}")
-    return None
-
 def save_tokens(tokens):
     try: requests.post(f"{WEB_BASE_URL}/save_tokens", json=tokens, headers=API_HEADERS, timeout=5)
     except Exception as e: logger.error(f"Save tokens: {e}")
@@ -2208,21 +2189,12 @@ def adsgram_keyboard(user_id, kind="wall", msg_start=0, msg_end=0, extra_rows=No
     nonce = adsgram_start(user_id, kind, msg_start, msg_end)
     if not nonce: return None
     url = f"{WEB_BASE_URL}/monetag?n={nonce}&k={kind}"
-    if kind == "batch_pause":
-        # FIX: Pause-after-3 ad gives 0 credits, only resumes. Must NOT say +3 / +1.
-        rows = [
-            [InlineKeyboardButton("📺 Watch Ad to Resume (0 credits)", web_app=WebAppInfo(url=url))],
-            [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
-            [InlineKeyboardButton("✅ Check & Resume", callback_data="monetag_check")],
-            [InlineKeyboardButton("↪️ Use Adsterra fallback (after 2 failures)", callback_data="monetag_fallback")],
-        ]
-    else:
-        rows = [
-            [InlineKeyboardButton(f"📺 Watch Monetag Ad +{get_reward_amount()}", web_app=WebAppInfo(url=url))],
-            [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
-            [InlineKeyboardButton("✅ Check & Get +1", callback_data="monetag_check")],
-            [InlineKeyboardButton("↪️ Use Adsterra fallback (after 2 failures)", callback_data="monetag_fallback")],
-        ]
+    rows = [
+        [InlineKeyboardButton(f"📺 Watch Monetag Ad +{get_reward_amount()}", web_app=WebAppInfo(url=url))],
+        [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
+        [InlineKeyboardButton("✅ Check & Get +1", callback_data="monetag_check")],
+        [InlineKeyboardButton("↪️ Use Adsterra fallback (after 2 failures)", callback_data="monetag_fallback")],
+    ]
     if extra_rows: rows.extend(extra_rows)
     return InlineKeyboardMarkup(rows)
 
@@ -2998,23 +2970,15 @@ def get_reward_amount():
     # The configured ad reward is shared by normal and batch credits, each capped at 5.
     try: return max(0, min(MAX_USER_CREDITS, int(load_json_file(CONFIG_FILE).get("reward_amount", 3))))
     except: return 3
-def _sync_reward_to_flask():
-    # FIX: Bot Set Free/Reward only updated bot_config.json, Flask kept old reward_config.json.
-    # Now bot pushes both to Flask /set-reward so Flask (source of truth for credits) agrees.
-    try:
-        cfg = load_json_file(CONFIG_FILE)
-        requests.post(f"{WEB_BASE_URL}/set-reward", json={"free": int(cfg.get("free_amount", 4)), "reward": int(cfg.get("reward_amount", 3))}, headers=API_HEADERS, timeout=5)
-    except Exception as e: logger.error(f"sync reward to flask: {e}")
 def set_reward_amount(val):
-    cfg = load_json_file(CONFIG_FILE); cfg["reward_amount"] = max(0, min(MAX_USER_CREDITS, int(val))); save_json_file(CONFIG_FILE, cfg); _sync_reward_to_flask()
+    cfg = load_json_file(CONFIG_FILE); cfg["reward_amount"] = max(0, min(MAX_USER_CREDITS, int(val))); save_json_file(CONFIG_FILE, cfg)
 def get_free_amount():
     try: return max(0, min(MAX_USER_CREDITS, int(load_json_file(CONFIG_FILE).get("free_amount", 4))))
     except: return 4
 def set_free_amount(val):
-    cfg = load_json_file(CONFIG_FILE); cfg["free_amount"] = max(0, min(MAX_USER_CREDITS, int(val))); save_json_file(CONFIG_FILE, cfg); _sync_reward_to_flask()
+    cfg = load_json_file(CONFIG_FILE); cfg["free_amount"] = max(0, min(MAX_USER_CREDITS, int(val))); save_json_file(CONFIG_FILE, cfg)
 def get_free_disk_mb():
-    # FIX: was 512 - usage (fake). Now real free from disk.
-    try: return shutil.disk_usage(".").free // (1024*1024)
+    try: return max(0, 512 - get_downloads_usage_mb())
     except: return 512
 
 def deduct_download_counter(user_id, is_batch=False):
@@ -3172,23 +3136,6 @@ async def file_to_link_command(update: Update, context: ContextTypes.DEFAULT_TYP
     save_json_file(FILE_LINK_STATE_FILE, states)
     await update.effective_message.reply_text(t["file_to_link_prompt"], reply_markup=file_link_keyboard(state), parse_mode="Markdown")
 
-async def clearpassword_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # FIX: /clearpassword was inside handle_media_link which filters out ALL commands (filters.TEXT & ~filters.COMMAND),
-    # so it could never run. This is a real CommandHandler, so Telegram delivers it.
-    user_id = update.effective_user.id
-    t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
-    states = load_json_file(FILE_LINK_STATE_FILE)
-    state = states.get(str(user_id))
-    if not state:
-        await update.effective_message.reply_text("No File-to-Link in progress. Tap File-to-Link first.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
-        return
-    # Works in BOTH modes: collecting (after a password was already saved) and file_link_set_password
-    state.setdefault("settings", {})["password"] = ""
-    state["mode"] = "collecting"
-    states[str(user_id)] = state
-    save_json_file(FILE_LINK_STATE_FILE, states)
-    await update.effective_message.reply_text(t.get("password_removed", "🔓 Password removed."), reply_markup=file_link_keyboard(state))
-
 async def file_link_deep_link(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str) -> None:
     t = LANGUAGES.get(get_lang(update.effective_user.id), LANGUAGES["en"])
     links = load_json_file(FILE_LINKS_FILE)
@@ -3339,34 +3286,15 @@ async def _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destina
         paused_batches.pop(user_id, None)
     assigned_network = get_global_ab_network(user_id)
     if assigned_network == "monetag":
-        kb = adsgram_keyboard(user_id, "batch_pause", 0, 0)
-        # FIX: Pause ad = 0 credits. Use batch_pause_msg, NOT limit_batch (+3).
-        _pause_txt = t.get("batch_pause_msg", "⏸️ Batch paused at {}/{} — Watch ad to resume (0 credits).").format(index, len(urls))
-        await bot.send_message(chat_id=chat_id, text=_pause_txt, reply_markup=kb, parse_mode="Markdown")
+        kb = adsgram_keyboard(user_id, "wall", 0, 0)
+        await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=kb, parse_mode="Markdown")
     else:
-        # ONLY FIX - Batch pause after 3, Adsterra: show EXACTLY like 2nd image (Adsterra test prompt)
-        # + tutorial video + ADSTERRA text + 3 buttons. Old code showed 1 button "Open Link & Refill +3" with no Get Files.
-        AD_KIND_BY_USER[user_id] = "batch"
         bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
         if not prepare_ad_session(user_id, 0, 0):
             await bot.send_message(chat_id=chat_id, text="⚠️ Ad server busy. Please try again in a moment.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
             return
-        # Tutorial video first, like other Adsterra flows (forward TUTORIAL_MESSAGE_ID 108)
-        try:
-            await bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-            await asyncio.sleep(0.2)
-        except Exception:
-            try: await bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-            except Exception: pass
-        # Same text as 2nd image: batch progress + AD PLACEMENT TEST (Adsterra) + ADSTERRA_USER_GUIDE
-        _pause_header = f"⏸️ Batch paused at {index}/{len(urls)} — Watch ad to continue.\n\n"
-        _pause_full = _pause_header + "🧪 AD PLACEMENT TEST (Adsterra)\n\n1️⃣ User sends link\n2️⃣ LIMIT REACHED screen appears\n3️⃣ Stay 20s on ad page\n4️⃣ Tap Check & Get +1\n\n👇 TRY THE AD NOW:" + ADSTERRA_USER_GUIDE
-        keyboard = [
-            [InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)],
-            [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
-            [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")],
-        ]
-        await bot.send_message(chat_id=chat_id, text=_pause_full, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)]]
+        await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0):
     if not urls: return
@@ -3378,22 +3306,6 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
     batch_notice = await bot.send_message(chat_id=chat_id, text=t["batch_start"].format(download_type.upper(), len(urls)), reply_markup=stop_markup, parse_mode="Markdown")
     for index, url in enumerate(urls[start_index:], start=start_index+1):
         if not active_batch_sessions.get(user_id, False): break
-        # FIX: Download Limits were only checked for single downloads, batch bypassed them.
-        # Now batch also checks duration/size limits per link before charging credit.
-        if user_id != ADMIN_ID:
-            try:
-                _b_meta = await asyncio.to_thread(get_social_metadata, url) if get_social_metadata else None
-                if _b_meta:
-                    _b_key = detect_platform_key(url, _b_meta.get("platform", ""))
-                    _b_limits = get_platform_limits(_b_key)
-                    _b_cost, _b_time_ok, _b_size_ok = calculate_cost_and_limits(_b_meta, _b_limits)
-                    if not _b_time_ok or not _b_size_ok:
-                        _why = []
-                        if not _b_time_ok: _why.append(f"⏱️ Duration exceeds {_b_limits['min']} min for {_b_key}")
-                        if not _b_size_ok: _why.append(f"📦 Est. size exceeds {_b_limits['mb']} MB for {_b_key}")
-                        await bot.send_message(chat_id=chat_id, text=f"❌ Skipping link {index}/{len(urls)} — limit:\n" + "\n".join(_why), reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-                        continue
-            except Exception as _be: logger.warning(f"Batch limit check failed for {url}: {_be}")
         credit_charged = False
         if user_id == ADMIN_ID:
             res_data = {"status": "allowed", "left": 999}
@@ -3415,34 +3327,16 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             reset_batch_ad_progress(user_id)
             if get_global_ab_network(user_id) == "monetag":
                 paused_batches[user_id] = {"urls": urls, "next_index": index-1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
-                kb = adsgram_keyboard(user_id, "batch", 0, 0)
-                _out_txt = t.get("batch_out_msg", "⚠️ Batch out of credits at {}/{} — Watch ad → +{} Batch only.").format(index, len(urls), get_reward_amount())
-                await bot.send_message(chat_id=chat_id, text=_out_txt, reply_markup=kb, parse_mode="Markdown")
+                kb = adsgram_keyboard(user_id, "wall", 0, 0)
+                await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=kb, parse_mode="Markdown")
                 break
-            # SAME FIX as pause - Batch OUT OF CREDITS, Adsterra: show EXACTLY like 2nd image
-            # Old code showed 1 button "Open Link & Refill +3" with no Get Files.
-            # This is the branch you hit in your new screenshot: Item 2/7 delivered, then link 3 fails credit check -> blocked -> this branch.
-            AD_KIND_BY_USER[user_id] = "batch"
             bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
             if not prepare_ad_session(user_id, 0, 0):
                 await bot.send_message(chat_id=chat_id, text="⚠️ Ad server busy. Please try again in a moment.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
                 break
             paused_batches[user_id] = {"urls": urls, "next_index": index-1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
-            # Tutorial video first, like other Adsterra flows
-            try:
-                await bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-                await asyncio.sleep(0.2)
-            except Exception:
-                try: await bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-                except Exception: pass
-            _out_header = f"⏸️ Batch out of credits at {index}/{len(urls)} — Watch ad to continue.\n\n"
-            _out_full = _out_header + "🧪 AD PLACEMENT TEST (Adsterra)\n\n1️⃣ User sends link\n2️⃣ LIMIT REACHED screen appears\n3️⃣ Stay 20s on ad page\n4️⃣ Tap Check & Get +1\n\n👇 TRY THE AD NOW:" + ADSTERRA_USER_GUIDE
-            keyboard = [
-                [InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)],
-                [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
-                [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")],
-            ]
-            await bot.send_message(chat_id=chat_id, text=_out_full, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)]]
+            await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             break
         credit_charged = user_id != ADMIN_ID
         try:
@@ -3845,15 +3739,13 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     fl_states = load_json_file(FILE_LINK_STATE_FILE)
     fl_state = fl_states.get(str(user_id))
     if fl_state and fl_state.get("mode") == "file_link_set_password":
-        _is_clear = (text.strip() == "/clearpassword")
-        if _is_clear: fl_state.setdefault("settings", {})["password"] = ""
+        if text.strip() == "/clearpassword": fl_state.setdefault("settings", {})["password"] = ""
         else:
             if len(text) > 64: await update.message.reply_text(t["password_too_long"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
             fl_state.setdefault("settings", {})["password"] = text.strip()
         fl_state["mode"] = "collecting"
         fl_states[str(user_id)] = fl_state; save_json_file(FILE_LINK_STATE_FILE, fl_states)
-        _msg = t.get("password_removed", "🔓 Password removed.") if _is_clear else t["password_saved"]
-        await update.message.reply_text(_msg, reply_markup=file_link_keyboard(fl_state))
+        await update.message.reply_text(t["password_saved"], reply_markup=file_link_keyboard(fl_state))
         return
     if text == "💾 Disk Config" and user_id == ADMIN_ID:
         current = get_min_free_disk_mb()
@@ -3931,17 +3823,10 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if text == t["menu_stats"]:
         if user_id == ADMIN_ID: await stats(update, context)
         else:
-            # FIX: use /get-profile (same refill logic as /check-download) so My Stats
-            # shows the refilled balance BEFORE you try File-to-Link. No more 0->1 surprise.
-            prof = get_user_profile_from_flask(user_id)
-            if prof is not None:
-                d_left = prof.get("downloads_left", get_free_amount())
-                b_left = prof.get("batch_downloads_left", min(MAX_USER_CREDITS, get_free_amount() * 5))
-            else:
-                tokens = load_tokens()
-                profile = tokens.get(str(user_id), {})
-                d_left = profile.get("downloads_left", get_free_amount())
-                b_left = profile.get("batch_downloads_left", min(MAX_USER_CREDITS, get_free_amount() * 5))
+            tokens = load_tokens()
+            profile = tokens.get(str(user_id), {})
+            d_left = profile.get("downloads_left", get_free_amount())
+            b_left = profile.get("batch_downloads_left", min(MAX_USER_CREDITS, get_free_amount() * 5))
             await update.message.reply_text(t["stats_msg"].format(d_left, b_left), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         return
     if text == t["menu_join"]: await update.message.reply_text(f"[Join]({PUBLIC_CHANNEL_URL})", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
@@ -4001,7 +3886,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 msg_end = user_profile.get("msg_end", 0)
             assigned_network = get_global_ab_network(user_id)
             if assigned_network == "monetag":
-                kb = adsgram_keyboard(user_id, "single", msg_start, msg_end)
+                kb = adsgram_keyboard(user_id, "wall", msg_start, msg_end)
                 if kb: await update.message.reply_text(t["limit_reached"], reply_markup=kb, parse_mode="Markdown")
                 else: await update.message.reply_text("⚠️ Ad server busy, try again in a moment.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
                 return
@@ -4282,19 +4167,14 @@ async def set_disk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def set_mtproto_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
-    if not context.args:
-        _ready = MTPROTO["ready"].is_set() if "MTPROTO" in globals() else False
-        _eff = mtproto_limit_mb() if "mtproto_limit_mb" in globals() else 49
-        await update.message.reply_text(f"⚡ **MTProto Config**\nSaved max: **{get_mtproto_max_mb()}MB**\nMTProto ready: **{'✅ Yes' if _ready else '❌ No — capped at 49MB (Bot API)'}**\nEffective limit now: **{_eff}MB**\nAPI_ID set: **{'Yes' if API_ID else 'No'}** | API_HASH set: **{'Yes' if API_HASH else 'No'}**\nTo change: `/setmtproto <value>`", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True)); return
+    if not context.args: await update.message.reply_text("Usage: `/setmtproto <mb>`\nExample: `/setmtproto 1000`", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True)); return
     try:
         value = int(context.args[0])
         if value < 50: await update.message.reply_text("⚠️ Value must be at least 50MB.", reply_markup=get_main_keyboard("en", True)); return
         config = load_json_file(CONFIG_FILE)
         config["mtproto_max_mb"] = value
         save_json_file(CONFIG_FILE, config)
-        _ready2 = MTPROTO["ready"].is_set() if "MTPROTO" in globals() else False
-        _eff2 = mtproto_limit_mb() if "mtproto_limit_mb" in globals() else 49
-        await update.message.reply_text(f"✅ MTProto max upload size set to **{value}MB**\nMTProto ready: **{'✅ Yes' if _ready2 else '❌ No — still capped at 49MB until API_ID/API_HASH are set on Render and bot restarts'}**\nEffective limit now: **{_eff2}MB**", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
+        await update.message.reply_text(f"✅ MTProto max upload size set to **{value}MB**", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
     except ValueError: await update.message.reply_text("❌ Invalid number.", reply_markup=get_main_keyboard("en", True))
 
 async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credit_cost=1, preferred_quality=None, meta=None):
@@ -4754,7 +4634,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     await query.answer(t["fl_daily_limit"], show_alert=True)
                     assigned_network = get_global_ab_network(user_id)
                     if assigned_network == "monetag":
-                        kb = adsgram_keyboard(user_id, "single", 0, 0)
+                        kb = adsgram_keyboard(user_id, "wall", 0, 0)
                         if kb: await query.message.reply_text(t["limit_reached"], reply_markup=kb, parse_mode="Markdown")
                         else: await query.message.reply_text(t["fl_ad_busy"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
                     else:
@@ -5069,11 +4949,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await query.answer(t["ad_verified_added"].format(reward), show_alert=True)
             await context.bot.send_message(chat_id=chat_id, text=t["test_ad_completed"].format(reward), reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
             return
-        if st.get("kind") == "batch_pause":
-            # FIX: Pause ad = 0 credits. Do NOT say "Refilled +3".
-            await query.answer("✅ Ad watched — resuming batch (0 credits)", show_alert=True)
-        else:
-            await query.answer(t["sponsor_viewed"].format(reward), show_alert=True)
+        await query.answer(t["sponsor_viewed"].format(reward), show_alert=True)
         paused = paused_batches.pop(user_id, None)
         if paused:
             asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"]))
@@ -5141,12 +5017,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_USERNAME, user_id=user_id)
             if member.status not in ["creator","administrator","member"]: await query.answer(t["join_channel_first_alert"], show_alert=True); return
         except: await query.answer(t["join_channel_first"], show_alert=True); return
-        # ONLY FIX - send kind so batch pause claim goes to Batch (+1), single claim goes to Downloads (+1)
-        _ad_kind = AD_KIND_BY_USER.get(user_id, "single")
         try:
             claim_response = requests.post(
                 f"{WEB_BASE_URL}/claim-bridge-reward",
-                json={"user_id": user_id, "reward": get_reward_amount(), "kind": _ad_kind, "admin_test": user_id == ADMIN_ID},
+                json={"user_id": user_id, "reward": get_reward_amount(), "admin_test": user_id == ADMIN_ID},
                 headers=API_HEADERS,
                 timeout=8,
             )
@@ -5164,10 +5038,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         msg_end = int(claim_data.get("msg_end", 0) or 0)
         reward = int(claim_data.get("reward", get_reward_amount()))
         await query.answer(t["verified_added"])
-        # ONLY FIX - clear kind after claim so next single ad does not reuse stale batch kind
-        AD_KIND_BY_USER.pop(user_id, None)
         if user_id in paused_batches:
-            keyboard = [[InlineKeyboardButton(f"▶️ Resume Batch +{reward}", callback_data="resume_batch")]]
+            keyboard = [[InlineKeyboardButton("▶️ Resume Batch +1", callback_data="resume_batch")]]
             await query.message.reply_text(t["resume_prompt"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             return
         # V11: Adsterra refill - if user had a pending link, show format + quality picker (don't ask to resend)
@@ -5270,7 +5142,6 @@ def run_telegram_bot():
         except Exception as e: logger.warning(f"Could not set bot menu commands: {e}")
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CommandHandler("filetolink", file_to_link_command))
-        app.add_handler(CommandHandler("clearpassword", clearpassword_command))
         app.add_handler(CommandHandler("language", language_command))
         app.add_handler(CommandHandler("stats", stats))
         app.add_handler(CommandHandler("status", status_command))
