@@ -3419,13 +3419,30 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                 _out_txt = t.get("batch_out_msg", "⚠️ Batch out of credits at {}/{} — Watch ad → +{} Batch only.").format(index, len(urls), get_reward_amount())
                 await bot.send_message(chat_id=chat_id, text=_out_txt, reply_markup=kb, parse_mode="Markdown")
                 break
+            # SAME FIX as pause - Batch OUT OF CREDITS, Adsterra: show EXACTLY like 2nd image
+            # Old code showed 1 button "Open Link & Refill +3" with no Get Files.
+            # This is the branch you hit in your new screenshot: Item 2/7 delivered, then link 3 fails credit check -> blocked -> this branch.
+            AD_KIND_BY_USER[user_id] = "batch"
             bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
             if not prepare_ad_session(user_id, 0, 0):
                 await bot.send_message(chat_id=chat_id, text="⚠️ Ad server busy. Please try again in a moment.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
                 break
             paused_batches[user_id] = {"urls": urls, "next_index": index-1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
-            keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)]]
-            await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            # Tutorial video first, like other Adsterra flows
+            try:
+                await bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+                await asyncio.sleep(0.2)
+            except Exception:
+                try: await bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+                except Exception: pass
+            _out_header = f"⏸️ Batch out of credits at {index}/{len(urls)} — Watch ad to continue.\n\n"
+            _out_full = _out_header + "🧪 AD PLACEMENT TEST (Adsterra)\n\n1️⃣ User sends link\n2️⃣ LIMIT REACHED screen appears\n3️⃣ Stay 20s on ad page\n4️⃣ Tap Check & Get +1\n\n👇 TRY THE AD NOW:" + ADSTERRA_USER_GUIDE
+            keyboard = [
+                [InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)],
+                [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
+                [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")],
+            ]
+            await bot.send_message(chat_id=chat_id, text=_out_full, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             break
         credit_charged = user_id != ADMIN_ID
         try:
