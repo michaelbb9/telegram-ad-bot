@@ -146,6 +146,8 @@ active_batch_sessions = {}
 pending_batch_payloads = {}
 paused_batches = {}
 pending_single_links = {}
+# FIX - batch Adsterra: track kind so pause/out claim gives +1 Batch (not +1 Downloads)
+AD_KIND_BY_USER = {}
 
 MAX_CONCURRENT_SHORT = 3
 MIN_FREE_DISK_MB = 150
@@ -301,7 +303,7 @@ LANGUAGES = {
         "select_lang": "🌍 अपनी भाषा चुनें! नीचे चुनें! 👇", 
         "lang_set": "✅ भाषा सेट हो गई! आनंद लें! 🎉✨",
         "batch_detected": "📦 **बैच डिटेक्ट हुआ ({} लिंक्स)**\nकौन सा फॉर्मेट?",
-        "batch_dest": "📦 **कहाँ भेजें?**",
+        "batch_dest": "?? **कहाँ भेजें?**",
         "btn_chat": "📥 चैट में", "btn_chan": "📢 चैनल में",
         "limit_reached": "⚠️ **लिमिट पूरी हो गई!** आपने 4 फ्री इस्तेमाल कर लिए! 20 सेकंड का विज्ञापन देखें → +1 डाउनलोड पाएं!",
         "refill_btn": "🔓 लिंक खोलें और +1 रिफिल करें",
@@ -3329,12 +3331,26 @@ async def _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destina
         kb = adsgram_keyboard(user_id, "wall", 0, 0)
         await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=kb, parse_mode="Markdown")
     else:
+        # FIX - Batch pause after 3, Adsterra: EXACTLY like 2nd image + tutorial video + Adsterra text + 3 buttons
+        AD_KIND_BY_USER[user_id] = "batch"
         bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
         if not prepare_ad_session(user_id, 0, 0):
             await bot.send_message(chat_id=chat_id, text="⚠️ Ad server busy. Please try again in a moment.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
             return
-        keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)]]
-        await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        try:
+            await bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+            await asyncio.sleep(0.2)
+        except Exception:
+            try: await bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+            except Exception: pass
+        _pause_header = f"⏸️ Batch paused at {index}/{len(urls)} — Watch ad to continue.\n\n"
+        _pause_full = _pause_header + "🧪 AD PLACEMENT TEST (Adsterra)\n\n1️⃣ User sends link\n2️⃣ LIMIT REACHED screen appears\n3️⃣ Stay 20s on ad page\n4️⃣ Tap Check & Get +1\n\n👇 TRY THE AD NOW:" + ADSTERRA_USER_GUIDE
+        keyboard = [
+            [InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)],
+            [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
+            [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")],
+        ]
+        await bot.send_message(chat_id=chat_id, text=_pause_full, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0):
     if not urls: return
@@ -3390,9 +3406,23 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             if not prepare_ad_session(user_id, 0, 0):
                 await bot.send_message(chat_id=chat_id, text="⚠️ Ad server busy. Please try again in a moment.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
                 break
+            # FIX - Batch OUT OF CREDITS, Adsterra: same 2nd-image layout. This is the branch in your 4:54 screenshot: Item 2/7 done, link 3 blocked.
+            AD_KIND_BY_USER[user_id] = "batch"
             paused_batches[user_id] = {"urls": urls, "next_index": index-1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
-            keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)]]
-            await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            try:
+                await bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+                await asyncio.sleep(0.2)
+            except Exception:
+                try: await bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+                except Exception: pass
+            _out_header = f"⏸️ Batch out of credits at {index}/{len(urls)} — Watch ad to continue.\n\n"
+            _out_full = _out_header + "🧪 AD PLACEMENT TEST (Adsterra)\n\n1️⃣ User sends link\n2️⃣ LIMIT REACHED screen appears\n3️⃣ Stay 20s on ad page\n4️⃣ Tap Check & Get +1\n\n👇 TRY THE AD NOW:" + ADSTERRA_USER_GUIDE
+            keyboard = [
+                [InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)],
+                [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
+                [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")],
+            ]
+            await bot.send_message(chat_id=chat_id, text=_out_full, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             break
         credit_charged = user_id != ADMIN_ID
         try:
@@ -5087,10 +5117,12 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_USERNAME, user_id=user_id)
             if member.status not in ["creator","administrator","member"]: await query.answer(t["join_channel_first_alert"], show_alert=True); return
         except: await query.answer(t["join_channel_first"], show_alert=True); return
+        # FIX - claims: send kind so batch claim goes to Batch (+1), single claim goes to Downloads (+1)
+        _ad_kind = AD_KIND_BY_USER.get(user_id, "single")
         try:
             claim_response = requests.post(
                 f"{WEB_BASE_URL}/claim-bridge-reward",
-                json={"user_id": user_id, "reward": get_reward_amount(), "admin_test": user_id == ADMIN_ID},
+                json={"user_id": user_id, "reward": get_reward_amount(), "kind": _ad_kind, "admin_test": user_id == ADMIN_ID},
                 headers=API_HEADERS,
                 timeout=8,
             )
@@ -5108,8 +5140,10 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         msg_end = int(claim_data.get("msg_end", 0) or 0)
         reward = int(claim_data.get("reward", get_reward_amount()))
         await query.answer(t["verified_added"])
+        # FIX - claims: clear kind after successful claim so next single ad does not reuse stale batch kind
+        AD_KIND_BY_USER.pop(user_id, None)
         if user_id in paused_batches:
-            keyboard = [[InlineKeyboardButton("▶️ Resume Batch +1", callback_data="resume_batch")]]
+            keyboard = [[InlineKeyboardButton(f"▶️ Resume Batch +{reward}", callback_data="resume_batch")]]
             await query.message.reply_text(t["resume_prompt"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             return
         # V11: Adsterra refill - if user had a pending link, show format + quality picker (don't ask to resend)
