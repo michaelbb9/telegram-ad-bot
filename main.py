@@ -2653,17 +2653,33 @@ def _ig_carousel_via_json(url, cookiefile=None):
                     _parts = _line.split('\t')
                     if len(_parts) >= 7: _cookies[_parts[5]] = _parts[6]
         except Exception: pass
+        # V57: X-IG-App-ID is required for unauthenticated IG API - without it, __a=1 returns login wall
+        _headers["X-IG-App-ID"] = "936619743392459"
+        _headers["X-IG-WWW-Claim"] = "0"
+        _headers["Accept"] = "application/json, text/html"
         _out = []
-        # Try 2 JSON endpoints - __a=1 and embed JSON
-        for _u in [f"https://www.instagram.com/p/{_short}/?__a=1&__d=dis", f"https://www.instagram.com/p/{_short}/embed/captioned/"]:
+        # V57 order: 1) embed (no login, no GraphQL, least 429), 2) __a=1 with App-ID, 3) ddinstagram mirror (public proxy, bypasses IG 429 entirely)
+        _try_urls = [
+            (f"https://www.instagram.com/p/{_short}/embed/captioned/", "embed"),
+            (f"https://www.instagram.com/p/{_short}/?__a=1&__d=dis", "json"),
+            (f"https://www.ddinstagram.com/p/{_short}/", "ddig"),
+            (f"https://www.ddinstagram.com/p/{_short}/embed/", "ddig-embed"),
+        ]
+        for _u, _kind in _try_urls:
             try:
-                _r = requests.get(_u, headers=_headers, cookies=_cookies, timeout=15)
+                _h_try = dict(_headers)
+                if _kind.startswith("ddig"):
+                    _h_try["User-Agent"] = "Mozilla/5.0"
+                    _h_try.pop("X-IG-App-ID", None)
+                _r = requests.get(_u, headers=_h_try, cookies=_cookies, timeout=15)
                 _txt = _r.text or ""
                 if not _txt or len(_txt) < 500: continue
-                # Try parse as JSON first
+                # If login wall, skip quickly - don't waste time parsing it
+                if "Log in to Instagram" in _txt and "display_url" not in _txt and "scontent" not in _txt and "cdninstagram" not in _txt:
+                    continue
+                # Try parse as JSON first (for __a=1)
                 try:
                     _j = __import__('json').loads(_txt)
-                    # Walk JSON to find all display_url / video_url
                     def _walk(_node):
                         if isinstance(_node, dict):
                             if _node.get("display_url") and isinstance(_node.get("display_url"), str):
@@ -2676,14 +2692,24 @@ def _ig_carousel_via_json(url, cookiefile=None):
                     _walk(_j)
                     if _out: break
                 except Exception: pass
-                # Fallback: regex for display_url in HTML/JSON text (embed page)
+                # Regex for display_url / video_url in HTML/JSON text (embed + ddinstagram)
                 for _mm in re.finditer(r'"display_url"\s*:\s*"([^"]+)"', _txt):
                     _u2 = _h55.unescape(_mm.group(1)).replace('\\/', '/')
                     if _u2.startswith('http') and _u2 not in _out: _out.append(_u2)
                 for _mm in re.finditer(r'"video_url"\s*:\s*"([^"]+)"', _txt):
                     _u2 = _h55.unescape(_mm.group(1)).replace('\\/', '/')
                     if _u2.startswith('http') and _u2 not in _out: _out.append(_u2)
-                if _out: break
+                # Embed + ddinstagram also have raw scontent / cdninstagram URLs in HTML (carousel slides)
+                for _mm in re.finditer(r'https://(?:scontent[^"\'\s]+|[^"\'\s]*\.cdninstagram\.com[^"\'\s]+)', _txt):
+                    _u2 = _h55.unescape(_mm.group(0)).replace('\\/', '/')
+                    if any(_bad in _u2 for _bad in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32", "s50x50"]): continue
+                    if (".jpg" in _u2 or ".jpeg" in _u2 or ".png" in _u2 or ".webp" in _u2) and _u2 not in _out: _out.append(_u2)
+                # og:image as well (at least 1)
+                for _mm in re.finditer(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', _txt):
+                    _u2 = _h55.unescape(_mm.group(1))
+                    if _u2.startswith('http') and _u2 not in _out: _out.append(_u2)
+                if len(_out) >= 2: break
+                if _out and _kind == "ddig": break
             except Exception: continue
         # De-dupe keep order
         _seen = set(); _res = []
@@ -2716,6 +2742,12 @@ def scrape_all_html_images(url, cookiefile=None):
                         _cookies[_parts[5]] = _parts[6]
         except Exception: pass
         # 1) Try embed version for Instagram (less blocked than main page)
+        # V56: For FB /share/, try direct share-page scrape FIRST - it works even when resolve fails (og:image + scontent from share page)
+        try:
+            if "facebook.com" in url.lower() and "/share/" in url.lower():
+                _fb_direct = _fb_images_from_share_page(url)
+                if _fb_direct: return _fb_direct
+        except Exception: pass
         # V55: For IG, JSON endpoint has ALL carousel slides - try it FIRST, before og:image (which is only 1)
         try:
             if "instagram.com" in url.lower() or "instagr.am" in url.lower():
@@ -3004,31 +3036,135 @@ def download_youtube_post(url, output_dir, cap_bytes):
 
 
 def _resolve_share_link(url):
-    """V55: FB /share/p/, /share/r/, /share/v/, fb.watch are short links. yt-dlp + gallery-dl say 'Unsupported URL' for them.
-    Follow redirects (HEAD then GET) to get real post URL (photo.php?fbid=... / posts/...). Returns final URL or original."""
+    """V55+V56: FB /share/p/, /share/r/, /share/v/, fb.watch are short links. yt-dlp + gallery-dl say 'Unsupported URL' for them.
+    V55 only followed HTTP redirects - FB /share/ returns 200 login-wall, NOT a redirect, so it failed.
+    V56: Parse the share page HTML itself - real post is in og:url / canonical / fbid / permalink_url. Also try facebookexternalhit UA (FB serves og tags to crawlers without login).
+    Returns real post URL or original."""
     try:
         _low = (url or "").lower()
         if not any(_d in _low for _d in ["facebook.com/share/", "fb.watch", "fb.gg/", "facebook.com/share"]):
             return url
-        import requests as _rq55
-        _headers = dict(BROWSER_HEADERS) if 'BROWSER_HEADERS' in globals() else {'User-Agent': 'Mozilla/5.0'}
-        # Try HEAD first (fast), then GET (FB sometimes only redirects on GET)
-        for _try in [0, 1]:
+        import requests as _rq56
+        import html as _html56
+        import re as _re56
+        _cookies = {}
+        try:
+            if __import__('os').path.exists("cookies.txt"):
+                for _line in open("cookies.txt", encoding='utf-8', errors='ignore'):
+                    _line = _line.strip()
+                    if not _line or _line.startswith('#'): continue
+                    _parts = _line.split('\t')
+                    if len(_parts) >= 7: _cookies[_parts[5]] = _parts[6]
+        except Exception: pass
+        # 1) HTTP redirect (rare, but cheap)
+        try:
+            _r = _rq56.head(url, headers=dict(BROWSER_HEADERS) if 'BROWSER_HEADERS' in globals() else {'User-Agent': 'Mozilla/5.0'}, allow_redirects=True, timeout=10, cookies=_cookies)
+            _final = getattr(_r, 'url', '') or url
+            if _final and _final != url and "/share/" not in _final:
+                try: _trace(f"share resolved (redirect): {url[:60]} -> {_final[:80]}")
+                except Exception: pass
+                return _final
+        except Exception: pass
+        # 2) HTML parse - try 3 UAs: browser, facebook crawler (gets og tags without login), plain Mozilla
+        _uas = [
+            dict(BROWSER_HEADERS) if 'BROWSER_HEADERS' in globals() else {'User-Agent': 'Mozilla/5.0'},
+            {'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)', 'Accept': 'text/html'},
+            {'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'},
+        ]
+        for _headers in _uas:
             try:
-                if _try == 0:
-                    _r = _rq55.head(url, headers=_headers, allow_redirects=True, timeout=12)
-                else:
-                    _r = _rq55.get(url, headers=_headers, allow_redirects=True, timeout=15)
-                _final = getattr(_r, 'url', '') or url
-                if _final and _final != url and "/share/" not in _final:
-                    try: _trace(f"share resolved: {url[:60]} -> {_final[:80]}")
+                _r = _rq56.get(url, headers=_headers, cookies=_cookies, allow_redirects=True, timeout=15)
+                _text = _r.text or ""
+                if not _text or len(_text) < 500: continue
+                # If HTTP final URL is already resolved (FB sometimes does JS redirect via Location after GET)
+                _final2 = getattr(_r, 'url', '') or ""
+                if _final2 and _final2 != url and "/share/" not in _final2:
+                    try: _trace(f"share resolved (GET redirect): {url[:60]} -> {_final2[:80]}")
                     except Exception: pass
-                    return _final
-                if _final and _final != url:
-                    return _final
+                    return _final2
+                # og:url / canonical - this is the real post URL for public posts even when logged out
+                _og = _re56.search(r'<meta[^>]+property=["\']og:url["\'][^>]+content=["\']([^"\']+)["\']', _text)
+                if not _og:
+                    _og = _re56.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:url["\']', _text)
+                if _og:
+                    _cand = _html56.unescape(_og.group(1)).strip()
+                    if _cand and _cand.startswith('http') and "/share/" not in _cand:
+                        try: _trace(f"share resolved (og:url): {url[:50]} -> {_cand[:80]}")
+                        except Exception: pass
+                        return _cand
+                _can = _re56.search(r'<link[^>]+rel=["\']canonical["\'][^>]+href=["\']([^"\']+)["\']', _text)
+                if _can:
+                    _cand = _html56.unescape(_can.group(1)).strip()
+                    if _cand and _cand.startswith('http') and "/share/" not in _cand:
+                        try: _trace(f"share resolved (canonical): {url[:50]} -> {_cand[:80]}")
+                        except Exception: pass
+                        return _cand
+                # permalink / fbid in JSON - e.g. "permalink_url":"https://www.facebook.com/photo.php?fbid=123"
+                for _pat in [r'"permalink_url"\s*:\s*"([^"]+)"', r'photo\.php\?fbid=(\d+)', r'"fbid"\s*:\s*"(\d+)"', r'/posts/(\d+)', r'/photo\.php\?fbid=(\d+)']:
+                    _m = _re56.search(_pat, _text)
+                    if _m:
+                        _v = _html56.unescape(_m.group(1)).replace('\\/', '/')
+                        if _v.startswith('http') and "/share/" not in _v:
+                            try: _trace(f"share resolved (permalink): {url[:50]} -> {_v[:80]}")
+                            except Exception: pass
+                            return _v
+                        elif _v.isdigit():
+                            _cand2 = f"https://www.facebook.com/photo.php?fbid={_v}"
+                            try: _trace(f"share resolved (fbid): {url[:50]} -> {_cand2[:80]}")
+                            except Exception: pass
+                            return _cand2
+                # meta refresh redirect: <meta http-equiv="refresh" content="0;url=...">
+                _ref = _re56.search(r'http-equiv=["\']refresh["\'][^>]+url=([^"\'>\s]+)', _text, flags=_re56.I)
+                if _ref:
+                    _cand = _html56.unescape(_ref.group(1)).strip()
+                    if _cand.startswith('http') and "/share/" not in _cand:
+                        return _cand
             except Exception: continue
-    except Exception: pass
+    except Exception as _e56:
+        try: _trace(f"share resolve failed: {type(_e56).__name__}: {str(_e56)[:100]}")
+        except Exception: pass
     return url
+
+def _fb_images_from_share_page(url):
+    """V56: Even if resolve fails, the share page HTML itself has og:image + scontent URLs. Return them directly - don't need gallery-dl."""
+    try:
+        import requests as _rq56b, html as _html56b, re as _re56b
+        _cookies = {}
+        try:
+            if __import__('os').path.exists("cookies.txt"):
+                for _line in open("cookies.txt", encoding='utf-8', errors='ignore'):
+                    _line = _line.strip()
+                    if not _line or _line.startswith('#'): continue
+                    _parts = _line.split('\t')
+                    if len(_parts) >= 7: _cookies[_parts[5]] = _parts[6]
+        except Exception: pass
+        _uas = [
+            {'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)', 'Accept': 'text/html'},
+            dict(BROWSER_HEADERS) if 'BROWSER_HEADERS' in globals() else {'User-Agent': 'Mozilla/5.0'},
+        ]
+        _out = []
+        for _headers in _uas:
+            try:
+                _r = _rq56b.get(url, headers=_headers, cookies=_cookies, timeout=15)
+                _text = _r.text or ""
+                if not _text or len(_text) < 500: continue
+                # og:image (first image)
+                for _m in _re56b.finditer(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', _text):
+                    _u = _html56b.unescape(_m.group(1))
+                    if _u.startswith('http') and _u not in _out: _out.append(_u)
+                # All scontent / fbcdn URLs in page (carousel slides)
+                for _m in _re56b.finditer(r'https://(?:scontent[^"\'\s]+|[^"\'\s]*\.fbcdn\.net[^"\'\s]+)', _text):
+                    _u = _html56b.unescape(_m.group(0)).replace('\\/', '/')
+                    if any(_bad in _u for _bad in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32", "s50x50"]): continue
+                    if (".jpg" in _u or ".jpeg" in _u or ".png" in _u or ".webp" in _u) and _u not in _out: _out.append(_u)
+                if _out: break
+            except Exception: continue
+        _seen = set(); _res = []
+        for _u in _out:
+            _k = _u.split('?')[0]
+            if _k not in _seen: _seen.add(_k); _res.append(_u)
+        return _res[:20]
+    except Exception: return []
 
 def download_carousel(url, output_dir, cap_bytes, http_headers=None, cookiefile=None):
     """Return [paths] (post order) for a multi-item OR single-photo post, else [].
@@ -3154,10 +3290,11 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None, cookiefile=
                         _trace(f"RESULT: OK via IG JSON, {len(_ig_files)} item(s)")
                         return _ig_files
             except Exception as _e55: _trace(f"IG JSON failed: {type(_e55).__name__}: {str(_e55)[:120]}")
-        # ---- 3c) V55: FB share already resolved at top, but if gallery-dl still says Unsupported, try scrape_all for FB ----
+        # ---- 3c) V56: FB share page itself has images even if resolve + gallery-dl both fail - try direct share-page scrape FIRST ----
         if not files and ("facebook.com" in low or "fb.watch" in low):
             try:
-                _fb_urls = scrape_all_html_images(url, cookiefile)
+                # _fb_images_from_share_page uses original share URL (before resolve) - it parses og:image + scontent from that page
+                _fb_urls = _fb_images_from_share_page(url) or scrape_all_html_images(url, cookiefile)
                 if _fb_urls:
                     _trace(f"FB scrape: {len(_fb_urls)} image URL(s) found")
                     _fb_files = []
@@ -3619,6 +3756,13 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
             _all_urls = scrape_all_html_images(url, cookiefile)
         except Exception:
             _all_urls = []
+        if not _all_urls:
+            # V56: FB share page direct scrape as last fallback before giving up
+            try:
+                if "facebook.com" in url.lower() or "fb.watch" in url.lower():
+                    _fb56 = _fb_images_from_share_page(url)
+                    if _fb56: _all_urls = _fb56
+            except Exception: pass
         if not _all_urls:
             # Fallback to old single-image path
             _single = scrape_html_images(url, cookiefile)
