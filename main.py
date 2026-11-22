@@ -2772,7 +2772,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
     cookiefile = None
     if "tiktok.com" in url.lower() and os.path.exists("tiktok_cookies.txt"): cookiefile = "tiktok_cookies.txt"
     elif os.path.exists("cookies.txt"): cookiefile = "cookies.txt"
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL}
+    ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL, 'extractor_args': {'youtube': {'player_client': ['android', 'ios', 'web']}}}
     # PART 1: clean progress (users) / debug log (admin) — hook records, poller edits Telegram message
     if user_id is not None and progress_key:
         ydl_opts['progress_hooks'] = [make_progress_hook(user_id, progress_key)]
@@ -2787,37 +2787,71 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
     # ============================================================
     
     if download_type == 'audio':
-        # V15 (from V11): audio had no retry, video did. First audio hit blocked -> wait 5s -> retry once.
-        for _attempt in range(2):
-            try:
-                ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    base = os.path.splitext(ydl.prepare_filename(info))[0]
-                    path = f"{base}.mp3"
-                    if os.path.exists(path):
-                        if os.path.getsize(path) > cap_bytes:
-                            os.remove(path)
-                            raise ValueError("FILE_TOO_LARGE")
-                        save_to_file_cache(url, "audio", path)  # PART 2: cache fresh file for next time
-                        return [path], "audio", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
-                raise ValueError("FILE_NOT_FOUND")
-            except ValueError:
-                raise
-            except Exception as _ae:
-                _m = str(_ae).lower()
-                _blocked = ("not a bot" in _m or "sign in to confirm" in _m or "429" in _m or "403" in _m or "forbidden" in _m or "failed to extract" in _m or "player response" in _m or "no video formats" in _m or "unable to download" in _m)
-                if _blocked and _attempt == 0:
-                    try:
-                        import time as _t_retry
-                        _t_retry.sleep(5)
-                    except Exception:
-                        pass
-                    continue
-                if _blocked:
-                    raise ValueError("SITE_BLOCKED")
-                raise
-        raise ValueError("FILE_NOT_FOUND")
+        # V38: Audio had only ONE format (bestaudio/best) and no fallback. Live/VEVO/SABR videos
+        # have NO bestaudio on web client -> "Requested format is not available" -> wrong "private/blocked".
+        # Now: try format chain bestaudio -> best (combined mp4, then ffmpeg -> mp3) -> worst, with android/ios/web clients.
+        # Same robust path for normal link Audio AND Music Search - they share this engine.
+        _audio_formats = ['bestaudio/best', 'bestaudio[ext=m4a]/bestaudio/best', 'best', 'bv*+ba/b', 'worst']
+        _last_audio_err = None
+        for _fmt in _audio_formats:
+            for _attempt in range(2):
+                try:
+                    _opts = dict(ydl_opts)
+                    _opts.update({'format': _fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['android', 'ios', 'web', 'tv']}}})
+                    with yt_dlp.YoutubeDL(_opts) as ydl:
+                        info = ydl.extract_info(url, download=True)
+                        base = os.path.splitext(ydl.prepare_filename(info))[0]
+                        path = f"{base}.mp3"
+                        if os.path.exists(path):
+                            if os.path.getsize(path) > cap_bytes:
+                                os.remove(path)
+                                raise ValueError("FILE_TOO_LARGE")
+                            save_to_file_cache(url, "audio", path)
+                            if _fmt != 'bestaudio/best':
+                                logger.info(f"Audio fallback worked: format={_fmt} url={url}")
+                            return [path], "audio", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
+                    raise ValueError("FILE_NOT_FOUND")
+                except ValueError:
+                    raise
+                except Exception as _ae:
+                    _last_audio_err = _ae
+                    _m = str(_ae).lower()
+                    _blocked = ("not a bot" in _m or "sign in to confirm" in _m or "429" in _m or "403" in _m or "forbidden" in _m or "failed to extract" in _m or "player response" in _m or "no video formats" in _m or "unable to download" in _m)
+                    _no_fmt = ("requested format is not available" in _m or "no video formats" in _m or "requested format" in _m)
+                    if _no_fmt:
+                        logger.warning(f"Audio format {_fmt} not available for {url}, trying next format: {_ae}")
+                        break  # try next format, don't retry same broken format
+                    if _blocked and _attempt == 0:
+                        try:
+                            import time as _t_retry
+                            _t_retry.sleep(5)
+                        except Exception:
+                            pass
+                        continue
+                    if _blocked:
+                        raise ValueError("SITE_BLOCKED")
+                    # Unknown error for this format - try next format before giving up
+                    logger.warning(f"Audio format {_fmt} failed for {url}: {_ae}, trying next")
+                    break
+        # Last resort: Lux can fetch combined video, ffmpeg -> mp3
+        try:
+            _lux = download_with_lux(url, output_dir, cap_bytes, cookiefile)
+            if _lux:
+                # Convert lux video to mp3 via ffmpeg
+                import subprocess as _sp
+                _mp3 = os.path.splitext(_lux)[0] + ".mp3"
+                _r = _sp.run([ffmpeg_path, "-y", "-i", _lux, "-vn", "-codec:a", "libmp3lame", "-q:a", "2", _mp3], capture_output=True, text=True, timeout=120)
+                if os.path.exists(_mp3) and os.path.getsize(_mp3) > 1000:
+                    try: os.remove(_lux)
+                    except Exception: pass
+                    save_to_file_cache(url, "audio", _mp3)
+                    logger.info(f"Audio Lux fallback worked for {url}")
+                    return [_mp3], "audio", f"{os.path.getsize(_mp3)/(1024*1024):.1f}MB"
+        except Exception as _le:
+            logger.warning(f"Audio Lux fallback failed for {url}: {_le}")
+        if _last_audio_err and ("not a bot" in str(_last_audio_err).lower() or "429" in str(_last_audio_err).lower() or "403" in str(_last_audio_err).lower()):
+            raise ValueError("SITE_BLOCKED")
+        raise ValueError(f"FILE_NOT_FOUND: {_last_audio_err}" if _last_audio_err else "FILE_NOT_FOUND")
     elif download_type == 'images':
         img_url = scrape_html_images(url, cookiefile)
         if img_url:
@@ -3750,7 +3784,7 @@ def _music_filter_and_score(raw_list, query):
         dur = int(e.get("duration_sec") or e.get("duration") or 0)
         if dur and dur > 600: continue
         if dur and dur < 30: continue
-        if not allow_live and any(w in tlow for w in [" live", "live version", "live at", "concert"]): continue
+        if not allow_live and any(w in tlow for w in [" live", "(live", "live performance", "live version", "live session", "live at", "live -", "concert", "live show"]): continue
         if not allow_sped and any(w in tlow for w in ["sped up", "slowed", "reverb", "nightcore"]): continue
         if not allow_lyric and any(w in tlow for w in ["lyric video", "lyrics video", "(lyrics)"]): continue
         if not allow_cover and "cover" in tlow and "official" not in tlow: continue
