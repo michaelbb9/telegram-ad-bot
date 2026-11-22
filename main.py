@@ -2691,14 +2691,47 @@ async def send_cached_carousel(bot, chat_id, entry, ckey):
 # ======================== END PASTE ==================================
 
 
+BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+BROWSER_HEADERS = {"User-Agent": BROWSER_UA, "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8", "Accept-Language": "en-US,en;q=0.9", "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"', "Sec-Ch-Ua-Mobile": "?0", "Sec-Ch-Ua-Platform": '"Windows"'}
+def _ensure_lux_binary():
+    """V46: Lux was silently skipped if binary missing after redeploy. Auto-download it once to .bin/lux so Lux actually runs."""
+    try:
+        lux_bin = os.getenv("LUX_BIN", os.path.join(os.path.dirname(os.path.abspath(__file__)), ".bin", "lux"))
+        if os.path.isfile(lux_bin) and os.access(lux_bin, os.X_OK):
+            return lux_bin
+        if shutil.which("lux"):
+            return shutil.which("lux")
+        import tarfile, io
+        os.makedirs(os.path.dirname(lux_bin), exist_ok=True)
+        urls = ["https://github.com/iawia002/lux/releases/download/v0.21.0/lux_0.21.0_Linux_64bit.tar.gz", "https://github.com/iawia002/lux/releases/download/v0.20.0/lux_0.20.0_Linux_64bit.tar.gz"]
+        for _u in urls:
+            try:
+                logger.warning(f"Lux missing, downloading from {_u}")
+                r = requests.get(_u, timeout=60)
+                if r.status_code != 200: continue
+                with tarfile.open(fileobj=io.BytesIO(r.content), mode="r:gz") as tf:
+                    member = None
+                    for m in tf.getmembers():
+                        if m.name.endswith("/lux") or m.name == "lux":
+                            member = m; break
+                    if not member: continue
+                    member.name = "lux"
+                    tf.extract(member, path=os.path.dirname(lux_bin))
+                os.chmod(lux_bin, 0o755)
+                if os.path.isfile(lux_bin) and os.access(lux_bin, os.X_OK):
+                    logger.warning("Lux auto-installed OK")
+                    return lux_bin
+            except Exception as _e:
+                logger.warning(f"Lux auto-install failed for {_u}: {_e}")
+                continue
+        return None
+    except Exception as _e:
+        logger.warning(f"_ensure_lux_binary failed: {_e}")
+        return None
+
 def download_with_lux(url, output_dir, cap_bytes, cookiefile=None):
     """Run the optional Lux binary as a last-resort video downloader."""
-    lux_bin = os.getenv(
-        "LUX_BIN",
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), ".bin", "lux")
-    )
-    if not os.path.isfile(lux_bin) or not os.access(lux_bin, os.X_OK):
-        lux_bin = shutil.which("lux")
+    lux_bin = _ensure_lux_binary()
     if not lux_bin:
         logger.info("Lux fallback skipped: binary is not installed.")
         return None
@@ -2706,7 +2739,7 @@ def download_with_lux(url, output_dir, cap_bytes, cookiefile=None):
     folder = os.path.join(output_dir, f"lux_{uuid.uuid4().hex[:10]}")
     os.makedirs(folder, exist_ok=True)
     output_name = f"media_{uuid.uuid4().hex[:8]}"
-    command = [lux_bin, "-retry", "2", "-n", "4", "-o", folder, "-O", output_name]
+    command = [lux_bin, "-retry", "2", "-n", "4", "-u", BROWSER_UA, "-o", folder, "-O", output_name]
     if cookiefile and os.path.isfile(cookiefile):
         command.extend(["-c", cookiefile])
     command.append(url)
@@ -2769,15 +2802,35 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                 return [_copy], _label, f"{os.path.getsize(_copy)/(1024*1024):.1f}MB"
             except Exception:
                 pass
-    http_headers = {'User-Agent': 'Mozilla/5.0'}
+    http_headers = dict(BROWSER_HEADERS)
     cookiefile = None
     if "tiktok.com" in url.lower() and os.path.exists("tiktok_cookies.txt"): cookiefile = "tiktok_cookies.txt"
     elif os.path.exists("cookies.txt"): cookiefile = "cookies.txt"
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL, 'extractor_args': {'youtube': {'player_client': ['android', 'ios', 'web']}}}
+    # V44: log cookies + yt-dlp version so Render logs prove if GitHub actually delivered cookies.txt
+    try:
+        _ce, _cl, _cs, _cyt = _cookies_status()
+        try: _ydlv = getattr(yt_dlp, "__version__", "unknown")
+        except Exception: _ydlv = "unknown"
+        logger.warning(f"[yt] cookies.txt exists={_ce} lines={_cl} size={_cs} has_youtube={_cyt} cookiefile={cookiefile} yt_dlp={_ydlv} YT_BLOCKED_UNTIL={YT_BLOCKED_UNTIL} now={time.time()}")
+    except Exception: pass
+    # V44: if YouTube IP was just blocked, don't hammer yt-dlp again for 30 mins - go straight to Piped/Cobalt/Invidious
+    _skip_ytdlp_yt = False
+    try:
+        if ("youtube.com" in url.lower() or "youtu.be" in url.lower()) and YT_BLOCKED_UNTIL and time.time() < YT_BLOCKED_UNTIL:
+            _skip_ytdlp_yt = True
+            logger.warning(f"[yt] YT_BLOCKED cooldown active, skipping yt-dlp for {url}")
+    except Exception: pass
+    ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL, 'extractor_args': {'youtube': {'player_client': ['web', 'android', 'ios']}}}
     # PART 1: clean progress (users) / debug log (admin) — hook records, poller edits Telegram message
     if user_id is not None and progress_key:
         ydl_opts['progress_hooks'] = [make_progress_hook(user_id, progress_key)]
     if cookiefile: ydl_opts['cookiefile'] = cookiefile
+    # V46 browser client: impersonate Chrome if curl_cffi is installed
+    try:
+        import importlib.util as _ilu
+        if _ilu.find_spec("curl_cffi") is not None:
+            ydl_opts['impersonate'] = 'chrome'
+    except Exception: pass
 
     # ===== EDIT A: carousel branch (no cookies passed here) =====
     if download_type in ('video', 'images'):
@@ -2793,6 +2846,9 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
         # Now: try format chain bestaudio -> best (combined mp4, then ffmpeg -> mp3) -> worst, with android/ios/web clients.
         # Same robust path for normal link Audio AND Music Search - they share this engine.
         _audio_formats = ['bestaudio/best', 'bestaudio[ext=m4a]/bestaudio/best', 'best', 'bv*+ba/b', 'worst']
+        if _skip_ytdlp_yt:
+            _last_audio_err = Exception("YT_IP_BLOCKED_COOLDOWN - skipping yt-dlp, using Piped/Cobalt/Invidious")
+            _audio_formats = []  # skip yt-dlp loop, go straight to fallbacks below
         _last_audio_err = None
         for _fmt in _audio_formats:
             for _attempt in range(2):
@@ -2905,7 +2961,20 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                 raise
             except Exception as _ce:
                 logger.warning(f"Audio Cobalt fallback failed for {url}: {_ce}")
-        if _last_audio_err and ("not a bot" in str(_last_audio_err).lower() or "429" in str(_last_audio_err).lower() or "403" in str(_last_audio_err).lower()):
+        # V44: Invidious 3rd fallback for audio
+        if "youtube.com" in url.lower() or "youtu.be" in url.lower():
+            try:
+                _inv = _invidious_download_youtube(url, output_dir, cap_bytes, is_audio=True)
+                if _inv and os.path.exists(_inv[0]) and os.path.getsize(_inv[0]) > 1000:
+                    save_to_file_cache(url, "audio", _inv[0])
+                    logger.info(f"Audio Invidious fallback worked for {url}")
+                    return [_inv[0]], "audio", f"{os.path.getsize(_inv[0])/(1024*1024):.1f}MB"
+            except ValueError:
+                raise
+            except Exception as _ie:
+                logger.warning(f"Audio Invidious fallback failed for {url}: {_ie}")
+        if _last_audio_err and ("not a bot" in str(_last_audio_err).lower() or "429" in str(_last_audio_err).lower() or "403" in str(_last_audio_err).lower() or "YT_IP_BLOCKED" in str(_last_audio_err)):
+            globals()["YT_BLOCKED_UNTIL"] = time.time() + 1800
             raise ValueError("SITE_BLOCKED")
         raise ValueError(f"FILE_NOT_FOUND: {_last_audio_err}" if _last_audio_err else "FILE_NOT_FOUND")
     elif download_type == 'images':
@@ -3036,8 +3105,8 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                     if ("not a bot" in _msg2 or "sign in to confirm" in _msg2 or "429" in _msg2 or "403" in _msg2 or "forbidden" in _msg2 or "failed to extract" in _msg2 or "player response" in _msg2 or "no video formats" in _msg2 or "unable to download" in _msg2):
                         yt_blocked = True; break
                     continue
-            if yt_blocked:
-                # V43: YouTube video via Piped then Cobalt - both fetch from their own server, not Render IP.
+            if yt_blocked or _skip_ytdlp_yt:
+                # V44: YouTube video via Piped then Cobalt then Invidious - both fetch from their own server, not Render IP.
                 if "youtube.com" in url.lower() or "youtu.be" in url.lower():
                     try:
                         logger.warning(f"Video yt-dlp blocked for {url}, trying Piped video fallback")
@@ -3061,6 +3130,18 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                         raise
                     except Exception as _ce:
                         logger.warning(f"Video Cobalt fallback failed for {url}: {_ce}")
+                    try:
+                        logger.warning(f"Video Cobalt failed for {url}, trying Invidious video fallback")
+                        _iv = _invidious_download_youtube(url, output_dir, cap_bytes, is_audio=False, preferred_quality=preferred_quality)
+                        if _iv and os.path.exists(_iv[0]) and os.path.getsize(_iv[0]) > 1000:
+                            save_to_file_cache(url, "video", _iv[0])
+                            logger.info(f"Video Invidious fallback worked for {url}")
+                            return [_iv[0]], _iv[1], f"{os.path.getsize(_iv[0])/(1024*1024):.1f}MB"
+                    except ValueError:
+                        raise
+                    except Exception as _ie:
+                        logger.warning(f"Video Invidious fallback failed for {url}: {_ie}")
+                globals()["YT_BLOCKED_UNTIL"] = time.time() + 1800
                 raise ValueError("SITE_BLOCKED")
         if too_big or last_err is None:
             raise ValueError("FILE_TOO_LARGE")
@@ -4998,6 +5079,88 @@ def _cobalt_download_youtube(url, output_dir, cap_bytes, is_audio=False, preferr
         logger.warning(f"Cobalt failed for {url}: {e}")
         return None
 
+def _cookies_status():
+    """Returns (exists, lines, size, has_youtube) for cookies.txt - so Render logs show if GitHub actually delivered it."""
+    try:
+        if not os.path.exists("cookies.txt"): return (False, 0, 0, False)
+        size = os.path.getsize("cookies.txt")
+        with open("cookies.txt", "r", errors="ignore") as f: lines = [l for l in f if l.strip() and not l.strip().startswith("#")]
+        has_yt = any("youtube.com" in l.lower() for l in lines)
+        return (True, len(lines), size, has_yt)
+    except Exception: return (False, 0, 0, False)
+
+def _invidious_download_youtube(url, output_dir, cap_bytes, is_audio=False, preferred_quality=None):
+    """Invidious - 3rd fallback server (if Piped + Cobalt both down). Returns (path, quality) or None."""
+    import subprocess as _sp
+    vid = None
+    try:
+        m = YT_ID_RE.search(url or "")
+        vid = m.group(1) if m else None
+    except Exception: pass
+    if not vid: return None
+    hosts = ["https://inv.nadeko.net", "https://invidious.privacyredirect.com", "https://iv.datura.network", "https://invidious.flokinet.to", "https://invidious.0011.lt"]
+    last_err = None
+    for host in hosts:
+        try:
+            r = requests.get(f"{host}/api/v1/videos/{vid}", timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+            if r.status_code != 200:
+                last_err = f"{host} HTTP {r.status_code}"; continue
+            data = r.json()
+            if data.get("error"):
+                last_err = str(data.get("error"))[:100]; continue
+            try: LAST_TITLE_BY_URL[url] = {"title": data.get("title"), "poster": data.get("author")}
+            except Exception: pass
+            if is_audio:
+                # adaptiveFormats with audio only
+                cands = [f for f in (data.get("adaptiveFormats") or []) if f.get("type","").startswith("audio/") and f.get("url")]
+                if not cands: continue
+                cands = sorted(cands, key=lambda f: int(f.get("bitrate") or 0), reverse=True)
+                durl = cands[0]["url"]
+                tmp = os.path.join(output_dir, f"inv_{vid}.m4a")
+                _download_url_to_file(durl, tmp, cap_bytes)
+                mp3 = os.path.join(output_dir, f"inv_{vid}.mp3")
+                _r = _sp.run([ffmpeg_path, "-y", "-i", tmp, "-vn", "-codec:a", "libmp3lame", "-q:a", "2", mp3], capture_output=True, text=True, timeout=120)
+                try: os.remove(tmp)
+                except Exception: pass
+                if os.path.exists(mp3) and os.path.getsize(mp3) > 1000: return mp3, "audio"
+                continue
+            else:
+                try:
+                    _pq = str(preferred_quality or "720p").lower().replace("p","")
+                    want_h = int(_pq) if _pq.isdigit() else 720
+                except Exception: want_h = 720
+                # formatStreams are combined (video+audio) - easiest
+                combined = [f for f in (data.get("formatStreams") or []) if f.get("url")]
+                # formatStreams have itag, need height: use adaptiveFormats video+audio? Invidious formatStreams lack height, so pick by itag: 22=720p, 18=360p
+                # Prefer itag 22 (720p mp4) then 18 (360p)
+                for want_itag in (22, 18):
+                    for f in combined:
+                        if str(f.get("itag")) == str(want_itag) and f.get("url"):
+                            dest = os.path.join(output_dir, f"inv_{vid}_{'720p' if want_itag==22 else '360p'}.mp4")
+                            _download_url_to_file(f["url"], dest, cap_bytes)
+                            if os.path.exists(dest) and os.path.getsize(dest) > 1000: return dest, ('720p' if want_itag==22 else '360p')
+                # adaptive video + audio merge
+                v_cands = [f for f in (data.get("adaptiveFormats") or []) if f.get("type","").startswith("video/") and f.get("url")]
+                a_cands = [f for f in (data.get("adaptiveFormats") or []) if f.get("type","").startswith("audio/") and f.get("url")]
+                if v_cands and a_cands:
+                    v_cands = sorted(v_cands, key=lambda f: int(f.get("bitrate") or 0), reverse=True)
+                    a_cands = sorted(a_cands, key=lambda f: int(f.get("bitrate") or 0), reverse=True)
+                    v_tmp = os.path.join(output_dir, f"inv_{vid}_v.mp4")
+                    a_tmp = os.path.join(output_dir, f"inv_{vid}_a.m4a")
+                    _download_url_to_file(v_cands[0]["url"], v_tmp, cap_bytes)
+                    _download_url_to_file(a_cands[0]["url"], a_tmp, cap_bytes)
+                    out = os.path.join(output_dir, f"inv_{vid}_{want_h}p.mp4")
+                    _r = _sp.run([ffmpeg_path, "-y", "-i", v_tmp, "-i", a_tmp, "-c:v", "copy", "-c:a", "aac", "-shortest", out], capture_output=True, text=True, timeout=180)
+                    for p in (v_tmp, a_tmp):
+                        try: os.remove(p)
+                        except Exception: pass
+                    if os.path.exists(out) and os.path.getsize(out) > 1000: return out, f"{want_h}p"
+                last_err = "no usable streams"
+        except Exception as e:
+            last_err = str(e)[:100]; continue
+    logger.warning(f"Invidious all hosts failed for {url}: {last_err}")
+    return None
+
 def _clean_filename_part(s):
     try:
         s = str(s or "").strip().replace("\n", " ").replace("\r", " ")
@@ -5263,7 +5426,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
         if "FILE_TOO_LARGE" in str(e): err = t["error_50mb"]
         elif "MTPROTO_OFF" in str(e): err = "⚠️ Big files need fast mode, which is offline right now."
         elif "MTPROTO_PEER" in str(e): err = "⚠️ Send /start to this bot once, then send the link again."
-        elif "SITE_BLOCKED" in str(e): err = "⏳ YouTube is still blocking our server (IP block, can last hours). I tried Piped + Cobalt too and they failed. Permanent fix: add cookies.txt to Render (export from your browser while logged into YouTube). Wait and try again later - your credit was NOT taken."
+        elif "SITE_BLOCKED" in str(e): err = "⏳ YouTube is blocking Render IP (can last hours/days). I tried Piped + Cobalt + Invidious too. If you added cookies.txt, check: 1) does it show on GitHub? If not, .gitignore hid it, Render never got it. 2) Render logs must say cookies.txt exists=True. 3) Update requirements.txt to yt-dlp>=2025.10.01 - old yt-dlp fails even with fresh cookies. Credit NOT taken."
         elif isinstance(e, (asyncio.TimeoutError, TimeoutError)): err = "⚠️ This is taking too long, so I stopped. Please try again later."
         else: err = t["error_generic"]
         kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
