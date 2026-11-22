@@ -48,13 +48,238 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-# ===== Deno on PATH (for yt-dlp YouTube support) =====
+# ===== Deno on PATH (for yt-dlp YouTube support + bgutil PO token) =====
 _DENO_BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".deno", "bin")
 if os.path.isdir(_DENO_BIN):
     os.environ["PATH"] = _DENO_BIN + os.pathsep + os.environ.get("PATH", "")
     logger.info(f"Deno path added: {_DENO_BIN}, found={shutil.which('deno')}")
 else:
     logger.warning("Deno folder .deno/bin not found: YouTube may fail")
+
+def _ensure_deno():
+    """V48: bgutil PO-token provider needs Deno to run BotGuard JS. Render does NOT have Deno by default,
+    and .deno/ is not in GitHub (gitignored), so download it once on startup if missing."""
+    try:
+        if shutil.which("deno"):
+            return shutil.which("deno")
+        deno_bin = os.path.join(_DENO_BIN, "deno")
+        if os.path.isfile(deno_bin):
+            try: os.chmod(deno_bin, 0o755)
+            except Exception: pass
+            os.environ["PATH"] = _DENO_BIN + os.pathsep + os.environ.get("PATH", "")
+            return deno_bin
+        # Download Deno 1.46 (stable, works with bgutil) - Linux x64
+        os.makedirs(_DENO_BIN, exist_ok=True)
+        import zipfile, urllib.request
+        _url = "https://github.com/denoland/deno/releases/download/v1.46.3/deno-x86_64-unknown-linux-gnu.zip"
+        _zip = os.path.join(_DENO_BIN, "deno.zip")
+        try:
+            logger.info("V48: Deno not found, downloading Deno for bgutil PO token...")
+            urllib.request.urlretrieve(_url, _zip)
+            with zipfile.ZipFile(_zip, "r") as z:
+                z.extractall(_DENO_BIN)
+            try: os.remove(_zip)
+            except Exception: pass
+            try: os.chmod(deno_bin, 0o755)
+            except Exception: pass
+            os.environ["PATH"] = _DENO_BIN + os.pathsep + os.environ.get("PATH", "")
+            logger.info(f"V48: Deno installed: {deno_bin}, found={shutil.which('deno')}")
+            return deno_bin
+        except Exception as e:
+            logger.warning(f"V48: Deno download failed: {e} - PO token will not work, falling back to iOS")
+            return None
+    except Exception as e:
+        logger.warning(f"V48: _ensure_deno failed: {e}")
+        return None
+
+def _bgutil_available():
+    """V50: now checks BOTH PO providers: wpc (real Chrome via nodriver) + bgutil (Deno JS)."""
+    try:
+        import subprocess as _sp2
+        for _pkg in ["yt-dlp-getpot-wpc", "bgutil-ytdlp-pot-provider"]:
+            try:
+                _r = _sp2.run(["pip", "show", _pkg], capture_output=True, text=True, timeout=5)
+                if _r.returncode == 0 and ("wpc" in (_r.stdout or "").lower() or "bgutil" in (_r.stdout or "").lower()):
+                    return True
+            except Exception:
+                pass
+        try:
+            import importlib.util as _ilu2
+            _spec = _ilu2.find_spec("yt_dlp_plugins")
+            if _spec is not None:
+                import os as _os2
+                for _p in (_spec.submodule_search_locations or []):
+                    try:
+                        for _f in _os2.listdir(_p):
+                            if "bgutil" in _f.lower() or "wpc" in _f.lower() or "getpot" in _f.lower():
+                                return True
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        return False
+    except Exception:
+        return False
+
+def _chromium_available():
+    """V50: wpc needs real Chromium/Chrome on Render. Log it so startup shows if PO token can even run."""
+    try:
+        for _bin in ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable"]:
+            if shutil.which(_bin):
+                return shutil.which(_bin)
+        # nodriver downloads Chrome to ~/.cache/nodriver
+        import os as _os3
+        _cand = os.path.join(os.path.expanduser("~"), ".cache", "nodriver")
+        if os.path.isdir(_cand):
+            return _cand
+        return None
+    except Exception:
+        return None
+
+
+# ===== V51: Cloudflare WARP (free) - fix for datacenter IP block =====
+# Search proved: Render datacenter IP is flagged, fresh cookies + PO token alone do NOT fix it.
+# WARP makes egress look like ordinary home connection: wgcf registers free WARP identity,
+# wireproxy runs WireGuard in userspace (no root) and exposes local proxy 127.0.0.1:25345 (http) / 25344 (socks5).
+# yt-dlp then uses proxy=http://127.0.0.1:25345. If WARP fails, fall back to direct.
+_WARP_PROC = None
+_WARP_PROXY = None
+
+def _ensure_warp():
+    """V51: Start free Cloudflare WARP proxy if ENABLE_WARP=1 (default ON). Returns proxy URL or None."""
+    global _WARP_PROC, _WARP_PROXY
+    if _WARP_PROXY:
+        return _WARP_PROXY
+    try:
+        if os.getenv("ENABLE_WARP", "1").strip() not in ("1", "true", "yes", "on"):
+            logger.info("V51: WARP disabled via ENABLE_WARP=0")
+            return None
+        # If user set a paid residential proxy, it takes priority over WARP
+        _user_proxy = (os.getenv("YTDLP_PROXY", "") or os.getenv("YT_PROXY", "") or "").strip()
+        if _user_proxy:
+            logger.info(f"V51: Using user proxy YTDLP_PROXY, skipping WARP")
+            _WARP_PROXY = _user_proxy
+            return _WARP_PROXY
+        import subprocess as _sp3, urllib.request, tarfile
+        _bin_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".warp", "bin")
+        os.makedirs(_bin_dir, exist_ok=True)
+        _wgcf = os.path.join(_bin_dir, "wgcf")
+        _wireproxy = os.path.join(_bin_dir, "wireproxy")
+        # Download wgcf + wireproxy if missing (pinned versions from search: wgcf 2.2.31, wireproxy 1.1.2)
+        if not os.path.isfile(_wgcf):
+            try:
+                logger.info("V51: Downloading wgcf for WARP...")
+                urllib.request.urlretrieve("https://github.com/ViRb3/wgcf/releases/download/v2.2.31/wgcf_2.2.31_linux_amd64", _wgcf)
+                os.chmod(_wgcf, 0o755)
+            except Exception as e:
+                logger.warning(f"V51: wgcf download failed: {e}")
+                return None
+        if not os.path.isfile(_wireproxy):
+            try:
+                logger.info("V51: Downloading wireproxy for WARP...")
+                _tgz = os.path.join(_bin_dir, "wireproxy.tar.gz")
+                urllib.request.urlretrieve("https://github.com/windtf/wireproxy/releases/download/v1.1.2/wireproxy_linux_amd64.tar.gz", _tgz)
+                with tarfile.open(_tgz, "r:gz") as _tf:
+                    _tf.extractall(_bin_dir)
+                try: os.remove(_tgz)
+                except Exception: pass
+                if os.path.isfile(_wireproxy):
+                    os.chmod(_wireproxy, 0o755)
+            except Exception as e:
+                logger.warning(f"V51: wireproxy download failed: {e}")
+                return None
+        # Generate WARP profile if missing
+        _conf = os.path.join(_bin_dir, "wireproxy.conf")
+        if not os.path.isfile(_conf):
+            try:
+                logger.info("V51: Registering free WARP identity (wgcf register)...")
+                _env = dict(os.environ); _env["WGCF_PROFILE"] = os.path.join(_bin_dir, "wgcf-profile.conf")
+                # wgcf register creates account + profile
+                _r1 = _sp3.run([_wgcf, "register", "--accept-tos"], capture_output=True, text=True, timeout=60, cwd=_bin_dir)
+                _r2 = _sp3.run([_wgcf, "generate"], capture_output=True, text=True, timeout=60, cwd=_bin_dir)
+                _prof = os.path.join(_bin_dir, "wgcf-profile.conf")
+                if os.path.isfile(_prof):
+                    with open(_prof) as _f: _pc = _f.read()
+                    with open(_conf, "w") as _f:
+                        _f.write(_pc)
+                        _f.write("\n[Socks5]\nBindAddress = 127.0.0.1:25344\n\n[http]\nBindAddress = 127.0.0.1:25345\n")
+                    logger.info("V51: WARP profile generated")
+                else:
+                    logger.warning(f"V51: wgcf generate failed: {_r2.stdout[:200]} {_r2.stderr[:200]}")
+                    return None
+            except Exception as e:
+                logger.warning(f"V51: WARP register failed: {e}")
+                return None
+        # Start wireproxy in background
+        try:
+            if _WARP_PROC is None or _WARP_PROC.poll() is not None:
+                _WARP_PROC = _sp3.Popen([_wireproxy, "-c", _conf], stdout=_sp3.DEVNULL, stderr=_sp3.DEVNULL)
+                import time as _t3
+                _t3.sleep(2)
+                # Test proxy works: try to fetch via proxy
+                try:
+                    import requests as _rq3
+                    _test = _rq3.get("https://www.cloudflare.com/cdn-cgi/trace", proxies={"http": "http://127.0.0.1:25345", "https": "http://127.0.0.1:25345"}, timeout=10)
+                    if _test.status_code == 200 and "warp=on" in _test.text.lower():
+                        logger.info("V51: WARP ON - egress via Cloudflare WARP, warp=on")
+                    else:
+                        logger.info(f"V51: WARP proxy responding, trace warp check: {_test.text[:200]}")
+                except Exception as _e3:
+                    logger.warning(f"V51: WARP proxy test failed: {_e3} - will still try yt-dlp via proxy")
+                _WARP_PROXY = "http://127.0.0.1:25345"
+                return _WARP_PROXY
+        except Exception as e:
+            logger.warning(f"V51: wireproxy start failed: {e}")
+            return None
+    except Exception as e:
+        logger.warning(f"V51: _ensure_warp failed: {e}")
+    return None
+
+def _proxy_for_url(url):
+    """V59: Same WARP trick as YouTube, now for FB + IG too.
+    V51: WARP for YT only, because TikTok got Region locked 10231 on WARP. That was correct for TikTok, but wrong for FB/IG.
+    V35 failing proves FB/IG are ALSO IP-blocked from Render datacenter IP (IG 429, FB login redirect). WARP makes Render look like home IP.
+    TikTok stays DIRECT. Everything else (YT, FB, IG) gets WARP if available, else direct."""
+    try:
+        _low = (url or "").lower()
+        if "tiktok.com" in _low or "vt.tiktok" in _low or "vm.tiktok" in _low:
+            return None  # TikTok: direct only, WARP = 10231 Region locked
+        if any(_d in _low for _d in ["youtube.com", "youtu.be", "facebook.com", "fb.watch", "fb.gg", "instagram.com", "instagr.am"]):
+            return _yt_proxy()
+        return None
+    except Exception: return None
+
+def _requests_proxies_for_url(url):
+    """V59: requests.get proxies dict for WARP (http + https), or None for direct."""
+    try:
+        _p = _proxy_for_url(url)
+        if _p: return {"http": _p, "https": _p}
+    except Exception: pass
+    return None
+
+def _yt_proxy():
+    """V51: proxy for yt-dlp: YTDLP_PROXY env first, else WARP, else None (direct)."""
+    try:
+        _up = (os.getenv("YTDLP_PROXY", "") or os.getenv("YT_PROXY", "") or "").strip()
+        if _up:
+            return _up
+        return _ensure_warp()
+    except Exception:
+        return None
+
+# Try to start WARP at import (non-blocking, best effort)
+try:
+    _wp = _ensure_warp()
+    logger.info(f"V51: warp_proxy={_wp}")
+except Exception as _e:
+    logger.warning(f"V51: WARP startup failed: {_e}")
+
+# Try to ensure Deno at import time (non-blocking, best effort) - do NOT crash bot if it fails
+try:
+    _ensure_deno()
+    logger.info(f"V50: pot_provider_available={_bgutil_available()} chromium={_chromium_available()} deno={shutil.which('deno')}")
+except Exception as _e:
+    logger.warning(f"V48: Deno/bgutil check failed: {_e}")
 # ======================================================
 
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
@@ -146,6 +371,13 @@ active_batch_sessions = {}
 pending_batch_payloads = {}
 paused_batches = {}
 pending_single_links = {}
+# FIX - batch Adsterra: track kind so pause/out claim gives +1 Batch (not +1 Downloads)
+AD_KIND_BY_USER = {}
+# V36 MUSIC SEARCH: waiting flag, last results per user, retry after ad
+MUSIC_WAITING = {}
+MUSIC_RESULTS = {}
+MUSIC_RETRY = {}
+MUSIC_SEARCHING = {}  # V40 FIX: was used in V39 but never defined -> NameError killed Music Search button
 
 MAX_CONCURRENT_SHORT = 3
 MIN_FREE_DISK_MB = 150
@@ -198,6 +430,7 @@ LANGUAGES = {
         "reward_panel_prompt": "🎁 REWARD PANEL\nCurrent: +{} download per 20s ad",
         "ad_panel_prompt": "⚙️ Ad Panel\nCurrent: {}",
         "password_saved": "🔐 Password saved.",
+    "password_removed": "🔓 Password removed.",
         "password_too_long": "Password must be 64 chars or fewer.",
         "file_to_link_prompt": "🔗 **File-to-Link**\nSend the file(s) you want to share.",
         "link_invalid_expired": "❌ This link is invalid or expired.",
@@ -300,7 +533,7 @@ LANGUAGES = {
         "select_lang": "🌍 अपनी भाषा चुनें! नीचे चुनें! 👇", 
         "lang_set": "✅ भाषा सेट हो गई! आनंद लें! 🎉✨",
         "batch_detected": "📦 **बैच डिटेक्ट हुआ ({} लिंक्स)**\nकौन सा फॉर्मेट?",
-        "batch_dest": "📦 **कहाँ भेजें?**",
+        "batch_dest": "?? **कहाँ भेजें?**",
         "btn_chat": "📥 चैट में", "btn_chan": "📢 चैनल में",
         "limit_reached": "⚠️ **लिमिट पूरी हो गई!** आपने 4 फ्री इस्तेमाल कर लिए! 20 सेकंड का विज्ञापन देखें → +1 डाउनलोड पाएं!",
         "refill_btn": "🔓 लिंक खोलें और +1 रिफिल करें",
@@ -1744,11 +1977,62 @@ def save_to_file_cache(link_url, download_type, src_path):
         return None
 
 # --- PART 3: social-media metadata ---
+def _yt_dlp_version():
+    """V47: yt_dlp.__version__ does NOT exist - real version is in yt_dlp.version.__version__. Old code always logged 'unknown'."""
+    try:
+        import yt_dlp.version as _v
+        return getattr(_v, "__version__", "unknown")
+    except Exception:
+        try:
+            return getattr(yt_dlp, "__version__", "unknown")
+        except Exception:
+            return "unknown"
+
+def _yt_ydl_opts_for_youtube(base_opts=None):
+    """V51: Search proved datacenter IP is root cause, not cookies/PO token.
+    Two fixes we never tried:
+    1) web_embedded + tv + android_vr clients need NO PO token (per yt-dlp PO Token Guide: web/mweb/tv_simply need GVS token, tv/web_embedded/android_vr don't).
+       web_embedded serves itag 251 Opus audio and works from datacenter IP.
+    2) WARP proxy: route yt-dlp via free Cloudflare WARP so egress looks like home connection, not Render datacenter.
+    Order: web_embedded -> tv -> android_vr -> web -> mweb -> ios -> android. Proxy = WARP if available."""
+    o = dict(base_opts or {})
+    # V51: web_embedded first - no PO token needed, most reliable from datacenter IP.
+    o.update({
+        "extractor_args": {"youtube": {"player_client": ["web_embedded", "tv", "android_vr", "web", "mweb", "ios", "android"], "po_token": ["wpc", "bgutil", "auto"]}},
+        "quiet": True, "no_warnings": True,
+    })
+    # V52 FIX: DO NOT set proxy here - this function is called for TikTok/Instagram/etc too.
+    # WARP is YouTube-only. Setting it here routed TikTok through Cloudflare IP -> TikTok 10231 Region locked.
+    # YouTube proxy is set explicitly in download_media_engine (YouTube-only check) + get_social_metadata (YouTube-only check).
+    # Leave o['proxy'] as caller set it (PROXY_URL=None = direct for TikTok/IG).
+    try:
+        import importlib.util as _ilu
+        if _ilu.find_spec("curl_cffi") is not None:
+            o["impersonate"] = "chrome"
+    except Exception:
+        pass
+    return o
+
 def get_social_metadata(link):
     """Fetch title / poster / views / likes / comments / description / duration / est. size.
     Returns dict, or None on failure (caller falls back to fetch_url_metadata)."""
     try:
-        ydl_meta_opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True}
+        # V47: metadata was using default web client -> same 'Failed to extract any player response' as downloads.
+        # Use iOS-first + skip webpage, and cookies if present, so metadata works even when web client is blocked.
+        ydl_meta_opts = _yt_ydl_opts_for_youtube({"skip_download": True, "noplaylist": True})
+        # V59: WARP for YT + FB + IG metadata too (metadata also 429s from Render IP). TikTok direct only.
+        try:
+            _wp_meta = _proxy_for_url(link)
+            if _wp_meta: ydl_meta_opts["proxy"] = _wp_meta
+            else: ydl_meta_opts.pop("proxy", None)
+        except Exception: pass
+        try:
+            if "tiktok.com" in (link or "").lower() and os.path.exists("tiktok_cookies.txt"):
+                ydl_meta_opts["cookiefile"] = "tiktok_cookies.txt"
+            elif os.path.exists("cookies.txt"):
+                ydl_meta_opts["cookiefile"] = "cookies.txt"
+        except Exception:
+            pass
         with yt_dlp.YoutubeDL(ydl_meta_opts) as ydl:
             info = ydl.extract_info(link, download=False)
         if not info:
@@ -1767,17 +2051,56 @@ def get_social_metadata(link):
                 size = max(cand) if cand else 0
             except Exception:
                 size = 0
+        # V53: Restore + expand V35 metadata - capture EVERYTHING yt-dlp gives, not just title/views.
+        # web_embedded returns thin metadata (often no views/likes), so we keep all fields and let format show N/A if missing.
+        # upload_date is YYYYMMDD -> format as DD Mon YYYY. Tags/categories/thumbnail kept for card.
+        _up = str(info.get("upload_date") or info.get("release_date") or "")
+        _up_fmt = _up
+        try:
+            if len(_up) == 8 and _up.isdigit():
+                import datetime as _dt53
+                _up_fmt = _dt53.datetime.strptime(_up, "%Y%m%d").strftime("%d %b %Y")
+        except Exception: pass
+        # Best format for resolution/fps/codec (largest video format)
+        _best_fmt = {}
+        try:
+            _fmts = info.get("formats") or []
+            _vfmts = [f for f in _fmts if f.get("vcodec") and f.get("vcodec") != "none"]
+            if _vfmts:
+                _best_fmt = max(_vfmts, key=lambda f: (f.get("height") or 0, f.get("filesize_approx") or 0))
+        except Exception: pass
         return {
             "title": info.get("title", "N/A") or "N/A",
             "poster": info.get("uploader") or info.get("uploader_id") or info.get("channel") or "N/A",
+            "channel": info.get("channel") or info.get("uploader") or "N/A",
+            "channel_id": info.get("channel_id") or info.get("uploader_id") or "N/A",
+            "uploader_id": info.get("uploader_id") or "N/A",
             "views": info.get("view_count", "N/A"),
             "likes": info.get("like_count", "N/A"),
+            "dislikes": info.get("dislike_count", "N/A"),
             "comments": info.get("comment_count", "N/A"),
+            "reposts": info.get("repost_count", "N/A"),
+            "shares": info.get("share_count", "N/A"),
+            "saves": info.get("save_count", "N/A"),
             "desc": (info.get("description") or "Preview only")[:600],
             "duration_sec": int(info.get("duration") or 0),
             "platform": info.get("extractor_key") or info.get("extractor") or "unknown",
             "est_size_mb": float(size) / (1024 * 1024) if size else 0.0,
             "filesize_approx": int(size or 0),
+            "upload_date": _up_fmt or "N/A",
+            "upload_date_raw": _up or "",
+            "webpage_url": info.get("webpage_url") or info.get("original_url") or "",
+            "video_id": info.get("id") or "",
+            "width": info.get("width") or (_best_fmt.get("width") if _best_fmt else "N/A"),
+            "height": info.get("height") or (_best_fmt.get("height") if _best_fmt else "N/A"),
+            "fps": info.get("fps") or (_best_fmt.get("fps") if _best_fmt else "N/A"),
+            "vcodec": info.get("vcodec") or (_best_fmt.get("vcodec") if _best_fmt else "N/A"),
+            "acodec": info.get("acodec") or (_best_fmt.get("acodec") if _best_fmt else "N/A"),
+            "ext": info.get("ext") or (_best_fmt.get("ext") if _best_fmt else "N/A"),
+            "tags": info.get("tags") or [],
+            "categories": info.get("categories") or [],
+            "thumbnail": info.get("thumbnail") or "",
+            "like_ratio": "",
         }
     except Exception as e:
         logger.warning(f"get_social_metadata: {e}")
@@ -1798,14 +2121,45 @@ def format_social_metadata(meta):
     desc = (meta.get("desc") or "").strip()
     if len(desc) > 280:
         desc = desc[:280] + "…"
+    # V53: Full V35 card + more - this is the metadata you liked. Show everything we have, hide N/A gracefully.
+    def _fmt_val(v):
+        return str(v) if v not in (None, "", "N/A", 0) else "N/A"
+    _chan = meta.get('channel') or meta.get('poster') or 'N/A'
+    _chan_id = meta.get('channel_id') or meta.get('uploader_id') or ''
+    _chan_line = f"👤 @{_chan}" + (f"  (ID: {_chan_id})" if _chan_id and _chan_id != 'N/A' else "")
+    _vid = meta.get('video_id') or ''
+    _up = meta.get('upload_date') or 'N/A'
+    _w = meta.get('width') or 'N/A'
+    _h = meta.get('height') or 'N/A'
+    _fps = meta.get('fps') or 'N/A'
+    _vc = meta.get('vcodec') or 'N/A'
+    _ac = meta.get('acodec') or 'N/A'
+    _ext = meta.get('ext') or 'N/A'
+    _res = f"{_w}x{_h}" if _w != 'N/A' and _h != 'N/A' else "N/A"
     lines = [
         f"🎬 {meta.get('title', 'N/A')}",
-        f"👤 @{meta.get('poster', 'N/A')}",
+        _chan_line,
+        f"📅 Uploaded: {_up}" + (f"  🆔 Video ID: {_vid}" if _vid else ""),
         f"👁️ Views: {_num(meta.get('views'))}  👍 Likes: {_num(meta.get('likes'))}  💬 Comments: {_num(meta.get('comments'))}",
+        f"🔁 Reposts: {_num(meta.get('reposts'))}  📤 Shares: {_num(meta.get('shares'))}  💾 Saves: {_num(meta.get('saves'))}",
         f"⏱️ Duration: {dur_txt}  📦 Est. size: {est_txt}  🌐 {meta.get('platform', 'unknown')}",
+        f"🎞️ Resolution: {_res}  🎞️ FPS: {_fmt_val(_fps)}  🎞️ Video: {_fmt_val(_vc)}  🔊 Audio: {_fmt_val(_ac)}  📁 Format: {_fmt_val(_ext)}",
     ]
+    # Tags / categories - V35 didn't show these, V53 adds them (yt-dlp gives them for YouTube)
+    try:
+        _tags = meta.get('tags') or []
+        if _tags:
+            _tags_txt = ", ".join([str(t) for t in _tags[:8]])
+            lines.append(f"🏷️ Tags: {_tags_txt}")
+        _cats = meta.get('categories') or []
+        if _cats:
+            lines.append(f"📂 Category: {', '.join([str(c) for c in _cats[:3]])}")
+    except Exception: pass
     if desc and desc != "Preview only":
         lines.append(f"📝 {desc}")
+    _url = meta.get('webpage_url') or ''
+    if _url:
+        lines.append(f"🔗 { _url }")
     return "\n".join(lines)
 
 # --- PART 4: limit + credit calculator ---
@@ -1905,11 +2259,36 @@ async def send_join_prompt(bot, chat_id, user_id, missing):
 async def send_meta_after(bot, chat_id, url, meta, user_id=None):
     try:
         m = meta
-        if m is None:
+        # V53: If first metadata fetch failed (e.g. web_embedded thin record), retry with plain yt-dlp (no client lock, no WARP)
+        # so we still get views/likes/comments like V35 did. Never silently skip the card you like.
+        if not m:
             try:
                 m = await asyncio.to_thread(get_social_metadata, url)
             except Exception:
                 m = None
+        if not m:
+            # Fallback 2: plain yt-dlp without web_embedded/WARP - V35 style, gets full metadata
+            try:
+                def _plain_meta(_u):
+                    try:
+                        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True}) as _ydl:
+                            _info = _ydl.extract_info(_u, download=False)
+                            if isinstance(_info, dict) and _info.get("entries"):
+                                _e = [e for e in _info["entries"] if e]
+                                _info = _e[0] if _e else _info
+                            if not isinstance(_info, dict): return None
+                            return {"title": _info.get("title") or "N/A", "poster": _info.get("uploader") or _info.get("channel") or "N/A", "channel": _info.get("channel") or _info.get("uploader") or "N/A", "channel_id": _info.get("channel_id") or _info.get("uploader_id") or "N/A", "uploader_id": _info.get("uploader_id") or "N/A", "views": _info.get("view_count", "N/A"), "likes": _info.get("like_count", "N/A"), "dislikes": _info.get("dislike_count", "N/A"), "comments": _info.get("comment_count", "N/A"), "reposts": _info.get("repost_count", "N/A"), "shares": _info.get("share_count", "N/A"), "saves": _info.get("save_count", "N/A"), "desc": (_info.get("description") or "Preview only")[:600], "duration_sec": int(_info.get("duration") or 0), "platform": _info.get("extractor_key") or _info.get("extractor") or "unknown", "est_size_mb": 0.0, "filesize_approx": 0, "upload_date": str(_info.get("upload_date") or "N/A"), "video_id": _info.get("id") or "", "width": _info.get("width") or "N/A", "height": _info.get("height") or "N/A", "fps": _info.get("fps") or "N/A", "vcodec": _info.get("vcodec") or "N/A", "acodec": _info.get("acodec") or "N/A", "ext": _info.get("ext") or "N/A", "tags": _info.get("tags") or [], "categories": _info.get("categories") or [], "webpage_url": _info.get("webpage_url") or _u, "thumbnail": _info.get("thumbnail") or ""}
+                    except Exception: return None
+                m = await asyncio.to_thread(_plain_meta, url)
+            except Exception:
+                m = None
+        if not m:
+            # Fallback 3: minimal card from title cache so you still get *something* - never blank
+            try:
+                _disp = _display_name_for(None, url, url, None)
+                if _disp and _disp != url:
+                    m = {"title": _disp, "poster": "N/A", "channel": "N/A", "views": "N/A", "likes": "N/A", "comments": "N/A", "reposts": "N/A", "shares": "N/A", "saves": "N/A", "desc": "", "duration_sec": 0, "platform": "unknown", "est_size_mb": 0.0, "upload_date": "N/A", "video_id": "", "width": "N/A", "height": "N/A", "fps": "N/A", "vcodec": "N/A", "acodec": "N/A", "ext": "N/A", "tags": [], "categories": [], "webpage_url": url}
+            except Exception: pass
         if not m:
             return
         card = format_social_metadata(m)
@@ -2166,6 +2545,20 @@ def load_tokens():
     except Exception as e: logger.error(f"Tokens: {e}")
     return {}
 
+def get_user_profile_from_flask(user_id):
+    # FIX: My Stats used /get_tokens which NEVER calls get_user_profile (no 24h refill),
+    # while /check-download DOES call it (refill). So My Stats showed stale 0, then File-to-Link
+    # silently refilled to free then deducted 1 -> 0->1 jump. This calls the new /get-profile
+    # endpoint which uses the SAME get_user_profile logic as /check-download, so both agree.
+    try:
+        r = requests.post(f"{WEB_BASE_URL}/get-profile", json={"user_id": int(user_id)}, headers=API_HEADERS, timeout=5)
+        if r.status_code == 200:
+            d = r.json()
+            if isinstance(d, dict) and "downloads_left" in d:
+                return d
+    except Exception as e: logger.error(f"get-profile: {e}")
+    return None
+
 def save_tokens(tokens):
     try: requests.post(f"{WEB_BASE_URL}/save_tokens", json=tokens, headers=API_HEADERS, timeout=5)
     except Exception as e: logger.error(f"Save tokens: {e}")
@@ -2249,14 +2642,217 @@ def fetch_url_metadata(url):
     except: return "Media Link", "N/A"
 
 def scrape_html_images(url, cookiefile=None):
-    headers = {'User-Agent': 'Mozilla/5.0'}
+    # V54: Keep old single-image API for callers that expect 1 URL, but make it actually work for FB/IG.
+    # FB/IG now return login wall for plain Mozilla/5.0. Use BROWSER_HEADERS + cookies.txt if present.
     try:
-        res = requests.get(url, headers=headers, timeout=15)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        og = soup.find('meta', property='og:image')
-        if og and og.get('content'): return og['content']
+        _all = scrape_all_html_images(url, cookiefile)
+        if _all: return _all[0]
     except Exception as e: logger.error(f"Scrape: {e}")
     return None
+
+def _ig_carousel_via_json(url, cookiefile=None):
+    """V55: IG carousel slides are NOT in og:image (only first). They are in ?__a=1&__d=dis JSON: graphql.shortcode_media.edge_sidecar_to_children.edges[].node.display_url / video_url.
+    This does NOT hit api/graphql (which 429s Render IP), it hits the post JSON endpoint. Returns list of image/video URLs."""
+    try:
+        import html as _h55
+        _m = re.search(r"/(p|reel|tv)/([A-Za-z0-9_-]+)", url)
+        if not _m: return []
+        _short = _m.group(2)
+        _headers = dict(BROWSER_HEADERS) if 'BROWSER_HEADERS' in globals() else {'User-Agent': 'Mozilla/5.0'}
+        _headers["X-Requested-With"] = "XMLHttpRequest"
+        _headers["Accept"] = "application/json"
+        _cookies = {}
+        try:
+            _cf = cookiefile or ("cookies.txt" if __import__('os').path.exists("cookies.txt") else None)
+            if _cf and __import__('os').path.exists(_cf):
+                for _line in open(_cf, encoding='utf-8', errors='ignore'):
+                    _line = _line.strip()
+                    if not _line or _line.startswith('#'): continue
+                    _parts = _line.split('\t')
+                    if len(_parts) >= 7: _cookies[_parts[5]] = _parts[6]
+        except Exception: pass
+        # V57: X-IG-App-ID is required for unauthenticated IG API - without it, __a=1 returns login wall
+        _headers["X-IG-App-ID"] = "936619743392459"
+        _headers["X-IG-WWW-Claim"] = "0"
+        _headers["Accept"] = "application/json, text/html"
+        _out = []
+        # V57 order: 1) embed (no login, no GraphQL, least 429), 2) __a=1 with App-ID, 3) ddinstagram mirror (public proxy, bypasses IG 429 entirely)
+        _try_urls = [
+            (f"https://www.instagram.com/p/{_short}/embed/captioned/", "embed"),
+            (f"https://www.instagram.com/p/{_short}/?__a=1&__d=dis", "json"),
+            (f"https://www.ddinstagram.com/p/{_short}/", "ddig"),
+            (f"https://www.ddinstagram.com/p/{_short}/embed/", "ddig-embed"),
+        ]
+        for _u, _kind in _try_urls:
+            try:
+                _h_try = dict(_headers)
+                if _kind.startswith("ddig"):
+                    _h_try["User-Agent"] = "Mozilla/5.0"
+                    _h_try.pop("X-IG-App-ID", None)
+                # V59: WARP for IG (same as YT) - Render IP gets 429, WARP looks like home IP. Fall back to direct if WARP fails.
+                try: _prox59ig = _requests_proxies_for_url(url)
+                except Exception: _prox59ig = None
+                try: _r = requests.get(_u, headers=_h_try, cookies=_cookies, timeout=15, proxies=_prox59ig)
+                except Exception: _r = requests.get(_u, headers=_h_try, cookies=_cookies, timeout=15)
+                _txt = _r.text or ""
+                if not _txt or len(_txt) < 500: continue
+                # If login wall, skip quickly - don't waste time parsing it
+                if "Log in to Instagram" in _txt and "display_url" not in _txt and "scontent" not in _txt and "cdninstagram" not in _txt:
+                    continue
+                # Try parse as JSON first (for __a=1)
+                try:
+                    _j = __import__('json').loads(_txt)
+                    def _walk(_node):
+                        if isinstance(_node, dict):
+                            if _node.get("display_url") and isinstance(_node.get("display_url"), str):
+                                _out.append(_h55.unescape(_node["display_url"]))
+                            if _node.get("video_url") and isinstance(_node.get("video_url"), str):
+                                _out.append(_h55.unescape(_node["video_url"]))
+                            for _v in _node.values(): _walk(_v)
+                        elif isinstance(_node, list):
+                            for _v in _node: _walk(_v)
+                    _walk(_j)
+                    if _out: break
+                except Exception: pass
+                # Regex for display_url / video_url in HTML/JSON text (embed + ddinstagram)
+                for _mm in re.finditer(r'"display_url"\s*:\s*"([^"]+)"', _txt):
+                    _u2 = _h55.unescape(_mm.group(1)).replace('\\/', '/')
+                    if _u2.startswith('http') and _u2 not in _out: _out.append(_u2)
+                for _mm in re.finditer(r'"video_url"\s*:\s*"([^"]+)"', _txt):
+                    _u2 = _h55.unescape(_mm.group(1)).replace('\\/', '/')
+                    if _u2.startswith('http') and _u2 not in _out: _out.append(_u2)
+                # Embed + ddinstagram also have raw scontent / cdninstagram URLs in HTML (carousel slides)
+                for _mm in re.finditer(r'https://(?:scontent[^"\'\s]+|[^"\'\s]*\.cdninstagram\.com[^"\'\s]+)', _txt):
+                    _u2 = _h55.unescape(_mm.group(0)).replace('\\/', '/')
+                    if any(_bad in _u2 for _bad in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32", "s50x50"]): continue
+                    if (".jpg" in _u2 or ".jpeg" in _u2 or ".png" in _u2 or ".webp" in _u2) and _u2 not in _out: _out.append(_u2)
+                # og:image as well (at least 1)
+                for _mm in re.finditer(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', _txt):
+                    _u2 = _h55.unescape(_mm.group(1))
+                    if _u2.startswith('http') and _u2 not in _out: _out.append(_u2)
+                if len(_out) >= 2: break
+                if _out and _kind == "ddig": break
+            except Exception: continue
+        # De-dupe keep order
+        _seen = set(); _res = []
+        for _u in _out:
+            _k = _u.split('?')[0]
+            if _k not in _seen: _seen.add(_k); _res.append(_u)
+        return _res[:20]
+    except Exception as e:
+        try: logger.warning(f"_ig_carousel_via_json: {e}")
+        except Exception: pass
+        return []
+
+def scrape_all_html_images(url, cookiefile=None):
+    """V54: Return ALL image URLs from a FB/IG post page, not just og:image.
+    FB carousel: page contains many scontent / og:image URLs. IG carousel: embed page contains display_url for each slide.
+    Returns list of unique image URLs (scontent / cdn) in post order."""
+    try:
+        import html as _html54
+        _headers = dict(BROWSER_HEADERS) if 'BROWSER_HEADERS' in globals() else {'User-Agent': 'Mozilla/5.0'}
+        _cookies = {}
+        # Try cookies.txt (yt-dlp Netscape format) for FB/IG - without it FB returns login wall
+        try:
+            _cf = cookiefile or ("cookies.txt" if __import__('os').path.exists("cookies.txt") else None)
+            if _cf and __import__('os').path.exists(_cf):
+                for _line in open(_cf, encoding='utf-8', errors='ignore'):
+                    _line = _line.strip()
+                    if not _line or _line.startswith('#'): continue
+                    _parts = _line.split('\t')
+                    if len(_parts) >= 7:
+                        _cookies[_parts[5]] = _parts[6]
+        except Exception: pass
+        # 1) Try embed version for Instagram (less blocked than main page)
+        # V56: For FB /share/, try direct share-page scrape FIRST - it works even when resolve fails (og:image + scontent from share page)
+        try:
+            if "facebook.com" in url.lower() and "/share/" in url.lower():
+                _fb_direct = _fb_images_from_share_page(url)
+                if _fb_direct: return _fb_direct
+        except Exception: pass
+        # V55: For IG, JSON endpoint has ALL carousel slides - try it FIRST, before og:image (which is only 1)
+        try:
+            if "instagram.com" in url.lower() or "instagr.am" in url.lower():
+                _ig_json = _ig_carousel_via_json(url, cookiefile)
+                if len(_ig_json) >= 2:
+                    return _ig_json
+                elif len(_ig_json) == 1:
+                    # Keep it as fallback, but continue to try og:image for more
+                    _found_early = _ig_json
+                else:
+                    _found_early = []
+            else:
+                _found_early = []
+        except Exception: _found_early = []
+        # V55: Resolve FB share link before scraping - else we scrape the share redirect page, not the post
+        try:
+            url = _resolve_share_link(url)
+        except Exception: pass
+        _urls_to_try = [url]
+        try:
+            _m = re.search(r"/(p|reel|tv)/([A-Za-z0-9_-]+)", url)
+            if _m and ("instagram.com" in url.lower() or "instagr.am" in url.lower()):
+                _urls_to_try.append(f"https://www.instagram.com/{_m.group(1)}/{_m.group(2)}/embed/")
+        except Exception: pass
+        # 2) Try mbasic for Facebook (lighter, less JS/login wall)
+        try:
+            if "facebook.com" in url.lower() or "fb.watch" in url.lower():
+                _mb = url.replace("www.facebook.com", "mbasic.facebook.com").replace("web.facebook.com", "mbasic.facebook.com")
+                if _mb != url: _urls_to_try.append(_mb)
+        except Exception: pass
+        _found = []
+        for _u in _urls_to_try:
+            try:
+                try: _prox59s = _requests_proxies_for_url(_u)
+                except Exception: _prox59s = None
+                try: _res = requests.get(_u, headers=_headers, cookies=_cookies, timeout=15, proxies=_prox59s)
+                except Exception: _res = requests.get(_u, headers=_headers, cookies=_cookies, timeout=15)
+                _text = _res.text or ""
+                if not _text or len(_text) < 500: continue
+                # og:image + twitter:image (first image)
+                try:
+                    _soup = BeautifulSoup(_text, 'html.parser')
+                    for _prop in ["og:image", "twitter:image", "og:image:url"]:
+                        for _tag in _soup.find_all('meta', property=_prop):
+                            _c = _tag.get('content')
+                            if _c and _c.startswith('http') and _c not in _found:
+                                _found.append(_html54.unescape(_c))
+                    for _tag in _soup.find_all('meta', attrs={'name': 'twitter:image'}):
+                        _c = _tag.get('content')
+                        if _c and _c.startswith('http') and _c not in _found:
+                            _found.append(_html54.unescape(_c))
+                except Exception: pass
+                # FB scontent + IG cdn URLs embedded in JSON (carousel slides)
+                # Match https://scontent...jpg / https://*.cdninstagram.com/...jpg
+                for _mm in re.finditer(r'https://(?:scontent[^"\'\s]+|[^"\'\s]*\.cdninstagram\.com[^"\'\s]+|[^"\'\s]*\.fbcdn\.net[^"\'\s]+)', _text):
+                    _u2 = _html54.unescape(_mm.group(0)).replace('\\/', '/')
+                    # Skip tiny thumbs / profile pics / static icons
+                    if any(_bad in _u2 for _bad in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32", "s50x50"]): continue
+                    if _u2 not in _found and (".jpg" in _u2 or ".jpeg" in _u2 or ".png" in _u2 or ".webp" in _u2):
+                        _found.append(_u2)
+                # IG display_url in JSON
+                for _mm in re.finditer(r'"display_url"\s*:\s*"([^"]+)"', _text):
+                    _u2 = _html54.unescape(_mm.group(1)).replace('\\/', '/')
+                    if _u2.startswith('http') and _u2 not in _found:
+                        _found.append(_u2)
+                if _found: break
+            except Exception: continue
+        # De-dupe, keep order, drop tracking params that make same image look different
+        _seen = set(); _out = []
+        # V55: If IG JSON gave us 1 slide and og:image gave 0, keep the JSON one
+        try:
+            if '_found_early' in locals() and _found_early:
+                for _u in _found_early:
+                    if _u not in _found: _found.insert(0, _u)
+        except Exception: pass
+        for _u in _found:
+            _key = _u.split('?')[0]
+            if _key not in _seen:
+                _seen.add(_key); _out.append(_u)
+        return _out[:20]
+    except Exception as e:
+        logger.error(f"scrape_all_html_images: {e}")
+        return []
 
 def get_min_free_disk_mb():
     config = load_json_file(CONFIG_FILE)
@@ -2321,13 +2917,50 @@ def _fetch_media_url(url, dest_base, cap_bytes, default_ext):
 
 
 def _instaloader_worker(shortcode, folder, cap_bytes):
-    kwargs = dict(quiet=True, sleep=False, max_connection_attempts=1,
-                  request_timeout=20, download_comments=False,
+    # V61: Instaloader was failing because (1) fatal 429 = abort on first 429, (2) no login/session for api/graphql (IG now requires it), (3) no WARP - it used its own session, direct from flagged Render IP.
+    # Fix: no fatal 429, retry 3x, WARP proxy on its session, load IG sessionid/csrftoken from cookies.txt if present, X-IG-App-ID header.
+    kwargs = dict(quiet=True, sleep=True, max_connection_attempts=3,
+                  request_timeout=30, download_comments=False,
                   download_geotags=False, save_metadata=False)
     try:
-        loader = instaloader.Instaloader(fatal_status_codes=[429], **kwargs)
-    except TypeError:                       # older Instaloader version
+        loader = instaloader.Instaloader(**kwargs)  # V61: NO fatal_status_codes - 429 is retryable, not fatal
+    except TypeError:
         loader = instaloader.Instaloader(**kwargs)
+    # V61: WARP proxy on Instaloader's own session (same trick as YT)
+    try:
+        _wp61 = _proxy_for_url(f"https://www.instagram.com/p/{shortcode}/")
+        if _wp61:
+            try: loader.context._session.proxies.update({"http": _wp61, "https": _wp61})
+            except Exception: pass
+            try: loader.context.session.proxies.update({"http": _wp61, "https": _wp61})
+            except Exception: pass
+            _trace(f"instaloader: using WARP proxy")
+    except Exception: pass
+    # V61: Load IG session from cookies.txt if user has IG sessionid (Get cookies.txt LOCALLY while logged into IG)
+    try:
+        import http.cookiejar as _cj61
+        _cf = "cookies.txt"
+        if __import__('os').path.exists(_cf):
+            _jar = _cj61.MozillaCookieJar(_cf)
+            try: _jar.load(ignore_discard=True, ignore_expires=True)
+            except Exception: pass
+            _ig_cookies = {}
+            for _c in _jar:
+                if "instagram.com" in (_c.domain or "") and _c.name in ("sessionid", "csrftoken", "ds_user_id", "mid", "ig_did", "rur", "shbid", "shbts"):
+                    _ig_cookies[_c.name] = _c.value
+            if _ig_cookies:
+                for _k, _v in _ig_cookies.items():
+                    try: loader.context.session.cookies.set(_k, _v, domain=".instagram.com")
+                    except Exception: pass
+                _trace(f"instaloader: loaded IG session from cookies.txt ({len(_ig_cookies)} cookies)")
+            else:
+                _trace("instaloader: no IG sessionid in cookies.txt - anonymous (GraphQL may 429, will fall back to embed JSON)")
+    except Exception as _e61:
+        _trace(f"instaloader: session load skipped: {_e61}")
+    # V61: IG now requires X-IG-App-ID for GraphQL
+    try:
+        loader.context.session.headers.update({"X-IG-App-ID": "936619743392459", "X-Requested-With": "XMLHttpRequest"})
+    except Exception: pass
     post = instaloader.Post.from_shortcode(loader.context, shortcode)
     _trace(f"instaloader: post found, typename={post.typename}, items={post.mediacount}")
 
@@ -2371,12 +3004,12 @@ def download_instagram_post(url, output_dir, cap_bytes, min_items=2):
     ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     try:
         fut = ex.submit(_instaloader_worker, match.group(1), folder, cap_bytes)
-        files = fut.result(timeout=40)
+        files = fut.result(timeout=60)  # V61: 40s -> 60s, retries need more time
         _trace(f"instaloader: downloaded {len(files)} file(s)")
         if len(files) >= min_items:
             return files
     except concurrent.futures.TimeoutError:
-        _trace("instaloader: TIMEOUT after 40s (Instagram throttling/blocking)")
+        _trace("instaloader: TIMEOUT after 60s (Instagram throttling/blocking) - will fall back to embed JSON / ddinstagram")
     except Exception as exc:
         _trace(f"instaloader: FAILED {type(exc).__name__}: {str(exc)[:200]}")
     finally:
@@ -2464,9 +3097,324 @@ def download_youtube_post(url, output_dir, cap_bytes):
     return []
 
 
-def download_carousel(url, output_dir, cap_bytes, http_headers=None):
+def _resolve_share_link(url):
+    """V55+V56: FB /share/p/, /share/r/, /share/v/, fb.watch are short links. yt-dlp + gallery-dl say 'Unsupported URL' for them.
+    V55 only followed HTTP redirects - FB /share/ returns 200 login-wall, NOT a redirect, so it failed.
+    V56: Parse the share page HTML itself - real post is in og:url / canonical / fbid / permalink_url. Also try facebookexternalhit UA (FB serves og tags to crawlers without login).
+    Returns real post URL or original."""
+    try:
+        _low = (url or "").lower()
+        if not any(_d in _low for _d in ["facebook.com/share/", "fb.watch", "fb.gg/", "facebook.com/share"]):
+            return url
+        import requests as _rq56
+        import html as _html56
+        import re as _re56
+        _cookies = {}
+        try:
+            if __import__('os').path.exists("cookies.txt"):
+                for _line in open("cookies.txt", encoding='utf-8', errors='ignore'):
+                    _line = _line.strip()
+                    if not _line or _line.startswith('#'): continue
+                    _parts = _line.split('\t')
+                    if len(_parts) >= 7: _cookies[_parts[5]] = _parts[6]
+        except Exception: pass
+        # 1) HTTP redirect (rare, but cheap)
+        try:
+            _r = _rq56.head(url, headers=dict(BROWSER_HEADERS) if 'BROWSER_HEADERS' in globals() else {'User-Agent': 'Mozilla/5.0'}, allow_redirects=True, timeout=10, cookies=_cookies)
+            _final = getattr(_r, 'url', '') or url
+            # V58: If HEAD gives login URL, parse next= param - don't return login URL
+            if _final and ("/login" in _final or "/checkpoint" in _final):
+                try:
+                    import urllib.parse as _up58h
+                    _qs = _up58h.parse_qs(_up58h.urlparse(_final).query)
+                    _next = (_qs.get("next") or [""])[0]
+                    if _next:
+                        _next = _up58h.unquote(_next)
+                        if _next.startswith("/"): _next = "https://www.facebook.com" + _next
+                        if _next.startswith("http") and "/login" not in _next:
+                            return _next
+                except Exception: pass
+                # Login - need FB cookies, don't return login URL
+                pass
+            elif _final and _final != url and "/share/" not in _final and "/login" not in _final:
+                try: _trace(f"share resolved (redirect): {url[:60]} -> {_final[:80]}")
+                except Exception: pass
+                return _final
+        except Exception: pass
+        # 2) HTML parse - try 3 UAs: browser, facebook crawler (gets og tags without login), plain Mozilla
+        _uas = [
+            dict(BROWSER_HEADERS) if 'BROWSER_HEADERS' in globals() else {'User-Agent': 'Mozilla/5.0'},
+            # V62: mbasic feature-phone UA - FB serves lightweight HTML without login for PUBLIC posts (facebookexternalhit is for external pages, NOT FB posts)
+            {'User-Agent': 'Mozilla/5.0 (compatible; Nokia 3310; Symbian OS 9.1) AppleWebKit/537.36', 'Accept': 'text/html'},
+            {'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)', 'Accept': 'text/html'},
+            {'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'},
+        ]
+        for _headers in _uas:
+            try:
+                # V59: Try WARP first (home IP), fall back to direct if WARP fails - FB login redirect is IP + cookies, WARP fixes IP part
+                try: _prox59 = _requests_proxies_for_url(url)
+                except Exception: _prox59 = None
+                try: _r = _rq56.get(url, headers=_headers, cookies=_cookies, allow_redirects=True, timeout=15, proxies=_prox59)
+                except Exception: _r = _rq56.get(url, headers=_headers, cookies=_cookies, allow_redirects=True, timeout=15)
+                _text = _r.text or ""
+                if not _text or len(_text) < 500: continue
+                # V58 FIX: NEVER accept login URL as resolved (V56 bug). FB /share/ with no valid FB cookies redirects to /login/?next=<real URL>.
+                # The next= param IS the real post (story.php?story_fbid=...). Parse it, don't return login URL.
+                _final2 = getattr(_r, 'url', '') or ""
+                if _final2 and ("/login" in _final2 or "/checkpoint" in _final2):
+                    try:
+                        import urllib.parse as _up58
+                        _qs = _up58.parse_qs(_up58.urlparse(_final2).query)
+                        _next = (_qs.get("next") or [""])[0]
+                        if _next:
+                            _next = _up58.unquote(_next)
+                            if _next.startswith("/") : _next = "https://www.facebook.com" + _next
+                            if _next.startswith("http") and "/login" not in _next and "/share/" not in _next:
+                                try: _trace(f"share resolved (login next=): {url[:50]} -> {_next[:80]}")
+                                except Exception: pass
+                                return _next
+                    except Exception: pass
+                    # Login with no usable next= -> this share needs valid FB cookies, don't pretend we resolved it
+                    try: _trace("share resolve: got login page - FB cookies missing/expired (need c_user + xs in cookies.txt)")
+                    except Exception: pass
+                    continue
+                if _final2 and _final2 != url and "/share/" not in _final2 and "/login" not in _final2:
+                    try: _trace(f"share resolved (GET redirect): {url[:60]} -> {_final2[:80]}")
+                    except Exception: pass
+                    return _final2
+                # og:url / canonical - this is the real post URL for public posts even when logged out
+                _og = _re56.search(r'<meta[^>]+property=["\']og:url["\'][^>]+content=["\']([^"\']+)["\']', _text)
+                if not _og:
+                    _og = _re56.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:url["\']', _text)
+                if _og:
+                    _cand = _html56.unescape(_og.group(1)).strip()
+                    if _cand and _cand.startswith('http') and "/share/" not in _cand:
+                        try: _trace(f"share resolved (og:url): {url[:50]} -> {_cand[:80]}")
+                        except Exception: pass
+                        return _cand
+                _can = _re56.search(r'<link[^>]+rel=["\']canonical["\'][^>]+href=["\']([^"\']+)["\']', _text)
+                if _can:
+                    _cand = _html56.unescape(_can.group(1)).strip()
+                    if _cand and _cand.startswith('http') and "/share/" not in _cand:
+                        try: _trace(f"share resolved (canonical): {url[:50]} -> {_cand[:80]}")
+                        except Exception: pass
+                        return _cand
+                # permalink / fbid in JSON - e.g. "permalink_url":"https://www.facebook.com/photo.php?fbid=123"
+                for _pat in [r'"permalink_url"\s*:\s*"([^"]+)"', r'photo\.php\?fbid=(\d+)', r'"fbid"\s*:\s*"(\d+)"', r'/posts/(\d+)', r'/photo\.php\?fbid=(\d+)']:
+                    _m = _re56.search(_pat, _text)
+                    if _m:
+                        _v = _html56.unescape(_m.group(1)).replace('\\/', '/')
+                        if _v.startswith('http') and "/share/" not in _v:
+                            try: _trace(f"share resolved (permalink): {url[:50]} -> {_v[:80]}")
+                            except Exception: pass
+                            return _v
+                        elif _v.isdigit():
+                            _cand2 = f"https://www.facebook.com/photo.php?fbid={_v}"
+                            try: _trace(f"share resolved (fbid): {url[:50]} -> {_cand2[:80]}")
+                            except Exception: pass
+                            return _cand2
+                # meta refresh redirect: <meta http-equiv="refresh" content="0;url=...">
+                _ref = _re56.search(r'http-equiv=["\']refresh["\'][^>]+url=([^"\'>\s]+)', _text, flags=_re56.I)
+                if _ref:
+                    _cand = _html56.unescape(_ref.group(1)).strip()
+                    if _cand.startswith('http') and "/share/" not in _cand:
+                        return _cand
+            except Exception: continue
+    except Exception as _e56:
+        try: _trace(f"share resolve failed: {type(_e56).__name__}: {str(_e56)[:100]}")
+        except Exception: pass
+    return url
+
+def _fb_via_oembed(url):
+    """V60: Facebook oEmbed is tokenless since 15 June 2026 for public posts (graph.facebook.com/v25.0/oembed_post, no app/token).
+    Also try plugins/post.php?href= which Facebook uses for embeds. Both return embed HTML with scontent image URLs, no c_user/xs needed for PUBLIC posts.
+    Returns list of image URLs or []."""
+    try:
+        import urllib.parse as _up60, html as _h60, re as _re60
+        try: _prox60 = _requests_proxies_for_url(url)
+        except Exception: _prox60 = None
+        _enc = _up60.quote(url, safe='')
+        _out = []
+        for _u in [f"https://graph.facebook.com/v25.0/oembed_post?url={_enc}", f"https://www.facebook.com/plugins/post.php?href={_enc}&show_text=true&width=500"]:
+            try:
+                try: _r = requests.get(_u, headers={"User-Agent": "Mozilla/5.0"}, timeout=15, proxies=_prox60)
+                except Exception: _r = requests.get(_u, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+                _txt = _r.text or ""
+                if not _txt or len(_txt) < 200: continue
+                # oEmbed JSON has "html" field with embed HTML
+                try:
+                    _j = __import__('json').loads(_txt)
+                    _html = _j.get("html", "") or ""
+                    _txt = _txt + " " + _html
+                except Exception: pass
+                # scontent / fbcdn URLs in embed HTML
+                for _m in _re60.finditer(r'https://(?:scontent[^"\'\s]+|[^"\'\s]*\.fbcdn\.net[^"\'\s]+)', _txt):
+                    _u2 = _h60.unescape(_m.group(0)).replace('\\/', '/')
+                    if any(_bad in _u2 for _bad in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32", "s50x50"]): continue
+                    if (".jpg" in _u2 or ".jpeg" in _u2 or ".png" in _u2 or ".webp" in _u2) and _u2 not in _out: _out.append(_u2)
+                # og:image in embed
+                for _m in _re60.finditer(r'og:image["\']?\s*content=["\']([^"\']+)', _txt):
+                    _u2 = _h60.unescape(_m.group(1))
+                    if _u2.startswith('http') and _u2 not in _out: _out.append(_u2)
+                if _out: 
+                    try: _trace(f"FB oEmbed: {len(_out)} image(s) via {_u[:60]}")
+                    except Exception: pass
+                    break
+            except Exception: continue
+        _seen = set(); _res = []
+        for _u in _out:
+            _k = _u.split('?')[0]
+            if _k not in _seen: _seen.add(_k); _res.append(_u)
+        return _res[:20]
+    except Exception: return []
+
+def _fb_via_mbasic(url):
+    """V62: Try mbasic + m.facebook with feature-phone / old-mobile UAs, via WARP. For PUBLIC posts FB serves mbasic HTML without login.
+    Returns [image URLs] or []. For private/friends-only posts mbasic also redirects to login - then [] and caller falls back to cookies."""
+    try:
+        import urllib.parse as _up62, html as _h62, re as _re62
+        _orig = url
+        # Build mbasic / m variants
+        _variants = []
+        try:
+            _p = _up62.urlparse(url)
+            for _host in ["mbasic.facebook.com", "m.facebook.com"]:
+                _variants.append(_up62.urlunparse((_p.scheme or "https", _host, _p.path, _p.params, _p.query, "")))
+        except Exception: pass
+        _variants.append(url)
+        _uas62 = [
+            {"User-Agent": "Mozilla/5.0 (compatible; Nokia 3310; Symbian OS 9.1) AppleWebKit/537.36", "Accept": "text/html"},
+            {"User-Agent": "Opera/9.80 (J2ME/MIDP; Opera Mini/9.80 (J2ME/22.478; U; en) Presto/2.5.25 Version/10.54", "Accept": "text/html"},
+            {"User-Agent": "Mozilla/5.0 (Linux; Android 4.4; Nexus 5 Build/KRT16M) AppleWebKit/537.36 (KHTML, like Gecko) Version/1.5 Chrome/33.0.0.0 Mobile Safari/537.36", "Accept": "text/html"},
+        ]
+        for _vu in _variants:
+            for _h in _uas62:
+                try:
+                    try: _prox62 = _requests_proxies_for_url(_vu)
+                    except Exception: _prox62 = None
+                    # Need FB cookies if present (cookies.txt may have c_user+xs) - send them, else anonymous
+                    _cookies62 = {}
+                    try:
+                        if __import__('os').path.exists("cookies.txt"):
+                            for _line in open("cookies.txt", encoding='utf-8', errors='ignore'):
+                                _line=_line.strip()
+                                if not _line or _line.startswith('#'): continue
+                                _parts=_line.split('\t')
+                                if len(_parts)>=7: _cookies62[_parts[5]]=_parts[6]
+                    except Exception: pass
+                    try: _r = requests.get(_vu, headers=_h, cookies=_cookies62, timeout=15, proxies=_prox62, allow_redirects=True)
+                    except Exception: _r = requests.get(_vu, headers=_h, cookies=_cookies62, timeout=15, allow_redirects=True)
+                    _txt = _r.text or ""
+                    _final62 = getattr(_r, 'url', '') or ""
+                    if "/login" in _final62 or "login" in _txt[:2000].lower() and "log in" in _txt[:2000].lower() and len(_txt) < 20000 and "scontent" not in _txt:
+                        continue
+                    if not _txt or len(_txt) < 500: continue
+                    _out = []
+                    for _m in _re62.finditer(r'https://(?:scontent[^"\'\s]+|[^"\'\s]*\.fbcdn\.net[^"\'\s]+)', _txt):
+                        _u = _h62.unescape(_m.group(0)).replace('\\/', '/')
+                        if any(_bad in _u for _bad in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32", "s50x50"]): continue
+                        if (".jpg" in _u or ".jpeg" in _u or ".png" in _u or ".webp" in _u) and _u not in _out: _out.append(_u)
+                    for _m in _re62.finditer(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', _txt):
+                        _u = _h62.unescape(_m.group(1))
+                        if _u.startswith('http') and _u not in _out: _out.append(_u)
+                    if _out:
+                        try: _trace(f"FB mbasic: {len(_out)} image(s) via {_vu[:60]}")
+                        except Exception: pass
+                        # dedupe
+                        _seen=set(); _res=[]
+                        for _u in _out:
+                            _k=_u.split('?')[0]
+                            if _k not in _seen: _seen.add(_k); _res.append(_u)
+                        return _res[:20]
+                except Exception: continue
+        return []
+    except Exception: return []
+
+def _fb_images_from_share_page(url):
+    """V56: Even if resolve fails, the share page HTML itself has og:image + scontent URLs. Return them directly - don't need gallery-dl.
+    V58: If url is a login URL, parse next= first - don't scrape the login page.
+    V60: Try oEmbed / plugins/post FIRST (tokenless for public posts, no cookies needed), then share page scrape."""
+    # V60: oEmbed first - works without c_user/xs for public posts
+    try:
+        _oem = _fb_via_oembed(url)
+        if _oem: return _oem
+    except Exception: pass
+    # V62: mbasic / m.facebook with feature-phone UA - FB serves lightweight HTML without login for PUBLIC posts.
+    # Search: "pretend to be an old feature phone, and Facebook will serve you a clean, lightweight HTML version that's fully scrapeable"
+    # facebookexternalhit does NOT bypass login for FB posts themselves - it's for external pages shared ON FB. So mbasic is the real no-cookie route.
+    try:
+        _mb = _fb_via_mbasic(url)
+        if _mb: return _mb
+    except Exception: pass
+    try:
+        if "/login" in (url or ""):
+            import urllib.parse as _up58f
+            _qs = _up58f.parse_qs(_up58f.urlparse(url).query)
+            _next = (_qs.get("next") or [""])[0]
+            if _next:
+                _next = _up58f.unquote(_next)
+                if _next.startswith("/"): _next = "https://www.facebook.com" + _next
+                if _next.startswith("http"): url = _next
+    except Exception: pass
+    try:
+        import requests as _rq56b, html as _html56b, re as _re56b
+        _cookies = {}
+        try:
+            if __import__('os').path.exists("cookies.txt"):
+                for _line in open("cookies.txt", encoding='utf-8', errors='ignore'):
+                    _line = _line.strip()
+                    if not _line or _line.startswith('#'): continue
+                    _parts = _line.split('\t')
+                    if len(_parts) >= 7: _cookies[_parts[5]] = _parts[6]
+        except Exception: pass
+        _uas = [
+            {'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)', 'Accept': 'text/html'},
+            dict(BROWSER_HEADERS) if 'BROWSER_HEADERS' in globals() else {'User-Agent': 'Mozilla/5.0'},
+        ]
+        _out = []
+        for _headers in _uas:
+            try:
+                try: _prox59b = _requests_proxies_for_url(url)
+                except Exception: _prox59b = None
+                try: _r = _rq56b.get(url, headers=_headers, cookies=_cookies, timeout=15, proxies=_prox59b)
+                except Exception: _r = _rq56b.get(url, headers=_headers, cookies=_cookies, timeout=15)
+                _text = _r.text or ""
+                if not _text or len(_text) < 500: continue
+                # og:image (first image)
+                for _m in _re56b.finditer(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', _text):
+                    _u = _html56b.unescape(_m.group(1))
+                    if _u.startswith('http') and _u not in _out: _out.append(_u)
+                # All scontent / fbcdn URLs in page (carousel slides)
+                for _m in _re56b.finditer(r'https://(?:scontent[^"\'\s]+|[^"\'\s]*\.fbcdn\.net[^"\'\s]+)', _text):
+                    _u = _html56b.unescape(_m.group(0)).replace('\\/', '/')
+                    if any(_bad in _u for _bad in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32", "s50x50"]): continue
+                    if (".jpg" in _u or ".jpeg" in _u or ".png" in _u or ".webp" in _u) and _u not in _out: _out.append(_u)
+                if _out: break
+            except Exception: continue
+        _seen = set(); _res = []
+        for _u in _out:
+            _k = _u.split('?')[0]
+            if _k not in _seen: _seen.add(_k); _res.append(_u)
+        return _res[:20]
+    except Exception: return []
+
+def download_carousel(url, output_dir, cap_bytes, http_headers=None, cookiefile=None):
     """Return [paths] (post order) for a multi-item OR single-photo post, else [].
-    No cookies. Every step writes one line to LAST_CAROUSEL_TRACE."""
+    V54: Now USES cookies (cookies.txt) - FB/IG block anonymous yt-dlp/gallery-dl since V35. Without cookies, FB=0 images, IG carousel falls back to 1 og:image.
+    V55: Resolve FB /share/ links first, else yt-dlp/gallery-dl say Unsupported URL.
+    Every step writes one line to LAST_CAROUSEL_TRACE."""
+    # V55: FB share link -> real post URL before anything else
+    try:
+        url = _resolve_share_link(url)
+    except Exception: pass
+    # V55: Strip IG tracking (?jplx=..., ?igshid=...) - they make yt-dlp treat same post as different URL and break cache
+    try:
+        if "instagram.com" in url.lower():
+            import urllib.parse as _up55
+            _pu = _up55.urlparse(url)
+            _clean = _up55.urlunparse((_pu.scheme, _pu.netloc, _pu.path, '', '', ''))
+            if _clean != url: url = _clean
+    except Exception: pass
     LAST_CAROUSEL_TRACE.clear()
     low = url.lower()
     if "youtube.com/post/" in low:
@@ -2481,11 +3429,23 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None):
     files, ytdlp_failed, gallery_ran = [], False, False
     try:
         # ---- 1) yt-dlp ----
+        # V54: cookiefile from caller (cookies.txt) - FB/IG need it now
+        try:
+            if not cookiefile:
+                import os as _os54
+                if _os54.path.exists("cookies.txt"): cookiefile = "cookies.txt"
+        except Exception: pass
         try:
             base = {"quiet": True, "no_warnings": True, "noplaylist": False,
                     "playlistend": MAX_CAROUSEL_ITEMS, "ignoreerrors": True,
                     "socket_timeout": 15}
             if http_headers: base["http_headers"] = http_headers
+            if cookiefile: base["cookiefile"] = cookiefile
+            # V59: WARP for FB/IG carousel yt-dlp (same as YT) - else Render IP gets 429 / login
+            try:
+                _wp_car = _proxy_for_url(url)
+                if _wp_car: base["proxy"] = _wp_car
+            except Exception: pass
             with yt_dlp.YoutubeDL(dict(base, skip_download=True)) as ydl:
                 info = ydl.extract_info(url, download=False)
             entries = [e for e in (info or {}).get("entries") or [] if e]
@@ -2523,15 +3483,31 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None):
         if len(files) < 2 and (ytdlp_failed or not files):
             try:
                 gallery_ran = True
-                r = subprocess.run(
-                    [sys.executable, "-m", "gallery_dl", "-D", folder, "--no-mtime",
+                _g_args = [sys.executable, "-m", "gallery_dl", "-D", folder, "--no-mtime",
                      "-R", "1", "--http-timeout", "15",
-                     "--range", f"1-{MAX_CAROUSEL_ITEMS}", url],
+                     "--range", f"1-{MAX_CAROUSEL_ITEMS}"]
+                # V54: gallery-dl cookies - FB/IG block anonymous gallery-dl now
+                try:
+                    if cookiefile and __import__('os').path.exists(cookiefile):
+                        _g_args += ["--cookies", cookiefile]
+                except Exception: pass
+                _g_args.append(url)
+                r = subprocess.run(
+                    _g_args,
                     capture_output=True, text=True, timeout=45)
                 files = _collect_media(folder)
                 files.sort(key=os.path.getmtime)
                 err = (r.stderr or r.stdout or "").strip().replace("\n", " ")[-160:]
                 _trace(f"gallery-dl: exit={r.returncode}, files={len(files)}, msg={err}")
+                # V58: gallery-dl AuthRequired = FB cookies missing/expired. Tell admin exactly what to export.
+                if "AuthRequired" in err or "authenticated cookies" in err.lower() or "This content isn't available" in err:
+                    try:
+                        _has_cu = False; _has_xs = False
+                        if __import__('os').path.exists("cookies.txt"):
+                            _ct = open("cookies.txt", encoding='utf-8', errors='ignore').read()
+                            _has_cu = "c_user" in _ct; _has_xs = "\txs\t" in _ct or "xs" in _ct
+                        _trace(f"FB cookies: c_user={'YES' if _has_cu else 'MISSING'} xs={'YES' if _has_xs else 'MISSING'} - need fresh export via Get cookies.txt LOCALLY while logged into Facebook (both c_user + xs)")
+                    except Exception: pass
             except subprocess.TimeoutExpired:
                 _trace("gallery-dl: TIMEOUT after 45s")
                 files = _collect_media(folder)
@@ -2544,6 +3520,37 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None):
             if len(insta_files) >= 1:
                 _trace(f"RESULT: OK via instaloader, {len(insta_files)} item(s)")
                 return insta_files
+        # ---- 3b) V55: IG JSON (no GraphQL, no 429) - gets ALL carousel slides even when gallery-dl timeout + instaloader 429 ----
+        if not files and ("instagram.com" in low or "instagr.am" in low):
+            try:
+                _ig_urls = _ig_carousel_via_json(url, cookiefile)
+                if _ig_urls:
+                    _trace(f"IG JSON: {len(_ig_urls)} slide URL(s) found")
+                    _ig_files = []
+                    for _i, _u in enumerate(_ig_urls[:MAX_CAROUSEL_ITEMS], start=1):
+                        try:
+                            _ext = ".mp4" if ".mp4" in _u.split("?")[0] else ".jpg"
+                            _ig_files.append(_fetch_media_url(_u, os.path.join(folder, f"{_i:03d}"), cap_bytes, _ext))
+                        except Exception as _e55: _trace(f"IG JSON slide {_i} failed: {type(_e55).__name__}")
+                    if _ig_files:
+                        _trace(f"RESULT: OK via IG JSON, {len(_ig_files)} item(s)")
+                        return _ig_files
+            except Exception as _e55: _trace(f"IG JSON failed: {type(_e55).__name__}: {str(_e55)[:120]}")
+        # ---- 3c) V56: FB share page itself has images even if resolve + gallery-dl both fail - try direct share-page scrape FIRST ----
+        if not files and ("facebook.com" in low or "fb.watch" in low):
+            try:
+                # _fb_images_from_share_page uses original share URL (before resolve) - it parses og:image + scontent from that page
+                _fb_urls = _fb_images_from_share_page(url) or scrape_all_html_images(url, cookiefile)
+                if _fb_urls:
+                    _trace(f"FB scrape: {len(_fb_urls)} image URL(s) found")
+                    _fb_files = []
+                    for _i, _u in enumerate(_fb_urls[:MAX_CAROUSEL_ITEMS], start=1):
+                        try: _fb_files.append(_fetch_media_url(_u, os.path.join(folder, f"{_i:03d}"), cap_bytes, ".jpg"))
+                        except Exception: continue
+                    if _fb_files:
+                        _trace(f"RESULT: OK via FB scrape, {len(_fb_files)} item(s)")
+                        return _fb_files
+            except Exception as _e55: _trace(f"FB scrape failed: {type(_e55).__name__}")
 
         files = [p for p in files if os.path.getsize(p) <= cap_bytes][:MAX_CAROUSEL_ITEMS]
         # 2+ files is a carousel. Exactly 1 file is accepted only when it came from the
@@ -2583,15 +3590,32 @@ async def _send_items(bot, chat_id, items, caption=None):
     for s in range(0, len(albumable), 10):
         chunk = albumable[s:s + 10]
         cap = {"caption": caption, "parse_mode": "Markdown"} if (first and caption) else {}
-        if len(chunk) == 1:
-            it = chunk[0]
-            if it["kind"] == "video":
-                msgs = [await bot.send_video(chat_id=chat_id, video=it["src"], supports_streaming=True, **cap)]
+        # V52 FIX: Markdown caption can contain _ * [ ] & from TikTok title/URL -> Can't parse entities.
+        # Try Markdown first, fall back to plain text (no parse) so send still succeeds.
+        try:
+            if len(chunk) == 1:
+                it = chunk[0]
+                if it["kind"] == "video":
+                    msgs = [await bot.send_video(chat_id=chat_id, video=it["src"], supports_streaming=True, **cap)]
+                else:
+                    msgs = [await bot.send_photo(chat_id=chat_id, photo=it["src"], **cap)]
             else:
-                msgs = [await bot.send_photo(chat_id=chat_id, photo=it["src"], **cap)]
-        else:
-            media = [_media(it["kind"], it["src"], **(cap if j == 0 else {})) for j, it in enumerate(chunk)]
-            msgs = list(await bot.send_media_group(chat_id=chat_id, media=media))
+                media = [_media(it["kind"], it["src"], **(cap if j == 0 else {})) for j, it in enumerate(chunk)]
+                msgs = list(await bot.send_media_group(chat_id=chat_id, media=media))
+        except Exception as _e_parse:
+            if "parse" in str(_e_parse).lower() or "entity" in str(_e_parse).lower():
+                _cap_plain = {"caption": caption} if (first and caption) else {}
+                if len(chunk) == 1:
+                    it = chunk[0]
+                    if it["kind"] == "video":
+                        msgs = [await bot.send_video(chat_id=chat_id, video=it["src"], supports_streaming=True, **_cap_plain)]
+                    else:
+                        msgs = [await bot.send_photo(chat_id=chat_id, photo=it["src"], **_cap_plain)]
+                else:
+                    media = [_media(it["kind"], it["src"], **(_cap_plain if j == 0 else {})) for j, it in enumerate(chunk)]
+                    msgs = list(await bot.send_media_group(chat_id=chat_id, media=media))
+            else:
+                raise
         out += [x for x in (_item_from_msg(m) for m in msgs) if x]
         first = False
         await asyncio.sleep(1)
@@ -2669,14 +3693,47 @@ async def send_cached_carousel(bot, chat_id, entry, ckey):
 # ======================== END PASTE ==================================
 
 
+BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+BROWSER_HEADERS = {"User-Agent": BROWSER_UA, "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8", "Accept-Language": "en-US,en;q=0.9", "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"', "Sec-Ch-Ua-Mobile": "?0", "Sec-Ch-Ua-Platform": '"Windows"'}
+def _ensure_lux_binary():
+    """V46: Lux was silently skipped if binary missing after redeploy. Auto-download it once to .bin/lux so Lux actually runs."""
+    try:
+        lux_bin = os.getenv("LUX_BIN", os.path.join(os.path.dirname(os.path.abspath(__file__)), ".bin", "lux"))
+        if os.path.isfile(lux_bin) and os.access(lux_bin, os.X_OK):
+            return lux_bin
+        if shutil.which("lux"):
+            return shutil.which("lux")
+        import tarfile, io
+        os.makedirs(os.path.dirname(lux_bin), exist_ok=True)
+        urls = ["https://github.com/iawia002/lux/releases/download/v0.21.0/lux_0.21.0_Linux_64bit.tar.gz", "https://github.com/iawia002/lux/releases/download/v0.20.0/lux_0.20.0_Linux_64bit.tar.gz"]
+        for _u in urls:
+            try:
+                logger.warning(f"Lux missing, downloading from {_u}")
+                r = requests.get(_u, timeout=60)
+                if r.status_code != 200: continue
+                with tarfile.open(fileobj=io.BytesIO(r.content), mode="r:gz") as tf:
+                    member = None
+                    for m in tf.getmembers():
+                        if m.name.endswith("/lux") or m.name == "lux":
+                            member = m; break
+                    if not member: continue
+                    member.name = "lux"
+                    tf.extract(member, path=os.path.dirname(lux_bin))
+                os.chmod(lux_bin, 0o755)
+                if os.path.isfile(lux_bin) and os.access(lux_bin, os.X_OK):
+                    logger.warning("Lux auto-installed OK")
+                    return lux_bin
+            except Exception as _e:
+                logger.warning(f"Lux auto-install failed for {_u}: {_e}")
+                continue
+        return None
+    except Exception as _e:
+        logger.warning(f"_ensure_lux_binary failed: {_e}")
+        return None
+
 def download_with_lux(url, output_dir, cap_bytes, cookiefile=None):
     """Run the optional Lux binary as a last-resort video downloader."""
-    lux_bin = os.getenv(
-        "LUX_BIN",
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), ".bin", "lux")
-    )
-    if not os.path.isfile(lux_bin) or not os.access(lux_bin, os.X_OK):
-        lux_bin = shutil.which("lux")
+    lux_bin = _ensure_lux_binary()
     if not lux_bin:
         logger.info("Lux fallback skipped: binary is not installed.")
         return None
@@ -2684,7 +3741,7 @@ def download_with_lux(url, output_dir, cap_bytes, cookiefile=None):
     folder = os.path.join(output_dir, f"lux_{uuid.uuid4().hex[:10]}")
     os.makedirs(folder, exist_ok=True)
     output_name = f"media_{uuid.uuid4().hex[:8]}"
-    command = [lux_bin, "-retry", "2", "-n", "4", "-o", folder, "-O", output_name]
+    command = [lux_bin, "-retry", "2", "-n", "4", "-u", BROWSER_UA, "-o", folder, "-O", output_name]
     if cookiefile and os.path.isfile(cookiefile):
         command.extend(["-c", cookiefile])
     command.append(url)
@@ -2747,65 +3804,238 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                 return [_copy], _label, f"{os.path.getsize(_copy)/(1024*1024):.1f}MB"
             except Exception:
                 pass
-    http_headers = {'User-Agent': 'Mozilla/5.0'}
+    http_headers = dict(BROWSER_HEADERS)
     cookiefile = None
     if "tiktok.com" in url.lower() and os.path.exists("tiktok_cookies.txt"): cookiefile = "tiktok_cookies.txt"
     elif os.path.exists("cookies.txt"): cookiefile = "cookies.txt"
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL}
+    # V44: log cookies + yt-dlp version so Render logs prove if GitHub actually delivered cookies.txt
+    try:
+        _ce, _cl, _cs, _cyt = _cookies_status()
+        try: _ydlv = _yt_dlp_version()
+        except Exception: _ydlv = "unknown"
+        logger.warning(f"[yt] cookies.txt exists={_ce} lines={_cl} size={_cs} has_youtube={_cyt} cookiefile={cookiefile} yt_dlp={_ydlv} YT_BLOCKED_UNTIL={YT_BLOCKED_UNTIL} now={time.time()}")
+    except Exception: pass
+    # V44: if YouTube IP was just blocked, don't hammer yt-dlp again for 30 mins - go straight to Piped/Cobalt/Invidious
+    _skip_ytdlp_yt = False
+    try:
+        if ("youtube.com" in url.lower() or "youtu.be" in url.lower()) and YT_BLOCKED_UNTIL and time.time() < YT_BLOCKED_UNTIL:
+            _skip_ytdlp_yt = True
+            logger.warning(f"[yt] YT_BLOCKED cooldown active, skipping yt-dlp for {url}")
+    except Exception: pass
+    # V47: web client is the one that fails with 'Failed to extract any player response' (needs PO token).
+    # iOS first + skip webpage player extraction. Web is last resort only.
+    ydl_opts = _yt_ydl_opts_for_youtube({'http_headers': http_headers, 'proxy': PROXY_URL})
     # PART 1: clean progress (users) / debug log (admin) — hook records, poller edits Telegram message
     if user_id is not None and progress_key:
         ydl_opts['progress_hooks'] = [make_progress_hook(user_id, progress_key)]
     if cookiefile: ydl_opts['cookiefile'] = cookiefile
+    # V59: WARP for YT + FB + IG (same trick as YT). TikTok stays DIRECT (WARP = 10231 Region locked).
+    # V52 forced IG/FB direct - that's why V35 failed too: Render datacenter IP is flagged by Meta (IG 429, FB login redirect).
+    try:
+        _wp59 = _proxy_for_url(url)
+        if _wp59: ydl_opts['proxy'] = _wp59
+        else: ydl_opts['proxy'] = PROXY_URL
+    except Exception: pass
+    # V46 browser client: impersonate Chrome if curl_cffi is installed
+    try:
+        import importlib.util as _ilu
+        if _ilu.find_spec("curl_cffi") is not None:
+            ydl_opts['impersonate'] = 'chrome'
+    except Exception: pass
 
     # ===== EDIT A: carousel branch (no cookies passed here) =====
     if download_type in ('video', 'images'):
-        car = download_carousel(url, output_dir, cap_bytes, http_headers)
+        car = download_carousel(url, output_dir, cap_bytes, http_headers, cookiefile=cookiefile)
         if car:
             total = sum(os.path.getsize(p) for p in car)
             return car, "carousel", f"{total/(1024*1024):.1f}MB"
     # ============================================================
     
     if download_type == 'audio':
-        # V15 (from V11): audio had no retry, video did. First audio hit blocked -> wait 5s -> retry once.
-        for _attempt in range(2):
+        # V38: Audio had only ONE format (bestaudio/best) and no fallback. Live/VEVO/SABR videos
+        # have NO bestaudio on web client -> "Requested format is not available" -> wrong "private/blocked".
+        # Now: try format chain bestaudio -> best (combined mp4, then ffmpeg -> mp3) -> worst, with android/ios/web clients.
+        # Same robust path for normal link Audio AND Music Search - they share this engine.
+        _audio_formats = ['bestaudio/best', 'bestaudio[ext=m4a]/bestaudio/best', 'best', 'bv*+ba/b', 'worst']
+        if _skip_ytdlp_yt:
+            _last_audio_err = Exception("YT_IP_BLOCKED_COOLDOWN - skipping yt-dlp, using Piped/Cobalt/Invidious")
+            _audio_formats = []  # skip yt-dlp loop, go straight to fallbacks below
+        _last_audio_err = None
+        for _fmt in _audio_formats:
+            for _attempt in range(2):
+                try:
+                    _opts = dict(ydl_opts)
+                    _opts.update({'format': _fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['web_embedded', 'tv', 'android_vr', 'web', 'mweb', 'ios', 'android'], 'po_token': ['wpc', 'bgutil', 'auto']}}})
+                    with yt_dlp.YoutubeDL(_opts) as ydl:
+                        info = ydl.extract_info(url, download=True)
+                        try: LAST_TITLE_BY_URL[url] = {"title": info.get("title"), "poster": info.get("uploader") or info.get("channel")}
+                        except Exception: pass
+                        base = os.path.splitext(ydl.prepare_filename(info))[0]
+                        path = f"{base}.mp3"
+                        if os.path.exists(path):
+                            if os.path.getsize(path) > cap_bytes:
+                                os.remove(path)
+                                raise ValueError("FILE_TOO_LARGE")
+                            save_to_file_cache(url, "audio", path)
+                            if _fmt != 'bestaudio/best':
+                                logger.info(f"Audio fallback worked: format={_fmt} url={url}")
+                            return [path], "audio", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
+                    raise ValueError("FILE_NOT_FOUND")
+                except ValueError:
+                    raise
+                except Exception as _ae:
+                    _last_audio_err = _ae
+                    _m = str(_ae).lower()
+                    _blocked = ("not a bot" in _m or "sign in to confirm" in _m or "429" in _m or "403" in _m or "forbidden" in _m or "failed to extract" in _m or "player response" in _m or "no video formats" in _m or "unable to download" in _m)
+                    _no_fmt = ("requested format is not available" in _m or "no video formats" in _m or "requested format" in _m)
+                    if _no_fmt:
+                        logger.warning(f"Audio format {_fmt} not available for {url}, trying next format: {_ae}")
+                        break  # try next format, don't retry same broken format
+                    if _blocked and _attempt == 0:
+                        try:
+                            import time as _t_retry
+                            _t_retry.sleep(5)
+                        except Exception:
+                            pass
+                        continue
+                    if _blocked:
+                        raise ValueError("SITE_BLOCKED")
+                    # Unknown error for this format - try next format before giving up
+                    logger.warning(f"Audio format {_fmt} failed for {url}: {_ae}, trying next")
+                    break
+        # V41: YouTube rate-limit is temporary - wait 15s and retry once with android-only before giving up.
+        # This is why "it was working then stopped" - IP gets 429 for a minute, then clears.
+        if _last_audio_err and any(w in str(_last_audio_err).lower() for w in ["not a bot", "429", "403", "sign in to confirm"]):
             try:
-                ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                logger.warning(f"Audio rate-limited for {url}, waiting 15s and retrying once with android client")
+                import time as _t_wait
+                _t_wait.sleep(15)
+                _retry_opts = dict(ydl_opts)
+                _retry_opts.update({'format': 'best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['web_embedded'], 'po_token': ['wpc', 'bgutil', 'auto']}}})
+                with yt_dlp.YoutubeDL(_retry_opts) as ydl:
                     info = ydl.extract_info(url, download=True)
+                    try: LAST_TITLE_BY_URL[url] = {"title": info.get("title"), "poster": info.get("uploader") or info.get("channel")}
+                    except Exception: pass
                     base = os.path.splitext(ydl.prepare_filename(info))[0]
                     path = f"{base}.mp3"
-                    if os.path.exists(path):
+                    if os.path.exists(path) and os.path.getsize(path) > 1000:
                         if os.path.getsize(path) > cap_bytes:
                             os.remove(path)
                             raise ValueError("FILE_TOO_LARGE")
-                        save_to_file_cache(url, "audio", path)  # PART 2: cache fresh file for next time
+                        save_to_file_cache(url, "audio", path)
+                        logger.info(f"Audio 15s retry worked for {url}")
                         return [path], "audio", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
-                raise ValueError("FILE_NOT_FOUND")
             except ValueError:
                 raise
-            except Exception as _ae:
-                _m = str(_ae).lower()
-                _blocked = ("not a bot" in _m or "sign in to confirm" in _m or "429" in _m or "403" in _m or "forbidden" in _m or "failed to extract" in _m or "player response" in _m or "no video formats" in _m or "unable to download" in _m)
-                if _blocked and _attempt == 0:
-                    try:
-                        import time as _t_retry
-                        _t_retry.sleep(5)
-                    except Exception:
-                        pass
-                    continue
-                if _blocked:
-                    raise ValueError("SITE_BLOCKED")
+            except Exception as _re:
+                logger.warning(f"Audio 15s retry failed for {url}: {_re}")
+                _last_audio_err = _re
+        # V47: SKIP Lux for YouTube - it crashes with Go runtime error (your log: asm_amd64.s:1695), wastes 240s, never works for YouTube.
+        # Keep Lux for TikTok/IG/etc where it sometimes works.
+        _is_yt = ("youtube.com" in url.lower() or "youtu.be" in url.lower())
+        # Last resort: Lux can fetch combined video, ffmpeg -> mp3 (non-YouTube only)
+        try:
+            _lux = None if _is_yt else download_with_lux(url, output_dir, cap_bytes, cookiefile)
+            if _lux:
+                # Convert lux video to mp3 via ffmpeg
+                import subprocess as _sp
+                _mp3 = os.path.splitext(_lux)[0] + ".mp3"
+                _r = _sp.run([ffmpeg_path, "-y", "-i", _lux, "-vn", "-codec:a", "libmp3lame", "-q:a", "2", _mp3], capture_output=True, text=True, timeout=120)
+                if os.path.exists(_mp3) and os.path.getsize(_mp3) > 1000:
+                    try: os.remove(_lux)
+                    except Exception: pass
+                    save_to_file_cache(url, "audio", _mp3)
+                    logger.info(f"Audio Lux fallback worked for {url}")
+                    return [_mp3], "audio", f"{os.path.getsize(_mp3)/(1024*1024):.1f}MB"
+        except Exception as _le:
+            logger.warning(f"Audio Lux fallback failed for {url}: {_le}")
+        # V42: Piped fallback - if YouTube IP is blocked for hours (you waited 3hrs and still blocked), Piped's server fetches it, not Render.
+        if "youtube.com" in url.lower() or "youtu.be" in url.lower():
+            try:
+                logger.warning(f"Audio yt-dlp blocked for {url}, trying Piped fallback")
+                _piped_path = _piped_download_audio_youtube(url, output_dir, cap_bytes)
+                if _piped_path and os.path.exists(_piped_path) and os.path.getsize(_piped_path) > 1000:
+                    save_to_file_cache(url, "audio", _piped_path)
+                    logger.info(f"Audio Piped fallback worked for {url}")
+                    return [_piped_path], "audio", f"{os.path.getsize(_piped_path)/(1024*1024):.1f}MB"
+            except ValueError:
                 raise
-        raise ValueError("FILE_NOT_FOUND")
+            except Exception as _pe:
+                logger.warning(f"Audio Piped fallback failed for {url}: {_pe}")
+                _last_audio_err = _pe
+        # V43: Cobalt audio fallback if Piped also failed (second server, same idea)
+        if "youtube.com" in url.lower() or "youtu.be" in url.lower():
+            try:
+                _cob = _cobalt_download_youtube(url, output_dir, cap_bytes, is_audio=True)
+                if _cob and os.path.exists(_cob[0]) and os.path.getsize(_cob[0]) > 1000:
+                    save_to_file_cache(url, "audio", _cob[0])
+                    logger.info(f"Audio Cobalt fallback worked for {url}")
+                    return [_cob[0]], "audio", f"{os.path.getsize(_cob[0])/(1024*1024):.1f}MB"
+            except ValueError:
+                raise
+            except Exception as _ce:
+                logger.warning(f"Audio Cobalt fallback failed for {url}: {_ce}")
+        # V44: Invidious 3rd fallback for audio
+        if "youtube.com" in url.lower() or "youtu.be" in url.lower():
+            try:
+                _inv = _invidious_download_youtube(url, output_dir, cap_bytes, is_audio=True)
+                if _inv and os.path.exists(_inv[0]) and os.path.getsize(_inv[0]) > 1000:
+                    save_to_file_cache(url, "audio", _inv[0])
+                    logger.info(f"Audio Invidious fallback worked for {url}")
+                    return [_inv[0]], "audio", f"{os.path.getsize(_inv[0])/(1024*1024):.1f}MB"
+            except ValueError:
+                raise
+            except Exception as _ie:
+                logger.warning(f"Audio Invidious fallback failed for {url}: {_ie}")
+        if _last_audio_err and ("not a bot" in str(_last_audio_err).lower() or "429" in str(_last_audio_err).lower() or "403" in str(_last_audio_err).lower() or "YT_IP_BLOCKED" in str(_last_audio_err)):
+            globals()["YT_BLOCKED_UNTIL"] = time.time() + 1800
+            raise ValueError("SITE_BLOCKED")
+        raise ValueError(f"FILE_NOT_FOUND: {_last_audio_err}" if _last_audio_err else "FILE_NOT_FOUND")
     elif download_type == 'images':
-        img_url = scrape_html_images(url, cookiefile)
-        if img_url:
-            data = requests.get(img_url, headers=http_headers, timeout=15).content
-            path = os.path.join(output_dir, f"img_{int(time.time())}.jpg")
-            with open(path, 'wb') as f: f.write(data)
-            if os.path.getsize(path) > 1000:
-                save_to_file_cache(url, "images", path)  # PART 2
-                return [path], "original", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
+        # V54: Old code returned ONLY 1 og:image -> IG carousel looked like "only single works", FB got 0.
+        # Now try ALL images from page (scontent / cdn / display_url) and download them all.
+        try:
+            _all_urls = scrape_all_html_images(url, cookiefile)
+        except Exception:
+            _all_urls = []
+        if not _all_urls:
+            # V56: FB share page direct scrape as last fallback before giving up
+            try:
+                if "facebook.com" in url.lower() or "fb.watch" in url.lower():
+                    _fb56 = _fb_images_from_share_page(url)
+                    if _fb56: _all_urls = _fb56
+            except Exception: pass
+        if not _all_urls:
+            # Fallback to old single-image path
+            _single = scrape_html_images(url, cookiefile)
+            if _single: _all_urls = [_single]
+        if _all_urls:
+            _paths = []
+            for _i, _iu in enumerate(_all_urls[:MAX_CAROUSEL_ITEMS], start=1):
+                try:
+                    _data = requests.get(_iu, headers=http_headers, timeout=15).content
+                    _ext = ".jpg"
+                    try:
+                        _low_u = _iu.lower().split("?")[0]
+                        if _low_u.endswith(".png"): _ext = ".png"
+                        elif _low_u.endswith(".webp"): _ext = ".webp"
+                        elif _low_u.endswith(".jpeg"): _ext = ".jpg"
+                    except Exception: pass
+                    _p = os.path.join(output_dir, f"img_{int(time.time())}_{_i:02d}{_ext}")
+                    with open(_p, 'wb') as _f: _f.write(_data)
+                    if os.path.getsize(_p) > 1000:
+                        _paths.append(_p)
+                except Exception: continue
+            if _paths:
+                # For FB/IG single image, return 1 path. For carousel, return all.
+                _total = sum(os.path.getsize(p) for p in _paths)
+                save_to_file_cache(url, "images", _paths[0])
+                return _paths, "carousel" if len(_paths) > 1 else "original", f"{_total/(1024*1024):.1f}MB"
+        # V60: For FB /share/, if oEmbed + scrape + gallery-dl all fail, it's either private/friends-only OR cookies missing - trace it clearly instead of generic NO_IMAGES
+        try:
+            if "facebook.com" in url.lower() and "/share/" in url.lower():
+                _trace("FB share: oEmbed + scrape + gallery-dl all failed - post is likely private/friends-only OR needs fresh c_user+xs in cookies.txt on MAIN service (not duplicate with MTProto=False)")
+        except Exception: pass
         raise ValueError("NO_IMAGES")
     else:
         tiers = [
@@ -2834,6 +4064,8 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                     opts.update({'format': 'bv*+ba/b', 'format_sort': [f"res:{qual_name[:-1]}"]})
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=True)
+                    try: LAST_TITLE_BY_URL[url] = {"title": info.get("title"), "poster": info.get("uploader") or info.get("channel")}
+                    except Exception: pass
                     try:
                         vf = [f for f in (info.get('formats') or []) if f.get('vcodec') not in (None, 'none') and f.get('height')]
                         sizes = sorted({f.get('height') for f in vf})
@@ -2863,6 +4095,28 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                 # V15: block has many wordings - check lowercased. V11 only caught exact "not a bot / 429".
                 msg = str(e).lower()
                 if ("not a bot" in msg or "sign in to confirm" in msg or "429" in msg or "403" in msg or "forbidden" in msg or "failed to extract" in msg or "player response" in msg or "no video formats" in msg or "unable to download" in msg or "requested format" in msg):
+                    # V47: 'Failed to extract any player response' is web-client PO-token failure, NOT IP block.
+                    # Try ONE more time with iOS-only (no webpage player) before giving up - iOS often works when web fails.
+                    if ("failed to extract" in msg or "player response" in msg) and "youtube.com" in url.lower() or "youtu.be" in url.lower():
+                        try:
+                            _ios_opts = dict(ydl_opts)
+                            _ios_opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, f'%(id)s_{qual_name}.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['web_embedded'], 'po_token': ['wpc', 'bgutil', 'auto']}}})
+                            if qual_name != "worst":
+                                _ios_opts.update({'format': 'bv*+ba/b', 'format_sort': [f"res:{qual_name[:-1]}"]})
+                            with yt_dlp.YoutubeDL(_ios_opts) as _ydl2:
+                                _info2 = _ydl2.extract_info(url, download=True)
+                                _path2 = _ydl2.prepare_filename(_info2)
+                                if not os.path.exists(_path2) and os.path.exists(os.path.splitext(_path2)[0]+".mp4"): _path2 = os.path.splitext(_path2)[0]+".mp4"
+                                if os.path.exists(_path2) and os.path.getsize(_path2) > 1000:
+                                    if os.path.getsize(_path2) > cap_bytes:
+                                        os.remove(_path2)
+                                        too_big = True
+                                        continue
+                                    save_to_file_cache(url, "video", _path2)
+                                    return [_path2], best_quality if best_quality != "unknown" else qual_name, f"{os.path.getsize(_path2)/(1024*1024):.1f}MB"
+                        except Exception as _ios_e:
+                            last_err = _ios_e
+                            pass
                     yt_blocked = True
                     break
                 if "unsupported url" in msg:
@@ -2880,8 +4134,10 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
             if insta_files:
                 shutil.rmtree(os.path.dirname(insta_files[0]), ignore_errors=True)
 
+        # V47: SKIP Lux for YouTube - Go crash (asm_amd64.s:1695), never works for YouTube. Keep for other sites.
+        _is_yt_v = ("youtube.com" in url.lower() or "youtu.be" in url.lower())
         # Last-resort independent engine. V15: try it even when blocked - V11 skipped it when blocked.
-        if not too_big:
+        if not too_big and not _is_yt_v:
             lux_path = download_with_lux(url, output_dir, cap_bytes, cookiefile)
             if lux_path:
                 save_to_file_cache(url, "video", lux_path)  # PART 2
@@ -2923,7 +4179,50 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                     if ("not a bot" in _msg2 or "sign in to confirm" in _msg2 or "429" in _msg2 or "403" in _msg2 or "forbidden" in _msg2 or "failed to extract" in _msg2 or "player response" in _msg2 or "no video formats" in _msg2 or "unable to download" in _msg2):
                         yt_blocked = True; break
                     continue
-            if yt_blocked:
+            if yt_blocked or _skip_ytdlp_yt:
+                # V44: YouTube video via Piped then Cobalt then Invidious - both fetch from their own server, not Render IP.
+                if "youtube.com" in url.lower() or "youtu.be" in url.lower():
+                    try:
+                        logger.warning(f"Video yt-dlp blocked for {url}, trying Lemnoslife video fallback (V49)")
+                        try:
+                            _lem = _lemnoslife_download_youtube(url, _outdir, cap_bytes, is_audio=False, preferred_quality=preferred_quality)
+                            if _lem and os.path.exists(_lem[0]) and os.path.getsize(_lem[0]) > 1000:
+                                return _lem
+                        except Exception as _e_lem:
+                            logger.warning(f"V49 Lemnoslife video fallback failed for {url}: {str(_e_lem)[:200]}")
+                        logger.warning(f"Video yt-dlp blocked for {url}, trying Piped video fallback")
+                        _pv = _piped_download_video_youtube(url, output_dir, cap_bytes, preferred_quality)
+                        if _pv and os.path.exists(_pv[0]) and os.path.getsize(_pv[0]) > 1000:
+                            save_to_file_cache(url, "video", _pv[0])
+                            logger.info(f"Video Piped fallback worked for {url}")
+                            return [_pv[0]], _pv[1], f"{os.path.getsize(_pv[0])/(1024*1024):.1f}MB"
+                    except ValueError:
+                        raise
+                    except Exception as _pe:
+                        logger.warning(f"Video Piped fallback failed for {url}: {_pe}")
+                    try:
+                        logger.warning(f"Video Piped failed for {url}, trying Cobalt video fallback")
+                        _cv = _cobalt_download_youtube(url, output_dir, cap_bytes, is_audio=False, preferred_quality=preferred_quality)
+                        if _cv and os.path.exists(_cv[0]) and os.path.getsize(_cv[0]) > 1000:
+                            save_to_file_cache(url, "video", _cv[0])
+                            logger.info(f"Video Cobalt fallback worked for {url}")
+                            return [_cv[0]], _cv[1], f"{os.path.getsize(_cv[0])/(1024*1024):.1f}MB"
+                    except ValueError:
+                        raise
+                    except Exception as _ce:
+                        logger.warning(f"Video Cobalt fallback failed for {url}: {_ce}")
+                    try:
+                        logger.warning(f"Video Cobalt failed for {url}, trying Invidious video fallback")
+                        _iv = _invidious_download_youtube(url, output_dir, cap_bytes, is_audio=False, preferred_quality=preferred_quality)
+                        if _iv and os.path.exists(_iv[0]) and os.path.getsize(_iv[0]) > 1000:
+                            save_to_file_cache(url, "video", _iv[0])
+                            logger.info(f"Video Invidious fallback worked for {url}")
+                            return [_iv[0]], _iv[1], f"{os.path.getsize(_iv[0])/(1024*1024):.1f}MB"
+                    except ValueError:
+                        raise
+                    except Exception as _ie:
+                        logger.warning(f"Video Invidious fallback failed for {url}: {_ie}")
+                globals()["YT_BLOCKED_UNTIL"] = time.time() + 1800
                 raise ValueError("SITE_BLOCKED")
         if too_big or last_err is None:
             raise ValueError("FILE_TOO_LARGE")
@@ -2935,6 +4234,7 @@ def get_main_keyboard(lang_code, is_admin):
         [KeyboardButton(t["menu_stats"]), KeyboardButton(t["menu_lang"])],
         [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])],
         [KeyboardButton(t["menu_upload"]), KeyboardButton("🔗 File-to-Link")],
+        [KeyboardButton("🎵 Music Search")],
         [KeyboardButton("🟢 Bot Status")],
         [KeyboardButton("🔄 Change Batch Channel")]
     ]
@@ -2970,15 +4270,23 @@ def get_reward_amount():
     # The configured ad reward is shared by normal and batch credits, each capped at 5.
     try: return max(0, min(MAX_USER_CREDITS, int(load_json_file(CONFIG_FILE).get("reward_amount", 3))))
     except: return 3
+def _sync_reward_to_flask():
+    # FIX: Bot Set Free/Reward only updated bot_config.json, Flask kept old reward_config.json.
+    # Now bot pushes both to Flask /set-reward so Flask (source of truth for credits) agrees.
+    try:
+        cfg = load_json_file(CONFIG_FILE)
+        requests.post(f"{WEB_BASE_URL}/set-reward", json={"free": int(cfg.get("free_amount", 4)), "reward": int(cfg.get("reward_amount", 3))}, headers=API_HEADERS, timeout=5)
+    except Exception as e: logger.error(f"sync reward to flask: {e}")
 def set_reward_amount(val):
-    cfg = load_json_file(CONFIG_FILE); cfg["reward_amount"] = max(0, min(MAX_USER_CREDITS, int(val))); save_json_file(CONFIG_FILE, cfg)
+    cfg = load_json_file(CONFIG_FILE); cfg["reward_amount"] = max(0, min(MAX_USER_CREDITS, int(val))); save_json_file(CONFIG_FILE, cfg); _sync_reward_to_flask()
 def get_free_amount():
     try: return max(0, min(MAX_USER_CREDITS, int(load_json_file(CONFIG_FILE).get("free_amount", 4))))
     except: return 4
 def set_free_amount(val):
-    cfg = load_json_file(CONFIG_FILE); cfg["free_amount"] = max(0, min(MAX_USER_CREDITS, int(val))); save_json_file(CONFIG_FILE, cfg)
+    cfg = load_json_file(CONFIG_FILE); cfg["free_amount"] = max(0, min(MAX_USER_CREDITS, int(val))); save_json_file(CONFIG_FILE, cfg); _sync_reward_to_flask()
 def get_free_disk_mb():
-    try: return max(0, 512 - get_downloads_usage_mb())
+    # FIX: was 512 - usage (fake). Now real free from disk.
+    try: return shutil.disk_usage(".").free // (1024*1024)
     except: return 512
 
 def deduct_download_counter(user_id, is_batch=False):
@@ -3136,6 +4444,23 @@ async def file_to_link_command(update: Update, context: ContextTypes.DEFAULT_TYP
     save_json_file(FILE_LINK_STATE_FILE, states)
     await update.effective_message.reply_text(t["file_to_link_prompt"], reply_markup=file_link_keyboard(state), parse_mode="Markdown")
 
+async def clearpassword_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # FIX: /clearpassword was inside handle_media_link which filters out ALL commands (filters.TEXT & ~filters.COMMAND),
+    # so it could never run. This is a real CommandHandler, so Telegram delivers it.
+    user_id = update.effective_user.id
+    t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
+    states = load_json_file(FILE_LINK_STATE_FILE)
+    state = states.get(str(user_id))
+    if not state:
+        await update.effective_message.reply_text("No File-to-Link in progress. Tap File-to-Link first.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
+        return
+    # Works in BOTH modes: collecting (after a password was already saved) and file_link_set_password
+    state.setdefault("settings", {})["password"] = ""
+    state["mode"] = "collecting"
+    states[str(user_id)] = state
+    save_json_file(FILE_LINK_STATE_FILE, states)
+    await update.effective_message.reply_text(t.get("password_removed", "🔓 Password removed."), reply_markup=file_link_keyboard(state))
+
 async def file_link_deep_link(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str) -> None:
     t = LANGUAGES.get(get_lang(update.effective_user.id), LANGUAGES["en"])
     links = load_json_file(FILE_LINKS_FILE)
@@ -3289,12 +4614,26 @@ async def _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destina
         kb = adsgram_keyboard(user_id, "wall", 0, 0)
         await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=kb, parse_mode="Markdown")
     else:
+        # FIX - Batch pause after 3, Adsterra: EXACTLY like 2nd image + tutorial video + Adsterra text + 3 buttons
+        AD_KIND_BY_USER[user_id] = "batch"
         bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
         if not prepare_ad_session(user_id, 0, 0):
             await bot.send_message(chat_id=chat_id, text="⚠️ Ad server busy. Please try again in a moment.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
             return
-        keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)]]
-        await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        try:
+            await bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+            await asyncio.sleep(0.2)
+        except Exception:
+            try: await bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+            except Exception: pass
+        _pause_header = f"⏸️ Batch paused at {index}/{len(urls)} — Watch ad to continue.\n\n"
+        _pause_full = _pause_header + "🧪 AD PLACEMENT TEST (Adsterra)\n\n1️⃣ User sends link\n2️⃣ LIMIT REACHED screen appears\n3️⃣ Stay 20s on ad page\n4️⃣ Tap Check & Get +1\n\n👇 TRY THE AD NOW:" + ADSTERRA_USER_GUIDE
+        keyboard = [
+            [InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)],
+            [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
+            [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")],
+        ]
+        await bot.send_message(chat_id=chat_id, text=_pause_full, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0):
     if not urls: return
@@ -3306,6 +4645,22 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
     batch_notice = await bot.send_message(chat_id=chat_id, text=t["batch_start"].format(download_type.upper(), len(urls)), reply_markup=stop_markup, parse_mode="Markdown")
     for index, url in enumerate(urls[start_index:], start=start_index+1):
         if not active_batch_sessions.get(user_id, False): break
+        # FIX: Download Limits were only checked for single downloads, batch bypassed them.
+        # Now batch also checks duration/size limits per link before charging credit.
+        if user_id != ADMIN_ID:
+            try:
+                _b_meta = await asyncio.to_thread(get_social_metadata, url) if get_social_metadata else None
+                if _b_meta:
+                    _b_key = detect_platform_key(url, _b_meta.get("platform", ""))
+                    _b_limits = get_platform_limits(_b_key)
+                    _b_cost, _b_time_ok, _b_size_ok = calculate_cost_and_limits(_b_meta, _b_limits)
+                    if not _b_time_ok or not _b_size_ok:
+                        _why = []
+                        if not _b_time_ok: _why.append(f"⏱️ Duration exceeds {_b_limits['min']} min for {_b_key}")
+                        if not _b_size_ok: _why.append(f"📦 Est. size exceeds {_b_limits['mb']} MB for {_b_key}")
+                        await bot.send_message(chat_id=chat_id, text=f"❌ Skipping link {index}/{len(urls)} — limit:\n" + "\n".join(_why), reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+                        continue
+            except Exception as _be: logger.warning(f"Batch limit check failed for {url}: {_be}")
         credit_charged = False
         if user_id == ADMIN_ID:
             res_data = {"status": "allowed", "left": 999}
@@ -3334,9 +4689,23 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             if not prepare_ad_session(user_id, 0, 0):
                 await bot.send_message(chat_id=chat_id, text="⚠️ Ad server busy. Please try again in a moment.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
                 break
+            # FIX - Batch OUT OF CREDITS, Adsterra: same 2nd-image layout. This is the branch in your 4:54 screenshot: Item 2/7 done, link 3 blocked.
+            AD_KIND_BY_USER[user_id] = "batch"
             paused_batches[user_id] = {"urls": urls, "next_index": index-1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
-            keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)]]
-            await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            try:
+                await bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+                await asyncio.sleep(0.2)
+            except Exception:
+                try: await bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+                except Exception: pass
+            _out_header = f"⏸️ Batch out of credits at {index}/{len(urls)} — Watch ad to continue.\n\n"
+            _out_full = _out_header + "🧪 AD PLACEMENT TEST (Adsterra)\n\n1️⃣ User sends link\n2️⃣ LIMIT REACHED screen appears\n3️⃣ Stay 20s on ad page\n4️⃣ Tap Check & Get +1\n\n👇 TRY THE AD NOW:" + ADSTERRA_USER_GUIDE
+            keyboard = [
+                [InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)],
+                [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
+                [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")],
+            ]
+            await bot.send_message(chat_id=chat_id, text=_out_full, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             break
         credit_charged = user_id != ADMIN_ID
         try:
@@ -3349,6 +4718,15 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             continue
         try:
             ckey = await get_canonical_key(url, chat_id, bot)
+            # V42 universal naming for batch: og:title via plain HTTP if no title yet (TikTok/IG/carousel)
+            try:
+                _bc = load_json_file(CACHE_FILE)
+                if _display_name_for(None, url, ckey, _bc) == ckey and url not in OG_TITLE_CACHE:
+                    try:
+                        _bog = await asyncio.wait_for(asyncio.to_thread(_og_title_for_url, url), timeout=8)
+                        if _bog: OG_TITLE_CACHE[url] = _bog
+                    except Exception: pass
+            except Exception: pass
             cache = load_json_file(CACHE_FILE)
             
             if ckey in cache and "file_id" in cache[ckey] and "qualities" not in cache[ckey]:
@@ -3383,7 +4761,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                 if "original" in _cq:
                     try:
                         _cached_img = _cq["original"]
-                        sent = await bot.send_photo(chat_id=target_destination_id, photo=_cached_img["file_id"], caption=f"Item {index}/{len(urls)} ⚡ Cached [original]")
+                        sent = await bot.send_photo(chat_id=target_destination_id, photo=_cached_img["file_id"], caption=f"Item {index}/{len(urls)} | {_display_name_for(None, url, ckey, cache)} | ⚡ Cached [original] | `{ckey}`")
                         credit_charged = False
                         if target_destination_id == chat_id:
                             warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
@@ -3410,7 +4788,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     try:
                         cached = cached_qualities[best_cached_quality]
                         qual_tag = f"[{best_cached_quality}]"
-                        sent = await bot.send_video(chat_id=target_destination_id, video=cached["file_id"], caption=f"Item {index}/{len(urls)} ⚡ Cached {qual_tag}")
+                        sent = await bot.send_video(chat_id=target_destination_id, video=cached["file_id"], caption=f"Item {index}/{len(urls)} | {_display_name_for(None, url, ckey, cache)} | ⚡ Cached {qual_tag} | `{ckey}`")
                         credit_charged = False
                         if target_destination_id == chat_id:
                             warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
@@ -3477,13 +4855,13 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             if file_paths and os.path.exists(file_paths[0]):
                 # V16: images batch / image fallback sends as photo, not video. Same image engine as single download.
                 if _eff_dl_type == "images" and res == "original":
-                    sent = await bot.send_photo(chat_id=target_destination_id, photo=open(file_paths[0], 'rb'), caption=f"Item {index}/{len(urls)} [original] Size {size}")
+                    sent = await bot.send_photo(chat_id=target_destination_id, photo=open(file_paths[0], 'rb'), caption=f"Item {index}/{len(urls)} | {_display_name_for(None, url, ckey, cache)} | [original] Size {size} | `{ckey}`")
                     credit_charged = False
                     if target_destination_id == chat_id:
                         warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
                         asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
                     try:
-                        vmsg = await bot.send_photo(chat_id=VIDEO_VAULT_ID, photo=sent.photo[-1].file_id, caption=ckey)
+                        vmsg = await bot.send_photo(chat_id=VIDEO_VAULT_ID, photo=sent.photo[-1].file_id, caption=f"{_display_name_for(None, url, ckey, cache)} | {ckey}")
                         cache = load_json_file(CACHE_FILE)
                         if ckey not in cache: cache[ckey] = {"type": "images", "timestamp": time.time(), "qualities": {}, "hits": 0}
                         cache[ckey]["type"] = "images"
@@ -3499,13 +4877,19 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                         break
                 else:
                     qual_tag = f"[{res}]"
-                    sent = await send_video_file(bot, chat_id, target_destination_id, file_paths[0], f"Item {index}/{len(urls)} {qual_tag} Size {size}", None, status_msg)
+                    _b_disp = _display_name_for(None, url, ckey, cache)
+                    try:
+                        _ext = os.path.splitext(file_paths[0])[1] or ".mp4"
+                        _rn = os.path.join(os.path.dirname(file_paths[0]), f"{_clean_filename_part(_b_disp)} {qual_tag}{_ext}") if _b_disp and _b_disp != ckey and _clean_filename_part(_b_disp) else file_paths[0]
+                        if _rn != file_paths[0]: os.rename(file_paths[0], _rn); file_paths[0] = _rn
+                    except Exception: pass
+                    sent = await send_video_file(bot, chat_id, target_destination_id, file_paths[0], f"Item {index}/{len(urls)} | {_b_disp} | {qual_tag} Size {size} | `{ckey}`", None, status_msg)
                     credit_charged = False
                     if target_destination_id == chat_id:
                         warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
                         asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
                     try:
-                        vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent.video.file_id, caption=f"{ckey} [{res}]")
+                        vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent.video.file_id, caption=f"{_display_name_for(None, url, ckey, cache)} [{res}] | {ckey}")
                         cache = load_json_file(CACHE_FILE)
                         if ckey not in cache: cache[ckey] = {"type": "video", "timestamp": time.time(), "qualities": {}, "hits": 0}
                         cache[ckey]["qualities"][res] = {"file_id": sent.video.file_id, "vault_msg_id": vmsg.message_id, "size": size}
@@ -3604,7 +4988,312 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
             logger.exception("Fan upload forwarding/storage failed: %s", e)
             await update.message.reply_text("❌ Failed to send your upload. Please try again.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
 
+
+# ===== V36 MUSIC SEARCH =====
+def _music_fmt_views(v):
+    try:
+        v = int(v or 0)
+        if v >= 1000000: return f"{v/1000000:.1f}M"
+        if v >= 1000: return f"{v/1000:.1f}K"
+        return str(v)
+    except Exception:
+        return "N/A"
+
+def _music_fmt_dur(sec):
+    try:
+        s = int(sec or 0)
+        if not s: return "N/A"
+        return f"{s//60}:{s%60:02d}"
+    except Exception:
+        return "N/A"
+
+def _music_fmt_year(upload_date):
+    try:
+        s = str(upload_date or "").strip()
+        if not s: return "N/A"
+        if "ago" in s.lower(): return s
+        if len(s) >= 4 and s[:4].isdigit(): return s[:4]
+        return s[:10] if s else "N/A"
+    except Exception:
+        return "N/A"
+
+def _music_is_cached(video_id):
+    try:
+        cache = load_json_file(CACHE_FILE)
+        e = cache.get(f"youtube_{video_id}") or {}
+        quals = e.get("qualities") or {}
+        return "audio" in quals
+    except Exception:
+        return False
+
+def _music_filter_and_score(raw_list, query):
+    """Shared filtering + scoring for all search methods. raw_list = dicts with title/channel/duration/view_count."""
+    qlow = (query or "").lower()
+    allow_live = any(w in qlow for w in ["live", "concert", "unplugged"])
+    allow_sped = any(w in qlow for w in ["sped up", "speed up", "slowed", "reverb", "slowed + reverb"])
+    allow_lyric = any(w in qlow for w in ["lyric", "lyrics"])
+    allow_cover = "cover" in qlow
+    out = []
+    for e in raw_list:
+        if not e or not isinstance(e, dict): continue
+        vid = e.get("video_id") or e.get("id") or ""
+        if not vid: continue
+        title = (e.get("title") or "Unknown")[:120]
+        tlow = title.lower()
+        dur = int(e.get("duration_sec") or e.get("duration") or 0)
+        if dur and dur > 600: continue
+        if dur and dur < 30: continue
+        if not allow_live and any(w in tlow for w in [" live", "(live", "live performance", "live version", "live session", "live at", "live -", "concert", "live show"]): continue
+        if not allow_sped and any(w in tlow for w in ["sped up", "slowed", "reverb", "nightcore"]): continue
+        if not allow_lyric and any(w in tlow for w in ["lyric video", "lyrics video", "(lyrics)"]): continue
+        if not allow_cover and "cover" in tlow and "official" not in tlow: continue
+        if "karaoke" in tlow: continue
+        if "instrumental" in tlow and "instrumental" not in qlow: continue
+        channel = e.get("channel") or e.get("uploader") or e.get("uploader_id") or "Unknown"
+        score = 0
+        if "official" in tlow: score += 1000
+        if channel and channel.lower() in tlow: score += 200
+        try: score += int(e.get("view_count") or 0) / 1000000.0
+        except Exception: pass
+        out.append({"video_id": vid, "title": title, "channel": channel, "duration_sec": dur, "view_count": e.get("view_count") or 0, "upload_date": e.get("upload_date") or "", "thumbnail": e.get("thumbnail") or "", "url": f"https://www.youtube.com/watch?v={vid}", "_score": score})
+    out.sort(key=lambda x: x["_score"], reverse=True)
+    for r in out: r.pop("_score", None)
+    return out
+
+def _music_search_ytdlp(query, fetch_n):
+    """Method 1: yt-dlp ytsearch - same cookies/headers as downloads + android client. Works locally, often blocked on Render datacenter IP."""
+    ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True, "socket_timeout": 10, "http_headers": {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"}, "extractor_args": {"youtube": {"player_client": ["android", "web"]}}}
+    try:
+        if os.path.exists("cookies.txt"): ydl_opts["cookiefile"] = "cookies.txt"
+    except Exception: pass
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(f"ytsearch{fetch_n}:{query}", download=False)
+    entries = (info.get("entries") or []) if isinstance(info, dict) else []
+    raw = []
+    for e in entries:
+        if not e or not isinstance(e, dict): continue
+        thumb = e.get("thumbnail") or ""
+        if not thumb:
+            try:
+                thumbs = e.get("thumbnails") or []
+                if thumbs: thumb = thumbs[-1].get("url") or ""
+            except Exception: pass
+        raw.append({"video_id": e.get("id") or "", "title": e.get("title") or "Unknown", "channel": e.get("uploader") or e.get("channel") or e.get("uploader_id") or "Unknown", "duration_sec": int(e.get("duration") or 0), "view_count": e.get("view_count") or 0, "upload_date": e.get("upload_date") or "", "thumbnail": thumb})
+    return raw
+
+def _music_parse_views_text(vs):
+    try:
+        s = str(vs or "").replace(" views", "").replace(",", "").strip()
+        if not s: return 0
+        if s.endswith("M"): return int(float(s[:-1]) * 1000000)
+        if s.endswith("K"): return int(float(s[:-1]) * 1000)
+        if s.endswith("B"): return int(float(s[:-1]) * 1000000000)
+        return int(float(s)) if s.replace(".", "").isdigit() else 0
+    except Exception: return 0
+
+def _music_search_innertube(query, fetch_n):
+    """Method 2: YouTube Innertube search API (youtubei/v1/search) - POST, works on Render where yt-dlp ytsearch gets 403."""
+    url = "https://www.youtube.com/youtubei/v1/search?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8&prettyPrint=false"
+    payload = {"context": {"client": {"clientName": "WEB", "clientVersion": "2.20240111.09.00", "hl": "en", "gl": "US"}}, "query": query}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36", "Content-Type": "application/json", "Origin": "https://www.youtube.com", "Referer": "https://www.youtube.com/"}
+    r = requests.post(url, json=payload, headers=headers, timeout=20)
+    if r.status_code != 200:
+        raise RuntimeError(f"Innertube HTTP {r.status_code}")
+    data = r.json()
+    contents = data.get("contents", {}).get("twoColumnSearchResultsRenderer", {}).get("primaryContents", {}).get("sectionListRenderer", {}).get("contents", [])
+    raw = []
+    for section in contents:
+        sec_contents = section.get("itemSectionRenderer", {}).get("contents", [])
+        for it in sec_contents:
+            vr = it.get("videoRenderer")
+            if not vr: continue
+            vid = vr.get("videoId") or ""
+            if not vid: continue
+            title = "".join([x.get("text", "") for x in vr.get("title", {}).get("runs", [])]) or "Unknown"
+            channel = "".join([x.get("text", "") for x in vr.get("longBylineText", {}).get("runs", [])]) or "".join([x.get("text", "") for x in vr.get("ownerText", {}).get("runs", [])]) or "Unknown"
+            dur_txt = vr.get("lengthText", {}).get("simpleText", "")
+            dur = 0
+            if dur_txt:
+                try:
+                    parts = dur_txt.split(":")
+                    if len(parts) == 2: dur = int(parts[0]) * 60 + int(parts[1])
+                    elif len(parts) == 3: dur = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+                except Exception: pass
+            views = _music_parse_views_text(vr.get("viewCountText", {}).get("simpleText", ""))
+            thumb = ""
+            try:
+                thumbs = vr.get("thumbnail", {}).get("thumbnails", [])
+                if thumbs: thumb = thumbs[-1].get("url", "")
+            except Exception: pass
+            pub = vr.get("publishedTimeText", {}).get("simpleText", "")
+            raw.append({"video_id": vid, "title": title, "channel": channel, "duration_sec": dur, "view_count": views, "upload_date": pub, "thumbnail": thumb})
+            if len(raw) >= fetch_n: break
+        if len(raw) >= fetch_n: break
+    return raw
+
+def _music_search_itunes_then_innertube(query, fetch_n):
+    """Method 3: iTunes Search API (never blocked, free, no key) for exact title/artist, then Innertube for each exact title to get YouTube ID."""
+    r = requests.get("https://itunes.apple.com/search", params={"term": query, "media": "music", "entity": "song", "limit": 10}, timeout=15)
+    if r.status_code != 200:
+        raise RuntimeError(f"iTunes HTTP {r.status_code}")
+    data = r.json()
+    results = data.get("results") or []
+    raw = []
+    for it in results[:5]:
+        track = (it.get("trackName") or "").strip()
+        artist = (it.get("artistName") or "").strip()
+        if not track: continue
+        exact_q = f"{artist} - {track} official audio" if artist else track
+        try:
+            sub = _music_search_innertube(exact_q, 2)
+            for s in sub:
+                # Keep iTunes artwork as fallback if Innertube thumb missing, prefer Innertube thumb
+                raw.append(s)
+                if len(raw) >= fetch_n: break
+        except Exception as e:
+            logger.warning(f"iTunes->Innertube failed for {exact_q}: {e}")
+            continue
+        if len(raw) >= fetch_n: break
+    return raw
+
+def search_music_sync(query, want=5, offset=0):
+    """V39 order: Innertube FIRST (2-3s, works on Render) -> iTunes+Innertube -> yt-dlp LAST (slow, can hang 60s+).
+    V37 tried yt-dlp first, so every search waited 60s+ before trying Innertube - looked stuck."""
+    fetch_n = int(offset + want + 10)
+    if fetch_n < 15: fetch_n = 15
+    if fetch_n > 30: fetch_n = 30
+    # Method 1: Innertube - fast
+    try:
+        raw1 = _music_search_innertube(query, fetch_n)
+        filt1 = _music_filter_and_score(raw1, query)
+        if filt1:
+            logger.info(f"Music search OK via Innertube: {query} -> {len(filt1)}")
+            return filt1[offset:offset+want]
+        logger.warning(f"Music search Innertube returned 0 filtered for {query}, trying iTunes")
+    except Exception as e:
+        logger.warning(f"Music search Innertube failed for {query}: {e}, trying iTunes")
+    # Method 2: iTunes + Innertube
+    try:
+        raw2 = _music_search_itunes_then_innertube(query, fetch_n)
+        filt2 = _music_filter_and_score(raw2, query)
+        if filt2:
+            logger.info(f"Music search OK via iTunes+Innertube: {query} -> {len(filt2)}")
+            return filt2[offset:offset+want]
+    except Exception as e:
+        logger.warning(f"Music search iTunes failed for {query}: {e}")
+    # Method 3: yt-dlp LAST - slow, only if fast methods failed
+    try:
+        raw3 = _music_search_ytdlp(query, fetch_n)
+        filt3 = _music_filter_and_score(raw3, query)
+        if filt3:
+            logger.info(f"Music search OK via yt-dlp: {query} -> {len(filt3)}")
+            return filt3[offset:offset+want]
+        logger.warning(f"Music search yt-dlp returned 0 filtered for {query}")
+    except Exception as e:
+        logger.warning(f"Music search yt-dlp failed for {query}: {e}")
+    # Method 3b: yt-dlp official-audio variant
+    try:
+        if "official" not in (query or "").lower():
+            raw3b = _music_search_ytdlp(f"{query} official audio", fetch_n)
+            filt3b = _music_filter_and_score(raw3b, query)
+            if filt3b:
+                logger.info(f"Music search OK via yt-dlp official-audio variant: {query} -> {len(filt3b)}")
+                return filt3b[offset:offset+want]
+    except Exception as e:
+        logger.warning(f"Music search yt-dlp variant failed for {query}: {e}")
+    logger.warning(f"Music search ALL methods failed/empty for {query}")
+    return []
+
+async def send_music_results(bot, chat_id, user_id, query, offset, t):
+    """Send 5 cards. V39: hard 25s timeout - never hang forever. Guard stops double search."""
+    if MUSIC_SEARCHING.get(user_id):
+        try: await bot.send_message(chat_id=chat_id, text="⏳ Still searching... wait a few seconds, results are coming.")
+        except Exception: pass
+        return
+    MUSIC_SEARCHING[user_id] = True
+    try:
+        results = await asyncio.wait_for(asyncio.to_thread(search_music_sync, query, 5, offset), timeout=25)
+    except asyncio.TimeoutError:
+        logger.warning(f"Music search TIMEOUT 25s for {query}")
+        MUSIC_SEARCHING.pop(user_id, None)
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔁 Try Again", callback_data="music_new")], [InlineKeyboardButton("❌ Cancel", callback_data="music_cancel")]])
+        await bot.send_message(chat_id=chat_id, text=f"⏳ Search took too long for '{query}'.\nTap Try Again - next try is usually fast.\nOr try: Rema - Calm Down", reply_markup=kb)
+        return
+    except Exception:
+        results = []
+    if not results:
+        MUSIC_SEARCHING.pop(user_id, None)
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔁 Try Again", callback_data="music_new")], [InlineKeyboardButton("❌ Cancel", callback_data="music_cancel")]])
+        await bot.send_message(chat_id=chat_id, text=f"⚠️ Search is busy right now for '{query}'.\nYouTube blocked the search for a moment.\nTap Try Again - it usually works on 2nd try.\nOr try: Rema - Calm Down", reply_markup=kb)
+        return
+    MUSIC_RESULTS[user_id] = {"query": query, "offset": offset, "results": results}
+    await bot.send_message(chat_id=chat_id, text=f"🎵 Results for '{query}' ({offset+1}-{offset+len(results)})\nTap Download on the one you want. Search is free, download is 1 credit.")
+    for idx, r in enumerate(results):
+        num = offset + idx + 1
+        cached_tag = "⚡ Cached - Instant" if _music_is_cached(r["video_id"]) else "📥 Fresh download"
+        caption = f"{num}. {r['title']}\n🎤 {r['channel']}\n⏱ {_music_fmt_dur(r['duration_sec'])} | 👀 {_music_fmt_views(r['view_count'])} views | 📅 {_music_fmt_year(r['upload_date'])}\n💿 MP3 192kbps | {cached_tag}\n💳 Cost: 1 credit"
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("⬇️ Download This - 1 credit", callback_data=f"music_dl_{r['video_id']}")]])
+        try:
+            if r.get("thumbnail"):
+                await bot.send_photo(chat_id=chat_id, photo=r["thumbnail"], caption=caption, reply_markup=kb)
+            else:
+                await bot.send_message(chat_id=chat_id, text=caption, reply_markup=kb)
+        except Exception:
+            try: await bot.send_message(chat_id=chat_id, text=caption, reply_markup=kb)
+            except Exception: pass
+        await asyncio.sleep(0.15)
+    footer_rows = []
+    if len(results) == 5:
+        footer_rows.append([InlineKeyboardButton("🔄 More Results", callback_data=f"music_more_{offset+5}")])
+    footer_rows.append([InlineKeyboardButton("🔍 New Search", callback_data="music_new")])
+    footer_rows.append([InlineKeyboardButton("❌ Cancel", callback_data="music_cancel")])
+    await bot.send_message(chat_id=chat_id, text="👇 Pick one above, or get more / search again.", reply_markup=InlineKeyboardMarkup(footer_rows))
+    MUSIC_SEARCHING.pop(user_id, None)
+
+async def _music_download_song(bot, chat_id, user_id, video_id, t):
+    """Download one music song as audio, 1 credit, cached if available. Assumes credit check already done."""
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    meta = None
+    try:
+        # Use stored search result for title if we have it
+        for _uid, _d in list(MUSIC_RESULTS.items()):
+            if _uid == user_id:
+                for _r in _d.get("results", []):
+                    if _r.get("video_id") == video_id:
+                        meta = {"title": _r.get("title"), "poster": _r.get("channel"), "duration_sec": _r.get("duration_sec"), "views": _r.get("view_count"), "platform": "youtube", "est_size_mb": 0.0}
+                        break
+    except Exception: pass
+    if not meta:
+        try: meta = await asyncio.to_thread(get_social_metadata, url)
+        except Exception: meta = None
+    can_dl = await acquire_slot()
+    if can_dl:
+        try: await cached_download_and_send(bot, chat_id, user_id, url, "audio", t, 1, meta=meta)
+        finally: await release_slot()
+    else:
+        pos = download_queue.qsize()+1
+        await download_queue.put({'func': cached_download_and_send, 'args': (bot, chat_id, user_id, url, "audio", t), 'kwargs': {'credit_cost': 1, 'meta': meta}})
+        free_mb = shutil.disk_usage(".").free // (1024*1024)
+        await bot.send_message(chat_id=chat_id, text=t["server_busy"].format(active_downloads, MAX_CONCURRENT_SHORT, free_mb, pos), parse_mode="Markdown", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
+
+def _music_get_downloads_left(user_id):
+    """Flask profile first (refilled balance), fallback to local tokens."""
+    try:
+        prof = get_user_profile_from_flask(user_id)
+        if prof is not None:
+            return int(prof.get("downloads_left", get_free_amount()))
+    except Exception: pass
+    try:
+        tokens = load_tokens()
+        profile = tokens.get(str(user_id), {})
+        return int(profile.get("downloads_left", get_free_amount()))
+    except Exception:
+        return get_free_amount()
+
+# ===== END V36 MUSIC SEARCH =====
+
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+
     text = update.message.text if update.message.text else ""
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
@@ -3711,7 +5400,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if record.get("max_clicks", 0) and record.get("clicks", 0) >= record["max_clicks"]: await update.message.reply_text(t["link_limit_reached"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
         await send_file_link_payload(update, context, token, record)
         return
-    menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🔗 File-to-Link", "🟢 Bot Status", "🔄 Change Batch Channel", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel", t.get("menu_edit_welcome", "✏️ Edit Welcome Msg"), "📢 Required Channels", "📊 Download Limits"]
+    menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🔗 File-to-Link", "🎵 Music Search", "❌ Cancel Music Search", "🟢 Bot Status", "🔄 Change Batch Channel", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel", t.get("menu_edit_welcome", "✏️ Edit Welcome Msg"), "📢 Required Channels", "📊 Download Limits"]
     if text in menu_texts:
         if text != t["menu_upload"]:
             context.user_data.pop("admin_vault_upload_mode", None)
@@ -3739,13 +5428,15 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     fl_states = load_json_file(FILE_LINK_STATE_FILE)
     fl_state = fl_states.get(str(user_id))
     if fl_state and fl_state.get("mode") == "file_link_set_password":
-        if text.strip() == "/clearpassword": fl_state.setdefault("settings", {})["password"] = ""
+        _is_clear = (text.strip() == "/clearpassword")
+        if _is_clear: fl_state.setdefault("settings", {})["password"] = ""
         else:
             if len(text) > 64: await update.message.reply_text(t["password_too_long"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
             fl_state.setdefault("settings", {})["password"] = text.strip()
         fl_state["mode"] = "collecting"
         fl_states[str(user_id)] = fl_state; save_json_file(FILE_LINK_STATE_FILE, fl_states)
-        await update.message.reply_text(t["password_saved"], reply_markup=file_link_keyboard(fl_state))
+        _msg = t.get("password_removed", "🔓 Password removed.") if _is_clear else t["password_saved"]
+        await update.message.reply_text(_msg, reply_markup=file_link_keyboard(fl_state))
         return
     if text == "💾 Disk Config" and user_id == ADMIN_ID:
         current = get_min_free_disk_mb()
@@ -3823,10 +5514,17 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if text == t["menu_stats"]:
         if user_id == ADMIN_ID: await stats(update, context)
         else:
-            tokens = load_tokens()
-            profile = tokens.get(str(user_id), {})
-            d_left = profile.get("downloads_left", get_free_amount())
-            b_left = profile.get("batch_downloads_left", min(MAX_USER_CREDITS, get_free_amount() * 5))
+            # FIX: use /get-profile (same refill logic as /check-download) so My Stats
+            # shows the refilled balance BEFORE you try File-to-Link. No more 0->1 surprise.
+            prof = get_user_profile_from_flask(user_id)
+            if prof is not None:
+                d_left = prof.get("downloads_left", get_free_amount())
+                b_left = prof.get("batch_downloads_left", min(MAX_USER_CREDITS, get_free_amount() * 5))
+            else:
+                tokens = load_tokens()
+                profile = tokens.get(str(user_id), {})
+                d_left = profile.get("downloads_left", get_free_amount())
+                b_left = profile.get("batch_downloads_left", min(MAX_USER_CREDITS, get_free_amount() * 5))
             await update.message.reply_text(t["stats_msg"].format(d_left, b_left), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         return
     if text == t["menu_join"]: await update.message.reply_text(f"[Join]({PUBLIC_CHANNEL_URL})", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
@@ -3866,6 +5564,50 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             reply_markup=get_main_keyboard(lang, True)
         )
         return
+    # ===== V36 MUSIC SEARCH - button first, never auto-detect random text =====
+    if text.strip() == "🎵 Music Search":
+        if MUSIC_SEARCHING.get(user_id):
+            await update.message.reply_text("⏳ Still searching your last song... wait a few seconds, results are coming.")
+            return
+        MUSIC_WAITING[user_id] = True
+        MUSIC_RESULTS.pop(user_id, None)
+        _mkb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="music_cancel")]])
+        await update.message.reply_text("🎵 **Music Search**\n\nSend song name.\nExample: Rema - Calm Down\n\nSearch is free. Download is 1 credit.\nTap Cancel to stop.", parse_mode="Markdown", reply_markup=_mkb)
+        return
+    if text.strip() in ("❌ Cancel Music Search", "❌ Cancel"):
+        if MUSIC_WAITING.get(user_id):
+            MUSIC_WAITING.pop(user_id, None)
+            MUSIC_RESULTS.pop(user_id, None)
+            await update.message.reply_text("✅ Music search cancelled.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+            return
+    if MUSIC_WAITING.get(user_id):
+        # User pasted a link while waiting -> cancel music mode and fall through to normal link handling
+        if "http" in text.lower():
+            MUSIC_WAITING.pop(user_id, None)
+        else:
+            # Ignore other menu buttons while waiting - let them fall through below (they clear waiting via menu_texts)
+            if text not in menu_texts:
+                q = text.strip()
+                MUSIC_WAITING.pop(user_id, None)
+                if len(q) < 2:
+                    await update.message.reply_text("Send a song name - at least 2 characters. Example: Rema - Calm Down")
+                    MUSIC_WAITING[user_id] = True
+                    return
+                if len(q) > 120:
+                    q = q[:120]
+                _searching = await update.message.reply_text(f"🔍 Searching for '{q}'...")
+                try:
+                    await send_music_results(context.bot, chat_id, user_id, q, 0, t)
+                except Exception as _me:
+                    logger.warning(f"music search failed: {_me}")
+                    await update.message.reply_text("❌ Search failed. Try again.")
+                try: await _searching.delete()
+                except Exception: pass
+                return
+    if text in menu_texts and text != "🎵 Music Search":
+        # Leaving music mode when tapping any other menu button
+        MUSIC_WAITING.pop(user_id, None)
+    # ===== END V36 MUSIC SEARCH =====
     extracted_urls = re.findall(r'https?://[^\s]+', text)
     filtered = [u for u in extracted_urls if not ("t.me/" in u and "start=" in u)]
     extracted_urls = filtered
@@ -4167,19 +5909,545 @@ async def set_disk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def set_mtproto_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
-    if not context.args: await update.message.reply_text("Usage: `/setmtproto <mb>`\nExample: `/setmtproto 1000`", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True)); return
+    if not context.args:
+        _ready = MTPROTO["ready"].is_set() if "MTPROTO" in globals() else False
+        _eff = mtproto_limit_mb() if "mtproto_limit_mb" in globals() else 49
+        await update.message.reply_text(f"⚡ **MTProto Config**\nSaved max: **{get_mtproto_max_mb()}MB**\nMTProto ready: **{'✅ Yes' if _ready else '❌ No — capped at 49MB (Bot API)'}**\nEffective limit now: **{_eff}MB**\nAPI_ID set: **{'Yes' if API_ID else 'No'}** | API_HASH set: **{'Yes' if API_HASH else 'No'}**\nTo change: `/setmtproto <value>`", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True)); return
     try:
         value = int(context.args[0])
         if value < 50: await update.message.reply_text("⚠️ Value must be at least 50MB.", reply_markup=get_main_keyboard("en", True)); return
         config = load_json_file(CONFIG_FILE)
         config["mtproto_max_mb"] = value
         save_json_file(CONFIG_FILE, config)
-        await update.message.reply_text(f"✅ MTProto max upload size set to **{value}MB**", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
+        _ready2 = MTPROTO["ready"].is_set() if "MTPROTO" in globals() else False
+        _eff2 = mtproto_limit_mb() if "mtproto_limit_mb" in globals() else 49
+        await update.message.reply_text(f"✅ MTProto max upload size set to **{value}MB**\nMTProto ready: **{'✅ Yes' if _ready2 else '❌ No — still capped at 49MB until API_ID/API_HASH are set on Render and bot restarts'}**\nEffective limit now: **{_eff2}MB**", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
     except ValueError: await update.message.reply_text("❌ Invalid number.", reply_markup=get_main_keyboard("en", True))
+
+# V41: display name + SITE_BLOCKED cooldown
+# V42: universal naming (og:title, no yt-dlp) + Piped fallback for YouTube IP block that lasts hours
+YT_BLOCKED_UNTIL = 0
+LAST_TITLE_BY_URL = {}
+OG_TITLE_CACHE = {}
+def _og_title_for_url(url):
+    """Lightweight HTML og:title - no yt-dlp, so it works even when yt-dlp is blocked. For YouTube/TikTok/IG/FB/X."""
+    try:
+        if url in OG_TITLE_CACHE:
+            return OG_TITLE_CACHE[url]
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"}
+        r = requests.get(url, headers=headers, timeout=10)
+        if r.status_code != 200:
+            return None
+        html = r.text or ""
+        title = ""
+        poster = ""
+        # og:title
+        m = re.search(r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)["\']', html, re.I)
+        if not m:
+            m = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:title["\']', html, re.I)
+        if m: title = m.group(1).strip()
+        if not title:
+            m2 = re.search(r'<title>([^<]+)</title>', html, re.I)
+            if m2: title = m2.group(1).strip()
+        # og:site_name as poster fallback, or twitter:creator
+        m3 = re.search(r'<meta[^>]+property=["\']og:site_name["\'][^>]+content=["\']([^"\']+)["\']', html, re.I)
+        if m3: poster = m3.group(1).strip()
+        # Clean suffixes: "Title - YouTube", "Title | TikTok", "Title • Instagram"
+        for suf in [" - YouTube", " | YouTube", " - TikTok", " | TikTok", " on TikTok", " • Instagram", " | Instagram", " - YouTube Music"]:
+            if title.endswith(suf): title = title[:-len(suf)].strip()
+        if title and title.lower() not in ("youtube", "tiktok", "instagram"):
+            res = {"title": title[:120], "poster": poster}
+            OG_TITLE_CACHE[url] = res
+            return res
+        return None
+    except Exception as e:
+        logger.warning(f"og_title failed for {url}: {e}")
+        return None
+
+def _piped_streams_for_youtube(video_id):
+    """Piped API - a different server fetches from YouTube, so Render IP block doesn't matter. Returns (title, uploader, audioStreams, videoStreams, hls)."""
+    # V47/V48: kavin.rocks + pipedapi-libre.kavin.rocks are DEAD (your log: Max retries exceeded). They were first, so Piped wasted time on dead hosts.
+    # NOTE V48: Even alive Piped hosts may fail for this video - Piped also needs PO token now, YouTube blocks Piped's IPs too.
+    # New order: alive hosts first, dead kavin hosts last as last resort.
+    hosts = ["https://pipedapi.adminforge.de", "https://pipedapi.leptons.xyz", "https://pipedapi.reallyaweso.me", "https://pipedapi.ducks.party", "https://pipedapi.darkness.services", "https://pipedapi.priv.au", "https://api.piped.yt", "https://pipedapi.kavin.rocks", "https://pipedapi-libre.kavin.rocks"]
+    last_err = None
+    for host in hosts:
+        try:
+            r = requests.get(f"{host}/streams/{video_id}", timeout=20, headers={"User-Agent": "Mozilla/5.0"})
+            if r.status_code != 200:
+                last_err = f"{host} HTTP {r.status_code}"
+                continue
+            data = r.json()
+            if data.get("error"):
+                last_err = str(data.get("error"))[:100]
+                continue
+            if data.get("audioStreams") or data.get("videoStreams"):
+                return data
+            last_err = "no streams"
+        except Exception as e:
+            last_err = str(e)[:100]
+            continue
+    raise RuntimeError(f"Piped all hosts failed: {last_err}")
+
+def _piped_download_audio_youtube(url, output_dir, cap_bytes):
+    """Download YouTube audio via Piped direct URL, then ffmpeg -> MP3. Returns path or None."""
+    import subprocess as _sp
+    vid = None
+    try:
+        m = YT_ID_RE.search(url or "")
+        vid = m.group(1) if m else None
+    except Exception: pass
+    if not vid: return None
+    data = _piped_streams_for_youtube(vid)
+    try: LAST_TITLE_BY_URL[url] = {"title": data.get("title"), "poster": data.get("uploader")}
+    except Exception: pass
+    audio_streams = data.get("audioStreams") or []
+    if not audio_streams: return None
+    # Prefer m4a/mp4 audio, highest bitrate
+    def _br(s):
+        try: return int(s.get("bitrate") or 0)
+        except Exception: return 0
+    audio_streams = sorted(audio_streams, key=_br, reverse=True)
+    chosen = audio_streams[0]
+    durl = chosen.get("url")
+    if not durl: return None
+    tmp = os.path.join(output_dir, f"piped_{vid}.{chosen.get('format') or 'm4a'}")
+    # Download direct URL (googlevideo, not youtube.com, so not blocked)
+    with requests.get(durl, headers={"User-Agent": "Mozilla/5.0"}, stream=True, timeout=60) as r:
+        r.raise_for_status()
+        size = 0
+        with open(tmp, "wb") as f:
+            for chunk in r.iter_content(65536):
+                if not chunk: continue
+                size += len(chunk)
+                if size > cap_bytes:
+                    f.close()
+                    try: os.remove(tmp)
+                    except Exception: pass
+                    raise ValueError("FILE_TOO_LARGE")
+                f.write(chunk)
+    if not os.path.exists(tmp) or os.path.getsize(tmp) < 1000:
+        return None
+    mp3 = os.path.join(output_dir, f"piped_{vid}.mp3")
+    # If already mp3, just rename; else ffmpeg convert
+    if tmp.lower().endswith(".mp3"):
+        os.rename(tmp, mp3)
+        return mp3
+    _r = _sp.run([ffmpeg_path, "-y", "-i", tmp, "-vn", "-codec:a", "libmp3lame", "-q:a", "2", mp3], capture_output=True, text=True, timeout=120)
+    try: os.remove(tmp)
+    except Exception: pass
+    if os.path.exists(mp3) and os.path.getsize(mp3) > 1000:
+        return mp3
+    return None
+
+def _download_url_to_file(durl, dest, cap_bytes, timeout=90):
+    """Stream a direct googlevideo/cobalt URL to dest, enforcing cap. Returns dest."""
+    with requests.get(durl, headers={"User-Agent": "Mozilla/5.0"}, stream=True, timeout=timeout) as r:
+        r.raise_for_status()
+        size = 0
+        with open(dest, "wb") as f:
+            for chunk in r.iter_content(65536):
+                if not chunk: continue
+                size += len(chunk)
+                if size > cap_bytes:
+                    f.close()
+                    try: os.remove(dest)
+                    except Exception: pass
+                    raise ValueError("FILE_TOO_LARGE")
+                f.write(chunk)
+    return dest
+
+def _piped_download_video_youtube(url, output_dir, cap_bytes, preferred_quality=None):
+    """YouTube video via Piped: Piped server fetches from YouTube, Render IP not used. Returns (path, quality) or None."""
+    import subprocess as _sp
+    vid = None
+    try:
+        m = YT_ID_RE.search(url or "")
+        vid = m.group(1) if m else None
+    except Exception: pass
+    if not vid: return None
+    data = _piped_streams_for_youtube(vid)
+    try: LAST_TITLE_BY_URL[url] = {"title": data.get("title"), "poster": data.get("uploader")}
+    except Exception: pass
+    # wanted height
+    try:
+        _pq = str(preferred_quality or "720p").lower().replace("p","")
+        want_h = int(_pq) if _pq.isdigit() else 720
+    except Exception: want_h = 720
+    if want_h <= 0 or want_h > 1080: want_h = 720
+    vstreams = data.get("videoStreams") or []
+    astreams = data.get("audioStreams") or []
+    if not vstreams: return None
+    def _h(s):
+        try: return int(s.get("height") or 0)
+        except Exception: return 0
+    # 1) Prefer combined (not videoOnly) <= want_h, highest height, mp4 first
+    combined = [s for s in vstreams if not s.get("videoOnly")]
+    combined = sorted(combined, key=lambda s: (1 if (s.get("mimeType") or "").find("mp4")>=0 else 0, _h(s)), reverse=True)
+    for s in combined:
+        if _h(s) <= want_h and s.get("url"):
+            dest = os.path.join(output_dir, f"piped_{vid}_{_h(s)}p.mp4")
+            _download_url_to_file(s["url"], dest, cap_bytes)
+            if os.path.exists(dest) and os.path.getsize(dest) > 1000:
+                return dest, f"{_h(s)}p"
+    # 2) videoOnly + best audio, merge with ffmpeg
+    vonly = [s for s in vstreams if s.get("videoOnly")]
+    vonly = sorted(vonly, key=lambda s: (1 if (s.get("mimeType") or "").find("mp4")>=0 else 0, _h(s)), reverse=True)
+    chosen_v = None
+    for s in vonly:
+        if _h(s) <= want_h and s.get("url"):
+            chosen_v = s; break
+    if not chosen_v and vonly and vonly[0].get("url"):
+        chosen_v = vonly[0]
+    if not chosen_v: return None
+    # best audio for merge
+    def _br(s):
+        try: return int(s.get("bitrate") or 0)
+        except Exception: return 0
+    astreams = sorted(astreams, key=_br, reverse=True)
+    if not astreams or not astreams[0].get("url"): return None
+    v_tmp = os.path.join(output_dir, f"piped_{vid}_v.{'mp4' if 'mp4' in (chosen_v.get('mimeType') or '') else 'webm'}")
+    a_tmp = os.path.join(output_dir, f"piped_{vid}_a.{'m4a' if 'mp4' in (astreams[0].get('mimeType') or '') else 'webm'}")
+    _download_url_to_file(chosen_v["url"], v_tmp, cap_bytes)
+    _download_url_to_file(astreams[0]["url"], a_tmp, cap_bytes)
+    out = os.path.join(output_dir, f"piped_{vid}_{_h(chosen_v)}p.mp4")
+    _r = _sp.run([ffmpeg_path, "-y", "-i", v_tmp, "-i", a_tmp, "-c:v", "copy", "-c:a", "aac", "-shortest", out], capture_output=True, text=True, timeout=180)
+    for p in (v_tmp, a_tmp):
+        try: os.remove(p)
+        except Exception: pass
+    if os.path.exists(out) and os.path.getsize(out) > 1000:
+        return out, f"{_h(chosen_v)}p"
+    return None
+
+
+def _lemnoslife_download_youtube(url, output_dir, cap_bytes, is_audio=False, preferred_quality=None):
+    """V49 NEW: Lemnoslife YouTube Operational API - https://yt.lemnoslife.com
+    This API has its OWN trusted YouTube session + PO tokens, so it can get streams even when
+    yt-dlp + Piped + Cobalt + Invidious all fail for the same video. It does NOT need our cookies or PO token.
+    Endpoint: GET https://yt.lemnoslife.com/videos?part=snippet,player&id={video_id}
+    Returns items[0].player.streamingData.formats + adaptiveFormats with direct URLs."""
+    try:
+        _m = YT_ID_RE.search(url or "")
+        if not _m:
+            return None
+        vid = _m.group(1)
+        # Try noKey endpoint first (free, no key), then key endpoint
+        for _base in ["https://yt.lemnoslife.com/noKey/videos", "https://yt.lemnoslife.com/videos"]:
+            try:
+                _api = f"{_base}?part=snippet,player&id={vid}"
+                r = requests.get(_api, headers={"Accept": "application/json", "User-Agent": "Mozilla/5.0"}, timeout=30)
+                if r.status_code != 200:
+                    continue
+                try:
+                    data = r.json()
+                except Exception:
+                    continue
+                items = data.get("items") or []
+                if not items:
+                    continue
+                player = items[0].get("player") or {}
+                sd = player.get("streamingData") or {}
+                formats = (sd.get("formats") or []) + (sd.get("adaptiveFormats") or [])
+                if not formats:
+                    continue
+                # Pick best: for audio, highest bitrate audio-only mp4/m4a; for video, mp4 with audio+video (formats) first, then highest adaptive
+                _vq = "720"
+                if preferred_quality:
+                    _q = str(preferred_quality).lower().replace("p", "")
+                    if _q in ("2160","1440","1080","720","480","360","240"):
+                        _vq = _q
+                if is_audio:
+                    # Audio-only: mimeType contains audio, pick highest bitrate
+                    _cands = [f for f in formats if "audio" in str(f.get("mimeType","")).lower()]
+                    if not _cands:
+                        continue
+                    _cands.sort(key=lambda f: int(f.get("bitrate") or 0), reverse=True)
+                    durl = _cands[0].get("url")
+                    if not durl:
+                        continue
+                    tmp = os.path.join(output_dir, f"lemnos_{vid}.mp3")
+                    _download_url_to_file(durl, tmp, cap_bytes)
+                    if os.path.exists(tmp) and os.path.getsize(tmp) > 1000:
+                        return tmp, "audio"
+                    continue
+                else:
+                    # Video: prefer formats with both audio+video (mimeType video/mp4, has audioQuality)
+                    _with_av = [f for f in formats if "video" in str(f.get("mimeType","")).lower() and f.get("audioQuality")]
+                    if _with_av:
+                        # Pick closest to _vq, not higher than _vq if possible
+                        def _score(f):
+                            try:
+                                h = int((f.get("qualityLabel") or "0p").replace("p","").split()[0])
+                            except Exception:
+                                h = 0
+                            return -abs(h - int(_vq))
+                        _with_av.sort(key=_score, reverse=True)
+                        durl = _with_av[0].get("url")
+                        if durl:
+                            tmp = os.path.join(output_dir, f"lemnos_{vid}_{_vq}p.mp4")
+                            _download_url_to_file(durl, tmp, cap_bytes)
+                            if os.path.exists(tmp) and os.path.getsize(tmp) > 1000:
+                                return tmp, f"{_vq}p"
+                    # Fallback: highest adaptive video (may be video-only, but try anyway - yt-dlp would mux, we just return it)
+                    _vonly = [f for f in formats if "video" in str(f.get("mimeType","")).lower()]
+                    if _vonly:
+                        _vonly.sort(key=lambda f: int(f.get("bitrate") or 0), reverse=True)
+                        durl = _vonly[0].get("url")
+                        if durl:
+                            tmp = os.path.join(output_dir, f"lemnos_{vid}_{_vq}p.mp4")
+                            _download_url_to_file(durl, tmp, cap_bytes)
+                            if os.path.exists(tmp) and os.path.getsize(tmp) > 1000:
+                                return tmp, f"{_vq}p"
+            except Exception as _e:
+                logger.warning(f"V49 Lemnoslife {_base} failed for {vid}: {str(_e)[:150]}")
+                continue
+    except Exception as e:
+        logger.warning(f"V49 Lemnoslife failed for {url}: {str(e)[:200]}")
+    return None
+
+def _cobalt_download_youtube(url, output_dir, cap_bytes, is_audio=False, preferred_quality=None):
+    """V47: Cobalt FIX - old code used only https://api.cobalt.tools/ with old payload (vQuality/isAudioOnly).
+    That host now returns 400: {"code":"error.api.auth.jwt.missing"} - it needs an API key (JWT) since Cobalt v10.
+    New: try multiple public Cobalt hosts, try NEW payload format first (downloadMode/videoQuality), then OLD format.
+    If host says jwt.missing, skip it and try next host - don't treat as generic failure.
+    Env COBALT_API_KEY (if you get one from cobalt.tools) is sent as Authorization: Api-Key."""
+    import subprocess as _sp
+    _vq = "720"
+    if preferred_quality:
+        _q = str(preferred_quality).lower().replace("p","")
+        if _q in ("2160","1440","1080","720","480","360","240"): _vq = _q
+    # Hosts: official first, then community instances that do NOT require JWT
+    # V48: timelessnesses.me is DEAD - your log: NameResolutionError (DNS fails). Removed.
+    # api.cobalt.tools/api is duplicate of api.cobalt.tools. Keep only 2 hosts that still resolve.
+    # NOTE: api.cobalt.tools now needs COBALT_API_KEY env (get free key at cobalt.tools -> API). Without key it returns jwt.missing.
+    cobalt_hosts = [
+        "https://api.cobalt.tools",
+        "https://cobalt-api.kavin.rocks",
+    ]
+    _api_key = (os.getenv("COBALT_API_KEY", "") or "").strip()
+    # V50: Cobalt free API is GONE (user confirmed). Without a paid/key, api.cobalt.tools returns jwt.missing and kavin is DNS-dead. Skip fast, don't waste 30s.
+    if not _api_key:
+        logger.warning("V50: Cobalt skipped - no COBALT_API_KEY (free API gone), trying next fallback")
+        return None
+    _headers_base = {"Accept": "application/json", "Content-Type": "application/json"}
+    if _api_key:
+        _headers_base["Authorization"] = f"Api-Key {_api_key}"
+    last_err = None
+    for _host in cobalt_hosts:
+        # Try NEW format first, then OLD format
+        payloads = []
+        if is_audio:
+            payloads.append({"url": url, "downloadMode": "audio", "audioFormat": "mp3", "filenameStyle": "basic"})
+            payloads.append({"url": url, "vQuality": _vq, "filenamePattern": "basic", "isAudioOnly": True, "isNoTTWatermark": True, "isTTFullAudio": True, "aFormat": "mp3"})
+        else:
+            payloads.append({"url": url, "downloadMode": "auto", "videoQuality": _vq, "filenameStyle": "basic"})
+            payloads.append({"url": url, "vQuality": _vq, "filenamePattern": "basic", "isAudioOnly": False, "isNoTTWatermark": True, "isTTFullAudio": True})
+        for _payload in payloads:
+            try:
+                # Cobalt v10 endpoint is POST / (some instances need POST /api/json)
+                _endpoints = [_host, _host.rstrip("/") + "/api/json"] if _host.endswith("cobalt.tools") else [_host]
+                # For kavin/timeless hosts, endpoint is just host root
+                if "kavin" in _host or "timeless" in _host:
+                    _endpoints = [_host]
+                for _ep in _endpoints:
+                    try:
+                        r = requests.post(_ep, json=_payload, headers=_headers_base, timeout=30)
+                    except Exception as _e:
+                        last_err = str(_e)[:150]
+                        continue
+                    if r.status_code != 200:
+                        _txt = (r.text or "")[:250]
+                        # JWT missing = this host needs a key, try next host - not a real video failure
+                        if "jwt.missing" in _txt or "api.auth" in _txt:
+                            last_err = f"{_host} needs API key (jwt.missing)"
+                            break  # break endpoints, try next host
+                        last_err = f"{_host} HTTP {r.status_code}: {_txt}"
+                        continue
+                    try:
+                        data = r.json()
+                    except Exception:
+                        last_err = f"{_host} bad JSON"
+                        continue
+                    if data.get("status") not in ("redirect","stream","picker","tunnel"):
+                        # New API may return status=error with jwt missing
+                        _etxt = str(data.get("error") or data.get("text") or "")[:200]
+                        if "jwt" in _etxt.lower() or "auth" in _etxt.lower():
+                            last_err = f"{_host} needs API key (jwt.missing)"
+                            break
+                        last_err = f"{_host} status {data.get('status')}: {_etxt}"
+                        continue
+                    durl = data.get("url")
+                    if not durl and data.get("picker"):
+                        try: durl = data["picker"][0].get("url")
+                        except Exception: durl = None
+                    if not durl:
+                        last_err = f"{_host} no URL"
+                        continue
+                    vid = ""
+                    try:
+                        _m2 = YT_ID_RE.search(url or "")
+                        vid = _m2.group(1) if _m2 else "cobalt"
+                    except Exception: vid = "cobalt"
+                    if is_audio:
+                        tmp = os.path.join(output_dir, f"cobalt_{vid}.mp3")
+                        _download_url_to_file(durl, tmp, cap_bytes)
+                        if os.path.exists(tmp) and os.path.getsize(tmp) > 1000:
+                            return tmp, "audio"
+                        continue
+                    tmp = os.path.join(output_dir, f"cobalt_{vid}_{_vq}p.mp4")
+                    _download_url_to_file(durl, tmp, cap_bytes)
+                    if os.path.exists(tmp) and os.path.getsize(tmp) > 1000:
+                        return tmp, f"{_vq}p"
+                    continue
+                # If this host said jwt.missing, don't try old payload on same host - go to next host
+                if last_err and "jwt.missing" in str(last_err):
+                    break
+            except ValueError:
+                raise
+            except Exception as e:
+                last_err = str(e)[:150]
+                continue
+    logger.warning(f"Cobalt failed for {url}: {last_err}")
+    return None
+
+def _cookies_status():
+    """Returns (exists, lines, size, has_youtube) for cookies.txt - so Render logs show if GitHub actually delivered it."""
+    try:
+        if not os.path.exists("cookies.txt"): return (False, 0, 0, False)
+        size = os.path.getsize("cookies.txt")
+        with open("cookies.txt", "r", errors="ignore") as f: lines = [l for l in f if l.strip() and not l.strip().startswith("#")]
+        has_yt = any("youtube.com" in l.lower() for l in lines)
+        return (True, len(lines), size, has_yt)
+    except Exception: return (False, 0, 0, False)
+
+def _invidious_download_youtube(url, output_dir, cap_bytes, is_audio=False, preferred_quality=None):
+    """Invidious - 3rd fallback server (if Piped + Cobalt both down). Returns (path, quality) or None."""
+    import subprocess as _sp
+    vid = None
+    try:
+        m = YT_ID_RE.search(url or "")
+        vid = m.group(1) if m else None
+    except Exception: pass
+    if not vid: return None
+    # V47: 0011.lt + privacyredirect are DEAD (your log: Max retries exceeded on 0011.lt). Add alive hosts first, dead last.
+    hosts = ["https://invidious.private.coffee", "https://iv.melmac.space", "https://inv.nadeko.net", "https://invidious.flokinet.to", "https://iv.datura.network", "https://invidious.einfachzocken.eu", "https://inv.us.projectsegfau.lt", "https://invidious.privacyredirect.com", "https://invidious.0011.lt"]
+    last_err = None
+    for host in hosts:
+        try:
+            r = requests.get(f"{host}/api/v1/videos/{vid}", timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+            if r.status_code != 200:
+                last_err = f"{host} HTTP {r.status_code}"; continue
+            data = r.json()
+            if data.get("error"):
+                last_err = str(data.get("error"))[:100]; continue
+            try: LAST_TITLE_BY_URL[url] = {"title": data.get("title"), "poster": data.get("author")}
+            except Exception: pass
+            if is_audio:
+                # adaptiveFormats with audio only
+                cands = [f for f in (data.get("adaptiveFormats") or []) if f.get("type","").startswith("audio/") and f.get("url")]
+                if not cands: continue
+                cands = sorted(cands, key=lambda f: int(f.get("bitrate") or 0), reverse=True)
+                durl = cands[0]["url"]
+                tmp = os.path.join(output_dir, f"inv_{vid}.m4a")
+                _download_url_to_file(durl, tmp, cap_bytes)
+                mp3 = os.path.join(output_dir, f"inv_{vid}.mp3")
+                _r = _sp.run([ffmpeg_path, "-y", "-i", tmp, "-vn", "-codec:a", "libmp3lame", "-q:a", "2", mp3], capture_output=True, text=True, timeout=120)
+                try: os.remove(tmp)
+                except Exception: pass
+                if os.path.exists(mp3) and os.path.getsize(mp3) > 1000: return mp3, "audio"
+                continue
+            else:
+                try:
+                    _pq = str(preferred_quality or "720p").lower().replace("p","")
+                    want_h = int(_pq) if _pq.isdigit() else 720
+                except Exception: want_h = 720
+                # formatStreams are combined (video+audio) - easiest
+                combined = [f for f in (data.get("formatStreams") or []) if f.get("url")]
+                # formatStreams have itag, need height: use adaptiveFormats video+audio? Invidious formatStreams lack height, so pick by itag: 22=720p, 18=360p
+                # Prefer itag 22 (720p mp4) then 18 (360p)
+                for want_itag in (22, 18):
+                    for f in combined:
+                        if str(f.get("itag")) == str(want_itag) and f.get("url"):
+                            dest = os.path.join(output_dir, f"inv_{vid}_{'720p' if want_itag==22 else '360p'}.mp4")
+                            _download_url_to_file(f["url"], dest, cap_bytes)
+                            if os.path.exists(dest) and os.path.getsize(dest) > 1000: return dest, ('720p' if want_itag==22 else '360p')
+                # adaptive video + audio merge
+                v_cands = [f for f in (data.get("adaptiveFormats") or []) if f.get("type","").startswith("video/") and f.get("url")]
+                a_cands = [f for f in (data.get("adaptiveFormats") or []) if f.get("type","").startswith("audio/") and f.get("url")]
+                if v_cands and a_cands:
+                    v_cands = sorted(v_cands, key=lambda f: int(f.get("bitrate") or 0), reverse=True)
+                    a_cands = sorted(a_cands, key=lambda f: int(f.get("bitrate") or 0), reverse=True)
+                    v_tmp = os.path.join(output_dir, f"inv_{vid}_v.mp4")
+                    a_tmp = os.path.join(output_dir, f"inv_{vid}_a.m4a")
+                    _download_url_to_file(v_cands[0]["url"], v_tmp, cap_bytes)
+                    _download_url_to_file(a_cands[0]["url"], a_tmp, cap_bytes)
+                    out = os.path.join(output_dir, f"inv_{vid}_{want_h}p.mp4")
+                    _r = _sp.run([ffmpeg_path, "-y", "-i", v_tmp, "-i", a_tmp, "-c:v", "copy", "-c:a", "aac", "-shortest", out], capture_output=True, text=True, timeout=180)
+                    for p in (v_tmp, a_tmp):
+                        try: os.remove(p)
+                        except Exception: pass
+                    if os.path.exists(out) and os.path.getsize(out) > 1000: return out, f"{want_h}p"
+                last_err = "no usable streams"
+        except Exception as e:
+            last_err = str(e)[:100]; continue
+    logger.warning(f"Invidious all hosts failed for {url}: {last_err}")
+    return None
+
+def _clean_filename_part(s):
+    try:
+        s = str(s or "").strip().replace("\n", " ").replace("\r", " ")
+        for ch in ['/', '\\', ':', '*', '?', '"', '<', '>', '|', '`']:
+            s = s.replace(ch, " ")
+        s = " ".join(s.split())
+        return s[:80] if s else ""
+    except Exception:
+        return ""
+def _display_name_for(meta, url, ckey, cache_dict=None):
+    """Returns 'Artist - Title' or 'Title' or ckey. Never just ckey if we know the title."""
+    title = ""
+    poster = ""
+    try:
+        if isinstance(meta, dict):
+            title = _clean_filename_part(meta.get("title") or "")
+            poster = _clean_filename_part(meta.get("poster") or meta.get("uploader") or meta.get("channel") or "")
+    except Exception: pass
+    if not title and isinstance(cache_dict, dict):
+        try:
+            c = cache_dict.get(ckey) or {}
+            title = _clean_filename_part(c.get("title") or "")
+            poster = _clean_filename_part(c.get("poster") or "") or poster
+        except Exception: pass
+    if not title:
+        try:
+            lt = LAST_TITLE_BY_URL.get(url) or {}
+            title = _clean_filename_part(lt.get("title") or "")
+            poster = _clean_filename_part(lt.get("poster") or "") or poster
+        except Exception: pass
+    if not title:
+        try:
+            og = OG_TITLE_CACHE.get(url) or {}
+            title = _clean_filename_part(og.get("title") or "")
+            # og poster is site name (YouTube/TikTok), not creator - don't use it as Artist
+        except Exception: pass
+    if title and poster and poster.lower() not in title.lower():
+        return f"{poster} - {title}"
+    if title:
+        return title
+    return ckey
 
 async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credit_cost=1, preferred_quality=None, meta=None):
     cache = load_json_file(CACHE_FILE)
     ckey = await get_canonical_key(url, chat_id, bot)
+    # V42 universal naming: if we don't have a title yet (TikTok/IG/carousel/images), fetch og:title via plain HTTP (not yt-dlp, so not blocked)
+    try:
+        _pre_cache = load_json_file(CACHE_FILE)
+        _pre_disp = _display_name_for(meta, url, ckey, _pre_cache)
+        if _pre_disp == ckey and url not in OG_TITLE_CACHE:
+            try:
+                _og = await asyncio.wait_for(asyncio.to_thread(_og_title_for_url, url), timeout=8)
+                if _og: OG_TITLE_CACHE[url] = _og
+            except Exception: pass
+    except Exception: pass
     
     if ckey in cache and "file_id" in cache[ckey] and "qualities" not in cache[ckey]:
         cache[ckey]["qualities"] = {"720p": {"file_id": cache[ckey]["file_id"], "vault_msg_id": cache[ckey].get("vault_msg_id"), "size": cache[ckey].get("size", "unknown")}}
@@ -4234,9 +6502,9 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
                     qual_tag = f"[{best_cached_quality}]"
                     kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
                     if dl_type == 'video': 
-                        sent = await bot.send_video(chat_id=chat_id, video=file_id, caption=t["cached_instant_video"].format(qual_tag, sz, ckey), reply_markup=kb)
+                        sent = await bot.send_video(chat_id=chat_id, video=file_id, caption=f"⚡ Cached Instant {qual_tag} | 🎬 {_display_name_for(meta, url, ckey, cache)} | Size {sz} `{ckey}`", reply_markup=kb)
                     elif dl_type == 'audio': 
-                        sent = await bot.send_audio(chat_id=chat_id, audio=file_id, caption=t["cached_instant_audio"].format(ckey), reply_markup=kb)
+                        sent = await bot.send_audio(chat_id=chat_id, audio=file_id, caption=f"⚡ Cached Instant | 🎵 {_display_name_for(meta, url, ckey, cache)} | `{ckey}`", reply_markup=kb)
                     else: 
                         sent = await bot.send_photo(chat_id=chat_id, photo=file_id, caption=t["cached_instant_image"].format(ckey), reply_markup=kb)
                     
@@ -4323,26 +6591,45 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
             except: cache[ckey]["qualities"]["original"] = {"file_id": sent_media[0].photo[-1].file_id, "size": size}
             for p in file_paths: os.remove(p)
         elif dl_type == 'audio':
-            sent_media = await send_audio_file(bot, chat_id, file_paths[0], f"🎵 Size {size} `{ckey}`", "Markdown", status_msg)
+            _disp = _display_name_for(meta, url, ckey, cache)
+            try:
+                _rn = os.path.join(os.path.dirname(file_paths[0]), _clean_filename_part(_disp) + ".mp3") if _disp and _disp != ckey else file_paths[0]
+                if _rn != file_paths[0] and _clean_filename_part(_disp):
+                    os.rename(file_paths[0], _rn); file_paths[0] = _rn
+            except Exception: pass
+            sent_media = await send_audio_file(bot, chat_id, file_paths[0], f"🎵 {_disp} | MP3 192kbps | Size {size} `{ckey}`", "Markdown", status_msg)
             warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
             asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
             try:
-                vmsg = await bot.send_audio(chat_id=VIDEO_VAULT_ID, audio=sent_media.audio.file_id, caption=ckey)
+                vmsg = await bot.send_audio(chat_id=VIDEO_VAULT_ID, audio=sent_media.audio.file_id, caption=f"{_display_name_for(meta, url, ckey, cache)} | {ckey}")
                 cache[ckey]["qualities"]["audio"] = {"file_id": sent_media.audio.file_id, "vault_msg_id": vmsg.message_id, "size": size}
             except: cache[ckey]["qualities"]["audio"] = {"file_id": sent_media.audio.file_id, "size": size}
             os.remove(file_paths[0])
         else:
-            sent_media = await send_video_file(bot, chat_id, chat_id, file_paths[0], f"✨ {qual_tag} Size {size} `{ckey}`", "Markdown", status_msg)
+            _disp = _display_name_for(meta, url, ckey, cache)
+            try:
+                _rn = os.path.join(os.path.dirname(file_paths[0]), f"{_clean_filename_part(_disp)} {qual_tag}.mp4") if _disp and _disp != ckey and _clean_filename_part(_disp) else file_paths[0]
+                if _rn != file_paths[0]:
+                    os.rename(file_paths[0], _rn); file_paths[0] = _rn
+            except Exception: pass
+            sent_media = await send_video_file(bot, chat_id, chat_id, file_paths[0], f"🎬 {_disp} | ✨ {qual_tag} | Size {size} `{ckey}`", "Markdown", status_msg)
             warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
             asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
             try:
-                vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent_media.video.file_id, caption=f"{ckey} [{res}]")
+                vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent_media.video.file_id, caption=f"{_display_name_for(meta, url, ckey, cache)} [{res}] | {ckey}")
                 cache[ckey]["qualities"][res] = {"file_id": sent_media.video.file_id, "vault_msg_id": vmsg.message_id, "size": size}
             except Exception as e: 
                 logger.error(f"Vault save fail: {e}")
                 cache[ckey]["qualities"][res] = {"file_id": sent_media.video.file_id, "size": size}
             os.remove(file_paths[0])
             
+        try:
+            _t = _display_name_for(meta, url, ckey, cache)
+            if _t and _t != ckey:
+                cache[ckey]["title"] = _t
+                _lt = LAST_TITLE_BY_URL.get(url) or {}
+                if _lt.get("poster"): cache[ckey]["poster"] = _clean_filename_part(_lt.get("poster"))
+        except Exception: pass
         cache[ckey]["hits"] = cache[ckey].get("hits", 0) + 1
         save_json_file(CACHE_FILE, cache)
         _progress_task.cancel()
@@ -4366,12 +6653,12 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
                 await bot.send_message(chat_id=chat_id, text=(
                     f"🧪 DL error: {type(e).__name__}: {str(e)[:500]}\n"
                     f"MTProto: ready={MTPROTO['ready'].is_set()} api_id={bool(API_ID)} api_hash={bool(API_HASH)}"
-                    f"{trace_txt}"))
+                    f"{trace_txt}"), parse_mode=None)
             except Exception: pass
         if "FILE_TOO_LARGE" in str(e): err = t["error_50mb"]
         elif "MTPROTO_OFF" in str(e): err = "⚠️ Big files need fast mode, which is offline right now."
         elif "MTPROTO_PEER" in str(e): err = "⚠️ Send /start to this bot once, then send the link again."
-        elif "SITE_BLOCKED" in str(e): err = "⚠️ This site is blocking downloads from our server right now. Please try again later."
+        elif "SITE_BLOCKED" in str(e): err = "⏳ YouTube blocked this video even via WARP + web_embedded + fresh cookies (Render datacenter IP flagged). Try again in 10 mins or try a different video. Credit NOT taken."
         elif isinstance(e, (asyncio.TimeoutError, TimeoutError)): err = "⚠️ This is taking too long, so I stopped. Please try again later."
         else: err = t["error_generic"]
         kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
@@ -4471,6 +6758,84 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             try: await send_join_prompt(context.bot, chat_id, user_id, _m2)
             except Exception: pass
         return
+    # ===== V36 MUSIC SEARCH callbacks =====
+    if data == "music_cancel":
+        MUSIC_SEARCHING.pop(user_id, None)
+        MUSIC_WAITING.pop(user_id, None)
+        MUSIC_RESULTS.pop(user_id, None)
+        MUSIC_RETRY.pop(user_id, None)
+        await query.answer("Cancelled")
+        try: await query.message.edit_text("✅ Music search cancelled.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+        except Exception:
+            try: await context.bot.send_message(chat_id=chat_id, text="✅ Music search cancelled.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+            except Exception: pass
+        return
+    if data == "music_new":
+        if MUSIC_SEARCHING.get(user_id):
+            await query.answer("Still searching... wait a few seconds", show_alert=True)
+            return
+        MUSIC_WAITING[user_id] = True
+        MUSIC_RESULTS.pop(user_id, None)
+        await query.answer("Send song name")
+        try: await query.message.reply_text("🎵 **Music Search**\n\nSend song name.\nExample: Rema - Calm Down\n\nSearch is free. Download is 1 credit.", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="music_cancel")]]))
+        except Exception: pass
+        return
+    if data.startswith("music_more_"):
+        try: _off = int(data[len("music_more_"):])
+        except Exception: _off = 5
+        _prev = MUSIC_RESULTS.get(user_id) or {}
+        _q = _prev.get("query", "")
+        if not _q:
+            await query.answer("Search expired - start a new search.", show_alert=True)
+            return
+        await query.answer("Loading more...")
+        try: await send_music_results(context.bot, chat_id, user_id, _q, _off, t)
+        except Exception as _e: logger.warning(f"music_more failed: {_e}")
+        return
+    if data.startswith("music_dl_"):
+        _vid = data[len("music_dl_"):].strip()
+        if not _vid or len(_vid) > 20:
+            await query.answer("Invalid song.", show_alert=True); return
+        # Channel check like every other handler
+        _passed, _missing = await check_all_required_channels(context.bot, user_id, get_required_channels())
+        if not _passed:
+            await query.answer("Join channel first.", show_alert=True)
+            try: await send_join_prompt(context.bot, chat_id, user_id, _missing)
+            except Exception: pass
+            return
+        await query.answer("Checking credits...")
+        # Credit check - 1 credit for music download
+        if user_id != ADMIN_ID:
+            _left = _music_get_downloads_left(user_id)
+            if _left <= 0:
+                MUSIC_RETRY[user_id] = _vid
+                AD_KIND_BY_USER[user_id] = "single"
+                _assigned = get_global_ab_network(user_id)
+                if _assigned == "monetag":
+                    _kb = adsgram_keyboard(user_id, "wall", 0, 0)
+                    if _kb: await query.message.reply_text(t["limit_reached"], reply_markup=_kb, parse_mode="Markdown")
+                    else: await query.message.reply_text("⚠️ Ad server busy, try again in a moment.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+                    return
+                else:
+                    try:
+                        await context.bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+                        await asyncio.sleep(0.2)
+                    except Exception: pass
+                    _bridge = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
+                    _rw = get_reward_amount()
+                    _kb2 = InlineKeyboardMarkup([[InlineKeyboardButton(f"🔓 Open Link & Watch Timer ⏰ 20s +{_rw}", url=_bridge)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(f"💜 Check & Get Files ✅ +{_rw}", callback_data="verify_user")]])
+                    await query.message.reply_text(t["limit_reached"] + ADSTERRA_USER_GUIDE, reply_markup=_kb2, parse_mode="Markdown")
+                    return
+        try: await query.message.reply_text("📥 Downloading your song... MP3 192kbps")
+        except Exception: pass
+        try:
+            await _music_download_song(context.bot, chat_id, user_id, _vid, t)
+        except Exception as _e:
+            logger.warning(f"music_dl failed {_vid}: {_e}")
+            try: await context.bot.send_message(chat_id=chat_id, text="❌ Failed. Try another song.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+            except Exception: pass
+        return
+    # ===== END V36 MUSIC SEARCH callbacks =====
     if data in ("admin_reqch", "admin_limits") and user_id == ADMIN_ID:
         _txt, _kb = build_reqch_panel() if data == "admin_reqch" else build_limits_panel()
         await query.answer()
@@ -4954,6 +7319,14 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if paused:
             asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"]))
             return
+        # V36 MUSIC: Monetag ad watched for music - download now
+        _music_retry2 = MUSIC_RETRY.pop(user_id, None)
+        if _music_retry2:
+            try: await context.bot.send_message(chat_id=chat_id, text="✅ Ad watched - downloading your song... MP3 192kbps")
+            except Exception: pass
+            try: await _music_download_song(context.bot, chat_id, user_id, _music_retry2, t)
+            except Exception as _e: logger.warning(f"music monetag retry failed: {_e}")
+            return
         msg_start, msg_end = int(st.get("msg_start", 0)), int(st.get("msg_end", 0))
         if msg_start > 0:
             await context.bot.send_message(chat_id=chat_id, text=t["fetching_bundle"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
@@ -5017,10 +7390,12 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_USERNAME, user_id=user_id)
             if member.status not in ["creator","administrator","member"]: await query.answer(t["join_channel_first_alert"], show_alert=True); return
         except: await query.answer(t["join_channel_first"], show_alert=True); return
+        # FIX - claims: send kind so batch claim goes to Batch (+1), single claim goes to Downloads (+1)
+        _ad_kind = AD_KIND_BY_USER.get(user_id, "single")
         try:
             claim_response = requests.post(
                 f"{WEB_BASE_URL}/claim-bridge-reward",
-                json={"user_id": user_id, "reward": get_reward_amount(), "admin_test": user_id == ADMIN_ID},
+                json={"user_id": user_id, "reward": get_reward_amount(), "kind": _ad_kind, "admin_test": user_id == ADMIN_ID},
                 headers=API_HEADERS,
                 timeout=8,
             )
@@ -5038,8 +7413,18 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         msg_end = int(claim_data.get("msg_end", 0) or 0)
         reward = int(claim_data.get("reward", get_reward_amount()))
         await query.answer(t["verified_added"])
+        # FIX - claims: clear kind after successful claim so next single ad does not reuse stale batch kind
+        AD_KIND_BY_USER.pop(user_id, None)
+        # V36 MUSIC: if music download was waiting for ad, download it now (1 credit)
+        _music_retry = MUSIC_RETRY.pop(user_id, None)
+        if _music_retry:
+            try: await query.message.reply_text("✅ Ad watched - downloading your song... MP3 192kbps")
+            except Exception: pass
+            try: await _music_download_song(context.bot, chat_id, user_id, _music_retry, t)
+            except Exception as _e: logger.warning(f"music retry after ad failed: {_e}")
+            return
         if user_id in paused_batches:
-            keyboard = [[InlineKeyboardButton("▶️ Resume Batch +1", callback_data="resume_batch")]]
+            keyboard = [[InlineKeyboardButton(f"▶️ Resume Batch +{reward}", callback_data="resume_batch")]]
             await query.message.reply_text(t["resume_prompt"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             return
         # V11: Adsterra refill - if user had a pending link, show format + quality picker (don't ask to resend)
@@ -5142,6 +7527,7 @@ def run_telegram_bot():
         except Exception as e: logger.warning(f"Could not set bot menu commands: {e}")
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CommandHandler("filetolink", file_to_link_command))
+        app.add_handler(CommandHandler("clearpassword", clearpassword_command))
         app.add_handler(CommandHandler("language", language_command))
         app.add_handler(CommandHandler("stats", stats))
         app.add_handler(CommandHandler("status", status_command))
@@ -5227,7 +7613,14 @@ async def _tell_uploading(status_msg, path):
 
 async def send_video_file(bot, chat_id, target_id, path, caption, parse_mode, status_msg=None):
     if os.path.getsize(path) <= BOT_API_LIMIT_BYTES:
-        with open(path, 'rb') as f: return await bot.send_video(chat_id=target_id, video=f, caption=caption, parse_mode=parse_mode)
+        # V52 FIX: caption can contain _ * [ ] & etc from TikTok title/URL (?_r=1&_t=...) -> Telegram "Can't parse entities" BadRequest.
+        # Try with parse_mode first, fall back to plain text (no parse) so download still succeeds.
+        try:
+            with open(path, 'rb') as f: return await bot.send_video(chat_id=target_id, video=f, caption=caption, parse_mode=parse_mode)
+        except Exception as _e_parse:
+            if "parse" in str(_e_parse).lower() or "entity" in str(_e_parse).lower():
+                with open(path, 'rb') as f: return await bot.send_video(chat_id=target_id, video=f, caption=caption, parse_mode=None)
+            raise
     # BUG 1 FIX: first download after restart fails because MTProto hasn't connected yet.
     # Wait up to 25s for it instead of failing instantly - file is already cached, second try would have worked.
     if not MTPROTO["ready"].is_set():
@@ -5255,7 +7648,13 @@ async def send_video_file(bot, chat_id, target_id, path, caption, parse_mode, st
 
 async def send_audio_file(bot, chat_id, path, caption, parse_mode, status_msg=None):
     if os.path.getsize(path) <= BOT_API_LIMIT_BYTES:
-        with open(path, 'rb') as f: return await bot.send_audio(chat_id=chat_id, audio=f, caption=caption, parse_mode=parse_mode)
+        # V52 FIX: same parse fallback as video - TikTok title/URL can break Markdown/HTML.
+        try:
+            with open(path, 'rb') as f: return await bot.send_audio(chat_id=chat_id, audio=f, caption=caption, parse_mode=parse_mode)
+        except Exception as _e_parse:
+            if "parse" in str(_e_parse).lower() or "entity" in str(_e_parse).lower():
+                with open(path, 'rb') as f: return await bot.send_audio(chat_id=chat_id, audio=f, caption=caption, parse_mode=None)
+            raise
     await _tell_uploading(status_msg, path)
     msg = await mtproto_upload("audio", chat_id, path, caption.replace("`", ""))
     media = msg.audio or msg.document
