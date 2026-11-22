@@ -2801,6 +2801,8 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                     _opts.update({'format': _fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['android', 'ios', 'web', 'tv']}}})
                     with yt_dlp.YoutubeDL(_opts) as ydl:
                         info = ydl.extract_info(url, download=True)
+                        try: LAST_TITLE_BY_URL[url] = {"title": info.get("title"), "poster": info.get("uploader") or info.get("channel")}
+                        except Exception: pass
                         base = os.path.splitext(ydl.prepare_filename(info))[0]
                         path = f"{base}.mp3"
                         if os.path.exists(path):
@@ -2834,6 +2836,33 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                     # Unknown error for this format - try next format before giving up
                     logger.warning(f"Audio format {_fmt} failed for {url}: {_ae}, trying next")
                     break
+        # V41: YouTube rate-limit is temporary - wait 15s and retry once with android-only before giving up.
+        # This is why "it was working then stopped" - IP gets 429 for a minute, then clears.
+        if _last_audio_err and any(w in str(_last_audio_err).lower() for w in ["not a bot", "429", "403", "sign in to confirm"]):
+            try:
+                logger.warning(f"Audio rate-limited for {url}, waiting 15s and retrying once with android client")
+                import time as _t_wait
+                _t_wait.sleep(15)
+                _retry_opts = dict(ydl_opts)
+                _retry_opts.update({'format': 'best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['android']}}})
+                with yt_dlp.YoutubeDL(_retry_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    try: LAST_TITLE_BY_URL[url] = {"title": info.get("title"), "poster": info.get("uploader") or info.get("channel")}
+                    except Exception: pass
+                    base = os.path.splitext(ydl.prepare_filename(info))[0]
+                    path = f"{base}.mp3"
+                    if os.path.exists(path) and os.path.getsize(path) > 1000:
+                        if os.path.getsize(path) > cap_bytes:
+                            os.remove(path)
+                            raise ValueError("FILE_TOO_LARGE")
+                        save_to_file_cache(url, "audio", path)
+                        logger.info(f"Audio 15s retry worked for {url}")
+                        return [path], "audio", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
+            except ValueError:
+                raise
+            except Exception as _re:
+                logger.warning(f"Audio 15s retry failed for {url}: {_re}")
+                _last_audio_err = _re
         # Last resort: Lux can fetch combined video, ffmpeg -> mp3
         try:
             _lux = download_with_lux(url, output_dir, cap_bytes, cookiefile)
@@ -2850,6 +2879,20 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                     return [_mp3], "audio", f"{os.path.getsize(_mp3)/(1024*1024):.1f}MB"
         except Exception as _le:
             logger.warning(f"Audio Lux fallback failed for {url}: {_le}")
+        # V42: Piped fallback - if YouTube IP is blocked for hours (you waited 3hrs and still blocked), Piped's server fetches it, not Render.
+        if "youtube.com" in url.lower() or "youtu.be" in url.lower():
+            try:
+                logger.warning(f"Audio yt-dlp blocked for {url}, trying Piped fallback")
+                _piped_path = _piped_download_audio_youtube(url, output_dir, cap_bytes)
+                if _piped_path and os.path.exists(_piped_path) and os.path.getsize(_piped_path) > 1000:
+                    save_to_file_cache(url, "audio", _piped_path)
+                    logger.info(f"Audio Piped fallback worked for {url}")
+                    return [_piped_path], "audio", f"{os.path.getsize(_piped_path)/(1024*1024):.1f}MB"
+            except ValueError:
+                raise
+            except Exception as _pe:
+                logger.warning(f"Audio Piped fallback failed for {url}: {_pe}")
+                _last_audio_err = _pe
         if _last_audio_err and ("not a bot" in str(_last_audio_err).lower() or "429" in str(_last_audio_err).lower() or "403" in str(_last_audio_err).lower()):
             raise ValueError("SITE_BLOCKED")
         raise ValueError(f"FILE_NOT_FOUND: {_last_audio_err}" if _last_audio_err else "FILE_NOT_FOUND")
@@ -2890,6 +2933,8 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                     opts.update({'format': 'bv*+ba/b', 'format_sort': [f"res:{qual_name[:-1]}"]})
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=True)
+                    try: LAST_TITLE_BY_URL[url] = {"title": info.get("title"), "poster": info.get("uploader") or info.get("channel")}
+                    except Exception: pass
                     try:
                         vf = [f for f in (info.get('formats') or []) if f.get('vcodec') not in (None, 'none') and f.get('height')]
                         sizes = sorted({f.get('height') for f in vf})
@@ -3475,6 +3520,15 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             continue
         try:
             ckey = await get_canonical_key(url, chat_id, bot)
+            # V42 universal naming for batch: og:title via plain HTTP if no title yet (TikTok/IG/carousel)
+            try:
+                _bc = load_json_file(CACHE_FILE)
+                if _display_name_for(None, url, ckey, _bc) == ckey and url not in OG_TITLE_CACHE:
+                    try:
+                        _bog = await asyncio.wait_for(asyncio.to_thread(_og_title_for_url, url), timeout=8)
+                        if _bog: OG_TITLE_CACHE[url] = _bog
+                    except Exception: pass
+            except Exception: pass
             cache = load_json_file(CACHE_FILE)
             
             if ckey in cache and "file_id" in cache[ckey] and "qualities" not in cache[ckey]:
@@ -3509,7 +3563,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                 if "original" in _cq:
                     try:
                         _cached_img = _cq["original"]
-                        sent = await bot.send_photo(chat_id=target_destination_id, photo=_cached_img["file_id"], caption=f"Item {index}/{len(urls)} ⚡ Cached [original]")
+                        sent = await bot.send_photo(chat_id=target_destination_id, photo=_cached_img["file_id"], caption=f"Item {index}/{len(urls)} | {_display_name_for(None, url, ckey, cache)} | ⚡ Cached [original] | `{ckey}`")
                         credit_charged = False
                         if target_destination_id == chat_id:
                             warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
@@ -3536,7 +3590,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     try:
                         cached = cached_qualities[best_cached_quality]
                         qual_tag = f"[{best_cached_quality}]"
-                        sent = await bot.send_video(chat_id=target_destination_id, video=cached["file_id"], caption=f"Item {index}/{len(urls)} ⚡ Cached {qual_tag}")
+                        sent = await bot.send_video(chat_id=target_destination_id, video=cached["file_id"], caption=f"Item {index}/{len(urls)} | {_display_name_for(None, url, ckey, cache)} | ⚡ Cached {qual_tag} | `{ckey}`")
                         credit_charged = False
                         if target_destination_id == chat_id:
                             warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
@@ -3603,13 +3657,13 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             if file_paths and os.path.exists(file_paths[0]):
                 # V16: images batch / image fallback sends as photo, not video. Same image engine as single download.
                 if _eff_dl_type == "images" and res == "original":
-                    sent = await bot.send_photo(chat_id=target_destination_id, photo=open(file_paths[0], 'rb'), caption=f"Item {index}/{len(urls)} [original] Size {size}")
+                    sent = await bot.send_photo(chat_id=target_destination_id, photo=open(file_paths[0], 'rb'), caption=f"Item {index}/{len(urls)} | {_display_name_for(None, url, ckey, cache)} | [original] Size {size} | `{ckey}`")
                     credit_charged = False
                     if target_destination_id == chat_id:
                         warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
                         asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
                     try:
-                        vmsg = await bot.send_photo(chat_id=VIDEO_VAULT_ID, photo=sent.photo[-1].file_id, caption=ckey)
+                        vmsg = await bot.send_photo(chat_id=VIDEO_VAULT_ID, photo=sent.photo[-1].file_id, caption=f"{_display_name_for(None, url, ckey, cache)} | {ckey}")
                         cache = load_json_file(CACHE_FILE)
                         if ckey not in cache: cache[ckey] = {"type": "images", "timestamp": time.time(), "qualities": {}, "hits": 0}
                         cache[ckey]["type"] = "images"
@@ -3625,13 +3679,19 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                         break
                 else:
                     qual_tag = f"[{res}]"
-                    sent = await send_video_file(bot, chat_id, target_destination_id, file_paths[0], f"Item {index}/{len(urls)} {qual_tag} Size {size}", None, status_msg)
+                    _b_disp = _display_name_for(None, url, ckey, cache)
+                    try:
+                        _ext = os.path.splitext(file_paths[0])[1] or ".mp4"
+                        _rn = os.path.join(os.path.dirname(file_paths[0]), f"{_clean_filename_part(_b_disp)} {qual_tag}{_ext}") if _b_disp and _b_disp != ckey and _clean_filename_part(_b_disp) else file_paths[0]
+                        if _rn != file_paths[0]: os.rename(file_paths[0], _rn); file_paths[0] = _rn
+                    except Exception: pass
+                    sent = await send_video_file(bot, chat_id, target_destination_id, file_paths[0], f"Item {index}/{len(urls)} | {_b_disp} | {qual_tag} Size {size} | `{ckey}`", None, status_msg)
                     credit_charged = False
                     if target_destination_id == chat_id:
                         warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
                         asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
                     try:
-                        vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent.video.file_id, caption=f"{ckey} [{res}]")
+                        vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent.video.file_id, caption=f"{_display_name_for(None, url, ckey, cache)} [{res}] | {ckey}")
                         cache = load_json_file(CACHE_FILE)
                         if ckey not in cache: cache[ckey] = {"type": "video", "timestamp": time.time(), "qualities": {}, "hits": 0}
                         cache[ckey]["qualities"][res] = {"file_id": sent.video.file_id, "vault_msg_id": vmsg.message_id, "size": size}
@@ -4666,9 +4726,174 @@ async def set_mtproto_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(f"✅ MTProto max upload size set to **{value}MB**\nMTProto ready: **{'✅ Yes' if _ready2 else '❌ No — still capped at 49MB until API_ID/API_HASH are set on Render and bot restarts'}**\nEffective limit now: **{_eff2}MB**", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
     except ValueError: await update.message.reply_text("❌ Invalid number.", reply_markup=get_main_keyboard("en", True))
 
+# V41: display name + SITE_BLOCKED cooldown
+# V42: universal naming (og:title, no yt-dlp) + Piped fallback for YouTube IP block that lasts hours
+YT_BLOCKED_UNTIL = 0
+LAST_TITLE_BY_URL = {}
+OG_TITLE_CACHE = {}
+def _og_title_for_url(url):
+    """Lightweight HTML og:title - no yt-dlp, so it works even when yt-dlp is blocked. For YouTube/TikTok/IG/FB/X."""
+    try:
+        if url in OG_TITLE_CACHE:
+            return OG_TITLE_CACHE[url]
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"}
+        r = requests.get(url, headers=headers, timeout=10)
+        if r.status_code != 200:
+            return None
+        html = r.text or ""
+        title = ""
+        poster = ""
+        # og:title
+        m = re.search(r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)["\']', html, re.I)
+        if not m:
+            m = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:title["\']', html, re.I)
+        if m: title = m.group(1).strip()
+        if not title:
+            m2 = re.search(r'<title>([^<]+)</title>', html, re.I)
+            if m2: title = m2.group(1).strip()
+        # og:site_name as poster fallback, or twitter:creator
+        m3 = re.search(r'<meta[^>]+property=["\']og:site_name["\'][^>]+content=["\']([^"\']+)["\']', html, re.I)
+        if m3: poster = m3.group(1).strip()
+        # Clean suffixes: "Title - YouTube", "Title | TikTok", "Title • Instagram"
+        for suf in [" - YouTube", " | YouTube", " - TikTok", " | TikTok", " on TikTok", " • Instagram", " | Instagram", " - YouTube Music"]:
+            if title.endswith(suf): title = title[:-len(suf)].strip()
+        if title and title.lower() not in ("youtube", "tiktok", "instagram"):
+            res = {"title": title[:120], "poster": poster}
+            OG_TITLE_CACHE[url] = res
+            return res
+        return None
+    except Exception as e:
+        logger.warning(f"og_title failed for {url}: {e}")
+        return None
+
+def _piped_streams_for_youtube(video_id):
+    """Piped API - a different server fetches from YouTube, so Render IP block doesn't matter. Returns (title, uploader, audioStreams, videoStreams, hls)."""
+    hosts = ["https://pipedapi.kavin.rocks", "https://pipedapi.adminforge.de", "https://pipedapi.leptons.xyz", "https://pipedapi.reallyaweso.me", "https://pipedapi-libre.kavin.rocks"]
+    last_err = None
+    for host in hosts:
+        try:
+            r = requests.get(f"{host}/streams/{video_id}", timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+            if r.status_code != 200:
+                last_err = f"{host} HTTP {r.status_code}"
+                continue
+            data = r.json()
+            if data.get("error"):
+                last_err = str(data.get("error"))[:100]
+                continue
+            if data.get("audioStreams") or data.get("videoStreams"):
+                return data
+            last_err = "no streams"
+        except Exception as e:
+            last_err = str(e)[:100]
+            continue
+    raise RuntimeError(f"Piped all hosts failed: {last_err}")
+
+def _piped_download_audio_youtube(url, output_dir, cap_bytes):
+    """Download YouTube audio via Piped direct URL, then ffmpeg -> MP3. Returns path or None."""
+    import subprocess as _sp
+    vid = None
+    try:
+        m = YT_ID_RE.search(url or "")
+        vid = m.group(1) if m else None
+    except Exception: pass
+    if not vid: return None
+    data = _piped_streams_for_youtube(vid)
+    try: LAST_TITLE_BY_URL[url] = {"title": data.get("title"), "poster": data.get("uploader")}
+    except Exception: pass
+    audio_streams = data.get("audioStreams") or []
+    if not audio_streams: return None
+    # Prefer m4a/mp4 audio, highest bitrate
+    def _br(s):
+        try: return int(s.get("bitrate") or 0)
+        except Exception: return 0
+    audio_streams = sorted(audio_streams, key=_br, reverse=True)
+    chosen = audio_streams[0]
+    durl = chosen.get("url")
+    if not durl: return None
+    tmp = os.path.join(output_dir, f"piped_{vid}.{chosen.get('format') or 'm4a'}")
+    # Download direct URL (googlevideo, not youtube.com, so not blocked)
+    with requests.get(durl, headers={"User-Agent": "Mozilla/5.0"}, stream=True, timeout=60) as r:
+        r.raise_for_status()
+        size = 0
+        with open(tmp, "wb") as f:
+            for chunk in r.iter_content(65536):
+                if not chunk: continue
+                size += len(chunk)
+                if size > cap_bytes:
+                    f.close()
+                    try: os.remove(tmp)
+                    except Exception: pass
+                    raise ValueError("FILE_TOO_LARGE")
+                f.write(chunk)
+    if not os.path.exists(tmp) or os.path.getsize(tmp) < 1000:
+        return None
+    mp3 = os.path.join(output_dir, f"piped_{vid}.mp3")
+    # If already mp3, just rename; else ffmpeg convert
+    if tmp.lower().endswith(".mp3"):
+        os.rename(tmp, mp3)
+        return mp3
+    _r = _sp.run([ffmpeg_path, "-y", "-i", tmp, "-vn", "-codec:a", "libmp3lame", "-q:a", "2", mp3], capture_output=True, text=True, timeout=120)
+    try: os.remove(tmp)
+    except Exception: pass
+    if os.path.exists(mp3) and os.path.getsize(mp3) > 1000:
+        return mp3
+    return None
+
+def _clean_filename_part(s):
+    try:
+        s = str(s or "").strip().replace("\n", " ").replace("\r", " ")
+        for ch in ['/', '\\', ':', '*', '?', '"', '<', '>', '|', '`']:
+            s = s.replace(ch, " ")
+        s = " ".join(s.split())
+        return s[:80] if s else ""
+    except Exception:
+        return ""
+def _display_name_for(meta, url, ckey, cache_dict=None):
+    """Returns 'Artist - Title' or 'Title' or ckey. Never just ckey if we know the title."""
+    title = ""
+    poster = ""
+    try:
+        if isinstance(meta, dict):
+            title = _clean_filename_part(meta.get("title") or "")
+            poster = _clean_filename_part(meta.get("poster") or meta.get("uploader") or meta.get("channel") or "")
+    except Exception: pass
+    if not title and isinstance(cache_dict, dict):
+        try:
+            c = cache_dict.get(ckey) or {}
+            title = _clean_filename_part(c.get("title") or "")
+            poster = _clean_filename_part(c.get("poster") or "") or poster
+        except Exception: pass
+    if not title:
+        try:
+            lt = LAST_TITLE_BY_URL.get(url) or {}
+            title = _clean_filename_part(lt.get("title") or "")
+            poster = _clean_filename_part(lt.get("poster") or "") or poster
+        except Exception: pass
+    if not title:
+        try:
+            og = OG_TITLE_CACHE.get(url) or {}
+            title = _clean_filename_part(og.get("title") or "")
+            # og poster is site name (YouTube/TikTok), not creator - don't use it as Artist
+        except Exception: pass
+    if title and poster and poster.lower() not in title.lower():
+        return f"{poster} - {title}"
+    if title:
+        return title
+    return ckey
+
 async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credit_cost=1, preferred_quality=None, meta=None):
     cache = load_json_file(CACHE_FILE)
     ckey = await get_canonical_key(url, chat_id, bot)
+    # V42 universal naming: if we don't have a title yet (TikTok/IG/carousel/images), fetch og:title via plain HTTP (not yt-dlp, so not blocked)
+    try:
+        _pre_cache = load_json_file(CACHE_FILE)
+        _pre_disp = _display_name_for(meta, url, ckey, _pre_cache)
+        if _pre_disp == ckey and url not in OG_TITLE_CACHE:
+            try:
+                _og = await asyncio.wait_for(asyncio.to_thread(_og_title_for_url, url), timeout=8)
+                if _og: OG_TITLE_CACHE[url] = _og
+            except Exception: pass
+    except Exception: pass
     
     if ckey in cache and "file_id" in cache[ckey] and "qualities" not in cache[ckey]:
         cache[ckey]["qualities"] = {"720p": {"file_id": cache[ckey]["file_id"], "vault_msg_id": cache[ckey].get("vault_msg_id"), "size": cache[ckey].get("size", "unknown")}}
@@ -4723,9 +4948,9 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
                     qual_tag = f"[{best_cached_quality}]"
                     kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
                     if dl_type == 'video': 
-                        sent = await bot.send_video(chat_id=chat_id, video=file_id, caption=t["cached_instant_video"].format(qual_tag, sz, ckey), reply_markup=kb)
+                        sent = await bot.send_video(chat_id=chat_id, video=file_id, caption=f"⚡ Cached Instant {qual_tag} | 🎬 {_display_name_for(meta, url, ckey, cache)} | Size {sz} `{ckey}`", reply_markup=kb)
                     elif dl_type == 'audio': 
-                        sent = await bot.send_audio(chat_id=chat_id, audio=file_id, caption=t["cached_instant_audio"].format(ckey), reply_markup=kb)
+                        sent = await bot.send_audio(chat_id=chat_id, audio=file_id, caption=f"⚡ Cached Instant | 🎵 {_display_name_for(meta, url, ckey, cache)} | `{ckey}`", reply_markup=kb)
                     else: 
                         sent = await bot.send_photo(chat_id=chat_id, photo=file_id, caption=t["cached_instant_image"].format(ckey), reply_markup=kb)
                     
@@ -4812,26 +5037,45 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
             except: cache[ckey]["qualities"]["original"] = {"file_id": sent_media[0].photo[-1].file_id, "size": size}
             for p in file_paths: os.remove(p)
         elif dl_type == 'audio':
-            sent_media = await send_audio_file(bot, chat_id, file_paths[0], f"🎵 Size {size} `{ckey}`", "Markdown", status_msg)
+            _disp = _display_name_for(meta, url, ckey, cache)
+            try:
+                _rn = os.path.join(os.path.dirname(file_paths[0]), _clean_filename_part(_disp) + ".mp3") if _disp and _disp != ckey else file_paths[0]
+                if _rn != file_paths[0] and _clean_filename_part(_disp):
+                    os.rename(file_paths[0], _rn); file_paths[0] = _rn
+            except Exception: pass
+            sent_media = await send_audio_file(bot, chat_id, file_paths[0], f"🎵 {_disp} | MP3 192kbps | Size {size} `{ckey}`", "Markdown", status_msg)
             warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
             asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
             try:
-                vmsg = await bot.send_audio(chat_id=VIDEO_VAULT_ID, audio=sent_media.audio.file_id, caption=ckey)
+                vmsg = await bot.send_audio(chat_id=VIDEO_VAULT_ID, audio=sent_media.audio.file_id, caption=f"{_display_name_for(meta, url, ckey, cache)} | {ckey}")
                 cache[ckey]["qualities"]["audio"] = {"file_id": sent_media.audio.file_id, "vault_msg_id": vmsg.message_id, "size": size}
             except: cache[ckey]["qualities"]["audio"] = {"file_id": sent_media.audio.file_id, "size": size}
             os.remove(file_paths[0])
         else:
-            sent_media = await send_video_file(bot, chat_id, chat_id, file_paths[0], f"✨ {qual_tag} Size {size} `{ckey}`", "Markdown", status_msg)
+            _disp = _display_name_for(meta, url, ckey, cache)
+            try:
+                _rn = os.path.join(os.path.dirname(file_paths[0]), f"{_clean_filename_part(_disp)} {qual_tag}.mp4") if _disp and _disp != ckey and _clean_filename_part(_disp) else file_paths[0]
+                if _rn != file_paths[0]:
+                    os.rename(file_paths[0], _rn); file_paths[0] = _rn
+            except Exception: pass
+            sent_media = await send_video_file(bot, chat_id, chat_id, file_paths[0], f"🎬 {_disp} | ✨ {qual_tag} | Size {size} `{ckey}`", "Markdown", status_msg)
             warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
             asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
             try:
-                vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent_media.video.file_id, caption=f"{ckey} [{res}]")
+                vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent_media.video.file_id, caption=f"{_display_name_for(meta, url, ckey, cache)} [{res}] | {ckey}")
                 cache[ckey]["qualities"][res] = {"file_id": sent_media.video.file_id, "vault_msg_id": vmsg.message_id, "size": size}
             except Exception as e: 
                 logger.error(f"Vault save fail: {e}")
                 cache[ckey]["qualities"][res] = {"file_id": sent_media.video.file_id, "size": size}
             os.remove(file_paths[0])
             
+        try:
+            _t = _display_name_for(meta, url, ckey, cache)
+            if _t and _t != ckey:
+                cache[ckey]["title"] = _t
+                _lt = LAST_TITLE_BY_URL.get(url) or {}
+                if _lt.get("poster"): cache[ckey]["poster"] = _clean_filename_part(_lt.get("poster"))
+        except Exception: pass
         cache[ckey]["hits"] = cache[ckey].get("hits", 0) + 1
         save_json_file(CACHE_FILE, cache)
         _progress_task.cancel()
@@ -4860,7 +5104,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
         if "FILE_TOO_LARGE" in str(e): err = t["error_50mb"]
         elif "MTPROTO_OFF" in str(e): err = "⚠️ Big files need fast mode, which is offline right now."
         elif "MTPROTO_PEER" in str(e): err = "⚠️ Send /start to this bot once, then send the link again."
-        elif "SITE_BLOCKED" in str(e): err = "⚠️ This site is blocking downloads from our server right now. Please try again later."
+        elif "SITE_BLOCKED" in str(e): err = "⏳ YouTube is still blocking our server (IP block, can last hours). I tried Piped fallback too. Permanent fix: add cookies.txt to Render (export from your browser). Wait and try again later - your credit was NOT taken."
         elif isinstance(e, (asyncio.TimeoutError, TimeoutError)): err = "⚠️ This is taking too long, so I stopped. Please try again later."
         else: err = t["error_generic"]
         kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
