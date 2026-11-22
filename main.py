@@ -152,6 +152,7 @@ AD_KIND_BY_USER = {}
 MUSIC_WAITING = {}
 MUSIC_RESULTS = {}
 MUSIC_RETRY = {}
+MUSIC_SEARCHING = {}  # V40 FIX: was used in V39 but never defined -> NameError killed Music Search button
 
 MAX_CONCURRENT_SHORT = 3
 MIN_FREE_DISK_MB = 150
