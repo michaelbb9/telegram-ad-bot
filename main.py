@@ -3803,7 +3803,7 @@ def _music_filter_and_score(raw_list, query):
 
 def _music_search_ytdlp(query, fetch_n):
     """Method 1: yt-dlp ytsearch - same cookies/headers as downloads + android client. Works locally, often blocked on Render datacenter IP."""
-    ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True, "socket_timeout": 20, "http_headers": {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"}, "extractor_args": {"youtube": {"player_client": ["android", "web"]}}}
+    ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True, "socket_timeout": 10, "http_headers": {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"}, "extractor_args": {"youtube": {"player_client": ["android", "web"]}}}
     try:
         if os.path.exists("cookies.txt"): ydl_opts["cookiefile"] = "cookies.txt"
     except Exception: pass
@@ -3898,59 +3898,72 @@ def _music_search_itunes_then_innertube(query, fetch_n):
     return raw
 
 def search_music_sync(query, want=5, offset=0):
-    """Robust search: yt-dlp -> Innertube -> iTunes+Innertube. Returns list. Logs which method worked so Render logs show it."""
+    """V39 order: Innertube FIRST (2-3s, works on Render) -> iTunes+Innertube -> yt-dlp LAST (slow, can hang 60s+).
+    V37 tried yt-dlp first, so every search waited 60s+ before trying Innertube - looked stuck."""
     fetch_n = int(offset + want + 10)
     if fetch_n < 15: fetch_n = 15
     if fetch_n > 30: fetch_n = 30
-    # Method 1: yt-dlp
+    # Method 1: Innertube - fast
     try:
-        raw1 = _music_search_ytdlp(query, fetch_n)
+        raw1 = _music_search_innertube(query, fetch_n)
         filt1 = _music_filter_and_score(raw1, query)
         if filt1:
-            logger.info(f"Music search OK via yt-dlp: {query} -> {len(filt1)}")
+            logger.info(f"Music search OK via Innertube: {query} -> {len(filt1)}")
             return filt1[offset:offset+want]
-        logger.warning(f"Music search yt-dlp returned 0 filtered for {query}, trying Innertube")
-    except Exception as e:
-        logger.warning(f"Music search yt-dlp failed for {query}: {e}, trying Innertube")
-    # Method 1b: yt-dlp with "official audio" variant - sometimes plain query is blocked but variant works
-    try:
-        if "official" not in (query or "").lower():
-            raw1b = _music_search_ytdlp(f"{query} official audio", fetch_n)
-            filt1b = _music_filter_and_score(raw1b, query)
-            if filt1b:
-                logger.info(f"Music search OK via yt-dlp official-audio variant: {query} -> {len(filt1b)}")
-                return filt1b[offset:offset+want]
-    except Exception as e:
-        logger.warning(f"Music search yt-dlp variant failed for {query}: {e}")
-    # Method 2: Innertube
-    try:
-        raw2 = _music_search_innertube(query, fetch_n)
-        filt2 = _music_filter_and_score(raw2, query)
-        if filt2:
-            logger.info(f"Music search OK via Innertube: {query} -> {len(filt2)}")
-            return filt2[offset:offset+want]
         logger.warning(f"Music search Innertube returned 0 filtered for {query}, trying iTunes")
     except Exception as e:
         logger.warning(f"Music search Innertube failed for {query}: {e}, trying iTunes")
-    # Method 3: iTunes + Innertube
+    # Method 2: iTunes + Innertube
     try:
-        raw3 = _music_search_itunes_then_innertube(query, fetch_n)
-        filt3 = _music_filter_and_score(raw3, query)
-        if filt3:
-            logger.info(f"Music search OK via iTunes+Innertube: {query} -> {len(filt3)}")
-            return filt3[offset:offset+want]
+        raw2 = _music_search_itunes_then_innertube(query, fetch_n)
+        filt2 = _music_filter_and_score(raw2, query)
+        if filt2:
+            logger.info(f"Music search OK via iTunes+Innertube: {query} -> {len(filt2)}")
+            return filt2[offset:offset+want]
     except Exception as e:
         logger.warning(f"Music search iTunes failed for {query}: {e}")
+    # Method 3: yt-dlp LAST - slow, only if fast methods failed
+    try:
+        raw3 = _music_search_ytdlp(query, fetch_n)
+        filt3 = _music_filter_and_score(raw3, query)
+        if filt3:
+            logger.info(f"Music search OK via yt-dlp: {query} -> {len(filt3)}")
+            return filt3[offset:offset+want]
+        logger.warning(f"Music search yt-dlp returned 0 filtered for {query}")
+    except Exception as e:
+        logger.warning(f"Music search yt-dlp failed for {query}: {e}")
+    # Method 3b: yt-dlp official-audio variant
+    try:
+        if "official" not in (query or "").lower():
+            raw3b = _music_search_ytdlp(f"{query} official audio", fetch_n)
+            filt3b = _music_filter_and_score(raw3b, query)
+            if filt3b:
+                logger.info(f"Music search OK via yt-dlp official-audio variant: {query} -> {len(filt3b)}")
+                return filt3b[offset:offset+want]
+    except Exception as e:
+        logger.warning(f"Music search yt-dlp variant failed for {query}: {e}")
     logger.warning(f"Music search ALL methods failed/empty for {query}")
     return []
 
 async def send_music_results(bot, chat_id, user_id, query, offset, t):
-    """Send 5 cards. Each card = thumbnail photo + all info + Download button. Search is free."""
+    """Send 5 cards. V39: hard 25s timeout - never hang forever. Guard stops double search."""
+    if MUSIC_SEARCHING.get(user_id):
+        try: await bot.send_message(chat_id=chat_id, text="⏳ Still searching... wait a few seconds, results are coming.")
+        except Exception: pass
+        return
+    MUSIC_SEARCHING[user_id] = True
     try:
-        results = await asyncio.to_thread(search_music_sync, query, 5, offset)
+        results = await asyncio.wait_for(asyncio.to_thread(search_music_sync, query, 5, offset), timeout=25)
+    except asyncio.TimeoutError:
+        logger.warning(f"Music search TIMEOUT 25s for {query}")
+        MUSIC_SEARCHING.pop(user_id, None)
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔁 Try Again", callback_data="music_new")], [InlineKeyboardButton("❌ Cancel", callback_data="music_cancel")]])
+        await bot.send_message(chat_id=chat_id, text=f"⏳ Search took too long for '{query}'.\nTap Try Again - next try is usually fast.\nOr try: Rema - Calm Down", reply_markup=kb)
+        return
     except Exception:
         results = []
     if not results:
+        MUSIC_SEARCHING.pop(user_id, None)
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔁 Try Again", callback_data="music_new")], [InlineKeyboardButton("❌ Cancel", callback_data="music_cancel")]])
         await bot.send_message(chat_id=chat_id, text=f"⚠️ Search is busy right now for '{query}'.\nYouTube blocked the search for a moment.\nTap Try Again - it usually works on 2nd try.\nOr try: Rema - Calm Down", reply_markup=kb)
         return
@@ -3976,6 +3989,7 @@ async def send_music_results(bot, chat_id, user_id, query, offset, t):
     footer_rows.append([InlineKeyboardButton("🔍 New Search", callback_data="music_new")])
     footer_rows.append([InlineKeyboardButton("❌ Cancel", callback_data="music_cancel")])
     await bot.send_message(chat_id=chat_id, text="👇 Pick one above, or get more / search again.", reply_markup=InlineKeyboardMarkup(footer_rows))
+    MUSIC_SEARCHING.pop(user_id, None)
 
 async def _music_download_song(bot, chat_id, user_id, video_id, t):
     """Download one music song as audio, 1 credit, cached if available. Assumes credit check already done."""
@@ -4293,6 +4307,9 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
     # ===== V36 MUSIC SEARCH - button first, never auto-detect random text =====
     if text.strip() == "🎵 Music Search":
+        if MUSIC_SEARCHING.get(user_id):
+            await update.message.reply_text("⏳ Still searching your last song... wait a few seconds, results are coming.")
+            return
         MUSIC_WAITING[user_id] = True
         MUSIC_RESULTS.pop(user_id, None)
         _mkb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="music_cancel")]])
@@ -4944,6 +4961,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     # ===== V36 MUSIC SEARCH callbacks =====
     if data == "music_cancel":
+        MUSIC_SEARCHING.pop(user_id, None)
         MUSIC_WAITING.pop(user_id, None)
         MUSIC_RESULTS.pop(user_id, None)
         MUSIC_RETRY.pop(user_id, None)
@@ -4954,6 +4972,9 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             except Exception: pass
         return
     if data == "music_new":
+        if MUSIC_SEARCHING.get(user_id):
+            await query.answer("Still searching... wait a few seconds", show_alert=True)
+            return
         MUSIC_WAITING[user_id] = True
         MUSIC_RESULTS.pop(user_id, None)
         await query.answer("Send song name")
