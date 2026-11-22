@@ -93,13 +93,33 @@ def _ensure_deno():
         return None
 
 def _bgutil_available():
-    """V48: check if bgutil-ytdlp-pot-provider plugin is installed (pip). If not, PO token generation will fail."""
+    """V49 FIX: V48 check was wrong - plugin is under yt_dlp_plugins, not top-level bgutil_ytdlp_pot_provider.
+    So V48 always logged False even when installed. Now checks pip show + yt_dlp_plugins folder + deno."""
     try:
-        import importlib.util as _ilu2
-        # bgutil plugin registers under yt_dlp_plugins
-        if _ilu2.find_spec("bgutil_ytdlp_pot_provider") is not None:
-            return True
-        # Also check via pip list / yt_dlp plugin discovery
+        # 1) pip show
+        try:
+            import subprocess as _sp2
+            _r = _sp2.run(["pip", "show", "bgutil-ytdlp-pot-provider"], capture_output=True, text=True, timeout=5)
+            if _r.returncode == 0 and "bgutil" in (_r.stdout or "").lower():
+                return True
+        except Exception:
+            pass
+        # 2) yt_dlp_plugins folder contains bgutil
+        try:
+            import importlib.util as _ilu2
+            _spec = _ilu2.find_spec("yt_dlp_plugins")
+            if _spec is not None:
+                import os as _os2
+                for _p in (_spec.submodule_search_locations or []):
+                    try:
+                        for _f in _os2.listdir(_p):
+                            if "bgutil" in _f.lower():
+                                return True
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        # 3) any module with bgutil in name
         try:
             import pkgutil
             for _m in pkgutil.iter_modules():
@@ -3241,6 +3261,13 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                 # V44: YouTube video via Piped then Cobalt then Invidious - both fetch from their own server, not Render IP.
                 if "youtube.com" in url.lower() or "youtu.be" in url.lower():
                     try:
+                        logger.warning(f"Video yt-dlp blocked for {url}, trying Lemnoslife video fallback (V49)")
+                        try:
+                            _lem = _lemnoslife_download_youtube(url, _outdir, cap_bytes, is_audio=False, preferred_quality=preferred_quality)
+                            if _lem and os.path.exists(_lem[0]) and os.path.getsize(_lem[0]) > 1000:
+                                return _lem
+                        except Exception as _e_lem:
+                            logger.warning(f"V49 Lemnoslife video fallback failed for {url}: {str(_e_lem)[:200]}")
                         logger.warning(f"Video yt-dlp blocked for {url}, trying Piped video fallback")
                         _pv = _piped_download_video_youtube(url, output_dir, cap_bytes, preferred_quality)
                         if _pv and os.path.exists(_pv[0]) and os.path.getsize(_pv[0]) > 1000:
@@ -5170,6 +5197,92 @@ def _piped_download_video_youtube(url, output_dir, cap_bytes, preferred_quality=
         return out, f"{_h(chosen_v)}p"
     return None
 
+
+def _lemnoslife_download_youtube(url, output_dir, cap_bytes, is_audio=False, preferred_quality=None):
+    """V49 NEW: Lemnoslife YouTube Operational API - https://yt.lemnoslife.com
+    This API has its OWN trusted YouTube session + PO tokens, so it can get streams even when
+    yt-dlp + Piped + Cobalt + Invidious all fail for the same video. It does NOT need our cookies or PO token.
+    Endpoint: GET https://yt.lemnoslife.com/videos?part=snippet,player&id={video_id}
+    Returns items[0].player.streamingData.formats + adaptiveFormats with direct URLs."""
+    try:
+        _m = YT_ID_RE.search(url or "")
+        if not _m:
+            return None
+        vid = _m.group(1)
+        # Try noKey endpoint first (free, no key), then key endpoint
+        for _base in ["https://yt.lemnoslife.com/noKey/videos", "https://yt.lemnoslife.com/videos"]:
+            try:
+                _api = f"{_base}?part=snippet,player&id={vid}"
+                r = requests.get(_api, headers={"Accept": "application/json", "User-Agent": "Mozilla/5.0"}, timeout=30)
+                if r.status_code != 200:
+                    continue
+                try:
+                    data = r.json()
+                except Exception:
+                    continue
+                items = data.get("items") or []
+                if not items:
+                    continue
+                player = items[0].get("player") or {}
+                sd = player.get("streamingData") or {}
+                formats = (sd.get("formats") or []) + (sd.get("adaptiveFormats") or [])
+                if not formats:
+                    continue
+                # Pick best: for audio, highest bitrate audio-only mp4/m4a; for video, mp4 with audio+video (formats) first, then highest adaptive
+                _vq = "720"
+                if preferred_quality:
+                    _q = str(preferred_quality).lower().replace("p", "")
+                    if _q in ("2160","1440","1080","720","480","360","240"):
+                        _vq = _q
+                if is_audio:
+                    # Audio-only: mimeType contains audio, pick highest bitrate
+                    _cands = [f for f in formats if "audio" in str(f.get("mimeType","")).lower()]
+                    if not _cands:
+                        continue
+                    _cands.sort(key=lambda f: int(f.get("bitrate") or 0), reverse=True)
+                    durl = _cands[0].get("url")
+                    if not durl:
+                        continue
+                    tmp = os.path.join(output_dir, f"lemnos_{vid}.mp3")
+                    _download_url_to_file(durl, tmp, cap_bytes)
+                    if os.path.exists(tmp) and os.path.getsize(tmp) > 1000:
+                        return tmp, "audio"
+                    continue
+                else:
+                    # Video: prefer formats with both audio+video (mimeType video/mp4, has audioQuality)
+                    _with_av = [f for f in formats if "video" in str(f.get("mimeType","")).lower() and f.get("audioQuality")]
+                    if _with_av:
+                        # Pick closest to _vq, not higher than _vq if possible
+                        def _score(f):
+                            try:
+                                h = int((f.get("qualityLabel") or "0p").replace("p","").split()[0])
+                            except Exception:
+                                h = 0
+                            return -abs(h - int(_vq))
+                        _with_av.sort(key=_score, reverse=True)
+                        durl = _with_av[0].get("url")
+                        if durl:
+                            tmp = os.path.join(output_dir, f"lemnos_{vid}_{_vq}p.mp4")
+                            _download_url_to_file(durl, tmp, cap_bytes)
+                            if os.path.exists(tmp) and os.path.getsize(tmp) > 1000:
+                                return tmp, f"{_vq}p"
+                    # Fallback: highest adaptive video (may be video-only, but try anyway - yt-dlp would mux, we just return it)
+                    _vonly = [f for f in formats if "video" in str(f.get("mimeType","")).lower()]
+                    if _vonly:
+                        _vonly.sort(key=lambda f: int(f.get("bitrate") or 0), reverse=True)
+                        durl = _vonly[0].get("url")
+                        if durl:
+                            tmp = os.path.join(output_dir, f"lemnos_{vid}_{_vq}p.mp4")
+                            _download_url_to_file(durl, tmp, cap_bytes)
+                            if os.path.exists(tmp) and os.path.getsize(tmp) > 1000:
+                                return tmp, f"{_vq}p"
+            except Exception as _e:
+                logger.warning(f"V49 Lemnoslife {_base} failed for {vid}: {str(_e)[:150]}")
+                continue
+    except Exception as e:
+        logger.warning(f"V49 Lemnoslife failed for {url}: {str(e)[:200]}")
+    return None
+
 def _cobalt_download_youtube(url, output_dir, cap_bytes, is_audio=False, preferred_quality=None):
     """V47: Cobalt FIX - old code used only https://api.cobalt.tools/ with old payload (vQuality/isAudioOnly).
     That host now returns 400: {"code":"error.api.auth.jwt.missing"} - it needs an API key (JWT) since Cobalt v10.
@@ -5619,7 +5732,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
         if "FILE_TOO_LARGE" in str(e): err = t["error_50mb"]
         elif "MTPROTO_OFF" in str(e): err = "⚠️ Big files need fast mode, which is offline right now."
         elif "MTPROTO_PEER" in str(e): err = "⚠️ Send /start to this bot once, then send the link again."
-        elif "SITE_BLOCKED" in str(e): err = "⏳ YouTube blocked this video (needs PO token - even newest yt-dlp failed). Piped + Cobalt + Invidious also failed. Cobalt needs a free API key (set COBALT_API_KEY on Render). Try again in a few minutes - credit NOT taken."
+        elif "SITE_BLOCKED" in str(e): err = "⏳ YouTube blocked this video (PO token + Piped + Cobalt + Invidious + Lemnoslife all failed). Try a different video - this one may need login / age check. Cobalt needs COBALT_API_KEY on Render. Credit NOT taken."
         elif isinstance(e, (asyncio.TimeoutError, TimeoutError)): err = "⚠️ This is taking too long, so I stopped. Please try again later."
         else: err = t["error_generic"]
         kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
