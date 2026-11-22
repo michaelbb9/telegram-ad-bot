@@ -2033,17 +2033,56 @@ def get_social_metadata(link):
                 size = max(cand) if cand else 0
             except Exception:
                 size = 0
+        # V53: Restore + expand V35 metadata - capture EVERYTHING yt-dlp gives, not just title/views.
+        # web_embedded returns thin metadata (often no views/likes), so we keep all fields and let format show N/A if missing.
+        # upload_date is YYYYMMDD -> format as DD Mon YYYY. Tags/categories/thumbnail kept for card.
+        _up = str(info.get("upload_date") or info.get("release_date") or "")
+        _up_fmt = _up
+        try:
+            if len(_up) == 8 and _up.isdigit():
+                import datetime as _dt53
+                _up_fmt = _dt53.datetime.strptime(_up, "%Y%m%d").strftime("%d %b %Y")
+        except Exception: pass
+        # Best format for resolution/fps/codec (largest video format)
+        _best_fmt = {}
+        try:
+            _fmts = info.get("formats") or []
+            _vfmts = [f for f in _fmts if f.get("vcodec") and f.get("vcodec") != "none"]
+            if _vfmts:
+                _best_fmt = max(_vfmts, key=lambda f: (f.get("height") or 0, f.get("filesize_approx") or 0))
+        except Exception: pass
         return {
             "title": info.get("title", "N/A") or "N/A",
             "poster": info.get("uploader") or info.get("uploader_id") or info.get("channel") or "N/A",
+            "channel": info.get("channel") or info.get("uploader") or "N/A",
+            "channel_id": info.get("channel_id") or info.get("uploader_id") or "N/A",
+            "uploader_id": info.get("uploader_id") or "N/A",
             "views": info.get("view_count", "N/A"),
             "likes": info.get("like_count", "N/A"),
+            "dislikes": info.get("dislike_count", "N/A"),
             "comments": info.get("comment_count", "N/A"),
+            "reposts": info.get("repost_count", "N/A"),
+            "shares": info.get("share_count", "N/A"),
+            "saves": info.get("save_count", "N/A"),
             "desc": (info.get("description") or "Preview only")[:600],
             "duration_sec": int(info.get("duration") or 0),
             "platform": info.get("extractor_key") or info.get("extractor") or "unknown",
             "est_size_mb": float(size) / (1024 * 1024) if size else 0.0,
             "filesize_approx": int(size or 0),
+            "upload_date": _up_fmt or "N/A",
+            "upload_date_raw": _up or "",
+            "webpage_url": info.get("webpage_url") or info.get("original_url") or "",
+            "video_id": info.get("id") or "",
+            "width": info.get("width") or (_best_fmt.get("width") if _best_fmt else "N/A"),
+            "height": info.get("height") or (_best_fmt.get("height") if _best_fmt else "N/A"),
+            "fps": info.get("fps") or (_best_fmt.get("fps") if _best_fmt else "N/A"),
+            "vcodec": info.get("vcodec") or (_best_fmt.get("vcodec") if _best_fmt else "N/A"),
+            "acodec": info.get("acodec") or (_best_fmt.get("acodec") if _best_fmt else "N/A"),
+            "ext": info.get("ext") or (_best_fmt.get("ext") if _best_fmt else "N/A"),
+            "tags": info.get("tags") or [],
+            "categories": info.get("categories") or [],
+            "thumbnail": info.get("thumbnail") or "",
+            "like_ratio": "",
         }
     except Exception as e:
         logger.warning(f"get_social_metadata: {e}")
@@ -2064,14 +2103,45 @@ def format_social_metadata(meta):
     desc = (meta.get("desc") or "").strip()
     if len(desc) > 280:
         desc = desc[:280] + "…"
+    # V53: Full V35 card + more - this is the metadata you liked. Show everything we have, hide N/A gracefully.
+    def _fmt_val(v):
+        return str(v) if v not in (None, "", "N/A", 0) else "N/A"
+    _chan = meta.get('channel') or meta.get('poster') or 'N/A'
+    _chan_id = meta.get('channel_id') or meta.get('uploader_id') or ''
+    _chan_line = f"👤 @{_chan}" + (f"  (ID: {_chan_id})" if _chan_id and _chan_id != 'N/A' else "")
+    _vid = meta.get('video_id') or ''
+    _up = meta.get('upload_date') or 'N/A'
+    _w = meta.get('width') or 'N/A'
+    _h = meta.get('height') or 'N/A'
+    _fps = meta.get('fps') or 'N/A'
+    _vc = meta.get('vcodec') or 'N/A'
+    _ac = meta.get('acodec') or 'N/A'
+    _ext = meta.get('ext') or 'N/A'
+    _res = f"{_w}x{_h}" if _w != 'N/A' and _h != 'N/A' else "N/A"
     lines = [
         f"🎬 {meta.get('title', 'N/A')}",
-        f"👤 @{meta.get('poster', 'N/A')}",
+        _chan_line,
+        f"📅 Uploaded: {_up}" + (f"  🆔 Video ID: {_vid}" if _vid else ""),
         f"👁️ Views: {_num(meta.get('views'))}  👍 Likes: {_num(meta.get('likes'))}  💬 Comments: {_num(meta.get('comments'))}",
+        f"🔁 Reposts: {_num(meta.get('reposts'))}  📤 Shares: {_num(meta.get('shares'))}  💾 Saves: {_num(meta.get('saves'))}",
         f"⏱️ Duration: {dur_txt}  📦 Est. size: {est_txt}  🌐 {meta.get('platform', 'unknown')}",
+        f"🎞️ Resolution: {_res}  🎞️ FPS: {_fmt_val(_fps)}  🎞️ Video: {_fmt_val(_vc)}  🔊 Audio: {_fmt_val(_ac)}  📁 Format: {_fmt_val(_ext)}",
     ]
+    # Tags / categories - V35 didn't show these, V53 adds them (yt-dlp gives them for YouTube)
+    try:
+        _tags = meta.get('tags') or []
+        if _tags:
+            _tags_txt = ", ".join([str(t) for t in _tags[:8]])
+            lines.append(f"🏷️ Tags: {_tags_txt}")
+        _cats = meta.get('categories') or []
+        if _cats:
+            lines.append(f"📂 Category: {', '.join([str(c) for c in _cats[:3]])}")
+    except Exception: pass
     if desc and desc != "Preview only":
         lines.append(f"📝 {desc}")
+    _url = meta.get('webpage_url') or ''
+    if _url:
+        lines.append(f"🔗 { _url }")
     return "\n".join(lines)
 
 # --- PART 4: limit + credit calculator ---
@@ -2171,11 +2241,36 @@ async def send_join_prompt(bot, chat_id, user_id, missing):
 async def send_meta_after(bot, chat_id, url, meta, user_id=None):
     try:
         m = meta
-        if m is None:
+        # V53: If first metadata fetch failed (e.g. web_embedded thin record), retry with plain yt-dlp (no client lock, no WARP)
+        # so we still get views/likes/comments like V35 did. Never silently skip the card you like.
+        if not m:
             try:
                 m = await asyncio.to_thread(get_social_metadata, url)
             except Exception:
                 m = None
+        if not m:
+            # Fallback 2: plain yt-dlp without web_embedded/WARP - V35 style, gets full metadata
+            try:
+                def _plain_meta(_u):
+                    try:
+                        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True}) as _ydl:
+                            _info = _ydl.extract_info(_u, download=False)
+                            if isinstance(_info, dict) and _info.get("entries"):
+                                _e = [e for e in _info["entries"] if e]
+                                _info = _e[0] if _e else _info
+                            if not isinstance(_info, dict): return None
+                            return {"title": _info.get("title") or "N/A", "poster": _info.get("uploader") or _info.get("channel") or "N/A", "channel": _info.get("channel") or _info.get("uploader") or "N/A", "channel_id": _info.get("channel_id") or _info.get("uploader_id") or "N/A", "uploader_id": _info.get("uploader_id") or "N/A", "views": _info.get("view_count", "N/A"), "likes": _info.get("like_count", "N/A"), "dislikes": _info.get("dislike_count", "N/A"), "comments": _info.get("comment_count", "N/A"), "reposts": _info.get("repost_count", "N/A"), "shares": _info.get("share_count", "N/A"), "saves": _info.get("save_count", "N/A"), "desc": (_info.get("description") or "Preview only")[:600], "duration_sec": int(_info.get("duration") or 0), "platform": _info.get("extractor_key") or _info.get("extractor") or "unknown", "est_size_mb": 0.0, "filesize_approx": 0, "upload_date": str(_info.get("upload_date") or "N/A"), "video_id": _info.get("id") or "", "width": _info.get("width") or "N/A", "height": _info.get("height") or "N/A", "fps": _info.get("fps") or "N/A", "vcodec": _info.get("vcodec") or "N/A", "acodec": _info.get("acodec") or "N/A", "ext": _info.get("ext") or "N/A", "tags": _info.get("tags") or [], "categories": _info.get("categories") or [], "webpage_url": _info.get("webpage_url") or _u, "thumbnail": _info.get("thumbnail") or ""}
+                    except Exception: return None
+                m = await asyncio.to_thread(_plain_meta, url)
+            except Exception:
+                m = None
+        if not m:
+            # Fallback 3: minimal card from title cache so you still get *something* - never blank
+            try:
+                _disp = _display_name_for(None, url, url, None)
+                if _disp and _disp != url:
+                    m = {"title": _disp, "poster": "N/A", "channel": "N/A", "views": "N/A", "likes": "N/A", "comments": "N/A", "reposts": "N/A", "shares": "N/A", "saves": "N/A", "desc": "", "duration_sec": 0, "platform": "unknown", "est_size_mb": 0.0, "upload_date": "N/A", "video_id": "", "width": "N/A", "height": "N/A", "fps": "N/A", "vcodec": "N/A", "acodec": "N/A", "ext": "N/A", "tags": [], "categories": [], "webpage_url": url}
+            except Exception: pass
         if not m:
             return
         card = format_social_metadata(m)
@@ -2529,14 +2624,178 @@ def fetch_url_metadata(url):
     except: return "Media Link", "N/A"
 
 def scrape_html_images(url, cookiefile=None):
-    headers = {'User-Agent': 'Mozilla/5.0'}
+    # V54: Keep old single-image API for callers that expect 1 URL, but make it actually work for FB/IG.
+    # FB/IG now return login wall for plain Mozilla/5.0. Use BROWSER_HEADERS + cookies.txt if present.
     try:
-        res = requests.get(url, headers=headers, timeout=15)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        og = soup.find('meta', property='og:image')
-        if og and og.get('content'): return og['content']
+        _all = scrape_all_html_images(url, cookiefile)
+        if _all: return _all[0]
     except Exception as e: logger.error(f"Scrape: {e}")
     return None
+
+def _ig_carousel_via_json(url, cookiefile=None):
+    """V55: IG carousel slides are NOT in og:image (only first). They are in ?__a=1&__d=dis JSON: graphql.shortcode_media.edge_sidecar_to_children.edges[].node.display_url / video_url.
+    This does NOT hit api/graphql (which 429s Render IP), it hits the post JSON endpoint. Returns list of image/video URLs."""
+    try:
+        import html as _h55
+        _m = re.search(r"/(p|reel|tv)/([A-Za-z0-9_-]+)", url)
+        if not _m: return []
+        _short = _m.group(2)
+        _headers = dict(BROWSER_HEADERS) if 'BROWSER_HEADERS' in globals() else {'User-Agent': 'Mozilla/5.0'}
+        _headers["X-Requested-With"] = "XMLHttpRequest"
+        _headers["Accept"] = "application/json"
+        _cookies = {}
+        try:
+            _cf = cookiefile or ("cookies.txt" if __import__('os').path.exists("cookies.txt") else None)
+            if _cf and __import__('os').path.exists(_cf):
+                for _line in open(_cf, encoding='utf-8', errors='ignore'):
+                    _line = _line.strip()
+                    if not _line or _line.startswith('#'): continue
+                    _parts = _line.split('\t')
+                    if len(_parts) >= 7: _cookies[_parts[5]] = _parts[6]
+        except Exception: pass
+        _out = []
+        # Try 2 JSON endpoints - __a=1 and embed JSON
+        for _u in [f"https://www.instagram.com/p/{_short}/?__a=1&__d=dis", f"https://www.instagram.com/p/{_short}/embed/captioned/"]:
+            try:
+                _r = requests.get(_u, headers=_headers, cookies=_cookies, timeout=15)
+                _txt = _r.text or ""
+                if not _txt or len(_txt) < 500: continue
+                # Try parse as JSON first
+                try:
+                    _j = __import__('json').loads(_txt)
+                    # Walk JSON to find all display_url / video_url
+                    def _walk(_node):
+                        if isinstance(_node, dict):
+                            if _node.get("display_url") and isinstance(_node.get("display_url"), str):
+                                _out.append(_h55.unescape(_node["display_url"]))
+                            if _node.get("video_url") and isinstance(_node.get("video_url"), str):
+                                _out.append(_h55.unescape(_node["video_url"]))
+                            for _v in _node.values(): _walk(_v)
+                        elif isinstance(_node, list):
+                            for _v in _node: _walk(_v)
+                    _walk(_j)
+                    if _out: break
+                except Exception: pass
+                # Fallback: regex for display_url in HTML/JSON text (embed page)
+                for _mm in re.finditer(r'"display_url"\s*:\s*"([^"]+)"', _txt):
+                    _u2 = _h55.unescape(_mm.group(1)).replace('\\/', '/')
+                    if _u2.startswith('http') and _u2 not in _out: _out.append(_u2)
+                for _mm in re.finditer(r'"video_url"\s*:\s*"([^"]+)"', _txt):
+                    _u2 = _h55.unescape(_mm.group(1)).replace('\\/', '/')
+                    if _u2.startswith('http') and _u2 not in _out: _out.append(_u2)
+                if _out: break
+            except Exception: continue
+        # De-dupe keep order
+        _seen = set(); _res = []
+        for _u in _out:
+            _k = _u.split('?')[0]
+            if _k not in _seen: _seen.add(_k); _res.append(_u)
+        return _res[:20]
+    except Exception as e:
+        try: logger.warning(f"_ig_carousel_via_json: {e}")
+        except Exception: pass
+        return []
+
+def scrape_all_html_images(url, cookiefile=None):
+    """V54: Return ALL image URLs from a FB/IG post page, not just og:image.
+    FB carousel: page contains many scontent / og:image URLs. IG carousel: embed page contains display_url for each slide.
+    Returns list of unique image URLs (scontent / cdn) in post order."""
+    try:
+        import html as _html54
+        _headers = dict(BROWSER_HEADERS) if 'BROWSER_HEADERS' in globals() else {'User-Agent': 'Mozilla/5.0'}
+        _cookies = {}
+        # Try cookies.txt (yt-dlp Netscape format) for FB/IG - without it FB returns login wall
+        try:
+            _cf = cookiefile or ("cookies.txt" if __import__('os').path.exists("cookies.txt") else None)
+            if _cf and __import__('os').path.exists(_cf):
+                for _line in open(_cf, encoding='utf-8', errors='ignore'):
+                    _line = _line.strip()
+                    if not _line or _line.startswith('#'): continue
+                    _parts = _line.split('\t')
+                    if len(_parts) >= 7:
+                        _cookies[_parts[5]] = _parts[6]
+        except Exception: pass
+        # 1) Try embed version for Instagram (less blocked than main page)
+        # V55: For IG, JSON endpoint has ALL carousel slides - try it FIRST, before og:image (which is only 1)
+        try:
+            if "instagram.com" in url.lower() or "instagr.am" in url.lower():
+                _ig_json = _ig_carousel_via_json(url, cookiefile)
+                if len(_ig_json) >= 2:
+                    return _ig_json
+                elif len(_ig_json) == 1:
+                    # Keep it as fallback, but continue to try og:image for more
+                    _found_early = _ig_json
+                else:
+                    _found_early = []
+            else:
+                _found_early = []
+        except Exception: _found_early = []
+        # V55: Resolve FB share link before scraping - else we scrape the share redirect page, not the post
+        try:
+            url = _resolve_share_link(url)
+        except Exception: pass
+        _urls_to_try = [url]
+        try:
+            _m = re.search(r"/(p|reel|tv)/([A-Za-z0-9_-]+)", url)
+            if _m and ("instagram.com" in url.lower() or "instagr.am" in url.lower()):
+                _urls_to_try.append(f"https://www.instagram.com/{_m.group(1)}/{_m.group(2)}/embed/")
+        except Exception: pass
+        # 2) Try mbasic for Facebook (lighter, less JS/login wall)
+        try:
+            if "facebook.com" in url.lower() or "fb.watch" in url.lower():
+                _mb = url.replace("www.facebook.com", "mbasic.facebook.com").replace("web.facebook.com", "mbasic.facebook.com")
+                if _mb != url: _urls_to_try.append(_mb)
+        except Exception: pass
+        _found = []
+        for _u in _urls_to_try:
+            try:
+                _res = requests.get(_u, headers=_headers, cookies=_cookies, timeout=15)
+                _text = _res.text or ""
+                if not _text or len(_text) < 500: continue
+                # og:image + twitter:image (first image)
+                try:
+                    _soup = BeautifulSoup(_text, 'html.parser')
+                    for _prop in ["og:image", "twitter:image", "og:image:url"]:
+                        for _tag in _soup.find_all('meta', property=_prop):
+                            _c = _tag.get('content')
+                            if _c and _c.startswith('http') and _c not in _found:
+                                _found.append(_html54.unescape(_c))
+                    for _tag in _soup.find_all('meta', attrs={'name': 'twitter:image'}):
+                        _c = _tag.get('content')
+                        if _c and _c.startswith('http') and _c not in _found:
+                            _found.append(_html54.unescape(_c))
+                except Exception: pass
+                # FB scontent + IG cdn URLs embedded in JSON (carousel slides)
+                # Match https://scontent...jpg / https://*.cdninstagram.com/...jpg
+                for _mm in re.finditer(r'https://(?:scontent[^"\'\s]+|[^"\'\s]*\.cdninstagram\.com[^"\'\s]+|[^"\'\s]*\.fbcdn\.net[^"\'\s]+)', _text):
+                    _u2 = _html54.unescape(_mm.group(0)).replace('\\/', '/')
+                    # Skip tiny thumbs / profile pics / static icons
+                    if any(_bad in _u2 for _bad in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32", "s50x50"]): continue
+                    if _u2 not in _found and (".jpg" in _u2 or ".jpeg" in _u2 or ".png" in _u2 or ".webp" in _u2):
+                        _found.append(_u2)
+                # IG display_url in JSON
+                for _mm in re.finditer(r'"display_url"\s*:\s*"([^"]+)"', _text):
+                    _u2 = _html54.unescape(_mm.group(1)).replace('\\/', '/')
+                    if _u2.startswith('http') and _u2 not in _found:
+                        _found.append(_u2)
+                if _found: break
+            except Exception: continue
+        # De-dupe, keep order, drop tracking params that make same image look different
+        _seen = set(); _out = []
+        # V55: If IG JSON gave us 1 slide and og:image gave 0, keep the JSON one
+        try:
+            if '_found_early' in locals() and _found_early:
+                for _u in _found_early:
+                    if _u not in _found: _found.insert(0, _u)
+        except Exception: pass
+        for _u in _found:
+            _key = _u.split('?')[0]
+            if _key not in _seen:
+                _seen.add(_key); _out.append(_u)
+        return _out[:20]
+    except Exception as e:
+        logger.error(f"scrape_all_html_images: {e}")
+        return []
 
 def get_min_free_disk_mb():
     config = load_json_file(CONFIG_FILE)
@@ -2744,9 +3003,50 @@ def download_youtube_post(url, output_dir, cap_bytes):
     return []
 
 
-def download_carousel(url, output_dir, cap_bytes, http_headers=None):
+def _resolve_share_link(url):
+    """V55: FB /share/p/, /share/r/, /share/v/, fb.watch are short links. yt-dlp + gallery-dl say 'Unsupported URL' for them.
+    Follow redirects (HEAD then GET) to get real post URL (photo.php?fbid=... / posts/...). Returns final URL or original."""
+    try:
+        _low = (url or "").lower()
+        if not any(_d in _low for _d in ["facebook.com/share/", "fb.watch", "fb.gg/", "facebook.com/share"]):
+            return url
+        import requests as _rq55
+        _headers = dict(BROWSER_HEADERS) if 'BROWSER_HEADERS' in globals() else {'User-Agent': 'Mozilla/5.0'}
+        # Try HEAD first (fast), then GET (FB sometimes only redirects on GET)
+        for _try in [0, 1]:
+            try:
+                if _try == 0:
+                    _r = _rq55.head(url, headers=_headers, allow_redirects=True, timeout=12)
+                else:
+                    _r = _rq55.get(url, headers=_headers, allow_redirects=True, timeout=15)
+                _final = getattr(_r, 'url', '') or url
+                if _final and _final != url and "/share/" not in _final:
+                    try: _trace(f"share resolved: {url[:60]} -> {_final[:80]}")
+                    except Exception: pass
+                    return _final
+                if _final and _final != url:
+                    return _final
+            except Exception: continue
+    except Exception: pass
+    return url
+
+def download_carousel(url, output_dir, cap_bytes, http_headers=None, cookiefile=None):
     """Return [paths] (post order) for a multi-item OR single-photo post, else [].
-    No cookies. Every step writes one line to LAST_CAROUSEL_TRACE."""
+    V54: Now USES cookies (cookies.txt) - FB/IG block anonymous yt-dlp/gallery-dl since V35. Without cookies, FB=0 images, IG carousel falls back to 1 og:image.
+    V55: Resolve FB /share/ links first, else yt-dlp/gallery-dl say Unsupported URL.
+    Every step writes one line to LAST_CAROUSEL_TRACE."""
+    # V55: FB share link -> real post URL before anything else
+    try:
+        url = _resolve_share_link(url)
+    except Exception: pass
+    # V55: Strip IG tracking (?jplx=..., ?igshid=...) - they make yt-dlp treat same post as different URL and break cache
+    try:
+        if "instagram.com" in url.lower():
+            import urllib.parse as _up55
+            _pu = _up55.urlparse(url)
+            _clean = _up55.urlunparse((_pu.scheme, _pu.netloc, _pu.path, '', '', ''))
+            if _clean != url: url = _clean
+    except Exception: pass
     LAST_CAROUSEL_TRACE.clear()
     low = url.lower()
     if "youtube.com/post/" in low:
@@ -2761,11 +3061,18 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None):
     files, ytdlp_failed, gallery_ran = [], False, False
     try:
         # ---- 1) yt-dlp ----
+        # V54: cookiefile from caller (cookies.txt) - FB/IG need it now
+        try:
+            if not cookiefile:
+                import os as _os54
+                if _os54.path.exists("cookies.txt"): cookiefile = "cookies.txt"
+        except Exception: pass
         try:
             base = {"quiet": True, "no_warnings": True, "noplaylist": False,
                     "playlistend": MAX_CAROUSEL_ITEMS, "ignoreerrors": True,
                     "socket_timeout": 15}
             if http_headers: base["http_headers"] = http_headers
+            if cookiefile: base["cookiefile"] = cookiefile
             with yt_dlp.YoutubeDL(dict(base, skip_download=True)) as ydl:
                 info = ydl.extract_info(url, download=False)
             entries = [e for e in (info or {}).get("entries") or [] if e]
@@ -2803,10 +3110,17 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None):
         if len(files) < 2 and (ytdlp_failed or not files):
             try:
                 gallery_ran = True
-                r = subprocess.run(
-                    [sys.executable, "-m", "gallery_dl", "-D", folder, "--no-mtime",
+                _g_args = [sys.executable, "-m", "gallery_dl", "-D", folder, "--no-mtime",
                      "-R", "1", "--http-timeout", "15",
-                     "--range", f"1-{MAX_CAROUSEL_ITEMS}", url],
+                     "--range", f"1-{MAX_CAROUSEL_ITEMS}"]
+                # V54: gallery-dl cookies - FB/IG block anonymous gallery-dl now
+                try:
+                    if cookiefile and __import__('os').path.exists(cookiefile):
+                        _g_args += ["--cookies", cookiefile]
+                except Exception: pass
+                _g_args.append(url)
+                r = subprocess.run(
+                    _g_args,
                     capture_output=True, text=True, timeout=45)
                 files = _collect_media(folder)
                 files.sort(key=os.path.getmtime)
@@ -2824,6 +3138,36 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None):
             if len(insta_files) >= 1:
                 _trace(f"RESULT: OK via instaloader, {len(insta_files)} item(s)")
                 return insta_files
+        # ---- 3b) V55: IG JSON (no GraphQL, no 429) - gets ALL carousel slides even when gallery-dl timeout + instaloader 429 ----
+        if not files and ("instagram.com" in low or "instagr.am" in low):
+            try:
+                _ig_urls = _ig_carousel_via_json(url, cookiefile)
+                if _ig_urls:
+                    _trace(f"IG JSON: {len(_ig_urls)} slide URL(s) found")
+                    _ig_files = []
+                    for _i, _u in enumerate(_ig_urls[:MAX_CAROUSEL_ITEMS], start=1):
+                        try:
+                            _ext = ".mp4" if ".mp4" in _u.split("?")[0] else ".jpg"
+                            _ig_files.append(_fetch_media_url(_u, os.path.join(folder, f"{_i:03d}"), cap_bytes, _ext))
+                        except Exception as _e55: _trace(f"IG JSON slide {_i} failed: {type(_e55).__name__}")
+                    if _ig_files:
+                        _trace(f"RESULT: OK via IG JSON, {len(_ig_files)} item(s)")
+                        return _ig_files
+            except Exception as _e55: _trace(f"IG JSON failed: {type(_e55).__name__}: {str(_e55)[:120]}")
+        # ---- 3c) V55: FB share already resolved at top, but if gallery-dl still says Unsupported, try scrape_all for FB ----
+        if not files and ("facebook.com" in low or "fb.watch" in low):
+            try:
+                _fb_urls = scrape_all_html_images(url, cookiefile)
+                if _fb_urls:
+                    _trace(f"FB scrape: {len(_fb_urls)} image URL(s) found")
+                    _fb_files = []
+                    for _i, _u in enumerate(_fb_urls[:MAX_CAROUSEL_ITEMS], start=1):
+                        try: _fb_files.append(_fetch_media_url(_u, os.path.join(folder, f"{_i:03d}"), cap_bytes, ".jpg"))
+                        except Exception: continue
+                    if _fb_files:
+                        _trace(f"RESULT: OK via FB scrape, {len(_fb_files)} item(s)")
+                        return _fb_files
+            except Exception as _e55: _trace(f"FB scrape failed: {type(_e55).__name__}")
 
         files = [p for p in files if os.path.getsize(p) <= cap_bytes][:MAX_CAROUSEL_ITEMS]
         # 2+ files is a carousel. Exactly 1 file is accepted only when it came from the
@@ -3122,7 +3466,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
 
     # ===== EDIT A: carousel branch (no cookies passed here) =====
     if download_type in ('video', 'images'):
-        car = download_carousel(url, output_dir, cap_bytes, http_headers)
+        car = download_carousel(url, output_dir, cap_bytes, http_headers, cookiefile=cookiefile)
         if car:
             total = sum(os.path.getsize(p) for p in car)
             return car, "carousel", f"{total/(1024*1024):.1f}MB"
@@ -3269,14 +3613,38 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
             raise ValueError("SITE_BLOCKED")
         raise ValueError(f"FILE_NOT_FOUND: {_last_audio_err}" if _last_audio_err else "FILE_NOT_FOUND")
     elif download_type == 'images':
-        img_url = scrape_html_images(url, cookiefile)
-        if img_url:
-            data = requests.get(img_url, headers=http_headers, timeout=15).content
-            path = os.path.join(output_dir, f"img_{int(time.time())}.jpg")
-            with open(path, 'wb') as f: f.write(data)
-            if os.path.getsize(path) > 1000:
-                save_to_file_cache(url, "images", path)  # PART 2
-                return [path], "original", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
+        # V54: Old code returned ONLY 1 og:image -> IG carousel looked like "only single works", FB got 0.
+        # Now try ALL images from page (scontent / cdn / display_url) and download them all.
+        try:
+            _all_urls = scrape_all_html_images(url, cookiefile)
+        except Exception:
+            _all_urls = []
+        if not _all_urls:
+            # Fallback to old single-image path
+            _single = scrape_html_images(url, cookiefile)
+            if _single: _all_urls = [_single]
+        if _all_urls:
+            _paths = []
+            for _i, _iu in enumerate(_all_urls[:MAX_CAROUSEL_ITEMS], start=1):
+                try:
+                    _data = requests.get(_iu, headers=http_headers, timeout=15).content
+                    _ext = ".jpg"
+                    try:
+                        _low_u = _iu.lower().split("?")[0]
+                        if _low_u.endswith(".png"): _ext = ".png"
+                        elif _low_u.endswith(".webp"): _ext = ".webp"
+                        elif _low_u.endswith(".jpeg"): _ext = ".jpg"
+                    except Exception: pass
+                    _p = os.path.join(output_dir, f"img_{int(time.time())}_{_i:02d}{_ext}")
+                    with open(_p, 'wb') as _f: _f.write(_data)
+                    if os.path.getsize(_p) > 1000:
+                        _paths.append(_p)
+                except Exception: continue
+            if _paths:
+                # For FB/IG single image, return 1 path. For carousel, return all.
+                _total = sum(os.path.getsize(p) for p in _paths)
+                save_to_file_cache(url, "images", _paths[0])
+                return _paths, "carousel" if len(_paths) > 1 else "original", f"{_total/(1024*1024):.1f}MB"
         raise ValueError("NO_IMAGES")
     else:
         tiers = [
