@@ -1,11 +1,3 @@
-# ============================================================
-# BOT V16 - From V15 (V11 base) + persistent menu grid + batch ad after 3 + batch images (incl mixed fallback) + audio retry + expanded block detection + lux even when blocked + skip poisoned file-cache (no android-first, no probe), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
-# THIS IS A NEW FILE - NOT THE OLD main.py
-# First line check: if you see this header, you have the NEW file
-# Changes: buttons + join walkthrough + quality selector + DIRECTIONAL cache + PERSISTENT pending (no Expired)
-# Verify: search for _save_pending_file (should be 5+), DIRECTIONAL (5+), Admin Controls
-# Rename this file to main.py on Render
-# ============================================================
 # -*- coding: utf-8 -*-
 import time
 import json
@@ -48,238 +40,13 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-# ===== Deno on PATH (for yt-dlp YouTube support + bgutil PO token) =====
+# ===== Deno on PATH (for yt-dlp YouTube support) =====
 _DENO_BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".deno", "bin")
 if os.path.isdir(_DENO_BIN):
     os.environ["PATH"] = _DENO_BIN + os.pathsep + os.environ.get("PATH", "")
     logger.info(f"Deno path added: {_DENO_BIN}, found={shutil.which('deno')}")
 else:
     logger.warning("Deno folder .deno/bin not found: YouTube may fail")
-
-def _ensure_deno():
-    """V48: bgutil PO-token provider needs Deno to run BotGuard JS. Render does NOT have Deno by default,
-    and .deno/ is not in GitHub (gitignored), so download it once on startup if missing."""
-    try:
-        if shutil.which("deno"):
-            return shutil.which("deno")
-        deno_bin = os.path.join(_DENO_BIN, "deno")
-        if os.path.isfile(deno_bin):
-            try: os.chmod(deno_bin, 0o755)
-            except Exception: pass
-            os.environ["PATH"] = _DENO_BIN + os.pathsep + os.environ.get("PATH", "")
-            return deno_bin
-        # Download Deno 1.46 (stable, works with bgutil) - Linux x64
-        os.makedirs(_DENO_BIN, exist_ok=True)
-        import zipfile, urllib.request
-        _url = "https://github.com/denoland/deno/releases/download/v1.46.3/deno-x86_64-unknown-linux-gnu.zip"
-        _zip = os.path.join(_DENO_BIN, "deno.zip")
-        try:
-            logger.info("V48: Deno not found, downloading Deno for bgutil PO token...")
-            urllib.request.urlretrieve(_url, _zip)
-            with zipfile.ZipFile(_zip, "r") as z:
-                z.extractall(_DENO_BIN)
-            try: os.remove(_zip)
-            except Exception: pass
-            try: os.chmod(deno_bin, 0o755)
-            except Exception: pass
-            os.environ["PATH"] = _DENO_BIN + os.pathsep + os.environ.get("PATH", "")
-            logger.info(f"V48: Deno installed: {deno_bin}, found={shutil.which('deno')}")
-            return deno_bin
-        except Exception as e:
-            logger.warning(f"V48: Deno download failed: {e} - PO token will not work, falling back to iOS")
-            return None
-    except Exception as e:
-        logger.warning(f"V48: _ensure_deno failed: {e}")
-        return None
-
-def _bgutil_available():
-    """V50: now checks BOTH PO providers: wpc (real Chrome via nodriver) + bgutil (Deno JS)."""
-    try:
-        import subprocess as _sp2
-        for _pkg in ["yt-dlp-getpot-wpc", "bgutil-ytdlp-pot-provider"]:
-            try:
-                _r = _sp2.run(["pip", "show", _pkg], capture_output=True, text=True, timeout=5)
-                if _r.returncode == 0 and ("wpc" in (_r.stdout or "").lower() or "bgutil" in (_r.stdout or "").lower()):
-                    return True
-            except Exception:
-                pass
-        try:
-            import importlib.util as _ilu2
-            _spec = _ilu2.find_spec("yt_dlp_plugins")
-            if _spec is not None:
-                import os as _os2
-                for _p in (_spec.submodule_search_locations or []):
-                    try:
-                        for _f in _os2.listdir(_p):
-                            if "bgutil" in _f.lower() or "wpc" in _f.lower() or "getpot" in _f.lower():
-                                return True
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-        return False
-    except Exception:
-        return False
-
-def _chromium_available():
-    """V50: wpc needs real Chromium/Chrome on Render. Log it so startup shows if PO token can even run."""
-    try:
-        for _bin in ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable"]:
-            if shutil.which(_bin):
-                return shutil.which(_bin)
-        # nodriver downloads Chrome to ~/.cache/nodriver
-        import os as _os3
-        _cand = os.path.join(os.path.expanduser("~"), ".cache", "nodriver")
-        if os.path.isdir(_cand):
-            return _cand
-        return None
-    except Exception:
-        return None
-
-
-# ===== V51: Cloudflare WARP (free) - fix for datacenter IP block =====
-# Search proved: Render datacenter IP is flagged, fresh cookies + PO token alone do NOT fix it.
-# WARP makes egress look like ordinary home connection: wgcf registers free WARP identity,
-# wireproxy runs WireGuard in userspace (no root) and exposes local proxy 127.0.0.1:25345 (http) / 25344 (socks5).
-# yt-dlp then uses proxy=http://127.0.0.1:25345. If WARP fails, fall back to direct.
-_WARP_PROC = None
-_WARP_PROXY = None
-
-def _ensure_warp():
-    """V51: Start free Cloudflare WARP proxy if ENABLE_WARP=1 (default ON). Returns proxy URL or None."""
-    global _WARP_PROC, _WARP_PROXY
-    if _WARP_PROXY:
-        return _WARP_PROXY
-    try:
-        if os.getenv("ENABLE_WARP", "1").strip() not in ("1", "true", "yes", "on"):
-            logger.info("V51: WARP disabled via ENABLE_WARP=0")
-            return None
-        # If user set a paid residential proxy, it takes priority over WARP
-        _user_proxy = (os.getenv("YTDLP_PROXY", "") or os.getenv("YT_PROXY", "") or "").strip()
-        if _user_proxy:
-            logger.info(f"V51: Using user proxy YTDLP_PROXY, skipping WARP")
-            _WARP_PROXY = _user_proxy
-            return _WARP_PROXY
-        import subprocess as _sp3, urllib.request, tarfile
-        _bin_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".warp", "bin")
-        os.makedirs(_bin_dir, exist_ok=True)
-        _wgcf = os.path.join(_bin_dir, "wgcf")
-        _wireproxy = os.path.join(_bin_dir, "wireproxy")
-        # Download wgcf + wireproxy if missing (pinned versions from search: wgcf 2.2.31, wireproxy 1.1.2)
-        if not os.path.isfile(_wgcf):
-            try:
-                logger.info("V51: Downloading wgcf for WARP...")
-                urllib.request.urlretrieve("https://github.com/ViRb3/wgcf/releases/download/v2.2.31/wgcf_2.2.31_linux_amd64", _wgcf)
-                os.chmod(_wgcf, 0o755)
-            except Exception as e:
-                logger.warning(f"V51: wgcf download failed: {e}")
-                return None
-        if not os.path.isfile(_wireproxy):
-            try:
-                logger.info("V51: Downloading wireproxy for WARP...")
-                _tgz = os.path.join(_bin_dir, "wireproxy.tar.gz")
-                urllib.request.urlretrieve("https://github.com/windtf/wireproxy/releases/download/v1.1.2/wireproxy_linux_amd64.tar.gz", _tgz)
-                with tarfile.open(_tgz, "r:gz") as _tf:
-                    _tf.extractall(_bin_dir)
-                try: os.remove(_tgz)
-                except Exception: pass
-                if os.path.isfile(_wireproxy):
-                    os.chmod(_wireproxy, 0o755)
-            except Exception as e:
-                logger.warning(f"V51: wireproxy download failed: {e}")
-                return None
-        # Generate WARP profile if missing
-        _conf = os.path.join(_bin_dir, "wireproxy.conf")
-        if not os.path.isfile(_conf):
-            try:
-                logger.info("V51: Registering free WARP identity (wgcf register)...")
-                _env = dict(os.environ); _env["WGCF_PROFILE"] = os.path.join(_bin_dir, "wgcf-profile.conf")
-                # wgcf register creates account + profile
-                _r1 = _sp3.run([_wgcf, "register", "--accept-tos"], capture_output=True, text=True, timeout=60, cwd=_bin_dir)
-                _r2 = _sp3.run([_wgcf, "generate"], capture_output=True, text=True, timeout=60, cwd=_bin_dir)
-                _prof = os.path.join(_bin_dir, "wgcf-profile.conf")
-                if os.path.isfile(_prof):
-                    with open(_prof) as _f: _pc = _f.read()
-                    with open(_conf, "w") as _f:
-                        _f.write(_pc)
-                        _f.write("\n[Socks5]\nBindAddress = 127.0.0.1:25344\n\n[http]\nBindAddress = 127.0.0.1:25345\n")
-                    logger.info("V51: WARP profile generated")
-                else:
-                    logger.warning(f"V51: wgcf generate failed: {_r2.stdout[:200]} {_r2.stderr[:200]}")
-                    return None
-            except Exception as e:
-                logger.warning(f"V51: WARP register failed: {e}")
-                return None
-        # Start wireproxy in background
-        try:
-            if _WARP_PROC is None or _WARP_PROC.poll() is not None:
-                _WARP_PROC = _sp3.Popen([_wireproxy, "-c", _conf], stdout=_sp3.DEVNULL, stderr=_sp3.DEVNULL)
-                import time as _t3
-                _t3.sleep(2)
-                # Test proxy works: try to fetch via proxy
-                try:
-                    import requests as _rq3
-                    _test = _rq3.get("https://www.cloudflare.com/cdn-cgi/trace", proxies={"http": "http://127.0.0.1:25345", "https": "http://127.0.0.1:25345"}, timeout=10)
-                    if _test.status_code == 200 and "warp=on" in _test.text.lower():
-                        logger.info("V51: WARP ON - egress via Cloudflare WARP, warp=on")
-                    else:
-                        logger.info(f"V51: WARP proxy responding, trace warp check: {_test.text[:200]}")
-                except Exception as _e3:
-                    logger.warning(f"V51: WARP proxy test failed: {_e3} - will still try yt-dlp via proxy")
-                _WARP_PROXY = "http://127.0.0.1:25345"
-                return _WARP_PROXY
-        except Exception as e:
-            logger.warning(f"V51: wireproxy start failed: {e}")
-            return None
-    except Exception as e:
-        logger.warning(f"V51: _ensure_warp failed: {e}")
-    return None
-
-def _proxy_for_url(url):
-    """V59: Same WARP trick as YouTube, now for FB + IG too.
-    V51: WARP for YT only, because TikTok got Region locked 10231 on WARP. That was correct for TikTok, but wrong for FB/IG.
-    V35 failing proves FB/IG are ALSO IP-blocked from Render datacenter IP (IG 429, FB login redirect). WARP makes Render look like home IP.
-    TikTok stays DIRECT. Everything else (YT, FB, IG) gets WARP if available, else direct."""
-    try:
-        _low = (url or "").lower()
-        if "tiktok.com" in _low or "vt.tiktok" in _low or "vm.tiktok" in _low:
-            return None  # TikTok: direct only, WARP = 10231 Region locked
-        if any(_d in _low for _d in ["youtube.com", "youtu.be", "facebook.com", "fb.watch", "fb.gg", "instagram.com", "instagr.am"]):
-            return _yt_proxy()
-        return None
-    except Exception: return None
-
-def _requests_proxies_for_url(url):
-    """V59: requests.get proxies dict for WARP (http + https), or None for direct."""
-    try:
-        _p = _proxy_for_url(url)
-        if _p: return {"http": _p, "https": _p}
-    except Exception: pass
-    return None
-
-def _yt_proxy():
-    """V51: proxy for yt-dlp: YTDLP_PROXY env first, else WARP, else None (direct)."""
-    try:
-        _up = (os.getenv("YTDLP_PROXY", "") or os.getenv("YT_PROXY", "") or "").strip()
-        if _up:
-            return _up
-        return _ensure_warp()
-    except Exception:
-        return None
-
-# Try to start WARP at import (non-blocking, best effort)
-try:
-    _wp = _ensure_warp()
-    logger.info(f"V51: warp_proxy={_wp}")
-except Exception as _e:
-    logger.warning(f"V51: WARP startup failed: {_e}")
-
-# Try to ensure Deno at import time (non-blocking, best effort) - do NOT crash bot if it fails
-try:
-    _ensure_deno()
-    logger.info(f"V50: pot_provider_available={_bgutil_available()} chromium={_chromium_available()} deno={shutil.which('deno')}")
-except Exception as _e:
-    logger.warning(f"V48: Deno/bgutil check failed: {_e}")
 # ======================================================
 
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
@@ -316,68 +83,17 @@ FILE_LINKS_FILE = "file_links.json"
 FILE_LINK_STATE_FILE = "file_link_states.json"
 FILE_LINK_STORAGE_ID = -1003906423952
 
-# ===== PART 10 + PART 1/2/4/6 shared constants (10-part update) =====
-BOT_SETTINGS_FILE = "bot_settings.json"
-# PART 2: on-disk file cache (separate from the Telegram file_id vault cache in download_cache.json).
-# Keyed ONLY by normalised link URL (+ download type, so audio/video never collide).
-# Quality is deliberately NOT part of the key.
-CACHE_FOLDER = "./download_cache/"
-# PART 4: defaults — overridden per-platform by bot_settings.json
-DEFAULT_MIN_LIMIT = 10
-DEFAULT_MB_LIMIT = 200
-BATCH_AD_AFTER = 3  # Show a batch ad after every 3 successful batch links
-MAX_USER_CREDITS = 5  # Hard cap for both normal and batch credit balances
-THRESHOLD_3CREDIT_MB = 100
-# PART 6: pending /setbatchchannel state (user_id -> True while waiting for a forwarded channel msg)
-USER_PENDING_BATCH_CHANNEL = {}
-# PART 1: live yt-dlp progress state (download_key -> {normal, admin, status})
-_PROGRESS_STATE = {}
-# PART 9: restore must NEVER overwrite live settings
-SAFE_RESTORE_KEYS = ["vault_data", "posts_data", "arcade_save"]
-RESTORE_BLOCKLIST = {"bot_settings.json", "bot_config.json"}
-# PART 7/8: credit cost of the pending single-link download (payload_key -> 1 or 3)
-PENDING_CREDIT_COST = {}
-PENDING_QUALITY_SELECT = {}
-PENDING_FILE = "pending_single.json"
-def _load_pending_file():
-    try:
-        d = load_json_file(PENDING_FILE)
-        if isinstance(d, dict):
-            pending_single_links.update(d.get("links", {}) or {})
-            PENDING_CREDIT_COST.update(d.get("costs", {}) or {})
-            PENDING_META.update(d.get("meta", {}) or {})
-            PENDING_QUALITY_SELECT.update(d.get("quality", {}) or {})
-    except Exception:
-        pass
-def _save_pending_file():
-    try:
-        save_json_file(PENDING_FILE, {"links": dict(pending_single_links), "costs": dict(PENDING_CREDIT_COST), "meta": dict(PENDING_META), "quality": dict(PENDING_QUALITY_SELECT)})
-    except Exception:
-        pass
-_load_pending_file()
-PENDING_META = {}
-PREF_QUALITY = {}
-
-
 # ADDED arcade_backup.json HERE
 BACKUP_FILES = [
-    CHANNELS_FILE, LANG_FILE, CONFIG_FILE, ACTIVITY_FILE, CACHE_FILE,
+    CHANNELS_FILE, LANG_FILE, CONFIG_FILE, ACTIVITY_FILE, CACHE_FILE, 
     UPLOADS_FILE, UPLOAD_LIMITS_FILE, DRIP_FILE, FLOOD_FILE, BANNED_FILE,
-    FILE_LINKS_FILE, FILE_LINK_STATE_FILE, "arcade_backup.json",
-    BOT_SETTINGS_FILE,
+    FILE_LINKS_FILE, FILE_LINK_STATE_FILE, "arcade_backup.json"
 ]
 
 active_batch_sessions = {}
 pending_batch_payloads = {}
 paused_batches = {}
 pending_single_links = {}
-# FIX - batch Adsterra: track kind so pause/out claim gives +1 Batch (not +1 Downloads)
-AD_KIND_BY_USER = {}
-# V36 MUSIC SEARCH: waiting flag, last results per user, retry after ad
-MUSIC_WAITING = {}
-MUSIC_RESULTS = {}
-MUSIC_RETRY = {}
-MUSIC_SEARCHING = {}  # V40 FIX: was used in V39 but never defined -> NameError killed Music Search button
 
 MAX_CONCURRENT_SHORT = 3
 MIN_FREE_DISK_MB = 150
@@ -406,10 +122,10 @@ LANGUAGES = {
         "batch_detected": "📦 **Batch Detected ({} links)**\nWhat format?",
         "batch_dest": "📦 **Where to send?**",
         "btn_chat": "📥 In Chat", "btn_chan": "📢 To Channel",
-        "limit_reached": "⚠️ **Limit Reached!** You used 4 FREE! Watch 20s ad → Get +3 downloads!",
-        "refill_btn": "🔓 Open Link & Refill +3",
+        "limit_reached": "⚠️ **Limit Reached!** You used 4 FREE! Watch 20s ad → Get +1 download!",
+        "refill_btn": "🔓 Open Link & Refill +1",
         "join_btn": "📢 Join Channel", "check_btn": "💜 Check Balance",
-        "limit_batch": "⚠️ **Batch Limit Reached at {} of {}**\nWatch 20s ad → +3 downloads to continue.",
+        "limit_batch": "⚠️ **Batch Limit Reached at {} of {}**\nWatch 20s ad → +1 download to continue.",
         "batch_start": "📦 **Batch Started:** {} **{} files**\n⏳ Processing...",
         "batch_done": "🏁 **Done!** ✅ {} ❌ {}\n📥 {} files here.",
         "batch_done_chan": "🏁 **Done!** ✅ {} ❌ {}\n📢 {} files forwarded!",
@@ -430,7 +146,6 @@ LANGUAGES = {
         "reward_panel_prompt": "🎁 REWARD PANEL\nCurrent: +{} download per 20s ad",
         "ad_panel_prompt": "⚙️ Ad Panel\nCurrent: {}",
         "password_saved": "🔐 Password saved.",
-    "password_removed": "🔓 Password removed.",
         "password_too_long": "Password must be 64 chars or fewer.",
         "file_to_link_prompt": "🔗 **File-to-Link**\nSend the file(s) you want to share.",
         "link_invalid_expired": "❌ This link is invalid or expired.",
@@ -533,7 +248,7 @@ LANGUAGES = {
         "select_lang": "🌍 अपनी भाषा चुनें! नीचे चुनें! 👇", 
         "lang_set": "✅ भाषा सेट हो गई! आनंद लें! 🎉✨",
         "batch_detected": "📦 **बैच डिटेक्ट हुआ ({} लिंक्स)**\nकौन सा फॉर्मेट?",
-        "batch_dest": "?? **कहाँ भेजें?**",
+        "batch_dest": "📦 **कहाँ भेजें?**",
         "btn_chat": "📥 चैट में", "btn_chan": "📢 चैनल में",
         "limit_reached": "⚠️ **लिमिट पूरी हो गई!** आपने 4 फ्री इस्तेमाल कर लिए! 20 सेकंड का विज्ञापन देखें → +1 डाउनलोड पाएं!",
         "refill_btn": "🔓 लिंक खोलें और +1 रिफिल करें",
@@ -1713,631 +1428,6 @@ def save_json_file(filename, data):
     except Exception as e:
         logger.error(f"Save {filename}: {e}")
 
-# =====================================================================
-# 10-PART UPDATE — shared helpers (Parts 1,2,3,4,5,10)
-# =====================================================================
-# --- PART 10: bot_settings.json ---
-# ===== SINGLE-FILE VERSION: SETTINGS LIVE HERE — NO SECOND FILE NEEDED =====
-# To change required channels or limits, edit ONLY this block, then restart.
-# Example: "required_channels": ["@yourchannel", -1001234567890]
-# PERMANENT channels go HERE - this survives Render restarts.
-# Button-added channels are saved to bot_settings.json, which Render WIPES on restart.
-# So for a channel that must stay forever, edit this line, e.g.:
-# "required_channels": ["@yourchannel", -1001234567890],
-INLINE_BOT_SETTINGS = {
-    "required_channels": [],
-    "platform_limits": {
-        "youtube": {"min": 10, "mb": 200},
-        "tiktok": {"min": 10, "mb": 200},
-        "instagram": {"min": 10, "mb": 200},
-    },
-    "batch_channel_id": None,
-}
-BOT_SETTINGS_DEFAULT = INLINE_BOT_SETTINGS
-
-def load_bot_settings():
-    """Single-file settings: uses INLINE_BOT_SETTINGS above. If a bot_settings.json file
-    happens to exist next to main.py, it overrides the inline values — otherwise the
-    inline values are used, so no second file is required. Never crashes."""
-    # Start from inline settings (deep copy so we never mutate INLINE_BOT_SETTINGS)
-    try:
-        _inline = json.loads(json.dumps(INLINE_BOT_SETTINGS))
-    except Exception:
-        _inline = {}
-    data = {}
-    try:
-        if os.path.exists(BOT_SETTINGS_FILE):
-            data = load_json_file(BOT_SETTINGS_FILE)
-    except Exception:
-        data = {}
-    if not isinstance(data, dict):
-        data = {}
-    # File (if present) wins, otherwise inline wins
-    merged = dict(_inline)
-    merged.update(data)
-    data = merged
-    out = {
-        "required_channels": data.get("required_channels") or [],
-        "platform_limits": {},
-        "batch_channel_id": data.get("batch_channel_id"),
-    }
-    defaults = BOT_SETTINGS_DEFAULT["platform_limits"]
-    raw_limits = data.get("platform_limits") or {}
-    if not isinstance(raw_limits, dict):
-        raw_limits = {}
-    for plat, dflt in defaults.items():
-        plat_raw = raw_limits.get(plat) or {}
-        if not isinstance(plat_raw, dict):
-            plat_raw = {}
-        try:
-            out["platform_limits"][plat] = {
-                "min": int(plat_raw.get("min", dflt["min"])),
-                "mb": int(plat_raw.get("mb", dflt["mb"])),
-            }
-        except Exception:
-            out["platform_limits"][plat] = dict(dflt)
-    return out
-
-def save_bot_settings(new_channels=None, new_limits=None):
-    try:
-        cur = load_bot_settings()
-        if new_channels is not None: cur["required_channels"] = list(new_channels)
-        if new_limits is not None: cur["platform_limits"] = dict(new_limits)
-        save_json_file(BOT_SETTINGS_FILE, cur)
-        return cur
-    except Exception as e:
-        logger.error(f"save_bot_settings: {e}")
-        return load_bot_settings()
-
-def _quality_height(q):
-    try:
-        s = str(q or "").lower().strip()
-        if s in ("worst", "original", "cached", "lux", "audio", "unknown", ""): return 0
-        s = s.replace("p", "")
-        return int(s) if s.isdigit() else 0
-    except Exception:
-        return 0
-
-def get_platform_limits(platform_key):
-    """Per-platform {min, mb} from settings above, falling back to defaults."""
-    try:
-        limits = load_bot_settings().get("platform_limits") or {}
-        plat = limits.get(str(platform_key or "").lower()) or limits.get("youtube") or {}
-        return {
-            "min": int(plat.get("min", DEFAULT_MIN_LIMIT)),
-            "mb": int(plat.get("mb", DEFAULT_MB_LIMIT)),
-        }
-    except Exception:
-        return {"min": DEFAULT_MIN_LIMIT, "mb": DEFAULT_MB_LIMIT}
-
-def detect_platform_key(link, extractor_key=""):
-    low = (link or "").lower()
-    ex = (extractor_key or "").lower()
-    if "tiktok" in low or "tiktok" in ex:
-        return "tiktok"
-    if "instagram" in low or "instagr.am" in low or "instagram" in ex:
-        return "instagram"
-    return "youtube"
-
-def get_required_channels():
-    """Required channels from settings above. Empty -> keep the existing single public channel."""
-    try:
-        chans = load_bot_settings().get("required_channels") or []
-        if chans:
-            return list(chans)
-    except Exception:
-        pass
-    return [PUBLIC_CHANNEL_USERNAME]
-
-# --- PART 1: clean progress for users, full debug for admin ---
-# yt-dlp ignores a hook's return value, so the hook only *records* text.
-# cached_download_and_send() polls _PROGRESS_STATE and edits the status message.
-def _progress_texts(d, user_id):
-    pct = str(d.get("_percent_str", "0%") or "0%").strip()
-    speed = str(d.get("_speed_str", "0") or "0").strip()
-    total = d.get("_total_bytes_str") or d.get("_total_bytes_estimate_str") or "Unknown"
-    normal_text = f"📥 Download Progress: {pct}\n📦 File Size: {total}\n⚡ Speed: {speed}"
-    admin_text = (
-        normal_text
-        + "\n\n===== ADMIN DEBUG LOG =====\n"
-        + f"YTDL Status: {d.get('status')}\n"
-        + "Cache Check: Running\n"
-        + f"Downloaded: {d.get('downloaded_bytes', '?')} / {d.get('total_bytes') or d.get('total_bytes_estimate') or '?'}"
-    )
-    return normal_text, admin_text
-
-def make_progress_hook(user_id, download_key):
-    """Return a yt-dlp progress_hooks callable bound to this user + download."""
-    def _hook(d):
-        try:
-            normal_text, admin_text = _progress_texts(d, user_id)
-            if d.get("status") == "downloading":
-                _PROGRESS_STATE[download_key] = {
-                    "user_id": int(user_id), "normal": normal_text, "admin": admin_text,
-                    "status": "downloading", "updated": time.time(),
-                }
-            elif d.get("status") == "finished":
-                done = "✅ Download Complete, preparing your file..."
-                _PROGRESS_STATE[download_key] = {
-                    "user_id": int(user_id), "normal": done,
-                    "admin": done + "\n\n===== ADMIN DEBUG LOG =====\nYTDL Status: finished",
-                    "status": "finished", "updated": time.time(),
-                }
-        except Exception:
-            pass
-    return _hook
-
-def progress_hook(d, user_id):
-    """Legacy name from the update spec — records progress under a per-user key."""
-    try:
-        make_progress_hook(user_id, f"legacy_{user_id}")(d)
-    except Exception:
-        pass
-
-async def _poll_progress(bot, chat_id, status_msg, download_key, user_id):
-    """Edit status_msg every ~2.5s with clean text (users) or debug text (admin). Cancel when done."""
-    last_text = None
-    while True:
-        await asyncio.sleep(2.5)
-        st = _PROGRESS_STATE.get(download_key)
-        if not st:
-            continue
-        text = st["admin"] if int(user_id) == ADMIN_ID else st["normal"]
-        if text != last_text:
-            last_text = text
-            try:
-                await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=text)
-            except Exception:
-                pass
-        if st.get("status") == "finished":
-            break
-
-def deduct_credits(user_id, credit_cost=1, is_batch=False):
-    """Deduct N credits (Part 4: >100MB costs 3). One web-API call per credit."""
-    try:
-        n = max(1, int(credit_cost or 1))
-    except Exception:
-        n = 1
-    for _ in range(n):
-        deduct_download_counter(user_id, is_batch=is_batch)
-
-# --- PART 2: file cache keyed ONLY by link (quality ignored) ---
-# NOTE: the spec's hash(link) is NOT used — Python's hash() is randomised per
-# process, so the same link would get a different key after every restart.
-# md5 of a normalised URL is stable across restarts.
-def _normalize_cache_link(link_url):
-    try:
-        from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
-        s = (link_url or "").strip()
-        pr = urlparse(s)
-        tracking = {"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
-                    "si", "fbclid", "igshid", "gclid", "mc_cid", "mc_eid"}
-        kept = [(k, v) for k, v in parse_qsl(pr.query, keep_blank_values=True)
-                if k.lower() not in tracking]
-        return urlunparse((pr.scheme.lower(), pr.netloc.lower(), pr.path, "", urlencode(kept), ""))
-    except Exception:
-        return (link_url or "").strip()
-
-def _file_cache_key(link_url, download_type="video"):
-    norm = _normalize_cache_link(link_url)
-    return hashlib.md5(norm.encode("utf-8")).hexdigest()
-
-def get_cached_file(link_url, download_type="video", preferred_quality=None):
-    """Return on-disk cached path. If a specific quality was picked, only return that quality."""
-    try:
-        cache_key = _file_cache_key(link_url, download_type)
-        if not os.path.exists(CACHE_FOLDER):
-            os.makedirs(CACHE_FOLDER, exist_ok=True)
-            return None
-        prefix = f"{cache_key}_{download_type}_"
-        pref = str(preferred_quality or "").lower().replace("p", "") if preferred_quality else ""
-        if pref == "auto": pref = ""
-        candidates = []
-        for f in os.listdir(CACHE_FOLDER):
-            if f.startswith(prefix):
-                full = os.path.join(CACHE_FOLDER, f)
-                if os.path.isfile(full) and os.path.getsize(full) > 1000:
-                    candidates.append(full)
-        if not candidates: return None
-        if pref and download_type == "video":
-            _want = _quality_height(pref)
-            for full in candidates:
-                if f"_{pref}p" in os.path.basename(full):
-                    return full
-            # DIRECTIONAL: cached HIGHER than wanted is fine (1080 cached, want 720 -> use 1080)
-            # Cached LOWER than wanted is NOT fine (360 cached, want 1080 -> None so we download 1080)
-            _better = []
-            for full in candidates:
-                _bn = os.path.basename(full)
-                for _q in ("1080p", "720p", "480p", "360p", "240p"):
-                    if f"_{_q}" in _bn and _quality_height(_q) >= _want:
-                        _better.append((_quality_height(_q), full))
-            if _better:
-                _better.sort(reverse=True)
-                return _better[0][1]
-            return None
-        return candidates[0]
-    except Exception:
-        return None
-
-def save_to_file_cache(link_url, download_type, src_path):
-    """Copy a freshly downloaded file into ./download_cache/ for the next user."""
-    try:
-        if not src_path or not os.path.exists(src_path):
-            return None
-        os.makedirs(CACHE_FOLDER, exist_ok=True)
-        cache_key = _file_cache_key(link_url, download_type)
-        base = os.path.basename(src_path)
-        dest = os.path.join(CACHE_FOLDER, f"{cache_key}_{download_type}_{base}")
-        if not os.path.exists(dest):
-            shutil.copyfile(src_path, dest)
-        return dest
-    except Exception as e:
-        logger.warning(f"save_to_file_cache: {e}")
-        return None
-
-# --- PART 3: social-media metadata ---
-def _yt_dlp_version():
-    """V47: yt_dlp.__version__ does NOT exist - real version is in yt_dlp.version.__version__. Old code always logged 'unknown'."""
-    try:
-        import yt_dlp.version as _v
-        return getattr(_v, "__version__", "unknown")
-    except Exception:
-        try:
-            return getattr(yt_dlp, "__version__", "unknown")
-        except Exception:
-            return "unknown"
-
-def _yt_ydl_opts_for_youtube(base_opts=None):
-    """V51: Search proved datacenter IP is root cause, not cookies/PO token.
-    Two fixes we never tried:
-    1) web_embedded + tv + android_vr clients need NO PO token (per yt-dlp PO Token Guide: web/mweb/tv_simply need GVS token, tv/web_embedded/android_vr don't).
-       web_embedded serves itag 251 Opus audio and works from datacenter IP.
-    2) WARP proxy: route yt-dlp via free Cloudflare WARP so egress looks like home connection, not Render datacenter.
-    Order: web_embedded -> tv -> android_vr -> web -> mweb -> ios -> android. Proxy = WARP if available."""
-    o = dict(base_opts or {})
-    # V51: web_embedded first - no PO token needed, most reliable from datacenter IP.
-    o.update({
-        "extractor_args": {"youtube": {"player_client": ["web_embedded", "tv", "android_vr", "web", "mweb", "ios", "android"], "po_token": ["wpc", "bgutil", "auto"]}},
-        "quiet": True, "no_warnings": True,
-    })
-    # V52 FIX: DO NOT set proxy here - this function is called for TikTok/Instagram/etc too.
-    # WARP is YouTube-only. Setting it here routed TikTok through Cloudflare IP -> TikTok 10231 Region locked.
-    # YouTube proxy is set explicitly in download_media_engine (YouTube-only check) + get_social_metadata (YouTube-only check).
-    # Leave o['proxy'] as caller set it (PROXY_URL=None = direct for TikTok/IG).
-    try:
-        import importlib.util as _ilu
-        if _ilu.find_spec("curl_cffi") is not None:
-            o["impersonate"] = "chrome"
-    except Exception:
-        pass
-    return o
-
-def get_social_metadata(link):
-    """Fetch title / poster / views / likes / comments / description / duration / est. size.
-    Returns dict, or None on failure (caller falls back to fetch_url_metadata)."""
-    try:
-        # V47: metadata was using default web client -> same 'Failed to extract any player response' as downloads.
-        # Use iOS-first + skip webpage, and cookies if present, so metadata works even when web client is blocked.
-        ydl_meta_opts = _yt_ydl_opts_for_youtube({"skip_download": True, "noplaylist": True})
-        # V59: WARP for YT + FB + IG metadata too (metadata also 429s from Render IP). TikTok direct only.
-        try:
-            _wp_meta = _proxy_for_url(link)
-            if _wp_meta: ydl_meta_opts["proxy"] = _wp_meta
-            else: ydl_meta_opts.pop("proxy", None)
-        except Exception: pass
-        try:
-            if "tiktok.com" in (link or "").lower() and os.path.exists("tiktok_cookies.txt"):
-                ydl_meta_opts["cookiefile"] = "tiktok_cookies.txt"
-            elif os.path.exists("cookies.txt"):
-                ydl_meta_opts["cookiefile"] = "cookies.txt"
-        except Exception:
-            pass
-        with yt_dlp.YoutubeDL(ydl_meta_opts) as ydl:
-            info = ydl.extract_info(link, download=False)
-        if not info:
-            return None
-        if isinstance(info, dict) and info.get("entries"):
-            entries = [e for e in info["entries"] if e]
-            info = entries[0] if entries else info
-        if not isinstance(info, dict):
-            return None
-        size = info.get("filesize_approx") or info.get("filesize") or 0
-        if not size:
-            # Best-effort: largest filesize_approx among formats (usually the combined format)
-            try:
-                fmts = info.get("formats") or []
-                cand = [f.get("filesize_approx") or f.get("filesize") or 0 for f in fmts]
-                size = max(cand) if cand else 0
-            except Exception:
-                size = 0
-        # V53: Restore + expand V35 metadata - capture EVERYTHING yt-dlp gives, not just title/views.
-        # web_embedded returns thin metadata (often no views/likes), so we keep all fields and let format show N/A if missing.
-        # upload_date is YYYYMMDD -> format as DD Mon YYYY. Tags/categories/thumbnail kept for card.
-        _up = str(info.get("upload_date") or info.get("release_date") or "")
-        _up_fmt = _up
-        try:
-            if len(_up) == 8 and _up.isdigit():
-                import datetime as _dt53
-                _up_fmt = _dt53.datetime.strptime(_up, "%Y%m%d").strftime("%d %b %Y")
-        except Exception: pass
-        # Best format for resolution/fps/codec (largest video format)
-        _best_fmt = {}
-        try:
-            _fmts = info.get("formats") or []
-            _vfmts = [f for f in _fmts if f.get("vcodec") and f.get("vcodec") != "none"]
-            if _vfmts:
-                _best_fmt = max(_vfmts, key=lambda f: (f.get("height") or 0, f.get("filesize_approx") or 0))
-        except Exception: pass
-        return {
-            "title": info.get("title", "N/A") or "N/A",
-            "poster": info.get("uploader") or info.get("uploader_id") or info.get("channel") or "N/A",
-            "channel": info.get("channel") or info.get("uploader") or "N/A",
-            "channel_id": info.get("channel_id") or info.get("uploader_id") or "N/A",
-            "uploader_id": info.get("uploader_id") or "N/A",
-            "views": info.get("view_count", "N/A"),
-            "likes": info.get("like_count", "N/A"),
-            "dislikes": info.get("dislike_count", "N/A"),
-            "comments": info.get("comment_count", "N/A"),
-            "reposts": info.get("repost_count", "N/A"),
-            "shares": info.get("share_count", "N/A"),
-            "saves": info.get("save_count", "N/A"),
-            "desc": (info.get("description") or "Preview only")[:600],
-            "duration_sec": int(info.get("duration") or 0),
-            "platform": info.get("extractor_key") or info.get("extractor") or "unknown",
-            "est_size_mb": float(size) / (1024 * 1024) if size else 0.0,
-            "filesize_approx": int(size or 0),
-            "upload_date": _up_fmt or "N/A",
-            "upload_date_raw": _up or "",
-            "webpage_url": info.get("webpage_url") or info.get("original_url") or "",
-            "video_id": info.get("id") or "",
-            "width": info.get("width") or (_best_fmt.get("width") if _best_fmt else "N/A"),
-            "height": info.get("height") or (_best_fmt.get("height") if _best_fmt else "N/A"),
-            "fps": info.get("fps") or (_best_fmt.get("fps") if _best_fmt else "N/A"),
-            "vcodec": info.get("vcodec") or (_best_fmt.get("vcodec") if _best_fmt else "N/A"),
-            "acodec": info.get("acodec") or (_best_fmt.get("acodec") if _best_fmt else "N/A"),
-            "ext": info.get("ext") or (_best_fmt.get("ext") if _best_fmt else "N/A"),
-            "tags": info.get("tags") or [],
-            "categories": info.get("categories") or [],
-            "thumbnail": info.get("thumbnail") or "",
-            "like_ratio": "",
-        }
-    except Exception as e:
-        logger.warning(f"get_social_metadata: {e}")
-        return None
-
-def format_social_metadata(meta):
-    if not meta:
-        return ""
-    def _num(v):
-        try:
-            return f"{int(v):,}" if v is not None and v != "N/A" else "N/A"
-        except Exception:
-            return str(v)
-    dur = int(meta.get("duration_sec") or 0)
-    dur_txt = f"{dur // 60}m {dur % 60:02d}s" if dur else "N/A"
-    est = float(meta.get("est_size_mb") or 0)
-    est_txt = f"{est:.1f} MB" if est > 0 else "Unknown"
-    desc = (meta.get("desc") or "").strip()
-    if len(desc) > 280:
-        desc = desc[:280] + "…"
-    # V53: Full V35 card + more - this is the metadata you liked. Show everything we have, hide N/A gracefully.
-    def _fmt_val(v):
-        return str(v) if v not in (None, "", "N/A", 0) else "N/A"
-    _chan = meta.get('channel') or meta.get('poster') or 'N/A'
-    _chan_id = meta.get('channel_id') or meta.get('uploader_id') or ''
-    _chan_line = f"👤 @{_chan}" + (f"  (ID: {_chan_id})" if _chan_id and _chan_id != 'N/A' else "")
-    _vid = meta.get('video_id') or ''
-    _up = meta.get('upload_date') or 'N/A'
-    _w = meta.get('width') or 'N/A'
-    _h = meta.get('height') or 'N/A'
-    _fps = meta.get('fps') or 'N/A'
-    _vc = meta.get('vcodec') or 'N/A'
-    _ac = meta.get('acodec') or 'N/A'
-    _ext = meta.get('ext') or 'N/A'
-    _res = f"{_w}x{_h}" if _w != 'N/A' and _h != 'N/A' else "N/A"
-    lines = [
-        f"🎬 {meta.get('title', 'N/A')}",
-        _chan_line,
-        f"📅 Uploaded: {_up}" + (f"  🆔 Video ID: {_vid}" if _vid else ""),
-        f"👁️ Views: {_num(meta.get('views'))}  👍 Likes: {_num(meta.get('likes'))}  💬 Comments: {_num(meta.get('comments'))}",
-        f"🔁 Reposts: {_num(meta.get('reposts'))}  📤 Shares: {_num(meta.get('shares'))}  💾 Saves: {_num(meta.get('saves'))}",
-        f"⏱️ Duration: {dur_txt}  📦 Est. size: {est_txt}  🌐 {meta.get('platform', 'unknown')}",
-        f"🎞️ Resolution: {_res}  🎞️ FPS: {_fmt_val(_fps)}  🎞️ Video: {_fmt_val(_vc)}  🔊 Audio: {_fmt_val(_ac)}  📁 Format: {_fmt_val(_ext)}",
-    ]
-    # Tags / categories - V35 didn't show these, V53 adds them (yt-dlp gives them for YouTube)
-    try:
-        _tags = meta.get('tags') or []
-        if _tags:
-            _tags_txt = ", ".join([str(t) for t in _tags[:8]])
-            lines.append(f"🏷️ Tags: {_tags_txt}")
-        _cats = meta.get('categories') or []
-        if _cats:
-            lines.append(f"📂 Category: {', '.join([str(c) for c in _cats[:3]])}")
-    except Exception: pass
-    if desc and desc != "Preview only":
-        lines.append(f"📝 {desc}")
-    _url = meta.get('webpage_url') or ''
-    if _url:
-        lines.append(f"🔗 { _url }")
-    return "\n".join(lines)
-
-# --- PART 4: limit + credit calculator ---
-def calculate_cost_and_limits(meta_data, platform_settings):
-    """Returns (credit_cost, time_ok, size_ok). Unknown size (0) never false-blocks."""
-    try:
-        duration_min = float(meta_data.get("duration_sec") or 0) / 60.0
-        est_mb = float(meta_data.get("est_size_mb") or 0)
-    except Exception:
-        duration_min, est_mb = 0.0, 0.0
-    credit_cost = 3 if est_mb > THRESHOLD_3CREDIT_MB else 1
-    try:
-        time_ok = duration_min <= float((platform_settings or {}).get("min", DEFAULT_MIN_LIMIT))
-    except Exception:
-        time_ok = True
-    try:
-        size_ok = True if est_mb <= 0 else est_mb <= float((platform_settings or {}).get("mb", DEFAULT_MB_LIMIT))
-    except Exception:
-        size_ok = True
-    return credit_cost, time_ok, size_ok
-
-# --- PART 5: mandatory recurring channel check (every handler, every time) ---
-async def check_all_required_channels(bot, user_id, channel_list):
-    """Returns (passed, missing_list_or_None). Admin bypasses. left/kicked/exception = missing."""
-    if int(user_id) == ADMIN_ID:
-        return (True, None)
-    missing_channels = []
-    for channel_id in (channel_list or []):
-        try:
-            member = await bot.get_chat_member(chat_id=channel_id, user_id=user_id)
-            if getattr(member, "status", None) in ("left", "kicked"):
-                missing_channels.append(str(channel_id))
-        except Exception:
-            missing_channels.append(str(channel_id))
-    return (False, missing_channels) if missing_channels else (True, None)
-
-def format_missing_channels(missing):
-    lines = []
-    for ch in (missing or []):
-        if ch == PUBLIC_CHANNEL_USERNAME or ch == str(PUBLIC_CHANNEL_URL):
-            lines.append(f"• {PUBLIC_CHANNEL_URL}")
-        else:
-            lines.append(f"• {ch}")
-    return "📢 Join these channels first to use the bot:\n" + "\n".join(lines) + "\n\nThen send your link again."
-
-async def get_channel_join_url(bot, ch):
-    s = str(ch).strip()
-    if s.startswith("@"):
-        return f"https://t.me/{s[1:]}", s
-    if s.startswith("https://t.me/"):
-        return s, s
-    try:
-        chat = await bot.get_chat(chat_id=int(s) if s.lstrip("-").isdigit() else s)
-        title = getattr(chat, "title", None) or getattr(chat, "username", None) or s
-        if getattr(chat, "username", None):
-            return f"https://t.me/{chat.username}", title
-        if getattr(chat, "invite_link", None):
-            return chat.invite_link, title
-        try:
-            inv = await bot.create_chat_invite_link(chat_id=chat.id)
-            if inv and getattr(inv, "invite_link", None):
-                return inv.invite_link, title
-        except Exception:
-            pass
-        return None, title
-    except Exception:
-        return None, s
-
-async def send_join_prompt(bot, chat_id, user_id, missing):
-    chans = list(missing) if missing else get_required_channels()
-    if not chans:
-        chans = [PUBLIC_CHANNEL_USERNAME]
-    lines = ["🔒 <b>Join to use the bot</b>", "", "To continue, join every channel below:", ""]
-    kb_rows = []
-    for idx, ch in enumerate(chans, 1):
-        url, title = await get_channel_join_url(bot, ch)
-        label = title if title and title != str(ch) else f"Channel {idx}"
-        if str(label).lstrip("-").isdigit() and len(str(label)) > 6:
-            label = f"Channel {idx}"
-        lines.append(f"{idx}. {label}")
-        if url:
-            kb_rows.append([InlineKeyboardButton(f"📢 Join {label}", url=url)])
-        else:
-            lines.append(f"   (open {label} in Telegram and tap Join)")
-    lines.append("")
-    lines.append("1️⃣ Tap <b>Join</b> on each channel above")
-    lines.append("2️⃣ Come back here and tap <b>✅ I've Joined</b>")
-    kb_rows.append([InlineKeyboardButton("✅ I've Joined — Check Again", callback_data="check_joined")])
-    try:
-        await bot.send_message(chat_id=chat_id, text="\n".join(lines), reply_markup=InlineKeyboardMarkup(kb_rows), parse_mode="HTML")
-    except Exception:
-        try:
-            await bot.send_message(chat_id=chat_id, text="\n".join(lines), reply_markup=InlineKeyboardMarkup(kb_rows))
-        except Exception as e:
-            logger.error(f"send_join_prompt: {e}")
-
-async def send_meta_after(bot, chat_id, url, meta, user_id=None):
-    try:
-        m = meta
-        # V53: If first metadata fetch failed (e.g. web_embedded thin record), retry with plain yt-dlp (no client lock, no WARP)
-        # so we still get views/likes/comments like V35 did. Never silently skip the card you like.
-        if not m:
-            try:
-                m = await asyncio.to_thread(get_social_metadata, url)
-            except Exception:
-                m = None
-        if not m:
-            # Fallback 2: plain yt-dlp without web_embedded/WARP - V35 style, gets full metadata
-            try:
-                def _plain_meta(_u):
-                    try:
-                        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True}) as _ydl:
-                            _info = _ydl.extract_info(_u, download=False)
-                            if isinstance(_info, dict) and _info.get("entries"):
-                                _e = [e for e in _info["entries"] if e]
-                                _info = _e[0] if _e else _info
-                            if not isinstance(_info, dict): return None
-                            return {"title": _info.get("title") or "N/A", "poster": _info.get("uploader") or _info.get("channel") or "N/A", "channel": _info.get("channel") or _info.get("uploader") or "N/A", "channel_id": _info.get("channel_id") or _info.get("uploader_id") or "N/A", "uploader_id": _info.get("uploader_id") or "N/A", "views": _info.get("view_count", "N/A"), "likes": _info.get("like_count", "N/A"), "dislikes": _info.get("dislike_count", "N/A"), "comments": _info.get("comment_count", "N/A"), "reposts": _info.get("repost_count", "N/A"), "shares": _info.get("share_count", "N/A"), "saves": _info.get("save_count", "N/A"), "desc": (_info.get("description") or "Preview only")[:600], "duration_sec": int(_info.get("duration") or 0), "platform": _info.get("extractor_key") or _info.get("extractor") or "unknown", "est_size_mb": 0.0, "filesize_approx": 0, "upload_date": str(_info.get("upload_date") or "N/A"), "video_id": _info.get("id") or "", "width": _info.get("width") or "N/A", "height": _info.get("height") or "N/A", "fps": _info.get("fps") or "N/A", "vcodec": _info.get("vcodec") or "N/A", "acodec": _info.get("acodec") or "N/A", "ext": _info.get("ext") or "N/A", "tags": _info.get("tags") or [], "categories": _info.get("categories") or [], "webpage_url": _info.get("webpage_url") or _u, "thumbnail": _info.get("thumbnail") or ""}
-                    except Exception: return None
-                m = await asyncio.to_thread(_plain_meta, url)
-            except Exception:
-                m = None
-        if not m:
-            # Fallback 3: minimal card from title cache so you still get *something* - never blank
-            try:
-                _disp = _display_name_for(None, url, url, None)
-                if _disp and _disp != url:
-                    m = {"title": _disp, "poster": "N/A", "channel": "N/A", "views": "N/A", "likes": "N/A", "comments": "N/A", "reposts": "N/A", "shares": "N/A", "saves": "N/A", "desc": "", "duration_sec": 0, "platform": "unknown", "est_size_mb": 0.0, "upload_date": "N/A", "video_id": "", "width": "N/A", "height": "N/A", "fps": "N/A", "vcodec": "N/A", "acodec": "N/A", "ext": "N/A", "tags": [], "categories": [], "webpage_url": url}
-            except Exception: pass
-        if not m:
-            return
-        card = format_social_metadata(m)
-        if not card:
-            return
-        # V16: attach main keyboard so grid stays after metadata card (it is the last message).
-        _mkb = None
-        if user_id is not None:
-            try: _mkb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
-            except Exception: _mkb = None
-        try:
-            await bot.send_message(chat_id=chat_id, text=card, parse_mode="Markdown", reply_markup=_mkb)
-        except Exception:
-            try:
-                await bot.send_message(chat_id=chat_id, text=card, reply_markup=_mkb)
-            except Exception:
-                pass
-    except Exception as e:
-        logger.warning(f"send_meta_after: {e}")
-
-def build_reqch_panel():
-    chans = get_required_channels()
-    if chans:
-        lines = ["📢 <b>Required Channels</b>", ""] + [f"{i+1}. {c}" for i, c in enumerate(chans)] + ["", "Add: tap ➕ then forward a channel message, or send @username / -100...", "⚠️ Button-saved channels last until next Render restart. For permanent, edit INLINE_BOT_SETTINGS in main.py."]
-    else:
-        lines = ["📢 <b>Required Channels</b>", "", "None yet — everyone can use the bot.", "", "Tap ➕ to add your first required channel.", "⚠️ Button-saved channels last until next Render restart. For permanent, edit INLINE_BOT_SETTINGS in main.py."]
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("➕ Add Channel", callback_data="reqch_add")],
-        [InlineKeyboardButton("➖ Remove Channel", callback_data="reqch_remove_list")],
-        [InlineKeyboardButton("⬅ Done", callback_data="reqch_done")],
-    ])
-    return "\n".join(lines), kb
-
-def build_limits_panel():
-    limits = load_bot_settings().get("platform_limits") or {}
-    lines = ["📊 <b>Download Limits</b>", ""]
-    for plat in ("youtube", "tiktok", "instagram"):
-        l = limits.get(plat) or {}
-        lines.append(f"• {plat}: {l.get('min', 10)} min / {l.get('mb', 200)} MB")
-    lines += ["", "Tap a platform, then tap a preset. No typing needed.", "Over 100 MB = 3 credits, otherwise 1 credit."]
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("▶️ YouTube", callback_data="limit_plat_youtube")],
-        [InlineKeyboardButton("🎵 TikTok", callback_data="limit_plat_tiktok")],
-        [InlineKeyboardButton("📸 Instagram", callback_data="limit_plat_instagram")],
-        [InlineKeyboardButton("⬅ Done", callback_data="limit_done")],
-    ])
-    return "\n".join(lines), kb
-
-
 YT_ID_RE = re.compile(
     r'(?:youtu\.be/|youtube\.com/(?:watch\?(?:[^#\s]*&)?v=|shorts/|live/|embed/)|music\.youtube\.com/watch\?(?:[^#\s]*&)?v=)'
     r'([A-Za-z0-9_-]{11})')
@@ -2514,16 +1604,13 @@ def is_banned(user_id):
     banned = load_json_file(BANNED_FILE)
     return str(user_id) in banned
 
-def track_user_activity(user_id, username=None):
-    # PART 7: remember username so /stats Top 10 can show it (old entries keep "No Username")
+def track_user_activity(user_id):
     activity = load_json_file(ACTIVITY_FILE)
     user_str = str(user_id)
     now = time.time()
     if user_str not in activity: activity[user_str] = {"total_interactions": 0, "last_active": now}
     activity[user_str]["total_interactions"] += 1
     activity[user_str]["last_active"] = now
-    if username:
-        activity[user_str]["username"] = str(username).lstrip("@")
     save_json_file(ACTIVITY_FILE, activity)
 
 def get_lang(user_id):
@@ -2545,20 +1632,6 @@ def load_tokens():
     except Exception as e: logger.error(f"Tokens: {e}")
     return {}
 
-def get_user_profile_from_flask(user_id):
-    # FIX: My Stats used /get_tokens which NEVER calls get_user_profile (no 24h refill),
-    # while /check-download DOES call it (refill). So My Stats showed stale 0, then File-to-Link
-    # silently refilled to free then deducted 1 -> 0->1 jump. This calls the new /get-profile
-    # endpoint which uses the SAME get_user_profile logic as /check-download, so both agree.
-    try:
-        r = requests.post(f"{WEB_BASE_URL}/get-profile", json={"user_id": int(user_id)}, headers=API_HEADERS, timeout=5)
-        if r.status_code == 200:
-            d = r.json()
-            if isinstance(d, dict) and "downloads_left" in d:
-                return d
-    except Exception as e: logger.error(f"get-profile: {e}")
-    return None
-
 def save_tokens(tokens):
     try: requests.post(f"{WEB_BASE_URL}/save_tokens", json=tokens, headers=API_HEADERS, timeout=5)
     except Exception as e: logger.error(f"Save tokens: {e}")
@@ -2573,7 +1646,7 @@ def adsgram_start(user_id, kind="wall", msg_start=0, msg_end=0):
 
 def adsgram_status(user_id):
     try:
-        r = requests.post(f"{WEB_BASE_URL}/monetag-status", json={"user_id": int(user_id), "secret": API_SECRET, "reward": get_reward_amount()}, timeout=8)
+        r = requests.post(f"{WEB_BASE_URL}/monetag-status", json={"user_id": int(user_id), "secret": API_SECRET}, timeout=8)
         if r.status_code == 200: return r.json()
     except Exception as e: logger.error(f"adsgram_status: {e}")
     return {"status": "error"}
@@ -2583,7 +1656,7 @@ def adsgram_keyboard(user_id, kind="wall", msg_start=0, msg_end=0, extra_rows=No
     if not nonce: return None
     url = f"{WEB_BASE_URL}/monetag?n={nonce}&k={kind}"
     rows = [
-        [InlineKeyboardButton(f"📺 Watch Monetag Ad +{get_reward_amount()}", web_app=WebAppInfo(url=url))],
+        [InlineKeyboardButton("📺 Watch Monetag Ad +1", web_app=WebAppInfo(url=url))],
         [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
         [InlineKeyboardButton("✅ Check & Get +1", callback_data="monetag_check")],
         [InlineKeyboardButton("↪️ Use Adsterra fallback (after 2 failures)", callback_data="monetag_fallback")],
@@ -2642,217 +1715,14 @@ def fetch_url_metadata(url):
     except: return "Media Link", "N/A"
 
 def scrape_html_images(url, cookiefile=None):
-    # V54: Keep old single-image API for callers that expect 1 URL, but make it actually work for FB/IG.
-    # FB/IG now return login wall for plain Mozilla/5.0. Use BROWSER_HEADERS + cookies.txt if present.
+    headers = {'User-Agent': 'Mozilla/5.0'}
     try:
-        _all = scrape_all_html_images(url, cookiefile)
-        if _all: return _all[0]
+        res = requests.get(url, headers=headers, timeout=15)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        og = soup.find('meta', property='og:image')
+        if og and og.get('content'): return og['content']
     except Exception as e: logger.error(f"Scrape: {e}")
     return None
-
-def _ig_carousel_via_json(url, cookiefile=None):
-    """V55: IG carousel slides are NOT in og:image (only first). They are in ?__a=1&__d=dis JSON: graphql.shortcode_media.edge_sidecar_to_children.edges[].node.display_url / video_url.
-    This does NOT hit api/graphql (which 429s Render IP), it hits the post JSON endpoint. Returns list of image/video URLs."""
-    try:
-        import html as _h55
-        _m = re.search(r"/(p|reel|tv)/([A-Za-z0-9_-]+)", url)
-        if not _m: return []
-        _short = _m.group(2)
-        _headers = dict(BROWSER_HEADERS) if 'BROWSER_HEADERS' in globals() else {'User-Agent': 'Mozilla/5.0'}
-        _headers["X-Requested-With"] = "XMLHttpRequest"
-        _headers["Accept"] = "application/json"
-        _cookies = {}
-        try:
-            _cf = cookiefile or ("cookies.txt" if __import__('os').path.exists("cookies.txt") else None)
-            if _cf and __import__('os').path.exists(_cf):
-                for _line in open(_cf, encoding='utf-8', errors='ignore'):
-                    _line = _line.strip()
-                    if not _line or _line.startswith('#'): continue
-                    _parts = _line.split('\t')
-                    if len(_parts) >= 7: _cookies[_parts[5]] = _parts[6]
-        except Exception: pass
-        # V57: X-IG-App-ID is required for unauthenticated IG API - without it, __a=1 returns login wall
-        _headers["X-IG-App-ID"] = "936619743392459"
-        _headers["X-IG-WWW-Claim"] = "0"
-        _headers["Accept"] = "application/json, text/html"
-        _out = []
-        # V57 order: 1) embed (no login, no GraphQL, least 429), 2) __a=1 with App-ID, 3) ddinstagram mirror (public proxy, bypasses IG 429 entirely)
-        _try_urls = [
-            (f"https://www.instagram.com/p/{_short}/embed/captioned/", "embed"),
-            (f"https://www.instagram.com/p/{_short}/?__a=1&__d=dis", "json"),
-            (f"https://www.ddinstagram.com/p/{_short}/", "ddig"),
-            (f"https://www.ddinstagram.com/p/{_short}/embed/", "ddig-embed"),
-        ]
-        for _u, _kind in _try_urls:
-            try:
-                _h_try = dict(_headers)
-                if _kind.startswith("ddig"):
-                    _h_try["User-Agent"] = "Mozilla/5.0"
-                    _h_try.pop("X-IG-App-ID", None)
-                # V59: WARP for IG (same as YT) - Render IP gets 429, WARP looks like home IP. Fall back to direct if WARP fails.
-                try: _prox59ig = _requests_proxies_for_url(url)
-                except Exception: _prox59ig = None
-                try: _r = requests.get(_u, headers=_h_try, cookies=_cookies, timeout=15, proxies=_prox59ig)
-                except Exception: _r = requests.get(_u, headers=_h_try, cookies=_cookies, timeout=15)
-                _txt = _r.text or ""
-                if not _txt or len(_txt) < 500: continue
-                # If login wall, skip quickly - don't waste time parsing it
-                if "Log in to Instagram" in _txt and "display_url" not in _txt and "scontent" not in _txt and "cdninstagram" not in _txt:
-                    continue
-                # Try parse as JSON first (for __a=1)
-                try:
-                    _j = __import__('json').loads(_txt)
-                    def _walk(_node):
-                        if isinstance(_node, dict):
-                            if _node.get("display_url") and isinstance(_node.get("display_url"), str):
-                                _out.append(_h55.unescape(_node["display_url"]))
-                            if _node.get("video_url") and isinstance(_node.get("video_url"), str):
-                                _out.append(_h55.unescape(_node["video_url"]))
-                            for _v in _node.values(): _walk(_v)
-                        elif isinstance(_node, list):
-                            for _v in _node: _walk(_v)
-                    _walk(_j)
-                    if _out: break
-                except Exception: pass
-                # Regex for display_url / video_url in HTML/JSON text (embed + ddinstagram)
-                for _mm in re.finditer(r'"display_url"\s*:\s*"([^"]+)"', _txt):
-                    _u2 = _h55.unescape(_mm.group(1)).replace('\\/', '/')
-                    if _u2.startswith('http') and _u2 not in _out: _out.append(_u2)
-                for _mm in re.finditer(r'"video_url"\s*:\s*"([^"]+)"', _txt):
-                    _u2 = _h55.unescape(_mm.group(1)).replace('\\/', '/')
-                    if _u2.startswith('http') and _u2 not in _out: _out.append(_u2)
-                # Embed + ddinstagram also have raw scontent / cdninstagram URLs in HTML (carousel slides)
-                for _mm in re.finditer(r'https://(?:scontent[^"\'\s]+|[^"\'\s]*\.cdninstagram\.com[^"\'\s]+)', _txt):
-                    _u2 = _h55.unescape(_mm.group(0)).replace('\\/', '/')
-                    if any(_bad in _u2 for _bad in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32", "s50x50"]): continue
-                    if (".jpg" in _u2 or ".jpeg" in _u2 or ".png" in _u2 or ".webp" in _u2) and _u2 not in _out: _out.append(_u2)
-                # og:image as well (at least 1)
-                for _mm in re.finditer(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', _txt):
-                    _u2 = _h55.unescape(_mm.group(1))
-                    if _u2.startswith('http') and _u2 not in _out: _out.append(_u2)
-                if len(_out) >= 2: break
-                if _out and _kind == "ddig": break
-            except Exception: continue
-        # De-dupe keep order
-        _seen = set(); _res = []
-        for _u in _out:
-            _k = _u.split('?')[0]
-            if _k not in _seen: _seen.add(_k); _res.append(_u)
-        return _res[:20]
-    except Exception as e:
-        try: logger.warning(f"_ig_carousel_via_json: {e}")
-        except Exception: pass
-        return []
-
-def scrape_all_html_images(url, cookiefile=None):
-    """V54: Return ALL image URLs from a FB/IG post page, not just og:image.
-    FB carousel: page contains many scontent / og:image URLs. IG carousel: embed page contains display_url for each slide.
-    Returns list of unique image URLs (scontent / cdn) in post order."""
-    try:
-        import html as _html54
-        _headers = dict(BROWSER_HEADERS) if 'BROWSER_HEADERS' in globals() else {'User-Agent': 'Mozilla/5.0'}
-        _cookies = {}
-        # Try cookies.txt (yt-dlp Netscape format) for FB/IG - without it FB returns login wall
-        try:
-            _cf = cookiefile or ("cookies.txt" if __import__('os').path.exists("cookies.txt") else None)
-            if _cf and __import__('os').path.exists(_cf):
-                for _line in open(_cf, encoding='utf-8', errors='ignore'):
-                    _line = _line.strip()
-                    if not _line or _line.startswith('#'): continue
-                    _parts = _line.split('\t')
-                    if len(_parts) >= 7:
-                        _cookies[_parts[5]] = _parts[6]
-        except Exception: pass
-        # 1) Try embed version for Instagram (less blocked than main page)
-        # V56: For FB /share/, try direct share-page scrape FIRST - it works even when resolve fails (og:image + scontent from share page)
-        try:
-            if "facebook.com" in url.lower() and "/share/" in url.lower():
-                _fb_direct = _fb_images_from_share_page(url)
-                if _fb_direct: return _fb_direct
-        except Exception: pass
-        # V55: For IG, JSON endpoint has ALL carousel slides - try it FIRST, before og:image (which is only 1)
-        try:
-            if "instagram.com" in url.lower() or "instagr.am" in url.lower():
-                _ig_json = _ig_carousel_via_json(url, cookiefile)
-                if len(_ig_json) >= 2:
-                    return _ig_json
-                elif len(_ig_json) == 1:
-                    # Keep it as fallback, but continue to try og:image for more
-                    _found_early = _ig_json
-                else:
-                    _found_early = []
-            else:
-                _found_early = []
-        except Exception: _found_early = []
-        # V55: Resolve FB share link before scraping - else we scrape the share redirect page, not the post
-        try:
-            url = _resolve_share_link(url)
-        except Exception: pass
-        _urls_to_try = [url]
-        try:
-            _m = re.search(r"/(p|reel|tv)/([A-Za-z0-9_-]+)", url)
-            if _m and ("instagram.com" in url.lower() or "instagr.am" in url.lower()):
-                _urls_to_try.append(f"https://www.instagram.com/{_m.group(1)}/{_m.group(2)}/embed/")
-        except Exception: pass
-        # 2) Try mbasic for Facebook (lighter, less JS/login wall)
-        try:
-            if "facebook.com" in url.lower() or "fb.watch" in url.lower():
-                _mb = url.replace("www.facebook.com", "mbasic.facebook.com").replace("web.facebook.com", "mbasic.facebook.com")
-                if _mb != url: _urls_to_try.append(_mb)
-        except Exception: pass
-        _found = []
-        for _u in _urls_to_try:
-            try:
-                try: _prox59s = _requests_proxies_for_url(_u)
-                except Exception: _prox59s = None
-                try: _res = requests.get(_u, headers=_headers, cookies=_cookies, timeout=15, proxies=_prox59s)
-                except Exception: _res = requests.get(_u, headers=_headers, cookies=_cookies, timeout=15)
-                _text = _res.text or ""
-                if not _text or len(_text) < 500: continue
-                # og:image + twitter:image (first image)
-                try:
-                    _soup = BeautifulSoup(_text, 'html.parser')
-                    for _prop in ["og:image", "twitter:image", "og:image:url"]:
-                        for _tag in _soup.find_all('meta', property=_prop):
-                            _c = _tag.get('content')
-                            if _c and _c.startswith('http') and _c not in _found:
-                                _found.append(_html54.unescape(_c))
-                    for _tag in _soup.find_all('meta', attrs={'name': 'twitter:image'}):
-                        _c = _tag.get('content')
-                        if _c and _c.startswith('http') and _c not in _found:
-                            _found.append(_html54.unescape(_c))
-                except Exception: pass
-                # FB scontent + IG cdn URLs embedded in JSON (carousel slides)
-                # Match https://scontent...jpg / https://*.cdninstagram.com/...jpg
-                for _mm in re.finditer(r'https://(?:scontent[^"\'\s]+|[^"\'\s]*\.cdninstagram\.com[^"\'\s]+|[^"\'\s]*\.fbcdn\.net[^"\'\s]+)', _text):
-                    _u2 = _html54.unescape(_mm.group(0)).replace('\\/', '/')
-                    # Skip tiny thumbs / profile pics / static icons
-                    if any(_bad in _u2 for _bad in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32", "s50x50"]): continue
-                    if _u2 not in _found and (".jpg" in _u2 or ".jpeg" in _u2 or ".png" in _u2 or ".webp" in _u2):
-                        _found.append(_u2)
-                # IG display_url in JSON
-                for _mm in re.finditer(r'"display_url"\s*:\s*"([^"]+)"', _text):
-                    _u2 = _html54.unescape(_mm.group(1)).replace('\\/', '/')
-                    if _u2.startswith('http') and _u2 not in _found:
-                        _found.append(_u2)
-                if _found: break
-            except Exception: continue
-        # De-dupe, keep order, drop tracking params that make same image look different
-        _seen = set(); _out = []
-        # V55: If IG JSON gave us 1 slide and og:image gave 0, keep the JSON one
-        try:
-            if '_found_early' in locals() and _found_early:
-                for _u in _found_early:
-                    if _u not in _found: _found.insert(0, _u)
-        except Exception: pass
-        for _u in _found:
-            _key = _u.split('?')[0]
-            if _key not in _seen:
-                _seen.add(_key); _out.append(_u)
-        return _out[:20]
-    except Exception as e:
-        logger.error(f"scrape_all_html_images: {e}")
-        return []
 
 def get_min_free_disk_mb():
     config = load_json_file(CONFIG_FILE)
@@ -3060,253 +1930,9 @@ def download_youtube_post(url, output_dir, cap_bytes):
     return []
 
 
-def _resolve_share_link(url):
-    """V55+V56: FB /share/p/, /share/r/, /share/v/, fb.watch are short links. yt-dlp + gallery-dl say 'Unsupported URL' for them.
-    V55 only followed HTTP redirects - FB /share/ returns 200 login-wall, NOT a redirect, so it failed.
-    V56: Parse the share page HTML itself - real post is in og:url / canonical / fbid / permalink_url. Also try facebookexternalhit UA (FB serves og tags to crawlers without login).
-    Returns real post URL or original."""
-    try:
-        _low = (url or "").lower()
-        if not any(_d in _low for _d in ["facebook.com/share/", "fb.watch", "fb.gg/", "facebook.com/share"]):
-            return url
-        import requests as _rq56
-        import html as _html56
-        import re as _re56
-        _cookies = {}
-        try:
-            if __import__('os').path.exists("cookies.txt"):
-                for _line in open("cookies.txt", encoding='utf-8', errors='ignore'):
-                    _line = _line.strip()
-                    if not _line or _line.startswith('#'): continue
-                    _parts = _line.split('\t')
-                    if len(_parts) >= 7: _cookies[_parts[5]] = _parts[6]
-        except Exception: pass
-        # 1) HTTP redirect (rare, but cheap)
-        try:
-            _r = _rq56.head(url, headers=dict(BROWSER_HEADERS) if 'BROWSER_HEADERS' in globals() else {'User-Agent': 'Mozilla/5.0'}, allow_redirects=True, timeout=10, cookies=_cookies)
-            _final = getattr(_r, 'url', '') or url
-            # V58: If HEAD gives login URL, parse next= param - don't return login URL
-            if _final and ("/login" in _final or "/checkpoint" in _final):
-                try:
-                    import urllib.parse as _up58h
-                    _qs = _up58h.parse_qs(_up58h.urlparse(_final).query)
-                    _next = (_qs.get("next") or [""])[0]
-                    if _next:
-                        _next = _up58h.unquote(_next)
-                        if _next.startswith("/"): _next = "https://www.facebook.com" + _next
-                        if _next.startswith("http") and "/login" not in _next:
-                            return _next
-                except Exception: pass
-                # Login - need FB cookies, don't return login URL
-                pass
-            elif _final and _final != url and "/share/" not in _final and "/login" not in _final:
-                try: _trace(f"share resolved (redirect): {url[:60]} -> {_final[:80]}")
-                except Exception: pass
-                return _final
-        except Exception: pass
-        # 2) HTML parse - try 3 UAs: browser, facebook crawler (gets og tags without login), plain Mozilla
-        _uas = [
-            dict(BROWSER_HEADERS) if 'BROWSER_HEADERS' in globals() else {'User-Agent': 'Mozilla/5.0'},
-            {'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)', 'Accept': 'text/html'},
-            {'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'},
-        ]
-        for _headers in _uas:
-            try:
-                # V59: Try WARP first (home IP), fall back to direct if WARP fails - FB login redirect is IP + cookies, WARP fixes IP part
-                try: _prox59 = _requests_proxies_for_url(url)
-                except Exception: _prox59 = None
-                try: _r = _rq56.get(url, headers=_headers, cookies=_cookies, allow_redirects=True, timeout=15, proxies=_prox59)
-                except Exception: _r = _rq56.get(url, headers=_headers, cookies=_cookies, allow_redirects=True, timeout=15)
-                _text = _r.text or ""
-                if not _text or len(_text) < 500: continue
-                # V58 FIX: NEVER accept login URL as resolved (V56 bug). FB /share/ with no valid FB cookies redirects to /login/?next=<real URL>.
-                # The next= param IS the real post (story.php?story_fbid=...). Parse it, don't return login URL.
-                _final2 = getattr(_r, 'url', '') or ""
-                if _final2 and ("/login" in _final2 or "/checkpoint" in _final2):
-                    try:
-                        import urllib.parse as _up58
-                        _qs = _up58.parse_qs(_up58.urlparse(_final2).query)
-                        _next = (_qs.get("next") or [""])[0]
-                        if _next:
-                            _next = _up58.unquote(_next)
-                            if _next.startswith("/") : _next = "https://www.facebook.com" + _next
-                            if _next.startswith("http") and "/login" not in _next and "/share/" not in _next:
-                                try: _trace(f"share resolved (login next=): {url[:50]} -> {_next[:80]}")
-                                except Exception: pass
-                                return _next
-                    except Exception: pass
-                    # Login with no usable next= -> this share needs valid FB cookies, don't pretend we resolved it
-                    try: _trace("share resolve: got login page - FB cookies missing/expired (need c_user + xs in cookies.txt)")
-                    except Exception: pass
-                    continue
-                if _final2 and _final2 != url and "/share/" not in _final2 and "/login" not in _final2:
-                    try: _trace(f"share resolved (GET redirect): {url[:60]} -> {_final2[:80]}")
-                    except Exception: pass
-                    return _final2
-                # og:url / canonical - this is the real post URL for public posts even when logged out
-                _og = _re56.search(r'<meta[^>]+property=["\']og:url["\'][^>]+content=["\']([^"\']+)["\']', _text)
-                if not _og:
-                    _og = _re56.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:url["\']', _text)
-                if _og:
-                    _cand = _html56.unescape(_og.group(1)).strip()
-                    if _cand and _cand.startswith('http') and "/share/" not in _cand:
-                        try: _trace(f"share resolved (og:url): {url[:50]} -> {_cand[:80]}")
-                        except Exception: pass
-                        return _cand
-                _can = _re56.search(r'<link[^>]+rel=["\']canonical["\'][^>]+href=["\']([^"\']+)["\']', _text)
-                if _can:
-                    _cand = _html56.unescape(_can.group(1)).strip()
-                    if _cand and _cand.startswith('http') and "/share/" not in _cand:
-                        try: _trace(f"share resolved (canonical): {url[:50]} -> {_cand[:80]}")
-                        except Exception: pass
-                        return _cand
-                # permalink / fbid in JSON - e.g. "permalink_url":"https://www.facebook.com/photo.php?fbid=123"
-                for _pat in [r'"permalink_url"\s*:\s*"([^"]+)"', r'photo\.php\?fbid=(\d+)', r'"fbid"\s*:\s*"(\d+)"', r'/posts/(\d+)', r'/photo\.php\?fbid=(\d+)']:
-                    _m = _re56.search(_pat, _text)
-                    if _m:
-                        _v = _html56.unescape(_m.group(1)).replace('\\/', '/')
-                        if _v.startswith('http') and "/share/" not in _v:
-                            try: _trace(f"share resolved (permalink): {url[:50]} -> {_v[:80]}")
-                            except Exception: pass
-                            return _v
-                        elif _v.isdigit():
-                            _cand2 = f"https://www.facebook.com/photo.php?fbid={_v}"
-                            try: _trace(f"share resolved (fbid): {url[:50]} -> {_cand2[:80]}")
-                            except Exception: pass
-                            return _cand2
-                # meta refresh redirect: <meta http-equiv="refresh" content="0;url=...">
-                _ref = _re56.search(r'http-equiv=["\']refresh["\'][^>]+url=([^"\'>\s]+)', _text, flags=_re56.I)
-                if _ref:
-                    _cand = _html56.unescape(_ref.group(1)).strip()
-                    if _cand.startswith('http') and "/share/" not in _cand:
-                        return _cand
-            except Exception: continue
-    except Exception as _e56:
-        try: _trace(f"share resolve failed: {type(_e56).__name__}: {str(_e56)[:100]}")
-        except Exception: pass
-    return url
-
-def _fb_via_oembed(url):
-    """V60: Facebook oEmbed is tokenless since 15 June 2026 for public posts (graph.facebook.com/v25.0/oembed_post, no app/token).
-    Also try plugins/post.php?href= which Facebook uses for embeds. Both return embed HTML with scontent image URLs, no c_user/xs needed for PUBLIC posts.
-    Returns list of image URLs or []."""
-    try:
-        import urllib.parse as _up60, html as _h60, re as _re60
-        try: _prox60 = _requests_proxies_for_url(url)
-        except Exception: _prox60 = None
-        _enc = _up60.quote(url, safe='')
-        _out = []
-        for _u in [f"https://graph.facebook.com/v25.0/oembed_post?url={_enc}", f"https://www.facebook.com/plugins/post.php?href={_enc}&show_text=true&width=500"]:
-            try:
-                try: _r = requests.get(_u, headers={"User-Agent": "Mozilla/5.0"}, timeout=15, proxies=_prox60)
-                except Exception: _r = requests.get(_u, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
-                _txt = _r.text or ""
-                if not _txt or len(_txt) < 200: continue
-                # oEmbed JSON has "html" field with embed HTML
-                try:
-                    _j = __import__('json').loads(_txt)
-                    _html = _j.get("html", "") or ""
-                    _txt = _txt + " " + _html
-                except Exception: pass
-                # scontent / fbcdn URLs in embed HTML
-                for _m in _re60.finditer(r'https://(?:scontent[^"\'\s]+|[^"\'\s]*\.fbcdn\.net[^"\'\s]+)', _txt):
-                    _u2 = _h60.unescape(_m.group(0)).replace('\\/', '/')
-                    if any(_bad in _u2 for _bad in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32", "s50x50"]): continue
-                    if (".jpg" in _u2 or ".jpeg" in _u2 or ".png" in _u2 or ".webp" in _u2) and _u2 not in _out: _out.append(_u2)
-                # og:image in embed
-                for _m in _re60.finditer(r'og:image["\']?\s*content=["\']([^"\']+)', _txt):
-                    _u2 = _h60.unescape(_m.group(1))
-                    if _u2.startswith('http') and _u2 not in _out: _out.append(_u2)
-                if _out: 
-                    try: _trace(f"FB oEmbed: {len(_out)} image(s) via {_u[:60]}")
-                    except Exception: pass
-                    break
-            except Exception: continue
-        _seen = set(); _res = []
-        for _u in _out:
-            _k = _u.split('?')[0]
-            if _k not in _seen: _seen.add(_k); _res.append(_u)
-        return _res[:20]
-    except Exception: return []
-
-def _fb_images_from_share_page(url):
-    """V56: Even if resolve fails, the share page HTML itself has og:image + scontent URLs. Return them directly - don't need gallery-dl.
-    V58: If url is a login URL, parse next= first - don't scrape the login page.
-    V60: Try oEmbed / plugins/post FIRST (tokenless for public posts, no cookies needed), then share page scrape."""
-    # V60: oEmbed first - works without c_user/xs for public posts
-    try:
-        _oem = _fb_via_oembed(url)
-        if _oem: return _oem
-    except Exception: pass
-    try:
-        if "/login" in (url or ""):
-            import urllib.parse as _up58f
-            _qs = _up58f.parse_qs(_up58f.urlparse(url).query)
-            _next = (_qs.get("next") or [""])[0]
-            if _next:
-                _next = _up58f.unquote(_next)
-                if _next.startswith("/"): _next = "https://www.facebook.com" + _next
-                if _next.startswith("http"): url = _next
-    except Exception: pass
-    try:
-        import requests as _rq56b, html as _html56b, re as _re56b
-        _cookies = {}
-        try:
-            if __import__('os').path.exists("cookies.txt"):
-                for _line in open("cookies.txt", encoding='utf-8', errors='ignore'):
-                    _line = _line.strip()
-                    if not _line or _line.startswith('#'): continue
-                    _parts = _line.split('\t')
-                    if len(_parts) >= 7: _cookies[_parts[5]] = _parts[6]
-        except Exception: pass
-        _uas = [
-            {'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)', 'Accept': 'text/html'},
-            dict(BROWSER_HEADERS) if 'BROWSER_HEADERS' in globals() else {'User-Agent': 'Mozilla/5.0'},
-        ]
-        _out = []
-        for _headers in _uas:
-            try:
-                try: _prox59b = _requests_proxies_for_url(url)
-                except Exception: _prox59b = None
-                try: _r = _rq56b.get(url, headers=_headers, cookies=_cookies, timeout=15, proxies=_prox59b)
-                except Exception: _r = _rq56b.get(url, headers=_headers, cookies=_cookies, timeout=15)
-                _text = _r.text or ""
-                if not _text or len(_text) < 500: continue
-                # og:image (first image)
-                for _m in _re56b.finditer(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', _text):
-                    _u = _html56b.unescape(_m.group(1))
-                    if _u.startswith('http') and _u not in _out: _out.append(_u)
-                # All scontent / fbcdn URLs in page (carousel slides)
-                for _m in _re56b.finditer(r'https://(?:scontent[^"\'\s]+|[^"\'\s]*\.fbcdn\.net[^"\'\s]+)', _text):
-                    _u = _html56b.unescape(_m.group(0)).replace('\\/', '/')
-                    if any(_bad in _u for _bad in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32", "s50x50"]): continue
-                    if (".jpg" in _u or ".jpeg" in _u or ".png" in _u or ".webp" in _u) and _u not in _out: _out.append(_u)
-                if _out: break
-            except Exception: continue
-        _seen = set(); _res = []
-        for _u in _out:
-            _k = _u.split('?')[0]
-            if _k not in _seen: _seen.add(_k); _res.append(_u)
-        return _res[:20]
-    except Exception: return []
-
-def download_carousel(url, output_dir, cap_bytes, http_headers=None, cookiefile=None):
+def download_carousel(url, output_dir, cap_bytes, http_headers=None):
     """Return [paths] (post order) for a multi-item OR single-photo post, else [].
-    V54: Now USES cookies (cookies.txt) - FB/IG block anonymous yt-dlp/gallery-dl since V35. Without cookies, FB=0 images, IG carousel falls back to 1 og:image.
-    V55: Resolve FB /share/ links first, else yt-dlp/gallery-dl say Unsupported URL.
-    Every step writes one line to LAST_CAROUSEL_TRACE."""
-    # V55: FB share link -> real post URL before anything else
-    try:
-        url = _resolve_share_link(url)
-    except Exception: pass
-    # V55: Strip IG tracking (?jplx=..., ?igshid=...) - they make yt-dlp treat same post as different URL and break cache
-    try:
-        if "instagram.com" in url.lower():
-            import urllib.parse as _up55
-            _pu = _up55.urlparse(url)
-            _clean = _up55.urlunparse((_pu.scheme, _pu.netloc, _pu.path, '', '', ''))
-            if _clean != url: url = _clean
-    except Exception: pass
+    No cookies. Every step writes one line to LAST_CAROUSEL_TRACE."""
     LAST_CAROUSEL_TRACE.clear()
     low = url.lower()
     if "youtube.com/post/" in low:
@@ -3321,23 +1947,11 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None, cookiefile=
     files, ytdlp_failed, gallery_ran = [], False, False
     try:
         # ---- 1) yt-dlp ----
-        # V54: cookiefile from caller (cookies.txt) - FB/IG need it now
-        try:
-            if not cookiefile:
-                import os as _os54
-                if _os54.path.exists("cookies.txt"): cookiefile = "cookies.txt"
-        except Exception: pass
         try:
             base = {"quiet": True, "no_warnings": True, "noplaylist": False,
                     "playlistend": MAX_CAROUSEL_ITEMS, "ignoreerrors": True,
                     "socket_timeout": 15}
             if http_headers: base["http_headers"] = http_headers
-            if cookiefile: base["cookiefile"] = cookiefile
-            # V59: WARP for FB/IG carousel yt-dlp (same as YT) - else Render IP gets 429 / login
-            try:
-                _wp_car = _proxy_for_url(url)
-                if _wp_car: base["proxy"] = _wp_car
-            except Exception: pass
             with yt_dlp.YoutubeDL(dict(base, skip_download=True)) as ydl:
                 info = ydl.extract_info(url, download=False)
             entries = [e for e in (info or {}).get("entries") or [] if e]
@@ -3375,31 +1989,15 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None, cookiefile=
         if len(files) < 2 and (ytdlp_failed or not files):
             try:
                 gallery_ran = True
-                _g_args = [sys.executable, "-m", "gallery_dl", "-D", folder, "--no-mtime",
-                     "-R", "1", "--http-timeout", "15",
-                     "--range", f"1-{MAX_CAROUSEL_ITEMS}"]
-                # V54: gallery-dl cookies - FB/IG block anonymous gallery-dl now
-                try:
-                    if cookiefile and __import__('os').path.exists(cookiefile):
-                        _g_args += ["--cookies", cookiefile]
-                except Exception: pass
-                _g_args.append(url)
                 r = subprocess.run(
-                    _g_args,
+                    [sys.executable, "-m", "gallery_dl", "-D", folder, "--no-mtime",
+                     "-R", "1", "--http-timeout", "15",
+                     "--range", f"1-{MAX_CAROUSEL_ITEMS}", url],
                     capture_output=True, text=True, timeout=45)
                 files = _collect_media(folder)
                 files.sort(key=os.path.getmtime)
                 err = (r.stderr or r.stdout or "").strip().replace("\n", " ")[-160:]
                 _trace(f"gallery-dl: exit={r.returncode}, files={len(files)}, msg={err}")
-                # V58: gallery-dl AuthRequired = FB cookies missing/expired. Tell admin exactly what to export.
-                if "AuthRequired" in err or "authenticated cookies" in err.lower() or "This content isn't available" in err:
-                    try:
-                        _has_cu = False; _has_xs = False
-                        if __import__('os').path.exists("cookies.txt"):
-                            _ct = open("cookies.txt", encoding='utf-8', errors='ignore').read()
-                            _has_cu = "c_user" in _ct; _has_xs = "\txs\t" in _ct or "xs" in _ct
-                        _trace(f"FB cookies: c_user={'YES' if _has_cu else 'MISSING'} xs={'YES' if _has_xs else 'MISSING'} - need fresh export via Get cookies.txt LOCALLY while logged into Facebook (both c_user + xs)")
-                    except Exception: pass
             except subprocess.TimeoutExpired:
                 _trace("gallery-dl: TIMEOUT after 45s")
                 files = _collect_media(folder)
@@ -3412,37 +2010,6 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None, cookiefile=
             if len(insta_files) >= 1:
                 _trace(f"RESULT: OK via instaloader, {len(insta_files)} item(s)")
                 return insta_files
-        # ---- 3b) V55: IG JSON (no GraphQL, no 429) - gets ALL carousel slides even when gallery-dl timeout + instaloader 429 ----
-        if not files and ("instagram.com" in low or "instagr.am" in low):
-            try:
-                _ig_urls = _ig_carousel_via_json(url, cookiefile)
-                if _ig_urls:
-                    _trace(f"IG JSON: {len(_ig_urls)} slide URL(s) found")
-                    _ig_files = []
-                    for _i, _u in enumerate(_ig_urls[:MAX_CAROUSEL_ITEMS], start=1):
-                        try:
-                            _ext = ".mp4" if ".mp4" in _u.split("?")[0] else ".jpg"
-                            _ig_files.append(_fetch_media_url(_u, os.path.join(folder, f"{_i:03d}"), cap_bytes, _ext))
-                        except Exception as _e55: _trace(f"IG JSON slide {_i} failed: {type(_e55).__name__}")
-                    if _ig_files:
-                        _trace(f"RESULT: OK via IG JSON, {len(_ig_files)} item(s)")
-                        return _ig_files
-            except Exception as _e55: _trace(f"IG JSON failed: {type(_e55).__name__}: {str(_e55)[:120]}")
-        # ---- 3c) V56: FB share page itself has images even if resolve + gallery-dl both fail - try direct share-page scrape FIRST ----
-        if not files and ("facebook.com" in low or "fb.watch" in low):
-            try:
-                # _fb_images_from_share_page uses original share URL (before resolve) - it parses og:image + scontent from that page
-                _fb_urls = _fb_images_from_share_page(url) or scrape_all_html_images(url, cookiefile)
-                if _fb_urls:
-                    _trace(f"FB scrape: {len(_fb_urls)} image URL(s) found")
-                    _fb_files = []
-                    for _i, _u in enumerate(_fb_urls[:MAX_CAROUSEL_ITEMS], start=1):
-                        try: _fb_files.append(_fetch_media_url(_u, os.path.join(folder, f"{_i:03d}"), cap_bytes, ".jpg"))
-                        except Exception: continue
-                    if _fb_files:
-                        _trace(f"RESULT: OK via FB scrape, {len(_fb_files)} item(s)")
-                        return _fb_files
-            except Exception as _e55: _trace(f"FB scrape failed: {type(_e55).__name__}")
 
         files = [p for p in files if os.path.getsize(p) <= cap_bytes][:MAX_CAROUSEL_ITEMS]
         # 2+ files is a carousel. Exactly 1 file is accepted only when it came from the
@@ -3482,32 +2049,15 @@ async def _send_items(bot, chat_id, items, caption=None):
     for s in range(0, len(albumable), 10):
         chunk = albumable[s:s + 10]
         cap = {"caption": caption, "parse_mode": "Markdown"} if (first and caption) else {}
-        # V52 FIX: Markdown caption can contain _ * [ ] & from TikTok title/URL -> Can't parse entities.
-        # Try Markdown first, fall back to plain text (no parse) so send still succeeds.
-        try:
-            if len(chunk) == 1:
-                it = chunk[0]
-                if it["kind"] == "video":
-                    msgs = [await bot.send_video(chat_id=chat_id, video=it["src"], supports_streaming=True, **cap)]
-                else:
-                    msgs = [await bot.send_photo(chat_id=chat_id, photo=it["src"], **cap)]
+        if len(chunk) == 1:
+            it = chunk[0]
+            if it["kind"] == "video":
+                msgs = [await bot.send_video(chat_id=chat_id, video=it["src"], supports_streaming=True, **cap)]
             else:
-                media = [_media(it["kind"], it["src"], **(cap if j == 0 else {})) for j, it in enumerate(chunk)]
-                msgs = list(await bot.send_media_group(chat_id=chat_id, media=media))
-        except Exception as _e_parse:
-            if "parse" in str(_e_parse).lower() or "entity" in str(_e_parse).lower():
-                _cap_plain = {"caption": caption} if (first and caption) else {}
-                if len(chunk) == 1:
-                    it = chunk[0]
-                    if it["kind"] == "video":
-                        msgs = [await bot.send_video(chat_id=chat_id, video=it["src"], supports_streaming=True, **_cap_plain)]
-                    else:
-                        msgs = [await bot.send_photo(chat_id=chat_id, photo=it["src"], **_cap_plain)]
-                else:
-                    media = [_media(it["kind"], it["src"], **(_cap_plain if j == 0 else {})) for j, it in enumerate(chunk)]
-                    msgs = list(await bot.send_media_group(chat_id=chat_id, media=media))
-            else:
-                raise
+                msgs = [await bot.send_photo(chat_id=chat_id, photo=it["src"], **cap)]
+        else:
+            media = [_media(it["kind"], it["src"], **(cap if j == 0 else {})) for j, it in enumerate(chunk)]
+            msgs = list(await bot.send_media_group(chat_id=chat_id, media=media))
         out += [x for x in (_item_from_msg(m) for m in msgs) if x]
         first = False
         await asyncio.sleep(1)
@@ -3585,47 +2135,14 @@ async def send_cached_carousel(bot, chat_id, entry, ckey):
 # ======================== END PASTE ==================================
 
 
-BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-BROWSER_HEADERS = {"User-Agent": BROWSER_UA, "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8", "Accept-Language": "en-US,en;q=0.9", "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"', "Sec-Ch-Ua-Mobile": "?0", "Sec-Ch-Ua-Platform": '"Windows"'}
-def _ensure_lux_binary():
-    """V46: Lux was silently skipped if binary missing after redeploy. Auto-download it once to .bin/lux so Lux actually runs."""
-    try:
-        lux_bin = os.getenv("LUX_BIN", os.path.join(os.path.dirname(os.path.abspath(__file__)), ".bin", "lux"))
-        if os.path.isfile(lux_bin) and os.access(lux_bin, os.X_OK):
-            return lux_bin
-        if shutil.which("lux"):
-            return shutil.which("lux")
-        import tarfile, io
-        os.makedirs(os.path.dirname(lux_bin), exist_ok=True)
-        urls = ["https://github.com/iawia002/lux/releases/download/v0.21.0/lux_0.21.0_Linux_64bit.tar.gz", "https://github.com/iawia002/lux/releases/download/v0.20.0/lux_0.20.0_Linux_64bit.tar.gz"]
-        for _u in urls:
-            try:
-                logger.warning(f"Lux missing, downloading from {_u}")
-                r = requests.get(_u, timeout=60)
-                if r.status_code != 200: continue
-                with tarfile.open(fileobj=io.BytesIO(r.content), mode="r:gz") as tf:
-                    member = None
-                    for m in tf.getmembers():
-                        if m.name.endswith("/lux") or m.name == "lux":
-                            member = m; break
-                    if not member: continue
-                    member.name = "lux"
-                    tf.extract(member, path=os.path.dirname(lux_bin))
-                os.chmod(lux_bin, 0o755)
-                if os.path.isfile(lux_bin) and os.access(lux_bin, os.X_OK):
-                    logger.warning("Lux auto-installed OK")
-                    return lux_bin
-            except Exception as _e:
-                logger.warning(f"Lux auto-install failed for {_u}: {_e}")
-                continue
-        return None
-    except Exception as _e:
-        logger.warning(f"_ensure_lux_binary failed: {_e}")
-        return None
-
 def download_with_lux(url, output_dir, cap_bytes, cookiefile=None):
     """Run the optional Lux binary as a last-resort video downloader."""
-    lux_bin = _ensure_lux_binary()
+    lux_bin = os.getenv(
+        "LUX_BIN",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), ".bin", "lux")
+    )
+    if not os.path.isfile(lux_bin) or not os.access(lux_bin, os.X_OK):
+        lux_bin = shutil.which("lux")
     if not lux_bin:
         logger.info("Lux fallback skipped: binary is not installed.")
         return None
@@ -3633,7 +2150,7 @@ def download_with_lux(url, output_dir, cap_bytes, cookiefile=None):
     folder = os.path.join(output_dir, f"lux_{uuid.uuid4().hex[:10]}")
     os.makedirs(folder, exist_ok=True)
     output_name = f"media_{uuid.uuid4().hex[:8]}"
-    command = [lux_bin, "-retry", "2", "-n", "4", "-u", BROWSER_UA, "-o", folder, "-O", output_name]
+    command = [lux_bin, "-retry", "2", "-n", "4", "-o", folder, "-O", output_name]
     if cookiefile and os.path.isfile(cookiefile):
         command.extend(["-c", cookiefile])
     command.append(url)
@@ -3673,261 +2190,45 @@ def download_with_lux(url, output_dir, cap_bytes, cookiefile=None):
     return None
 
 
-def download_media_engine(url: str, download_type: str, max_mb=None, user_id=None, progress_key=None, preferred_quality=None):
+def download_media_engine(url: str, download_type: str, max_mb=None):
     cap_mb = int(max_mb or get_mtproto_max_mb())
     cap_bytes = cap_mb * 1024 * 1024
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
-    # PART 2: file-cache hit BEFORE any fresh download (key = link only, quality ignored).
-    # Safe because save_to_file_cache() is only called for single-file video/audio/images
-    # downloads — carousel URLs never write a single-file entry, so a hit here means the
-    # same link previously produced exactly this kind of file.
-    # V15: if user picked an explicit video quality, skip on-disk file-cache.
-    # V13/V14 poisoned it (360p content saved as _720p). Fresh download guarantees the picked quality.
-    # Telegram cache (stores real quality) still handles instant hits. No probing - probing hung V14.
-    _skip_file_cache = (download_type == "video" and preferred_quality and str(preferred_quality).lower() not in ("", "auto"))
-    if download_type in ("video", "audio", "images") and not _skip_file_cache:
-        _cached = get_cached_file(url, download_type, preferred_quality=preferred_quality)
-        if _cached:
-            _copy = os.path.join(output_dir, os.path.basename(_cached))
-            try:
-                shutil.copyfile(_cached, _copy)
-                _label = "audio" if download_type == "audio" else ("original" if download_type == "images" else "cached")
-                return [_copy], _label, f"{os.path.getsize(_copy)/(1024*1024):.1f}MB"
-            except Exception:
-                pass
-    http_headers = dict(BROWSER_HEADERS)
+    http_headers = {'User-Agent': 'Mozilla/5.0'}
     cookiefile = None
     if "tiktok.com" in url.lower() and os.path.exists("tiktok_cookies.txt"): cookiefile = "tiktok_cookies.txt"
     elif os.path.exists("cookies.txt"): cookiefile = "cookies.txt"
-    # V44: log cookies + yt-dlp version so Render logs prove if GitHub actually delivered cookies.txt
-    try:
-        _ce, _cl, _cs, _cyt = _cookies_status()
-        try: _ydlv = _yt_dlp_version()
-        except Exception: _ydlv = "unknown"
-        logger.warning(f"[yt] cookies.txt exists={_ce} lines={_cl} size={_cs} has_youtube={_cyt} cookiefile={cookiefile} yt_dlp={_ydlv} YT_BLOCKED_UNTIL={YT_BLOCKED_UNTIL} now={time.time()}")
-    except Exception: pass
-    # V44: if YouTube IP was just blocked, don't hammer yt-dlp again for 30 mins - go straight to Piped/Cobalt/Invidious
-    _skip_ytdlp_yt = False
-    try:
-        if ("youtube.com" in url.lower() or "youtu.be" in url.lower()) and YT_BLOCKED_UNTIL and time.time() < YT_BLOCKED_UNTIL:
-            _skip_ytdlp_yt = True
-            logger.warning(f"[yt] YT_BLOCKED cooldown active, skipping yt-dlp for {url}")
-    except Exception: pass
-    # V47: web client is the one that fails with 'Failed to extract any player response' (needs PO token).
-    # iOS first + skip webpage player extraction. Web is last resort only.
-    ydl_opts = _yt_ydl_opts_for_youtube({'http_headers': http_headers, 'proxy': PROXY_URL})
-    # PART 1: clean progress (users) / debug log (admin) — hook records, poller edits Telegram message
-    if user_id is not None and progress_key:
-        ydl_opts['progress_hooks'] = [make_progress_hook(user_id, progress_key)]
+    ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL}
     if cookiefile: ydl_opts['cookiefile'] = cookiefile
-    # V59: WARP for YT + FB + IG (same trick as YT). TikTok stays DIRECT (WARP = 10231 Region locked).
-    # V52 forced IG/FB direct - that's why V35 failed too: Render datacenter IP is flagged by Meta (IG 429, FB login redirect).
-    try:
-        _wp59 = _proxy_for_url(url)
-        if _wp59: ydl_opts['proxy'] = _wp59
-        else: ydl_opts['proxy'] = PROXY_URL
-    except Exception: pass
-    # V46 browser client: impersonate Chrome if curl_cffi is installed
-    try:
-        import importlib.util as _ilu
-        if _ilu.find_spec("curl_cffi") is not None:
-            ydl_opts['impersonate'] = 'chrome'
-    except Exception: pass
 
     # ===== EDIT A: carousel branch (no cookies passed here) =====
     if download_type in ('video', 'images'):
-        car = download_carousel(url, output_dir, cap_bytes, http_headers, cookiefile=cookiefile)
+        car = download_carousel(url, output_dir, cap_bytes, http_headers)
         if car:
             total = sum(os.path.getsize(p) for p in car)
             return car, "carousel", f"{total/(1024*1024):.1f}MB"
     # ============================================================
     
     if download_type == 'audio':
-        # V38: Audio had only ONE format (bestaudio/best) and no fallback. Live/VEVO/SABR videos
-        # have NO bestaudio on web client -> "Requested format is not available" -> wrong "private/blocked".
-        # Now: try format chain bestaudio -> best (combined mp4, then ffmpeg -> mp3) -> worst, with android/ios/web clients.
-        # Same robust path for normal link Audio AND Music Search - they share this engine.
-        _audio_formats = ['bestaudio/best', 'bestaudio[ext=m4a]/bestaudio/best', 'best', 'bv*+ba/b', 'worst']
-        if _skip_ytdlp_yt:
-            _last_audio_err = Exception("YT_IP_BLOCKED_COOLDOWN - skipping yt-dlp, using Piped/Cobalt/Invidious")
-            _audio_formats = []  # skip yt-dlp loop, go straight to fallbacks below
-        _last_audio_err = None
-        for _fmt in _audio_formats:
-            for _attempt in range(2):
-                try:
-                    _opts = dict(ydl_opts)
-                    _opts.update({'format': _fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['web_embedded', 'tv', 'android_vr', 'web', 'mweb', 'ios', 'android'], 'po_token': ['wpc', 'bgutil', 'auto']}}})
-                    with yt_dlp.YoutubeDL(_opts) as ydl:
-                        info = ydl.extract_info(url, download=True)
-                        try: LAST_TITLE_BY_URL[url] = {"title": info.get("title"), "poster": info.get("uploader") or info.get("channel")}
-                        except Exception: pass
-                        base = os.path.splitext(ydl.prepare_filename(info))[0]
-                        path = f"{base}.mp3"
-                        if os.path.exists(path):
-                            if os.path.getsize(path) > cap_bytes:
-                                os.remove(path)
-                                raise ValueError("FILE_TOO_LARGE")
-                            save_to_file_cache(url, "audio", path)
-                            if _fmt != 'bestaudio/best':
-                                logger.info(f"Audio fallback worked: format={_fmt} url={url}")
-                            return [path], "audio", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
-                    raise ValueError("FILE_NOT_FOUND")
-                except ValueError:
-                    raise
-                except Exception as _ae:
-                    _last_audio_err = _ae
-                    _m = str(_ae).lower()
-                    _blocked = ("not a bot" in _m or "sign in to confirm" in _m or "429" in _m or "403" in _m or "forbidden" in _m or "failed to extract" in _m or "player response" in _m or "no video formats" in _m or "unable to download" in _m)
-                    _no_fmt = ("requested format is not available" in _m or "no video formats" in _m or "requested format" in _m)
-                    if _no_fmt:
-                        logger.warning(f"Audio format {_fmt} not available for {url}, trying next format: {_ae}")
-                        break  # try next format, don't retry same broken format
-                    if _blocked and _attempt == 0:
-                        try:
-                            import time as _t_retry
-                            _t_retry.sleep(5)
-                        except Exception:
-                            pass
-                        continue
-                    if _blocked:
-                        raise ValueError("SITE_BLOCKED")
-                    # Unknown error for this format - try next format before giving up
-                    logger.warning(f"Audio format {_fmt} failed for {url}: {_ae}, trying next")
-                    break
-        # V41: YouTube rate-limit is temporary - wait 15s and retry once with android-only before giving up.
-        # This is why "it was working then stopped" - IP gets 429 for a minute, then clears.
-        if _last_audio_err and any(w in str(_last_audio_err).lower() for w in ["not a bot", "429", "403", "sign in to confirm"]):
-            try:
-                logger.warning(f"Audio rate-limited for {url}, waiting 15s and retrying once with android client")
-                import time as _t_wait
-                _t_wait.sleep(15)
-                _retry_opts = dict(ydl_opts)
-                _retry_opts.update({'format': 'best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['web_embedded'], 'po_token': ['wpc', 'bgutil', 'auto']}}})
-                with yt_dlp.YoutubeDL(_retry_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    try: LAST_TITLE_BY_URL[url] = {"title": info.get("title"), "poster": info.get("uploader") or info.get("channel")}
-                    except Exception: pass
-                    base = os.path.splitext(ydl.prepare_filename(info))[0]
-                    path = f"{base}.mp3"
-                    if os.path.exists(path) and os.path.getsize(path) > 1000:
-                        if os.path.getsize(path) > cap_bytes:
-                            os.remove(path)
-                            raise ValueError("FILE_TOO_LARGE")
-                        save_to_file_cache(url, "audio", path)
-                        logger.info(f"Audio 15s retry worked for {url}")
-                        return [path], "audio", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
-            except ValueError:
-                raise
-            except Exception as _re:
-                logger.warning(f"Audio 15s retry failed for {url}: {_re}")
-                _last_audio_err = _re
-        # V47: SKIP Lux for YouTube - it crashes with Go runtime error (your log: asm_amd64.s:1695), wastes 240s, never works for YouTube.
-        # Keep Lux for TikTok/IG/etc where it sometimes works.
-        _is_yt = ("youtube.com" in url.lower() or "youtu.be" in url.lower())
-        # Last resort: Lux can fetch combined video, ffmpeg -> mp3 (non-YouTube only)
-        try:
-            _lux = None if _is_yt else download_with_lux(url, output_dir, cap_bytes, cookiefile)
-            if _lux:
-                # Convert lux video to mp3 via ffmpeg
-                import subprocess as _sp
-                _mp3 = os.path.splitext(_lux)[0] + ".mp3"
-                _r = _sp.run([ffmpeg_path, "-y", "-i", _lux, "-vn", "-codec:a", "libmp3lame", "-q:a", "2", _mp3], capture_output=True, text=True, timeout=120)
-                if os.path.exists(_mp3) and os.path.getsize(_mp3) > 1000:
-                    try: os.remove(_lux)
-                    except Exception: pass
-                    save_to_file_cache(url, "audio", _mp3)
-                    logger.info(f"Audio Lux fallback worked for {url}")
-                    return [_mp3], "audio", f"{os.path.getsize(_mp3)/(1024*1024):.1f}MB"
-        except Exception as _le:
-            logger.warning(f"Audio Lux fallback failed for {url}: {_le}")
-        # V42: Piped fallback - if YouTube IP is blocked for hours (you waited 3hrs and still blocked), Piped's server fetches it, not Render.
-        if "youtube.com" in url.lower() or "youtu.be" in url.lower():
-            try:
-                logger.warning(f"Audio yt-dlp blocked for {url}, trying Piped fallback")
-                _piped_path = _piped_download_audio_youtube(url, output_dir, cap_bytes)
-                if _piped_path and os.path.exists(_piped_path) and os.path.getsize(_piped_path) > 1000:
-                    save_to_file_cache(url, "audio", _piped_path)
-                    logger.info(f"Audio Piped fallback worked for {url}")
-                    return [_piped_path], "audio", f"{os.path.getsize(_piped_path)/(1024*1024):.1f}MB"
-            except ValueError:
-                raise
-            except Exception as _pe:
-                logger.warning(f"Audio Piped fallback failed for {url}: {_pe}")
-                _last_audio_err = _pe
-        # V43: Cobalt audio fallback if Piped also failed (second server, same idea)
-        if "youtube.com" in url.lower() or "youtu.be" in url.lower():
-            try:
-                _cob = _cobalt_download_youtube(url, output_dir, cap_bytes, is_audio=True)
-                if _cob and os.path.exists(_cob[0]) and os.path.getsize(_cob[0]) > 1000:
-                    save_to_file_cache(url, "audio", _cob[0])
-                    logger.info(f"Audio Cobalt fallback worked for {url}")
-                    return [_cob[0]], "audio", f"{os.path.getsize(_cob[0])/(1024*1024):.1f}MB"
-            except ValueError:
-                raise
-            except Exception as _ce:
-                logger.warning(f"Audio Cobalt fallback failed for {url}: {_ce}")
-        # V44: Invidious 3rd fallback for audio
-        if "youtube.com" in url.lower() or "youtu.be" in url.lower():
-            try:
-                _inv = _invidious_download_youtube(url, output_dir, cap_bytes, is_audio=True)
-                if _inv and os.path.exists(_inv[0]) and os.path.getsize(_inv[0]) > 1000:
-                    save_to_file_cache(url, "audio", _inv[0])
-                    logger.info(f"Audio Invidious fallback worked for {url}")
-                    return [_inv[0]], "audio", f"{os.path.getsize(_inv[0])/(1024*1024):.1f}MB"
-            except ValueError:
-                raise
-            except Exception as _ie:
-                logger.warning(f"Audio Invidious fallback failed for {url}: {_ie}")
-        if _last_audio_err and ("not a bot" in str(_last_audio_err).lower() or "429" in str(_last_audio_err).lower() or "403" in str(_last_audio_err).lower() or "YT_IP_BLOCKED" in str(_last_audio_err)):
-            globals()["YT_BLOCKED_UNTIL"] = time.time() + 1800
-            raise ValueError("SITE_BLOCKED")
-        raise ValueError(f"FILE_NOT_FOUND: {_last_audio_err}" if _last_audio_err else "FILE_NOT_FOUND")
+        ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            base = os.path.splitext(ydl.prepare_filename(info))[0]
+            path = f"{base}.mp3"
+            if os.path.exists(path):
+                if os.path.getsize(path) > cap_bytes:
+                    os.remove(path)
+                    raise ValueError("FILE_TOO_LARGE")
+                return [path], "audio", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
+        raise ValueError("FILE_NOT_FOUND")
     elif download_type == 'images':
-        # V54: Old code returned ONLY 1 og:image -> IG carousel looked like "only single works", FB got 0.
-        # Now try ALL images from page (scontent / cdn / display_url) and download them all.
-        try:
-            _all_urls = scrape_all_html_images(url, cookiefile)
-        except Exception:
-            _all_urls = []
-        if not _all_urls:
-            # V56: FB share page direct scrape as last fallback before giving up
-            try:
-                if "facebook.com" in url.lower() or "fb.watch" in url.lower():
-                    _fb56 = _fb_images_from_share_page(url)
-                    if _fb56: _all_urls = _fb56
-            except Exception: pass
-        if not _all_urls:
-            # Fallback to old single-image path
-            _single = scrape_html_images(url, cookiefile)
-            if _single: _all_urls = [_single]
-        if _all_urls:
-            _paths = []
-            for _i, _iu in enumerate(_all_urls[:MAX_CAROUSEL_ITEMS], start=1):
-                try:
-                    _data = requests.get(_iu, headers=http_headers, timeout=15).content
-                    _ext = ".jpg"
-                    try:
-                        _low_u = _iu.lower().split("?")[0]
-                        if _low_u.endswith(".png"): _ext = ".png"
-                        elif _low_u.endswith(".webp"): _ext = ".webp"
-                        elif _low_u.endswith(".jpeg"): _ext = ".jpg"
-                    except Exception: pass
-                    _p = os.path.join(output_dir, f"img_{int(time.time())}_{_i:02d}{_ext}")
-                    with open(_p, 'wb') as _f: _f.write(_data)
-                    if os.path.getsize(_p) > 1000:
-                        _paths.append(_p)
-                except Exception: continue
-            if _paths:
-                # For FB/IG single image, return 1 path. For carousel, return all.
-                _total = sum(os.path.getsize(p) for p in _paths)
-                save_to_file_cache(url, "images", _paths[0])
-                return _paths, "carousel" if len(_paths) > 1 else "original", f"{_total/(1024*1024):.1f}MB"
-        # V60: For FB /share/, if oEmbed + scrape + gallery-dl all fail, it's either private/friends-only OR cookies missing - trace it clearly instead of generic NO_IMAGES
-        try:
-            if "facebook.com" in url.lower() and "/share/" in url.lower():
-                _trace("FB share: oEmbed + scrape + gallery-dl all failed - post is likely private/friends-only OR needs fresh c_user+xs in cookies.txt on MAIN service (not duplicate with MTProto=False)")
-        except Exception: pass
+        img_url = scrape_html_images(url, cookiefile)
+        if img_url:
+            data = requests.get(img_url, headers=http_headers, timeout=15).content
+            path = os.path.join(output_dir, f"img_{int(time.time())}.jpg")
+            with open(path, 'wb') as f: f.write(data)
+            if os.path.getsize(path) > 1000: return [path], "original", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("NO_IMAGES")
     else:
         tiers = [
@@ -3935,13 +2236,8 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
             ("720p", "bv*[height<=720]+ba/b[height<=720]"),
             ("480p", "bv*[height<=480]+ba/b[height<=480]"),
             ("360p", "bv*[height<=360]+ba/b[height<=360]"),
-            ("240p", "bv*[height<=240]+ba/b[height<=240]"),
             ("worst", "worst")
         ]
-        if preferred_quality and str(preferred_quality).lower() != "auto":
-            _pq = str(preferred_quality).lower()
-            if not _pq.endswith("p"): _pq = f"{_pq}p"
-            tiers.sort(key=lambda x: 0 if x[0] == _pq else 1)
         too_big = False
         yt_blocked = False
         last_err = None
@@ -3956,8 +2252,6 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                     opts.update({'format': 'bv*+ba/b', 'format_sort': [f"res:{qual_name[:-1]}"]})
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=True)
-                    try: LAST_TITLE_BY_URL[url] = {"title": info.get("title"), "poster": info.get("uploader") or info.get("channel")}
-                    except Exception: pass
                     try:
                         vf = [f for f in (info.get('formats') or []) if f.get('vcodec') not in (None, 'none') and f.get('height')]
                         sizes = sorted({f.get('height') for f in vf})
@@ -3977,41 +2271,16 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                         elif actual_height >= 720: best_quality = "720p"
                         elif actual_height >= 480: best_quality = "480p"
                         elif actual_height >= 360: best_quality = "360p"
-                        elif actual_height >= 240: best_quality = "240p"
                         else: best_quality = "worst"
-                        save_to_file_cache(url, "video", path)  # PART 2: cache fresh file for next time
                         return [path], best_quality, f"{os.path.getsize(path)/(1024*1024):.1f}MB"
                     last_err = RuntimeError("yt-dlp produced no output file")
             except Exception as e:
                 last_err = e
-                # V15: block has many wordings - check lowercased. V11 only caught exact "not a bot / 429".
-                msg = str(e).lower()
-                if ("not a bot" in msg or "sign in to confirm" in msg or "429" in msg or "403" in msg or "forbidden" in msg or "failed to extract" in msg or "player response" in msg or "no video formats" in msg or "unable to download" in msg or "requested format" in msg):
-                    # V47: 'Failed to extract any player response' is web-client PO-token failure, NOT IP block.
-                    # Try ONE more time with iOS-only (no webpage player) before giving up - iOS often works when web fails.
-                    if ("failed to extract" in msg or "player response" in msg) and "youtube.com" in url.lower() or "youtu.be" in url.lower():
-                        try:
-                            _ios_opts = dict(ydl_opts)
-                            _ios_opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, f'%(id)s_{qual_name}.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['web_embedded'], 'po_token': ['wpc', 'bgutil', 'auto']}}})
-                            if qual_name != "worst":
-                                _ios_opts.update({'format': 'bv*+ba/b', 'format_sort': [f"res:{qual_name[:-1]}"]})
-                            with yt_dlp.YoutubeDL(_ios_opts) as _ydl2:
-                                _info2 = _ydl2.extract_info(url, download=True)
-                                _path2 = _ydl2.prepare_filename(_info2)
-                                if not os.path.exists(_path2) and os.path.exists(os.path.splitext(_path2)[0]+".mp4"): _path2 = os.path.splitext(_path2)[0]+".mp4"
-                                if os.path.exists(_path2) and os.path.getsize(_path2) > 1000:
-                                    if os.path.getsize(_path2) > cap_bytes:
-                                        os.remove(_path2)
-                                        too_big = True
-                                        continue
-                                    save_to_file_cache(url, "video", _path2)
-                                    return [_path2], best_quality if best_quality != "unknown" else qual_name, f"{os.path.getsize(_path2)/(1024*1024):.1f}MB"
-                        except Exception as _ios_e:
-                            last_err = _ios_e
-                            pass
+                msg = str(e)
+                if "not a bot" in msg or "Sign in to confirm" in msg or "HTTP Error 429" in msg:
                     yt_blocked = True
                     break
-                if "unsupported url" in msg:
+                if "Unsupported URL" in msg or "403" in msg:
                     break
                 continue
 
@@ -4021,101 +2290,18 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
             insta_videos = [p for p in insta_files if os.path.splitext(p)[1].lower() in VIDEO_EXT]
             if insta_videos:
                 chosen = insta_videos[0]
-                save_to_file_cache(url, "video", chosen)  # PART 2
                 return [chosen], "original", f"{os.path.getsize(chosen)/(1024*1024):.1f}MB"
             if insta_files:
                 shutil.rmtree(os.path.dirname(insta_files[0]), ignore_errors=True)
 
-        # V47: SKIP Lux for YouTube - Go crash (asm_amd64.s:1695), never works for YouTube. Keep for other sites.
-        _is_yt_v = ("youtube.com" in url.lower() or "youtu.be" in url.lower())
-        # Last-resort independent engine. V15: try it even when blocked - V11 skipped it when blocked.
-        if not too_big and not _is_yt_v:
+        # Last-resort independent engine. It is only called after yt-dlp tiers fail.
+        if not too_big and not yt_blocked:
             lux_path = download_with_lux(url, output_dir, cap_bytes, cookiefile)
             if lux_path:
-                save_to_file_cache(url, "video", lux_path)  # PART 2
                 return [lux_path], "lux", f"{os.path.getsize(lux_path)/(1024*1024):.1f}MB"
 
         if yt_blocked:
-            # RETRY: YouTube often blocks the 1st hit (429 / not-a-bot) but lets the 2nd through.
-            # Wait 5s and retry the tiers once before giving up, so user doesn't have to resend.
-            try:
-                import time as _time_retry
-                _time_retry.sleep(5)
-            except Exception: pass
-            yt_blocked = False
-            for qual_name, fmt in tiers:
-                try:
-                    opts = dict(ydl_opts)
-                    opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, f'%(id)s_{qual_name}.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
-                    if qual_name != "worst":
-                        opts.update({'format': 'bv*+ba/b', 'format_sort': [f"res:{qual_name[:-1]}"]})
-                    with yt_dlp.YoutubeDL(opts) as ydl:
-                        info = ydl.extract_info(url, download=True)
-                        path = ydl.prepare_filename(info)
-                        if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0]+".mp4"): path = os.path.splitext(path)[0]+".mp4"
-                        if os.path.exists(path):
-                            if os.path.getsize(path) > cap_bytes:
-                                os.remove(path); continue
-                            w, h = info.get('width') or 0, info.get('height') or 0
-                            actual_height = min(w, h) if (w and h) else max(w, h)
-                            if actual_height >= 1080: best_quality = "1080p"
-                            elif actual_height >= 720: best_quality = "720p"
-                            elif actual_height >= 480: best_quality = "480p"
-                            elif actual_height >= 360: best_quality = "360p"
-                            elif actual_height >= 240: best_quality = "240p"
-                            else: best_quality = "worst"
-                            save_to_file_cache(url, "video", path)
-                            return [path], best_quality, f"{os.path.getsize(path)/(1024*1024):.1f}MB"
-                except Exception as e2:
-                    _msg2 = str(e2).lower()
-                    if ("not a bot" in _msg2 or "sign in to confirm" in _msg2 or "429" in _msg2 or "403" in _msg2 or "forbidden" in _msg2 or "failed to extract" in _msg2 or "player response" in _msg2 or "no video formats" in _msg2 or "unable to download" in _msg2):
-                        yt_blocked = True; break
-                    continue
-            if yt_blocked or _skip_ytdlp_yt:
-                # V44: YouTube video via Piped then Cobalt then Invidious - both fetch from their own server, not Render IP.
-                if "youtube.com" in url.lower() or "youtu.be" in url.lower():
-                    try:
-                        logger.warning(f"Video yt-dlp blocked for {url}, trying Lemnoslife video fallback (V49)")
-                        try:
-                            _lem = _lemnoslife_download_youtube(url, _outdir, cap_bytes, is_audio=False, preferred_quality=preferred_quality)
-                            if _lem and os.path.exists(_lem[0]) and os.path.getsize(_lem[0]) > 1000:
-                                return _lem
-                        except Exception as _e_lem:
-                            logger.warning(f"V49 Lemnoslife video fallback failed for {url}: {str(_e_lem)[:200]}")
-                        logger.warning(f"Video yt-dlp blocked for {url}, trying Piped video fallback")
-                        _pv = _piped_download_video_youtube(url, output_dir, cap_bytes, preferred_quality)
-                        if _pv and os.path.exists(_pv[0]) and os.path.getsize(_pv[0]) > 1000:
-                            save_to_file_cache(url, "video", _pv[0])
-                            logger.info(f"Video Piped fallback worked for {url}")
-                            return [_pv[0]], _pv[1], f"{os.path.getsize(_pv[0])/(1024*1024):.1f}MB"
-                    except ValueError:
-                        raise
-                    except Exception as _pe:
-                        logger.warning(f"Video Piped fallback failed for {url}: {_pe}")
-                    try:
-                        logger.warning(f"Video Piped failed for {url}, trying Cobalt video fallback")
-                        _cv = _cobalt_download_youtube(url, output_dir, cap_bytes, is_audio=False, preferred_quality=preferred_quality)
-                        if _cv and os.path.exists(_cv[0]) and os.path.getsize(_cv[0]) > 1000:
-                            save_to_file_cache(url, "video", _cv[0])
-                            logger.info(f"Video Cobalt fallback worked for {url}")
-                            return [_cv[0]], _cv[1], f"{os.path.getsize(_cv[0])/(1024*1024):.1f}MB"
-                    except ValueError:
-                        raise
-                    except Exception as _ce:
-                        logger.warning(f"Video Cobalt fallback failed for {url}: {_ce}")
-                    try:
-                        logger.warning(f"Video Cobalt failed for {url}, trying Invidious video fallback")
-                        _iv = _invidious_download_youtube(url, output_dir, cap_bytes, is_audio=False, preferred_quality=preferred_quality)
-                        if _iv and os.path.exists(_iv[0]) and os.path.getsize(_iv[0]) > 1000:
-                            save_to_file_cache(url, "video", _iv[0])
-                            logger.info(f"Video Invidious fallback worked for {url}")
-                            return [_iv[0]], _iv[1], f"{os.path.getsize(_iv[0])/(1024*1024):.1f}MB"
-                    except ValueError:
-                        raise
-                    except Exception as _ie:
-                        logger.warning(f"Video Invidious fallback failed for {url}: {_ie}")
-                globals()["YT_BLOCKED_UNTIL"] = time.time() + 1800
-                raise ValueError("SITE_BLOCKED")
+            raise ValueError("SITE_BLOCKED")
         if too_big or last_err is None:
             raise ValueError("FILE_TOO_LARGE")
         raise last_err
@@ -4126,12 +2312,10 @@ def get_main_keyboard(lang_code, is_admin):
         [KeyboardButton(t["menu_stats"]), KeyboardButton(t["menu_lang"])],
         [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])],
         [KeyboardButton(t["menu_upload"]), KeyboardButton("🔗 File-to-Link")],
-        [KeyboardButton("🎵 Music Search")],
         [KeyboardButton("🟢 Bot Status")],
         [KeyboardButton("🔄 Change Batch Channel")]
     ]
     if is_admin:
-        keyboard.append([KeyboardButton("📢 Required Channels"), KeyboardButton("📊 Download Limits")])
         keyboard.append([KeyboardButton("/stats"), KeyboardButton("/toggleads")])
         keyboard.append([KeyboardButton("/testad"), KeyboardButton("/adinfo")])
         keyboard.append([KeyboardButton("/tokencheck"), KeyboardButton("/broadcast")])
@@ -4141,12 +2325,7 @@ def get_main_keyboard(lang_code, is_admin):
         keyboard.append([KeyboardButton(t["menu_uploads"]), KeyboardButton("⚡ Create Flash Drop")])
         keyboard.append([KeyboardButton("🎁 Set Reward (1/2/3/5)"), KeyboardButton("📦 Set Free DL (2/3/4/5)")])
         keyboard.append([KeyboardButton(t["menu_edit_welcome"])])
-    # V16 FIX: grid disappears because keyboard was not persistent and input had no placeholder.
-    # is_persistent=True keeps the grid button always visible, placeholder shows "Send link" when tapped.
-    try:
-        return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False, is_persistent=True, input_field_placeholder="Send link \U0001F517")
-    except TypeError:
-        return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_downloads_usage_mb():
     try:
@@ -4159,92 +2338,22 @@ def get_downloads_usage_mb():
     except: return 0
 
 def get_reward_amount():
-    # The configured ad reward is shared by normal and batch credits, each capped at 5.
-    try: return max(0, min(MAX_USER_CREDITS, int(load_json_file(CONFIG_FILE).get("reward_amount", 3))))
-    except: return 3
-def _sync_reward_to_flask():
-    # FIX: Bot Set Free/Reward only updated bot_config.json, Flask kept old reward_config.json.
-    # Now bot pushes both to Flask /set-reward so Flask (source of truth for credits) agrees.
-    try:
-        cfg = load_json_file(CONFIG_FILE)
-        requests.post(f"{WEB_BASE_URL}/set-reward", json={"free": int(cfg.get("free_amount", 4)), "reward": int(cfg.get("reward_amount", 3))}, headers=API_HEADERS, timeout=5)
-    except Exception as e: logger.error(f"sync reward to flask: {e}")
+    try: return int(load_json_file(CONFIG_FILE).get("reward_amount", 1))
+    except: return 1
 def set_reward_amount(val):
-    cfg = load_json_file(CONFIG_FILE); cfg["reward_amount"] = max(0, min(MAX_USER_CREDITS, int(val))); save_json_file(CONFIG_FILE, cfg); _sync_reward_to_flask()
+    cfg = load_json_file(CONFIG_FILE); cfg["reward_amount"] = int(val); save_json_file(CONFIG_FILE, cfg)
 def get_free_amount():
-    try: return max(0, min(MAX_USER_CREDITS, int(load_json_file(CONFIG_FILE).get("free_amount", 4))))
+    try: return int(load_json_file(CONFIG_FILE).get("free_amount", 4))
     except: return 4
 def set_free_amount(val):
-    cfg = load_json_file(CONFIG_FILE); cfg["free_amount"] = max(0, min(MAX_USER_CREDITS, int(val))); save_json_file(CONFIG_FILE, cfg); _sync_reward_to_flask()
+    cfg = load_json_file(CONFIG_FILE); cfg["free_amount"] = int(val); save_json_file(CONFIG_FILE, cfg)
 def get_free_disk_mb():
-    # FIX: was 512 - usage (fake). Now real free from disk.
-    try: return shutil.disk_usage(".").free // (1024*1024)
+    try: return max(0, 512 - get_downloads_usage_mb())
     except: return 512
 
 def deduct_download_counter(user_id, is_batch=False):
-    try:
-        return requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": is_batch}, headers=API_HEADERS, timeout=5)
-    except Exception as e:
-        logger.warning("Credit deduction request failed for %s: %s", user_id, e)
-        return None
-
-def refund_download_counter(user_id, is_batch=False):
-    """Refund a credit when a batch URL fails before a file is delivered."""
-    try:
-        response = requests.post(
-            f"{WEB_BASE_URL}/refund-download",
-            json={"user_id": user_id, "is_batch": bool(is_batch)},
-            headers=API_HEADERS,
-            timeout=5,
-        )
-        if response.status_code != 200:
-            logger.warning("Credit refund failed for %s: HTTP %s %s", user_id, response.status_code, response.text[:160])
-            return False
-        return response.json().get("status") == "refunded"
-    except Exception as e:
-        logger.warning("Credit refund request failed for %s: %s", user_id, e)
-        return False
-
-def record_batch_success_for_ad(user_id):
-    """Atomically count successful batch links across sessions and bot restarts."""
-    try:
-        response = requests.post(
-            f"{WEB_BASE_URL}/record-batch-progress",
-            json={"user_id": user_id, "action": "increment"},
-            headers=API_HEADERS,
-            timeout=5,
-        )
-        if response.status_code != 200:
-            logger.warning("Batch ad counter API failed: HTTP %s", response.status_code)
-            return False
-        return bool(response.json().get("show_ad"))
-    except Exception as e:
-        logger.warning("Could not update batch ad counter for %s: %s", user_id, e)
-        return False
-
-def reset_batch_ad_progress(user_id):
-    try:
-        requests.post(
-            f"{WEB_BASE_URL}/record-batch-progress",
-            json={"user_id": user_id, "action": "reset"},
-            headers=API_HEADERS,
-            timeout=5,
-        )
-    except Exception as e:
-        logger.warning("Could not reset batch ad counter for %s: %s", user_id, e)
-
-def prepare_ad_session(user_id, msg_start=0, msg_end=0):
-    try:
-        response = requests.post(
-            f"{WEB_BASE_URL}/prepare-ad",
-            json={"user_id": user_id, "msg_start": int(msg_start or 0), "msg_end": int(msg_end or 0)},
-            headers=API_HEADERS,
-            timeout=5,
-        )
-        return response.status_code == 200 and response.json().get("status") == "prepared"
-    except Exception as e:
-        logger.warning("Could not prepare ad session for %s: %s", user_id, e)
-        return False
+    try: requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": is_batch}, headers=API_HEADERS, timeout=3)
+    except: pass
 
 async def acquire_slot():
     global active_downloads
@@ -4325,33 +2434,11 @@ async def file_to_link_command(update: Update, context: ContextTypes.DEFAULT_TYP
     user_id = update.effective_user.id
     t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
     if is_banned(user_id): await update.effective_message.reply_text(t["banned"]); return
-    # PART 5: mandatory recurring channel check (direct /filetolink bypasses handle_media_link)
-    _passed, _missing = await check_all_required_channels(context.bot, user_id, get_required_channels())
-    if not _passed:
-        await send_join_prompt(context.bot, update.effective_message.chat_id, user_id, _missing)
-        return
     states = load_json_file(FILE_LINK_STATE_FILE)
     state = {"mode": "collecting", "items": [], "created_at": time.time(), "settings": {"expiry": "never", "max_clicks": 0, "password": ""}}
     states[str(user_id)] = state
     save_json_file(FILE_LINK_STATE_FILE, states)
     await update.effective_message.reply_text(t["file_to_link_prompt"], reply_markup=file_link_keyboard(state), parse_mode="Markdown")
-
-async def clearpassword_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # FIX: /clearpassword was inside handle_media_link which filters out ALL commands (filters.TEXT & ~filters.COMMAND),
-    # so it could never run. This is a real CommandHandler, so Telegram delivers it.
-    user_id = update.effective_user.id
-    t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
-    states = load_json_file(FILE_LINK_STATE_FILE)
-    state = states.get(str(user_id))
-    if not state:
-        await update.effective_message.reply_text("No File-to-Link in progress. Tap File-to-Link first.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
-        return
-    # Works in BOTH modes: collecting (after a password was already saved) and file_link_set_password
-    state.setdefault("settings", {})["password"] = ""
-    state["mode"] = "collecting"
-    states[str(user_id)] = state
-    save_json_file(FILE_LINK_STATE_FILE, states)
-    await update.effective_message.reply_text(t.get("password_removed", "🔓 Password removed."), reply_markup=file_link_keyboard(state))
 
 async def file_link_deep_link(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str) -> None:
     t = LANGUAGES.get(get_lang(update.effective_user.id), LANGUAGES["en"])
@@ -4379,54 +2466,11 @@ async def send_file_link_payload(update: Update, context: ContextTypes.DEFAULT_T
     links = load_json_file(FILE_LINKS_FILE); links[token] = record; save_json_file(FILE_LINKS_FILE, links)
     await update.effective_message.reply_text(t["files_sent"])
 
-async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user.id != ADMIN_ID: return
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📢 Required Channels", callback_data="admin_reqch")],
-        [InlineKeyboardButton("📊 Download Limits", callback_data="admin_limits")],
-    ])
-    await update.effective_message.reply_text("⚙️ <b>Admin Controls</b>\n\nTap a button below:", reply_markup=kb, parse_mode="HTML")
-
-async def reqch_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user.id != ADMIN_ID: return
-    _txt, _kb = build_reqch_panel()
-    await update.effective_message.reply_text(_txt, reply_markup=_kb, parse_mode="HTML")
-
-async def limit_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user.id != ADMIN_ID: return
-    _txt, _kb = build_limits_panel()
-    await update.effective_message.reply_text(_txt, reply_markup=_kb, parse_mode="HTML")
-
-async def setbatchchannel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """PART 6: /setbatchchannel — set pending state, show Forward + Cancel. Cancel clears pending."""
-    user_id = update.effective_user.id
-    if is_banned(user_id):
-        await update.effective_message.reply_text(LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])["banned"])
-        return
-    USER_PENDING_BATCH_CHANNEL[user_id] = True
-    linking_states = load_linking_states()
-    linking_states[str(user_id)] = "waiting_for_channel"
-    save_linking_states(linking_states)
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📩 Forward Channel Message", callback_data="batch_forward_hint")],
-        [InlineKeyboardButton("❌ CANCEL", callback_data="cancel_batch_channel")],
-    ])
-    await update.effective_message.reply_text(
-        "📦 **Set Batch Channel**\n\n1. Make sure I am an **admin** in your channel.\n"
-        "2. **Forward any message** from that channel to me here.\n\n"
-        "Tap ❌ CANCEL to stop waiting.",
-        reply_markup=kb, parse_mode="Markdown")
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
     t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
     if is_banned(user_id): await update.message.reply_text(t["banned"]); return
-    # PART 5: mandatory recurring channel check — EVERY handler, EVERY time
-    _passed, _missing = await check_all_required_channels(context.bot, user_id, get_required_channels())
-    if not _passed:
-        await send_join_prompt(context.bot, update.message.chat_id, user_id, _missing)
-        return
-    track_user_activity(user_id, update.message.from_user.username if update.message.from_user else None)
+    track_user_activity(user_id)
     args = context.args
     lang = get_lang(user_id)
     
@@ -4438,15 +2482,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             welcome_msg = welcome_msg.replace("{bot_name}", f"@{bot_user}")
         except: pass
         await update.message.reply_text(welcome_msg, reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID), parse_mode="Markdown")
-        if user_id == ADMIN_ID:
-            try:
-                _akb = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📢 Required Channels", callback_data="admin_reqch")],
-                    [InlineKeyboardButton("📊 Download Limits", callback_data="admin_limits")],
-                ])
-                await update.message.reply_text("⚙️ <b>Admin Controls</b> — tap a button:", reply_markup=_akb, parse_mode="HTML")
-            except Exception:
-                pass
         return
         
     arg_code = args[0]
@@ -4472,6 +2507,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             except: return
     else: return
     assigned_network = get_global_ab_network(user_id)
+    tokens = load_tokens()
     if assigned_network == "monetag":
         extra = [[InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")]] if user_id == ADMIN_ID else None
         kb = adsgram_keyboard(user_id, "wall", msg_start, msg_end, extra)
@@ -4479,9 +2515,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         else: await update.message.reply_text("⚠️ Ad server busy, try again in a moment.")
         return
     bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
-    if not prepare_ad_session(user_id, msg_start, msg_end):
-        await update.message.reply_text("⚠️ Ad server busy. Please try again in a moment.")
-        return
+    tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": int(msg_start), "msg_end": int(msg_end), "clicked_ad": False, "verified": False, "expires": time.time() + 600}
+    save_tokens(tokens)
     keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch", url=bridge_link)], [InlineKeyboardButton(t["join_btn"], url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(t["check_btn"], callback_data="verify_user")]]
     if user_id == ADMIN_ID: keyboard.append([InlineKeyboardButton("❌ Skip (Admin)", callback_data="admin_skip_ad")])
     try:
@@ -4493,40 +2528,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         except Exception as e2: logger.error(f"Copy failed: {e2}")
     await update.message.reply_text("👇 **CONTENT LOCKED 🔒**" + ADSTERRA_USER_GUIDE, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
-async def _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, can_resume=True):
-    reset_batch_ad_progress(user_id)
-    # Pause only when more links remain. At the end of a batch, show the ad prompt
-    # but let the normal batch-complete message appear instead of creating an empty resume.
-    if can_resume:
-        paused_batches[user_id] = {"urls": urls, "next_index": index, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
-    else:
-        paused_batches.pop(user_id, None)
-    assigned_network = get_global_ab_network(user_id)
-    if assigned_network == "monetag":
-        kb = adsgram_keyboard(user_id, "wall", 0, 0)
-        await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=kb, parse_mode="Markdown")
-    else:
-        # FIX - Batch pause after 3, Adsterra: EXACTLY like 2nd image + tutorial video + Adsterra text + 3 buttons
-        AD_KIND_BY_USER[user_id] = "batch"
-        bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
-        if not prepare_ad_session(user_id, 0, 0):
-            await bot.send_message(chat_id=chat_id, text="⚠️ Ad server busy. Please try again in a moment.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
-            return
-        try:
-            await bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-            await asyncio.sleep(0.2)
-        except Exception:
-            try: await bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-            except Exception: pass
-        _pause_header = f"⏸️ Batch paused at {index}/{len(urls)} — Watch ad to continue.\n\n"
-        _pause_full = _pause_header + "🧪 AD PLACEMENT TEST (Adsterra)\n\n1️⃣ User sends link\n2️⃣ LIMIT REACHED screen appears\n3️⃣ Stay 20s on ad page\n4️⃣ Tap Check & Get +1\n\n👇 TRY THE AD NOW:" + ADSTERRA_USER_GUIDE
-        keyboard = [
-            [InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)],
-            [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
-            [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")],
-        ]
-        await bot.send_message(chat_id=chat_id, text=_pause_full, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-
 async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, download_type, start_index=0):
     if not urls: return
     lang = get_lang(user_id)
@@ -4537,88 +2538,29 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
     batch_notice = await bot.send_message(chat_id=chat_id, text=t["batch_start"].format(download_type.upper(), len(urls)), reply_markup=stop_markup, parse_mode="Markdown")
     for index, url in enumerate(urls[start_index:], start=start_index+1):
         if not active_batch_sessions.get(user_id, False): break
-        # FIX: Download Limits were only checked for single downloads, batch bypassed them.
-        # Now batch also checks duration/size limits per link before charging credit.
-        if user_id != ADMIN_ID:
-            try:
-                _b_meta = await asyncio.to_thread(get_social_metadata, url) if get_social_metadata else None
-                if _b_meta:
-                    _b_key = detect_platform_key(url, _b_meta.get("platform", ""))
-                    _b_limits = get_platform_limits(_b_key)
-                    _b_cost, _b_time_ok, _b_size_ok = calculate_cost_and_limits(_b_meta, _b_limits)
-                    if not _b_time_ok or not _b_size_ok:
-                        _why = []
-                        if not _b_time_ok: _why.append(f"⏱️ Duration exceeds {_b_limits['min']} min for {_b_key}")
-                        if not _b_size_ok: _why.append(f"📦 Est. size exceeds {_b_limits['mb']} MB for {_b_key}")
-                        await bot.send_message(chat_id=chat_id, text=f"❌ Skipping link {index}/{len(urls)} — limit:\n" + "\n".join(_why), reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-                        continue
-            except Exception as _be: logger.warning(f"Batch limit check failed for {url}: {_be}")
-        credit_charged = False
-        if user_id == ADMIN_ID:
-            res_data = {"status": "allowed", "left": 999}
-        else:
-            try:
-                response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": True}, headers=API_HEADERS, timeout=8)
-                if response.status_code != 200:
-                    raise RuntimeError(f"credit API HTTP {response.status_code}")
-                res_data = response.json()
-            except Exception as e:
-                logger.error("Batch credit check failed for %s: %s", user_id, e)
-                await bot.send_message(chat_id=chat_id, text="⚠️ I couldn't verify your batch credits right now. Please try again in a moment; I stopped safely instead of allowing a free download.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-                break
-
-        if res_data.get("status") != "allowed" and user_id != ADMIN_ID:
-            if res_data.get("status") != "blocked":
-                await bot.send_message(chat_id=chat_id, text="⚠️ The credit server returned an unexpected response. Please try again.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-                break
-            reset_batch_ad_progress(user_id)
-            if get_global_ab_network(user_id) == "monetag":
+        try:
+            response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": True}, headers=API_HEADERS, timeout=5)
+            res_data = response.json() if response.status_code == 200 else {}
+        except: res_data = {"status": "allowed"}
+        tokens = load_tokens()
+        d_left = tokens.get(str(user_id), {}).get("downloads_left", 4)
+        if res_data.get("status") != "allowed" and d_left <= 0 and user_id != ADMIN_ID:
+            assigned_network = get_global_ab_network(user_id)
+            if assigned_network == "monetag":
                 paused_batches[user_id] = {"urls": urls, "next_index": index-1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
                 kb = adsgram_keyboard(user_id, "wall", 0, 0)
                 await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=kb, parse_mode="Markdown")
                 break
             bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
-            if not prepare_ad_session(user_id, 0, 0):
-                await bot.send_message(chat_id=chat_id, text="⚠️ Ad server busy. Please try again in a moment.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-                break
-            # FIX - Batch OUT OF CREDITS, Adsterra: same 2nd-image layout. This is the branch in your 4:54 screenshot: Item 2/7 done, link 3 blocked.
-            AD_KIND_BY_USER[user_id] = "batch"
+            tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
+            save_tokens(tokens)
             paused_batches[user_id] = {"urls": urls, "next_index": index-1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
-            try:
-                await bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-                await asyncio.sleep(0.2)
-            except Exception:
-                try: await bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-                except Exception: pass
-            _out_header = f"⏸️ Batch out of credits at {index}/{len(urls)} — Watch ad to continue.\n\n"
-            _out_full = _out_header + "🧪 AD PLACEMENT TEST (Adsterra)\n\n1️⃣ User sends link\n2️⃣ LIMIT REACHED screen appears\n3️⃣ Stay 20s on ad page\n4️⃣ Tap Check & Get +1\n\n👇 TRY THE AD NOW:" + ADSTERRA_USER_GUIDE
-            keyboard = [
-                [InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)],
-                [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
-                [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")],
-            ]
-            await bot.send_message(chat_id=chat_id, text=_out_full, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            keyboard = [[InlineKeyboardButton(t["refill_btn"], url=bridge_link)]]
+            await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
             break
-        credit_charged = user_id != ADMIN_ID
-        try:
-            status_msg = await bot.send_message(chat_id=chat_id, text=f"📥 [{index}/{len(urls)}] {t['dl_video']}")
-        except Exception as e:
-            logger.warning("Could not create batch status message for %s: %s", user_id, e)
-            if credit_charged:
-                refund_download_counter(user_id, is_batch=True)
-            fail_count += 1
-            continue
+        status_msg = await bot.send_message(chat_id=chat_id, text=f"📥 [{index}/{len(urls)}] {t['dl_video']}")
         try:
             ckey = await get_canonical_key(url, chat_id, bot)
-            # V42 universal naming for batch: og:title via plain HTTP if no title yet (TikTok/IG/carousel)
-            try:
-                _bc = load_json_file(CACHE_FILE)
-                if _display_name_for(None, url, ckey, _bc) == ckey and url not in OG_TITLE_CACHE:
-                    try:
-                        _bog = await asyncio.wait_for(asyncio.to_thread(_og_title_for_url, url), timeout=8)
-                        if _bog: OG_TITLE_CACHE[url] = _bog
-                    except Exception: pass
-            except Exception: pass
             cache = load_json_file(CACHE_FILE)
             
             if ckey in cache and "file_id" in cache[ckey] and "qualities" not in cache[ckey]:
@@ -4630,46 +2572,18 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             if ckey in cache and cache[ckey].get("type") == "carousel":
                 try:
                     ids = await send_cached_carousel(bot, target_destination_id, cache[ckey], ckey)
-                    if not ids:
-                        raise RuntimeError("Cached carousel contained no deliverable items")
-                    credit_charged = False
                     if target_destination_id == chat_id:
                         asyncio.create_task(schedule_deletion(bot, chat_id, ids, 540))
                     cache[ckey]["hits"] = cache[ckey].get("hits", 0) + 1
                     save_json_file(CACHE_FILE, cache)
                     await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
                     success_count += 1
-                    credit_charged = False
-                    if user_id != ADMIN_ID and record_batch_success_for_ad(user_id):
-                        await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, can_resume=index < len(urls))
-                        break
                     continue
                 except Exception as e: logger.error(f"Batch carousel cache fail {ckey}: {e}")
             # =============================================
             
-            # V16: images cache hit - for images batch, and for video batch where link is actually an image (mixed batch).
-            if ckey in cache and cache[ckey].get("type") == "images":
-                _cq = cache[ckey].get("qualities", {})
-                if "original" in _cq:
-                    try:
-                        _cached_img = _cq["original"]
-                        sent = await bot.send_photo(chat_id=target_destination_id, photo=_cached_img["file_id"], caption=f"Item {index}/{len(urls)} | {_display_name_for(None, url, ckey, cache)} | ⚡ Cached [original] | `{ckey}`")
-                        credit_charged = False
-                        if target_destination_id == chat_id:
-                            warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
-                            asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
-                        cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
-                        save_json_file(CACHE_FILE, cache)
-                        await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
-                        success_count += 1
-                        credit_charged = False
-                        if user_id != ADMIN_ID and record_batch_success_for_ad(user_id):
-                            await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, can_resume=index < len(urls))
-                            break
-                        continue
-                    except Exception as e: logger.error(f"Batch image cache fail {ckey}: {e}")
             if ckey in cache and cache[ckey].get("type") == "video":
-                qualities_order = ["1080p", "720p", "480p", "360p", "240p", "worst"]
+                qualities_order = ["1080p", "720p", "480p", "360p", "worst"]
                 cached_qualities = cache[ckey].get("qualities", {})
                 best_cached_quality = None
                 for q in qualities_order:
@@ -4680,8 +2594,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     try:
                         cached = cached_qualities[best_cached_quality]
                         qual_tag = f"[{best_cached_quality}]"
-                        sent = await bot.send_video(chat_id=target_destination_id, video=cached["file_id"], caption=f"Item {index}/{len(urls)} | {_display_name_for(None, url, ckey, cache)} | ⚡ Cached {qual_tag} | `{ckey}`")
-                        credit_charged = False
+                        sent = await bot.send_video(chat_id=target_destination_id, video=cached["file_id"], caption=f"Item {index}/{len(urls)} ⚡ Cached {qual_tag}")
                         if target_destination_id == chat_id:
                             warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
                             asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
@@ -4689,10 +2602,6 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                         save_json_file(CACHE_FILE, cache)
                         await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
                         success_count += 1
-                        credit_charged = False
-                        if user_id != ADMIN_ID and record_batch_success_for_ad(user_id):
-                            await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, can_resume=index < len(urls))
-                            break
                         continue
                     except Exception as e: logger.error(f"Batch cache fail {ckey}: {e}")
             
@@ -4701,112 +2610,47 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
             effective_max_mb = mtproto_limit_mb()
             if free_mb < min_free + 150: effective_max_mb = min(effective_max_mb, 50)
                 
-            # V16: fresh download - if video fails and link is actually an image (mixed batch), fall back to images engine.
-            _eff_dl_type = download_type
-            file_paths, res, size = None, None, None
-            try:
-                file_paths, res, size = await asyncio.to_thread(download_media_engine, url, download_type, effective_max_mb)
-            except Exception:
-                file_paths = None
-            if (not file_paths) and download_type in ("video", "audio"):
-                try:
-                    _fp2, _res2, _sz2 = await asyncio.to_thread(download_media_engine, url, "images", effective_max_mb)
-                    if _fp2:
-                        file_paths, res, size = _fp2, _res2, _sz2
-                        _eff_dl_type = "images"
-                except Exception:
-                    file_paths = None
+            file_paths, res, size = await asyncio.to_thread(download_media_engine, url, download_type, effective_max_mb)
 
             # ===== EDIT D2: batch fresh carousel =====
             if file_paths and res == "carousel":
                 try:
                     results = await send_carousel(bot, target_destination_id, file_paths, ckey, status_msg, send_video_file)
                     if results:
-                        credit_charged = False
                         await save_carousel_cache(bot, ckey, results, size)
                         if target_destination_id == chat_id:
                             asyncio.create_task(schedule_deletion(bot, chat_id, [r["message_id"] for r in results], 540))
                 finally:
                     shutil.rmtree(os.path.dirname(file_paths[0]), ignore_errors=True)
-                if results:
-                    await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
-                    success_count += 1
-                    if user_id != ADMIN_ID and record_batch_success_for_ad(user_id):
-                        await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, can_resume=index < len(urls))
-                        break
-                else:
-                    fail_count += 1
-                    await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}] {t['failed_generic']}")
-                    if credit_charged:
-                        refund_download_counter(user_id, is_batch=True)
-                        credit_charged = False
+                await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+                success_count += 1
                 await asyncio.sleep(3)
                 continue
             # =========================================
 
             if file_paths and os.path.exists(file_paths[0]):
-                # V16: images batch / image fallback sends as photo, not video. Same image engine as single download.
-                if _eff_dl_type == "images" and res == "original":
-                    sent = await bot.send_photo(chat_id=target_destination_id, photo=open(file_paths[0], 'rb'), caption=f"Item {index}/{len(urls)} | {_display_name_for(None, url, ckey, cache)} | [original] Size {size} | `{ckey}`")
-                    credit_charged = False
-                    if target_destination_id == chat_id:
-                        warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
-                        asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
-                    try:
-                        vmsg = await bot.send_photo(chat_id=VIDEO_VAULT_ID, photo=sent.photo[-1].file_id, caption=f"{_display_name_for(None, url, ckey, cache)} | {ckey}")
-                        cache = load_json_file(CACHE_FILE)
-                        if ckey not in cache: cache[ckey] = {"type": "images", "timestamp": time.time(), "qualities": {}, "hits": 0}
-                        cache[ckey]["type"] = "images"
-                        cache[ckey]["qualities"]["original"] = {"file_id": sent.photo[-1].file_id, "vault_msg_id": vmsg.message_id, "size": size}
-                        save_json_file(CACHE_FILE, cache)
-                    except Exception as e: logger.error(f"Vault save img: {e}")
-                    os.remove(file_paths[0])
-                    await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
-                    success_count += 1
-                    credit_charged = False
-                    if user_id != ADMIN_ID and record_batch_success_for_ad(user_id):
-                        await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, can_resume=index < len(urls))
-                        break
-                else:
-                    qual_tag = f"[{res}]"
-                    _b_disp = _display_name_for(None, url, ckey, cache)
-                    try:
-                        _ext = os.path.splitext(file_paths[0])[1] or ".mp4"
-                        _rn = os.path.join(os.path.dirname(file_paths[0]), f"{_clean_filename_part(_b_disp)} {qual_tag}{_ext}") if _b_disp and _b_disp != ckey and _clean_filename_part(_b_disp) else file_paths[0]
-                        if _rn != file_paths[0]: os.rename(file_paths[0], _rn); file_paths[0] = _rn
-                    except Exception: pass
-                    sent = await send_video_file(bot, chat_id, target_destination_id, file_paths[0], f"Item {index}/{len(urls)} | {_b_disp} | {qual_tag} Size {size} | `{ckey}`", None, status_msg)
-                    credit_charged = False
-                    if target_destination_id == chat_id:
-                        warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
-                        asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
-                    try:
-                        vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent.video.file_id, caption=f"{_display_name_for(None, url, ckey, cache)} [{res}] | {ckey}")
-                        cache = load_json_file(CACHE_FILE)
-                        if ckey not in cache: cache[ckey] = {"type": "video", "timestamp": time.time(), "qualities": {}, "hits": 0}
-                        cache[ckey]["qualities"][res] = {"file_id": sent.video.file_id, "vault_msg_id": vmsg.message_id, "size": size}
-                        save_json_file(CACHE_FILE, cache)
-                    except Exception as e: logger.error(f"Vault save: {e}")
-                    os.remove(file_paths[0])
-                    await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
-                    success_count += 1
-                    credit_charged = False
-                    if user_id != ADMIN_ID and record_batch_success_for_ad(user_id):
-                        await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, can_resume=index < len(urls))
-                        break
+                qual_tag = f"[{res}]"
+                sent = await send_video_file(bot, chat_id, target_destination_id, file_paths[0], f"Item {index}/{len(urls)} {qual_tag} Size {size}", None, status_msg)
+                if target_destination_id == chat_id:
+                    warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
+                    asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
+                try:
+                    vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent.video.file_id, caption=f"{ckey} [{res}]")
+                    cache = load_json_file(CACHE_FILE)
+                    if ckey not in cache: cache[ckey] = {"type": "video", "timestamp": time.time(), "qualities": {}, "hits": 0}
+                    cache[ckey]["qualities"][res] = {"file_id": sent.video.file_id, "vault_msg_id": vmsg.message_id, "size": size}
+                    save_json_file(CACHE_FILE, cache)
+                except Exception as e: logger.error(f"Vault save: {e}")
+                os.remove(file_paths[0])
+                await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+                success_count += 1
             else:
                 await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}] {t['failed_generic']}")
                 fail_count += 1
-                if credit_charged:
-                    refund_download_counter(user_id, is_batch=True)
-                    credit_charged = False
         except Exception as e:
             try: await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}] {str(e)[:50]}")
             except: pass
             fail_count += 1
-            if credit_charged:
-                refund_download_counter(user_id, is_batch=True)
-                credit_charged = False
         await asyncio.sleep(3)
     if user_id in active_batch_sessions: del active_batch_sessions[user_id]
     try: await bot.delete_message(chat_id=chat_id, message_id=batch_notice.message_id)
@@ -4880,341 +2724,16 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
             logger.exception("Fan upload forwarding/storage failed: %s", e)
             await update.message.reply_text("❌ Failed to send your upload. Please try again.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
 
-
-# ===== V36 MUSIC SEARCH =====
-def _music_fmt_views(v):
-    try:
-        v = int(v or 0)
-        if v >= 1000000: return f"{v/1000000:.1f}M"
-        if v >= 1000: return f"{v/1000:.1f}K"
-        return str(v)
-    except Exception:
-        return "N/A"
-
-def _music_fmt_dur(sec):
-    try:
-        s = int(sec or 0)
-        if not s: return "N/A"
-        return f"{s//60}:{s%60:02d}"
-    except Exception:
-        return "N/A"
-
-def _music_fmt_year(upload_date):
-    try:
-        s = str(upload_date or "").strip()
-        if not s: return "N/A"
-        if "ago" in s.lower(): return s
-        if len(s) >= 4 and s[:4].isdigit(): return s[:4]
-        return s[:10] if s else "N/A"
-    except Exception:
-        return "N/A"
-
-def _music_is_cached(video_id):
-    try:
-        cache = load_json_file(CACHE_FILE)
-        e = cache.get(f"youtube_{video_id}") or {}
-        quals = e.get("qualities") or {}
-        return "audio" in quals
-    except Exception:
-        return False
-
-def _music_filter_and_score(raw_list, query):
-    """Shared filtering + scoring for all search methods. raw_list = dicts with title/channel/duration/view_count."""
-    qlow = (query or "").lower()
-    allow_live = any(w in qlow for w in ["live", "concert", "unplugged"])
-    allow_sped = any(w in qlow for w in ["sped up", "speed up", "slowed", "reverb", "slowed + reverb"])
-    allow_lyric = any(w in qlow for w in ["lyric", "lyrics"])
-    allow_cover = "cover" in qlow
-    out = []
-    for e in raw_list:
-        if not e or not isinstance(e, dict): continue
-        vid = e.get("video_id") or e.get("id") or ""
-        if not vid: continue
-        title = (e.get("title") or "Unknown")[:120]
-        tlow = title.lower()
-        dur = int(e.get("duration_sec") or e.get("duration") or 0)
-        if dur and dur > 600: continue
-        if dur and dur < 30: continue
-        if not allow_live and any(w in tlow for w in [" live", "(live", "live performance", "live version", "live session", "live at", "live -", "concert", "live show"]): continue
-        if not allow_sped and any(w in tlow for w in ["sped up", "slowed", "reverb", "nightcore"]): continue
-        if not allow_lyric and any(w in tlow for w in ["lyric video", "lyrics video", "(lyrics)"]): continue
-        if not allow_cover and "cover" in tlow and "official" not in tlow: continue
-        if "karaoke" in tlow: continue
-        if "instrumental" in tlow and "instrumental" not in qlow: continue
-        channel = e.get("channel") or e.get("uploader") or e.get("uploader_id") or "Unknown"
-        score = 0
-        if "official" in tlow: score += 1000
-        if channel and channel.lower() in tlow: score += 200
-        try: score += int(e.get("view_count") or 0) / 1000000.0
-        except Exception: pass
-        out.append({"video_id": vid, "title": title, "channel": channel, "duration_sec": dur, "view_count": e.get("view_count") or 0, "upload_date": e.get("upload_date") or "", "thumbnail": e.get("thumbnail") or "", "url": f"https://www.youtube.com/watch?v={vid}", "_score": score})
-    out.sort(key=lambda x: x["_score"], reverse=True)
-    for r in out: r.pop("_score", None)
-    return out
-
-def _music_search_ytdlp(query, fetch_n):
-    """Method 1: yt-dlp ytsearch - same cookies/headers as downloads + android client. Works locally, often blocked on Render datacenter IP."""
-    ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True, "socket_timeout": 10, "http_headers": {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"}, "extractor_args": {"youtube": {"player_client": ["android", "web"]}}}
-    try:
-        if os.path.exists("cookies.txt"): ydl_opts["cookiefile"] = "cookies.txt"
-    except Exception: pass
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(f"ytsearch{fetch_n}:{query}", download=False)
-    entries = (info.get("entries") or []) if isinstance(info, dict) else []
-    raw = []
-    for e in entries:
-        if not e or not isinstance(e, dict): continue
-        thumb = e.get("thumbnail") or ""
-        if not thumb:
-            try:
-                thumbs = e.get("thumbnails") or []
-                if thumbs: thumb = thumbs[-1].get("url") or ""
-            except Exception: pass
-        raw.append({"video_id": e.get("id") or "", "title": e.get("title") or "Unknown", "channel": e.get("uploader") or e.get("channel") or e.get("uploader_id") or "Unknown", "duration_sec": int(e.get("duration") or 0), "view_count": e.get("view_count") or 0, "upload_date": e.get("upload_date") or "", "thumbnail": thumb})
-    return raw
-
-def _music_parse_views_text(vs):
-    try:
-        s = str(vs or "").replace(" views", "").replace(",", "").strip()
-        if not s: return 0
-        if s.endswith("M"): return int(float(s[:-1]) * 1000000)
-        if s.endswith("K"): return int(float(s[:-1]) * 1000)
-        if s.endswith("B"): return int(float(s[:-1]) * 1000000000)
-        return int(float(s)) if s.replace(".", "").isdigit() else 0
-    except Exception: return 0
-
-def _music_search_innertube(query, fetch_n):
-    """Method 2: YouTube Innertube search API (youtubei/v1/search) - POST, works on Render where yt-dlp ytsearch gets 403."""
-    url = "https://www.youtube.com/youtubei/v1/search?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8&prettyPrint=false"
-    payload = {"context": {"client": {"clientName": "WEB", "clientVersion": "2.20240111.09.00", "hl": "en", "gl": "US"}}, "query": query}
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36", "Content-Type": "application/json", "Origin": "https://www.youtube.com", "Referer": "https://www.youtube.com/"}
-    r = requests.post(url, json=payload, headers=headers, timeout=20)
-    if r.status_code != 200:
-        raise RuntimeError(f"Innertube HTTP {r.status_code}")
-    data = r.json()
-    contents = data.get("contents", {}).get("twoColumnSearchResultsRenderer", {}).get("primaryContents", {}).get("sectionListRenderer", {}).get("contents", [])
-    raw = []
-    for section in contents:
-        sec_contents = section.get("itemSectionRenderer", {}).get("contents", [])
-        for it in sec_contents:
-            vr = it.get("videoRenderer")
-            if not vr: continue
-            vid = vr.get("videoId") or ""
-            if not vid: continue
-            title = "".join([x.get("text", "") for x in vr.get("title", {}).get("runs", [])]) or "Unknown"
-            channel = "".join([x.get("text", "") for x in vr.get("longBylineText", {}).get("runs", [])]) or "".join([x.get("text", "") for x in vr.get("ownerText", {}).get("runs", [])]) or "Unknown"
-            dur_txt = vr.get("lengthText", {}).get("simpleText", "")
-            dur = 0
-            if dur_txt:
-                try:
-                    parts = dur_txt.split(":")
-                    if len(parts) == 2: dur = int(parts[0]) * 60 + int(parts[1])
-                    elif len(parts) == 3: dur = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
-                except Exception: pass
-            views = _music_parse_views_text(vr.get("viewCountText", {}).get("simpleText", ""))
-            thumb = ""
-            try:
-                thumbs = vr.get("thumbnail", {}).get("thumbnails", [])
-                if thumbs: thumb = thumbs[-1].get("url", "")
-            except Exception: pass
-            pub = vr.get("publishedTimeText", {}).get("simpleText", "")
-            raw.append({"video_id": vid, "title": title, "channel": channel, "duration_sec": dur, "view_count": views, "upload_date": pub, "thumbnail": thumb})
-            if len(raw) >= fetch_n: break
-        if len(raw) >= fetch_n: break
-    return raw
-
-def _music_search_itunes_then_innertube(query, fetch_n):
-    """Method 3: iTunes Search API (never blocked, free, no key) for exact title/artist, then Innertube for each exact title to get YouTube ID."""
-    r = requests.get("https://itunes.apple.com/search", params={"term": query, "media": "music", "entity": "song", "limit": 10}, timeout=15)
-    if r.status_code != 200:
-        raise RuntimeError(f"iTunes HTTP {r.status_code}")
-    data = r.json()
-    results = data.get("results") or []
-    raw = []
-    for it in results[:5]:
-        track = (it.get("trackName") or "").strip()
-        artist = (it.get("artistName") or "").strip()
-        if not track: continue
-        exact_q = f"{artist} - {track} official audio" if artist else track
-        try:
-            sub = _music_search_innertube(exact_q, 2)
-            for s in sub:
-                # Keep iTunes artwork as fallback if Innertube thumb missing, prefer Innertube thumb
-                raw.append(s)
-                if len(raw) >= fetch_n: break
-        except Exception as e:
-            logger.warning(f"iTunes->Innertube failed for {exact_q}: {e}")
-            continue
-        if len(raw) >= fetch_n: break
-    return raw
-
-def search_music_sync(query, want=5, offset=0):
-    """V39 order: Innertube FIRST (2-3s, works on Render) -> iTunes+Innertube -> yt-dlp LAST (slow, can hang 60s+).
-    V37 tried yt-dlp first, so every search waited 60s+ before trying Innertube - looked stuck."""
-    fetch_n = int(offset + want + 10)
-    if fetch_n < 15: fetch_n = 15
-    if fetch_n > 30: fetch_n = 30
-    # Method 1: Innertube - fast
-    try:
-        raw1 = _music_search_innertube(query, fetch_n)
-        filt1 = _music_filter_and_score(raw1, query)
-        if filt1:
-            logger.info(f"Music search OK via Innertube: {query} -> {len(filt1)}")
-            return filt1[offset:offset+want]
-        logger.warning(f"Music search Innertube returned 0 filtered for {query}, trying iTunes")
-    except Exception as e:
-        logger.warning(f"Music search Innertube failed for {query}: {e}, trying iTunes")
-    # Method 2: iTunes + Innertube
-    try:
-        raw2 = _music_search_itunes_then_innertube(query, fetch_n)
-        filt2 = _music_filter_and_score(raw2, query)
-        if filt2:
-            logger.info(f"Music search OK via iTunes+Innertube: {query} -> {len(filt2)}")
-            return filt2[offset:offset+want]
-    except Exception as e:
-        logger.warning(f"Music search iTunes failed for {query}: {e}")
-    # Method 3: yt-dlp LAST - slow, only if fast methods failed
-    try:
-        raw3 = _music_search_ytdlp(query, fetch_n)
-        filt3 = _music_filter_and_score(raw3, query)
-        if filt3:
-            logger.info(f"Music search OK via yt-dlp: {query} -> {len(filt3)}")
-            return filt3[offset:offset+want]
-        logger.warning(f"Music search yt-dlp returned 0 filtered for {query}")
-    except Exception as e:
-        logger.warning(f"Music search yt-dlp failed for {query}: {e}")
-    # Method 3b: yt-dlp official-audio variant
-    try:
-        if "official" not in (query or "").lower():
-            raw3b = _music_search_ytdlp(f"{query} official audio", fetch_n)
-            filt3b = _music_filter_and_score(raw3b, query)
-            if filt3b:
-                logger.info(f"Music search OK via yt-dlp official-audio variant: {query} -> {len(filt3b)}")
-                return filt3b[offset:offset+want]
-    except Exception as e:
-        logger.warning(f"Music search yt-dlp variant failed for {query}: {e}")
-    logger.warning(f"Music search ALL methods failed/empty for {query}")
-    return []
-
-async def send_music_results(bot, chat_id, user_id, query, offset, t):
-    """Send 5 cards. V39: hard 25s timeout - never hang forever. Guard stops double search."""
-    if MUSIC_SEARCHING.get(user_id):
-        try: await bot.send_message(chat_id=chat_id, text="⏳ Still searching... wait a few seconds, results are coming.")
-        except Exception: pass
-        return
-    MUSIC_SEARCHING[user_id] = True
-    try:
-        results = await asyncio.wait_for(asyncio.to_thread(search_music_sync, query, 5, offset), timeout=25)
-    except asyncio.TimeoutError:
-        logger.warning(f"Music search TIMEOUT 25s for {query}")
-        MUSIC_SEARCHING.pop(user_id, None)
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔁 Try Again", callback_data="music_new")], [InlineKeyboardButton("❌ Cancel", callback_data="music_cancel")]])
-        await bot.send_message(chat_id=chat_id, text=f"⏳ Search took too long for '{query}'.\nTap Try Again - next try is usually fast.\nOr try: Rema - Calm Down", reply_markup=kb)
-        return
-    except Exception:
-        results = []
-    if not results:
-        MUSIC_SEARCHING.pop(user_id, None)
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔁 Try Again", callback_data="music_new")], [InlineKeyboardButton("❌ Cancel", callback_data="music_cancel")]])
-        await bot.send_message(chat_id=chat_id, text=f"⚠️ Search is busy right now for '{query}'.\nYouTube blocked the search for a moment.\nTap Try Again - it usually works on 2nd try.\nOr try: Rema - Calm Down", reply_markup=kb)
-        return
-    MUSIC_RESULTS[user_id] = {"query": query, "offset": offset, "results": results}
-    await bot.send_message(chat_id=chat_id, text=f"🎵 Results for '{query}' ({offset+1}-{offset+len(results)})\nTap Download on the one you want. Search is free, download is 1 credit.")
-    for idx, r in enumerate(results):
-        num = offset + idx + 1
-        cached_tag = "⚡ Cached - Instant" if _music_is_cached(r["video_id"]) else "📥 Fresh download"
-        caption = f"{num}. {r['title']}\n🎤 {r['channel']}\n⏱ {_music_fmt_dur(r['duration_sec'])} | 👀 {_music_fmt_views(r['view_count'])} views | 📅 {_music_fmt_year(r['upload_date'])}\n💿 MP3 192kbps | {cached_tag}\n💳 Cost: 1 credit"
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("⬇️ Download This - 1 credit", callback_data=f"music_dl_{r['video_id']}")]])
-        try:
-            if r.get("thumbnail"):
-                await bot.send_photo(chat_id=chat_id, photo=r["thumbnail"], caption=caption, reply_markup=kb)
-            else:
-                await bot.send_message(chat_id=chat_id, text=caption, reply_markup=kb)
-        except Exception:
-            try: await bot.send_message(chat_id=chat_id, text=caption, reply_markup=kb)
-            except Exception: pass
-        await asyncio.sleep(0.15)
-    footer_rows = []
-    if len(results) == 5:
-        footer_rows.append([InlineKeyboardButton("🔄 More Results", callback_data=f"music_more_{offset+5}")])
-    footer_rows.append([InlineKeyboardButton("🔍 New Search", callback_data="music_new")])
-    footer_rows.append([InlineKeyboardButton("❌ Cancel", callback_data="music_cancel")])
-    await bot.send_message(chat_id=chat_id, text="👇 Pick one above, or get more / search again.", reply_markup=InlineKeyboardMarkup(footer_rows))
-    MUSIC_SEARCHING.pop(user_id, None)
-
-async def _music_download_song(bot, chat_id, user_id, video_id, t):
-    """Download one music song as audio, 1 credit, cached if available. Assumes credit check already done."""
-    url = f"https://www.youtube.com/watch?v={video_id}"
-    meta = None
-    try:
-        # Use stored search result for title if we have it
-        for _uid, _d in list(MUSIC_RESULTS.items()):
-            if _uid == user_id:
-                for _r in _d.get("results", []):
-                    if _r.get("video_id") == video_id:
-                        meta = {"title": _r.get("title"), "poster": _r.get("channel"), "duration_sec": _r.get("duration_sec"), "views": _r.get("view_count"), "platform": "youtube", "est_size_mb": 0.0}
-                        break
-    except Exception: pass
-    if not meta:
-        try: meta = await asyncio.to_thread(get_social_metadata, url)
-        except Exception: meta = None
-    can_dl = await acquire_slot()
-    if can_dl:
-        try: await cached_download_and_send(bot, chat_id, user_id, url, "audio", t, 1, meta=meta)
-        finally: await release_slot()
-    else:
-        pos = download_queue.qsize()+1
-        await download_queue.put({'func': cached_download_and_send, 'args': (bot, chat_id, user_id, url, "audio", t), 'kwargs': {'credit_cost': 1, 'meta': meta}})
-        free_mb = shutil.disk_usage(".").free // (1024*1024)
-        await bot.send_message(chat_id=chat_id, text=t["server_busy"].format(active_downloads, MAX_CONCURRENT_SHORT, free_mb, pos), parse_mode="Markdown", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
-
-def _music_get_downloads_left(user_id):
-    """Flask profile first (refilled balance), fallback to local tokens."""
-    try:
-        prof = get_user_profile_from_flask(user_id)
-        if prof is not None:
-            return int(prof.get("downloads_left", get_free_amount()))
-    except Exception: pass
-    try:
-        tokens = load_tokens()
-        profile = tokens.get(str(user_id), {})
-        return int(profile.get("downloads_left", get_free_amount()))
-    except Exception:
-        return get_free_amount()
-
-# ===== END V36 MUSIC SEARCH =====
-
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-
     text = update.message.text if update.message.text else ""
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
     t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
     if is_banned(user_id): await update.message.reply_text(t["banned"]); return
-    # PART 5: mandatory recurring channel check — EVERY handler, EVERY time (catches users who left)
-    # Exception: a forwarded channel message that completes /setbatchchannel setup must
-    # not be blocked by this check, or the user could never finish linking their batch channel.
-    _is_batch_link_forward = (
-        load_linking_states().get(str(user_id)) == "waiting_for_channel"
-        and bool(getattr(update.message, "forward_origin", None))
-        and getattr(update.message.forward_origin, "type", None) == "channel"
-    )
-    if not _is_batch_link_forward:
-        _passed, _missing = await check_all_required_channels(context.bot, user_id, get_required_channels())
-        if not _passed:
-            await send_join_prompt(context.bot, chat_id, user_id, _missing)
-            return
-    # PART 6: typed cancel for batch-channel setup
-    if text.strip() in ("❌ Cancel", "❌ CANCEL", "/cancelbatch", "/cancel"):
-        if USER_PENDING_BATCH_CHANNEL.get(user_id) or load_linking_states().get(str(user_id)) == "waiting_for_channel":
-            USER_PENDING_BATCH_CHANNEL[user_id] = False
-            _ls = load_linking_states(); _ls.pop(str(user_id), None); save_linking_states(_ls)
-            await update.message.reply_text("✅ Batch channel setup cancelled", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
-            return
     if "http" in text.lower():
         flood, wait = is_flood(user_id)
         if flood: await update.message.reply_text(f"🐢 **Slow down!** You sent {FLOOD_LIMIT} links in last minute.\nWait {wait}s before next link.", parse_mode="Markdown"); return
-    track_user_activity(user_id, update.message.from_user.username if update.message.from_user else None)
+    track_user_activity(user_id)
     lang = get_lang(user_id)
     
     if text == t.get("menu_edit_welcome", "✏️ Edit Welcome Msg") and user_id == ADMIN_ID:
@@ -5238,27 +2757,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text(t["admin_welcome_updated"], parse_mode="Markdown", reply_markup=get_main_keyboard(lang, True))
         return
 
-    _req_ls = load_linking_states()
-    if user_id == ADMIN_ID and _req_ls.get(str(user_id)) == "waiting_for_required_channel":
-        _fo = getattr(update.message, "forward_origin", None)
-        _fchat = getattr(_fo, "chat", None) if _fo and getattr(_fo, "type", None) == "channel" else getattr(update.message, "forward_from_chat", None)
-        _new_ch = None
-        if _fchat is not None: _new_ch = str(_fchat.id)
-        elif text.strip().startswith("@") or (text.strip().lstrip("-").isdigit() and len(text.strip()) >= 5): _new_ch = text.strip()
-        if _new_ch:
-            _chs = get_required_channels()
-            if _new_ch not in _chs:
-                _chs.append(_new_ch); save_bot_settings(new_channels=_chs)
-            _req_ls.pop(str(user_id), None); save_linking_states(_req_ls)
-            _txt, _kb = build_reqch_panel()
-            await update.message.reply_text(f"✅ Added required channel: {_new_ch}\n\n" + _txt, reply_markup=_kb, parse_mode="HTML")
-            return
-        if text.strip() in ("❌ Cancel", "❌ CANCEL", "/cancel"):
-            _req_ls.pop(str(user_id), None); save_linking_states(_req_ls)
-            await update.message.reply_text("✅ Cancelled adding required channel.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            return
-        await update.message.reply_text("📩 Forward a message from the channel, or send its @username / -100... ID.\nOr send ❌ Cancel.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="reqch_cancel")]]))
-        return
     linking_states = load_linking_states()
     if linking_states.get(str(user_id)) == "waiting_for_channel":
         forward_origin = getattr(update.message, "forward_origin", None)
@@ -5277,7 +2775,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         save_user_channels(user_channels)
         linking_states.pop(str(user_id), None)
         save_linking_states(linking_states)
-        USER_PENDING_BATCH_CHANNEL[user_id] = False  # PART 6: setup complete
         await update.message.reply_text(f"✅ Linked {getattr(f_chat, 'title', 'your channel')} successfully. You can now use batch downloads to that channel.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         return
     fl_states = load_json_file(FILE_LINK_STATE_FILE)
@@ -5292,43 +2789,29 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if record.get("max_clicks", 0) and record.get("clicks", 0) >= record["max_clicks"]: await update.message.reply_text(t["link_limit_reached"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
         await send_file_link_payload(update, context, token, record)
         return
-    menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🔗 File-to-Link", "🎵 Music Search", "❌ Cancel Music Search", "🟢 Bot Status", "🔄 Change Batch Channel", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel", t.get("menu_edit_welcome", "✏️ Edit Welcome Msg"), "📢 Required Channels", "📊 Download Limits"]
+    menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🔗 File-to-Link", "🟢 Bot Status", "🔄 Change Batch Channel", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel", t.get("menu_edit_welcome", "✏️ Edit Welcome Msg")]
     if text in menu_texts:
         if text != t["menu_upload"]:
             context.user_data.pop("admin_vault_upload_mode", None)
         support_states = load_json_file(SUPPORT_STATES_FILE)
         if str(user_id) in support_states: del support_states[str(user_id)]; save_json_file(SUPPORT_STATES_FILE, support_states)
     if text.strip() == "🔗 File-to-Link": await file_to_link_command(update, context); return
-    if text.strip() == "📢 Required Channels" and user_id == ADMIN_ID:
-        _txt, _kb = build_reqch_panel()
-        await update.message.reply_text(_txt, reply_markup=_kb, parse_mode="HTML")
-        return
-    if text.strip() == "📊 Download Limits" and user_id == ADMIN_ID:
-        _txt, _kb = build_limits_panel()
-        await update.message.reply_text(_txt, reply_markup=_kb, parse_mode="HTML")
-        return
     if text.strip() == "🔄 Change Batch Channel":
-        # PART 6: same flow as /setbatchchannel — pending state + Cancel button
-        USER_PENDING_BATCH_CHANNEL[user_id] = True
         linking_states = load_linking_states()
         linking_states[str(user_id)] = "waiting_for_channel"
         save_linking_states(linking_states)
-        _cancel_kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ CANCEL", callback_data="cancel_batch_channel")]])
         await update.message.reply_text(t["change_channel_prompt"], parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-        await update.message.reply_text("📩 Forward a message from your channel to link it — or tap Cancel to stop waiting.", reply_markup=_cancel_kb)
         return
     fl_states = load_json_file(FILE_LINK_STATE_FILE)
     fl_state = fl_states.get(str(user_id))
     if fl_state and fl_state.get("mode") == "file_link_set_password":
-        _is_clear = (text.strip() == "/clearpassword")
-        if _is_clear: fl_state.setdefault("settings", {})["password"] = ""
+        if text.strip() == "/clearpassword": fl_state.setdefault("settings", {})["password"] = ""
         else:
             if len(text) > 64: await update.message.reply_text(t["password_too_long"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
             fl_state.setdefault("settings", {})["password"] = text.strip()
         fl_state["mode"] = "collecting"
         fl_states[str(user_id)] = fl_state; save_json_file(FILE_LINK_STATE_FILE, fl_states)
-        _msg = t.get("password_removed", "🔓 Password removed.") if _is_clear else t["password_saved"]
-        await update.message.reply_text(_msg, reply_markup=file_link_keyboard(fl_state))
+        await update.message.reply_text(t["password_saved"], reply_markup=file_link_keyboard(fl_state))
         return
     if text == "💾 Disk Config" and user_id == ADMIN_ID:
         current = get_min_free_disk_mb()
@@ -5406,17 +2889,10 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if text == t["menu_stats"]:
         if user_id == ADMIN_ID: await stats(update, context)
         else:
-            # FIX: use /get-profile (same refill logic as /check-download) so My Stats
-            # shows the refilled balance BEFORE you try File-to-Link. No more 0->1 surprise.
-            prof = get_user_profile_from_flask(user_id)
-            if prof is not None:
-                d_left = prof.get("downloads_left", get_free_amount())
-                b_left = prof.get("batch_downloads_left", min(MAX_USER_CREDITS, get_free_amount() * 5))
-            else:
-                tokens = load_tokens()
-                profile = tokens.get(str(user_id), {})
-                d_left = profile.get("downloads_left", get_free_amount())
-                b_left = profile.get("batch_downloads_left", min(MAX_USER_CREDITS, get_free_amount() * 5))
+            tokens = load_tokens()
+            profile = tokens.get(str(user_id), {})
+            d_left = profile.get("downloads_left", get_free_amount())
+            b_left = profile.get("batch_downloads_left", get_free_amount()*5)
             await update.message.reply_text(t["stats_msg"].format(d_left, b_left), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         return
     if text == t["menu_join"]: await update.message.reply_text(f"[Join]({PUBLIC_CHANNEL_URL})", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
@@ -5456,50 +2932,6 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             reply_markup=get_main_keyboard(lang, True)
         )
         return
-    # ===== V36 MUSIC SEARCH - button first, never auto-detect random text =====
-    if text.strip() == "🎵 Music Search":
-        if MUSIC_SEARCHING.get(user_id):
-            await update.message.reply_text("⏳ Still searching your last song... wait a few seconds, results are coming.")
-            return
-        MUSIC_WAITING[user_id] = True
-        MUSIC_RESULTS.pop(user_id, None)
-        _mkb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="music_cancel")]])
-        await update.message.reply_text("🎵 **Music Search**\n\nSend song name.\nExample: Rema - Calm Down\n\nSearch is free. Download is 1 credit.\nTap Cancel to stop.", parse_mode="Markdown", reply_markup=_mkb)
-        return
-    if text.strip() in ("❌ Cancel Music Search", "❌ Cancel"):
-        if MUSIC_WAITING.get(user_id):
-            MUSIC_WAITING.pop(user_id, None)
-            MUSIC_RESULTS.pop(user_id, None)
-            await update.message.reply_text("✅ Music search cancelled.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            return
-    if MUSIC_WAITING.get(user_id):
-        # User pasted a link while waiting -> cancel music mode and fall through to normal link handling
-        if "http" in text.lower():
-            MUSIC_WAITING.pop(user_id, None)
-        else:
-            # Ignore other menu buttons while waiting - let them fall through below (they clear waiting via menu_texts)
-            if text not in menu_texts:
-                q = text.strip()
-                MUSIC_WAITING.pop(user_id, None)
-                if len(q) < 2:
-                    await update.message.reply_text("Send a song name - at least 2 characters. Example: Rema - Calm Down")
-                    MUSIC_WAITING[user_id] = True
-                    return
-                if len(q) > 120:
-                    q = q[:120]
-                _searching = await update.message.reply_text(f"🔍 Searching for '{q}'...")
-                try:
-                    await send_music_results(context.bot, chat_id, user_id, q, 0, t)
-                except Exception as _me:
-                    logger.warning(f"music search failed: {_me}")
-                    await update.message.reply_text("❌ Search failed. Try again.")
-                try: await _searching.delete()
-                except Exception: pass
-                return
-    if text in menu_texts and text != "🎵 Music Search":
-        # Leaving music mode when tapping any other menu button
-        MUSIC_WAITING.pop(user_id, None)
-    # ===== END V36 MUSIC SEARCH =====
     extracted_urls = re.findall(r'https?://[^\s]+', text)
     filtered = [u for u in extracted_urls if not ("t.me/" in u and "start=" in u)]
     extracted_urls = filtered
@@ -5530,8 +2962,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                     await asyncio.sleep(0.2)
                 except: pass
                 bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg={msg_start}&end_msg={msg_end}"
-                _rw = get_reward_amount()
-                keyboard = [[InlineKeyboardButton(f"🔓 Open Link & Watch Timer ⏰ 20s +{_rw}", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(f"💜 Check & Get Files ✅ +{_rw}", callback_data="verify_user")]]
+                keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")]]
                 await update.message.reply_text(t["limit_reached"] + ADSTERRA_USER_GUIDE, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 return
     if active_batch_sessions.get(user_id, False): return
@@ -5540,89 +2971,28 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         user_channels = load_user_channels()
         user_channels[str(user_id)] = f_chat.id
         save_user_channels(user_channels)
-        USER_PENDING_BATCH_CHANNEL[user_id] = False  # PART 6
         await update.message.reply_text(f"✅ Linked {f_chat.title}", parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         return
     if len(extracted_urls) > 1:
         payload_key = f"batch_{user_id}_{int(time.time())}"
         pending_batch_payloads[payload_key] = extracted_urls
-        # V16: batch had no Images option, so image links failed. Add it - same image engine as single.
-        keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"batchtype_video_{payload_key}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"batchtype_audio_{payload_key}")],[InlineKeyboardButton(t["btn_image"], callback_data=f"batchtype_images_{payload_key}")]]
+        keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"batchtype_video_{payload_key}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"batchtype_audio_{payload_key}")]]
         await update.message.reply_text(t["batch_detected"].format(len(extracted_urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
     url = extracted_urls[0]
     status_preview = await update.message.reply_text("🔍 Checking link...")
-    # PART 3: fetch metadata BEFORE the quality/format menu
-    meta = None
-    try:
-        meta = await asyncio.to_thread(get_social_metadata, url)
-    except Exception:
-        meta = None
-    if meta:
-        title = meta.get("title", "N/A")
-        _d = int(meta.get("duration_sec") or 0)
-        dur = f"{_d // 60}m {_d % 60:02d}s" if _d else "N/A"
-    else:
-        title, dur = fetch_url_metadata(url)
+    title, dur = fetch_url_metadata(url)
     try: await status_preview.delete()
     except: pass
-    # PART 4: limits + credit cost (10 min / 200 MB defaults, >100 MB = 3 credits)
-    _credit_cost = 1
-    if meta:
-        _plat_key = detect_platform_key(url, meta.get("platform", ""))
-        _plat_limits = get_platform_limits(_plat_key)
-        _credit_cost, _time_ok, _size_ok = calculate_cost_and_limits(meta, _plat_limits)
-        if user_id != ADMIN_ID and (not _time_ok or not _size_ok):
-            _why = []
-            if not _time_ok:
-                _why.append(f"⏱️ Duration {float(meta.get('duration_sec') or 0)/60:.1f} min exceeds {_plat_limits['min']} min limit for {_plat_key}")
-            if not _size_ok:
-                _why.append(f"📦 Est. size {float(meta.get('est_size_mb') or 0):.1f} MB exceeds {_plat_limits['mb']} MB limit for {_plat_key}")
-            await update.message.reply_text("❌ Cannot download this link:\n" + "\n".join(_why), reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            return
-    payload_key = f"single_{user_id}_{int(time.time()*1000)}"
+    payload_key = f"single_{user_id}_{int(time.time())}"
     pending_single_links[payload_key] = url
-    PENDING_META[payload_key] = meta
-    PENDING_CREDIT_COST[payload_key] = _credit_cost
-    _save_pending_file()  # PART 4: carried to fmt_ callback -> cached_download_and_send
-    # SELF-CONTAINED fmt: for YouTube, button carries video ID itself (survives restart). For others, URL is in message text as fallback.
-    _fmt_suffix = payload_key
-    try:
-        _yid_fmt = youtube_id_from_url(url) or ""
-        if _yid_fmt: _fmt_suffix = f"yt_{_yid_fmt}"
-    except Exception: pass
-    keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"fmt_vid_{_fmt_suffix}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"fmt_aud_{_fmt_suffix}")],[InlineKeyboardButton(t["btn_image"], callback_data=f"fmt_img_{_fmt_suffix}")]]
-    _cost_line = f"\n💳 Cost: {_credit_cost} credit{'s' if _credit_cost != 1 else ''}" if _credit_cost > 1 else ""
-    # V10 FIX: URL/title can contain _ * [ ] which breaks Markdown and crashes with
-    # "Can't parse entities" -> bot gives NO response. Send plain text, fall back if Markdown fails.
-    _fmt_text = f"🎬 {title}\n⏱️ {dur}{_cost_line}\n\n{t['ask_format']}\n\n🔗 {url}"
-    try:
-        await update.message.reply_text(_fmt_text, reply_markup=InlineKeyboardMarkup(keyboard))
-    except Exception:
-        try:
-            await update.message.reply_text(f"🎬 Video found\n⏱️ {dur}\n\n{t['ask_format']}\n\n🔗 {url}", reply_markup=InlineKeyboardMarkup(keyboard))
-        except Exception as e2:
-            logger.error(f"format menu send fail: {e2}")
+    keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"fmt_vid_{payload_key}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"fmt_aud_{payload_key}")],[InlineKeyboardButton(t["btn_image"], callback_data=f"fmt_img_{payload_key}")]]
+    await update.message.reply_text(f"🎬 {title}\n⏱️ {dur}\n\n{t['ask_format']}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
     t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
     if is_banned(user_id): await update.message.reply_text(t["banned"]); return
-    # PART 5: mandatory recurring channel check — EVERY handler, EVERY time
-    _passed, _missing = await check_all_required_channels(context.bot, user_id, get_required_channels())
-    if not _passed:
-        await send_join_prompt(context.bot, update.message.chat_id, user_id, _missing)
-        return
-    # PART 9 SAFE RESTORE: never restore settings files — they would wipe channels/limits
-    try:
-        _doc_name = (update.message.document.file_name or "") if update.message.document else ""
-    except Exception:
-        _doc_name = ""
-    if user_id == ADMIN_ID and _doc_name in RESTORE_BLOCKLIST:
-        await update.message.reply_text(
-            f"⏭️ Skipped <b>{_doc_name}</b> — restore never overwrites channel / limit settings (safe restore).",
-            parse_mode="HTML", reply_markup=get_main_keyboard(get_lang(user_id), True))
-        return
     
     support_states = load_json_file(SUPPORT_STATES_FILE)
     if str(user_id) in support_states and support_states[str(user_id)].get("mode") == "user_writing": await handle_user_upload(update, context); return
@@ -5671,8 +3041,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if not urls: await update.message.reply_text(t["no_links"], reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)); return
         payload_key = f"batch_{user_id}_{int(time.time())}"
         pending_batch_payloads[payload_key] = urls
-        # V16: .txt batch had only Video, so image links failed. Add Audio + Images.
-        keyboard = [[InlineKeyboardButton("🎬 Video", callback_data=f"batchtype_video_{payload_key}")],[InlineKeyboardButton("🎵 Audio", callback_data=f"batchtype_audio_{payload_key}")],[InlineKeyboardButton("🖼️ Images", callback_data=f"batchtype_images_{payload_key}")]]
+        keyboard = [[InlineKeyboardButton("🎬 Video", callback_data=f"batchtype_video_{payload_key}")]]
         await update.message.reply_text(t["batch_count"].format(len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     except Exception as e: logger.error(f"File: {e}")
 
@@ -5695,11 +3064,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         except: adsterra_count+=1
     sorted_users = sorted(activity.items(), key=lambda x: x[1].get("total_interactions",0), reverse=True)[:10]
     top_text = ""
-    # PART 7: show User ID + Username + Downloads (fallback "No Username" for old entries)
-    for idx,(uid,info) in enumerate(sorted_users,1):
-        _uname = info.get('username') or 'No Username'
-        _dl = info.get('total_downloads', info.get('total_interactions', 0))
-        top_text += f"{idx}. {uid} | @{_uname} | {_dl} Downloads\n"
+    for idx,(uid,info) in enumerate(sorted_users,1): top_text+=f"{idx}. `{uid}` — {info.get('total_interactions',0)}\n"
     if not top_text: top_text="No activity yet"
     free_mb = shutil.disk_usage(".").free // (1024*1024)
     used_mb = get_downloads_usage_mb()
@@ -5717,15 +3082,11 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
     free_mb = shutil.disk_usage(".").free // (1024*1024)
     cache = load_json_file(CACHE_FILE)
-    await update.message.reply_text(f"🟢 **Status V38 Monetag**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +3\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown", reply_markup=get_main_keyboard(get_lang(update.message.from_user.id), update.message.from_user.id == ADMIN_ID))
+    await update.message.reply_text(f"🟢 **Status V38 Monetag**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +1 realistic\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown", reply_markup=get_main_keyboard(get_lang(update.message.from_user.id), update.message.from_user.id == ADMIN_ID))
 
 async def restore_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_user.id != ADMIN_ID: return
-    # PART 9 SAFE RESTORE: settings files are never listed/restored — only vault/posts/arcade data.
-    # SAFE_RESTORE_KEYS = ["vault_data", "posts_data", "arcade_save"] (conceptual); in this codebase
-    # that means every BACKUP_FILES entry except bot_settings.json / bot_config.json.
-    _restorable = [f for f in BACKUP_FILES if f not in RESTORE_BLOCKLIST]
-    file_list = "\n".join([f"   • <b>{f}</b>" for f in _restorable]) + "\n\n⚠️ <i>bot_settings.json / bot_config.json are never restored (channels + limits are protected).</i>"
+    file_list = "\n".join([f"   • <b>{f}</b>" for f in BACKUP_FILES])
     await update.message.reply_text(f"🔄 <b>Restore Backup Files</b>\n\n1. Go to your private backup channel.\n2. <b>Long-press</b> a backup file, then tap all the others to select them.\n3. Hit <b>Forward</b> and send them all to this bot at once!\n\n<b>Files to restore:</b>\n{file_list}\n\nI will automatically detect and restore each file! ⚡", parse_mode="HTML", reply_markup=get_main_keyboard("en", True))
 
 async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -5733,7 +3094,7 @@ async def toggle_ads_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     config = load_json_file(CONFIG_FILE)
     mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
     keyboard = [[InlineKeyboardButton("🔄 Auto", callback_data="set_ad_auto")],[InlineKeyboardButton("📺 Monetag", callback_data="set_ad_monetag")],[InlineKeyboardButton("🌐 Adsterra", callback_data="set_ad_adsterra")]]
-    await update.message.reply_text(f"Ad Panel: {mode}\nReward: +3", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await update.message.reply_text(f"Ad Panel: {mode}\nReward: +1 optimum", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID: return
@@ -5801,545 +3162,19 @@ async def set_disk_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def set_mtproto_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
-    if not context.args:
-        _ready = MTPROTO["ready"].is_set() if "MTPROTO" in globals() else False
-        _eff = mtproto_limit_mb() if "mtproto_limit_mb" in globals() else 49
-        await update.message.reply_text(f"⚡ **MTProto Config**\nSaved max: **{get_mtproto_max_mb()}MB**\nMTProto ready: **{'✅ Yes' if _ready else '❌ No — capped at 49MB (Bot API)'}**\nEffective limit now: **{_eff}MB**\nAPI_ID set: **{'Yes' if API_ID else 'No'}** | API_HASH set: **{'Yes' if API_HASH else 'No'}**\nTo change: `/setmtproto <value>`", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True)); return
+    if not context.args: await update.message.reply_text("Usage: `/setmtproto <mb>`\nExample: `/setmtproto 1000`", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True)); return
     try:
         value = int(context.args[0])
         if value < 50: await update.message.reply_text("⚠️ Value must be at least 50MB.", reply_markup=get_main_keyboard("en", True)); return
         config = load_json_file(CONFIG_FILE)
         config["mtproto_max_mb"] = value
         save_json_file(CONFIG_FILE, config)
-        _ready2 = MTPROTO["ready"].is_set() if "MTPROTO" in globals() else False
-        _eff2 = mtproto_limit_mb() if "mtproto_limit_mb" in globals() else 49
-        await update.message.reply_text(f"✅ MTProto max upload size set to **{value}MB**\nMTProto ready: **{'✅ Yes' if _ready2 else '❌ No — still capped at 49MB until API_ID/API_HASH are set on Render and bot restarts'}**\nEffective limit now: **{_eff2}MB**", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
+        await update.message.reply_text(f"✅ MTProto max upload size set to **{value}MB**", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
     except ValueError: await update.message.reply_text("❌ Invalid number.", reply_markup=get_main_keyboard("en", True))
 
-# V41: display name + SITE_BLOCKED cooldown
-# V42: universal naming (og:title, no yt-dlp) + Piped fallback for YouTube IP block that lasts hours
-YT_BLOCKED_UNTIL = 0
-LAST_TITLE_BY_URL = {}
-OG_TITLE_CACHE = {}
-def _og_title_for_url(url):
-    """Lightweight HTML og:title - no yt-dlp, so it works even when yt-dlp is blocked. For YouTube/TikTok/IG/FB/X."""
-    try:
-        if url in OG_TITLE_CACHE:
-            return OG_TITLE_CACHE[url]
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"}
-        r = requests.get(url, headers=headers, timeout=10)
-        if r.status_code != 200:
-            return None
-        html = r.text or ""
-        title = ""
-        poster = ""
-        # og:title
-        m = re.search(r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)["\']', html, re.I)
-        if not m:
-            m = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:title["\']', html, re.I)
-        if m: title = m.group(1).strip()
-        if not title:
-            m2 = re.search(r'<title>([^<]+)</title>', html, re.I)
-            if m2: title = m2.group(1).strip()
-        # og:site_name as poster fallback, or twitter:creator
-        m3 = re.search(r'<meta[^>]+property=["\']og:site_name["\'][^>]+content=["\']([^"\']+)["\']', html, re.I)
-        if m3: poster = m3.group(1).strip()
-        # Clean suffixes: "Title - YouTube", "Title | TikTok", "Title • Instagram"
-        for suf in [" - YouTube", " | YouTube", " - TikTok", " | TikTok", " on TikTok", " • Instagram", " | Instagram", " - YouTube Music"]:
-            if title.endswith(suf): title = title[:-len(suf)].strip()
-        if title and title.lower() not in ("youtube", "tiktok", "instagram"):
-            res = {"title": title[:120], "poster": poster}
-            OG_TITLE_CACHE[url] = res
-            return res
-        return None
-    except Exception as e:
-        logger.warning(f"og_title failed for {url}: {e}")
-        return None
-
-def _piped_streams_for_youtube(video_id):
-    """Piped API - a different server fetches from YouTube, so Render IP block doesn't matter. Returns (title, uploader, audioStreams, videoStreams, hls)."""
-    # V47/V48: kavin.rocks + pipedapi-libre.kavin.rocks are DEAD (your log: Max retries exceeded). They were first, so Piped wasted time on dead hosts.
-    # NOTE V48: Even alive Piped hosts may fail for this video - Piped also needs PO token now, YouTube blocks Piped's IPs too.
-    # New order: alive hosts first, dead kavin hosts last as last resort.
-    hosts = ["https://pipedapi.adminforge.de", "https://pipedapi.leptons.xyz", "https://pipedapi.reallyaweso.me", "https://pipedapi.ducks.party", "https://pipedapi.darkness.services", "https://pipedapi.priv.au", "https://api.piped.yt", "https://pipedapi.kavin.rocks", "https://pipedapi-libre.kavin.rocks"]
-    last_err = None
-    for host in hosts:
-        try:
-            r = requests.get(f"{host}/streams/{video_id}", timeout=20, headers={"User-Agent": "Mozilla/5.0"})
-            if r.status_code != 200:
-                last_err = f"{host} HTTP {r.status_code}"
-                continue
-            data = r.json()
-            if data.get("error"):
-                last_err = str(data.get("error"))[:100]
-                continue
-            if data.get("audioStreams") or data.get("videoStreams"):
-                return data
-            last_err = "no streams"
-        except Exception as e:
-            last_err = str(e)[:100]
-            continue
-    raise RuntimeError(f"Piped all hosts failed: {last_err}")
-
-def _piped_download_audio_youtube(url, output_dir, cap_bytes):
-    """Download YouTube audio via Piped direct URL, then ffmpeg -> MP3. Returns path or None."""
-    import subprocess as _sp
-    vid = None
-    try:
-        m = YT_ID_RE.search(url or "")
-        vid = m.group(1) if m else None
-    except Exception: pass
-    if not vid: return None
-    data = _piped_streams_for_youtube(vid)
-    try: LAST_TITLE_BY_URL[url] = {"title": data.get("title"), "poster": data.get("uploader")}
-    except Exception: pass
-    audio_streams = data.get("audioStreams") or []
-    if not audio_streams: return None
-    # Prefer m4a/mp4 audio, highest bitrate
-    def _br(s):
-        try: return int(s.get("bitrate") or 0)
-        except Exception: return 0
-    audio_streams = sorted(audio_streams, key=_br, reverse=True)
-    chosen = audio_streams[0]
-    durl = chosen.get("url")
-    if not durl: return None
-    tmp = os.path.join(output_dir, f"piped_{vid}.{chosen.get('format') or 'm4a'}")
-    # Download direct URL (googlevideo, not youtube.com, so not blocked)
-    with requests.get(durl, headers={"User-Agent": "Mozilla/5.0"}, stream=True, timeout=60) as r:
-        r.raise_for_status()
-        size = 0
-        with open(tmp, "wb") as f:
-            for chunk in r.iter_content(65536):
-                if not chunk: continue
-                size += len(chunk)
-                if size > cap_bytes:
-                    f.close()
-                    try: os.remove(tmp)
-                    except Exception: pass
-                    raise ValueError("FILE_TOO_LARGE")
-                f.write(chunk)
-    if not os.path.exists(tmp) or os.path.getsize(tmp) < 1000:
-        return None
-    mp3 = os.path.join(output_dir, f"piped_{vid}.mp3")
-    # If already mp3, just rename; else ffmpeg convert
-    if tmp.lower().endswith(".mp3"):
-        os.rename(tmp, mp3)
-        return mp3
-    _r = _sp.run([ffmpeg_path, "-y", "-i", tmp, "-vn", "-codec:a", "libmp3lame", "-q:a", "2", mp3], capture_output=True, text=True, timeout=120)
-    try: os.remove(tmp)
-    except Exception: pass
-    if os.path.exists(mp3) and os.path.getsize(mp3) > 1000:
-        return mp3
-    return None
-
-def _download_url_to_file(durl, dest, cap_bytes, timeout=90):
-    """Stream a direct googlevideo/cobalt URL to dest, enforcing cap. Returns dest."""
-    with requests.get(durl, headers={"User-Agent": "Mozilla/5.0"}, stream=True, timeout=timeout) as r:
-        r.raise_for_status()
-        size = 0
-        with open(dest, "wb") as f:
-            for chunk in r.iter_content(65536):
-                if not chunk: continue
-                size += len(chunk)
-                if size > cap_bytes:
-                    f.close()
-                    try: os.remove(dest)
-                    except Exception: pass
-                    raise ValueError("FILE_TOO_LARGE")
-                f.write(chunk)
-    return dest
-
-def _piped_download_video_youtube(url, output_dir, cap_bytes, preferred_quality=None):
-    """YouTube video via Piped: Piped server fetches from YouTube, Render IP not used. Returns (path, quality) or None."""
-    import subprocess as _sp
-    vid = None
-    try:
-        m = YT_ID_RE.search(url or "")
-        vid = m.group(1) if m else None
-    except Exception: pass
-    if not vid: return None
-    data = _piped_streams_for_youtube(vid)
-    try: LAST_TITLE_BY_URL[url] = {"title": data.get("title"), "poster": data.get("uploader")}
-    except Exception: pass
-    # wanted height
-    try:
-        _pq = str(preferred_quality or "720p").lower().replace("p","")
-        want_h = int(_pq) if _pq.isdigit() else 720
-    except Exception: want_h = 720
-    if want_h <= 0 or want_h > 1080: want_h = 720
-    vstreams = data.get("videoStreams") or []
-    astreams = data.get("audioStreams") or []
-    if not vstreams: return None
-    def _h(s):
-        try: return int(s.get("height") or 0)
-        except Exception: return 0
-    # 1) Prefer combined (not videoOnly) <= want_h, highest height, mp4 first
-    combined = [s for s in vstreams if not s.get("videoOnly")]
-    combined = sorted(combined, key=lambda s: (1 if (s.get("mimeType") or "").find("mp4")>=0 else 0, _h(s)), reverse=True)
-    for s in combined:
-        if _h(s) <= want_h and s.get("url"):
-            dest = os.path.join(output_dir, f"piped_{vid}_{_h(s)}p.mp4")
-            _download_url_to_file(s["url"], dest, cap_bytes)
-            if os.path.exists(dest) and os.path.getsize(dest) > 1000:
-                return dest, f"{_h(s)}p"
-    # 2) videoOnly + best audio, merge with ffmpeg
-    vonly = [s for s in vstreams if s.get("videoOnly")]
-    vonly = sorted(vonly, key=lambda s: (1 if (s.get("mimeType") or "").find("mp4")>=0 else 0, _h(s)), reverse=True)
-    chosen_v = None
-    for s in vonly:
-        if _h(s) <= want_h and s.get("url"):
-            chosen_v = s; break
-    if not chosen_v and vonly and vonly[0].get("url"):
-        chosen_v = vonly[0]
-    if not chosen_v: return None
-    # best audio for merge
-    def _br(s):
-        try: return int(s.get("bitrate") or 0)
-        except Exception: return 0
-    astreams = sorted(astreams, key=_br, reverse=True)
-    if not astreams or not astreams[0].get("url"): return None
-    v_tmp = os.path.join(output_dir, f"piped_{vid}_v.{'mp4' if 'mp4' in (chosen_v.get('mimeType') or '') else 'webm'}")
-    a_tmp = os.path.join(output_dir, f"piped_{vid}_a.{'m4a' if 'mp4' in (astreams[0].get('mimeType') or '') else 'webm'}")
-    _download_url_to_file(chosen_v["url"], v_tmp, cap_bytes)
-    _download_url_to_file(astreams[0]["url"], a_tmp, cap_bytes)
-    out = os.path.join(output_dir, f"piped_{vid}_{_h(chosen_v)}p.mp4")
-    _r = _sp.run([ffmpeg_path, "-y", "-i", v_tmp, "-i", a_tmp, "-c:v", "copy", "-c:a", "aac", "-shortest", out], capture_output=True, text=True, timeout=180)
-    for p in (v_tmp, a_tmp):
-        try: os.remove(p)
-        except Exception: pass
-    if os.path.exists(out) and os.path.getsize(out) > 1000:
-        return out, f"{_h(chosen_v)}p"
-    return None
-
-
-def _lemnoslife_download_youtube(url, output_dir, cap_bytes, is_audio=False, preferred_quality=None):
-    """V49 NEW: Lemnoslife YouTube Operational API - https://yt.lemnoslife.com
-    This API has its OWN trusted YouTube session + PO tokens, so it can get streams even when
-    yt-dlp + Piped + Cobalt + Invidious all fail for the same video. It does NOT need our cookies or PO token.
-    Endpoint: GET https://yt.lemnoslife.com/videos?part=snippet,player&id={video_id}
-    Returns items[0].player.streamingData.formats + adaptiveFormats with direct URLs."""
-    try:
-        _m = YT_ID_RE.search(url or "")
-        if not _m:
-            return None
-        vid = _m.group(1)
-        # Try noKey endpoint first (free, no key), then key endpoint
-        for _base in ["https://yt.lemnoslife.com/noKey/videos", "https://yt.lemnoslife.com/videos"]:
-            try:
-                _api = f"{_base}?part=snippet,player&id={vid}"
-                r = requests.get(_api, headers={"Accept": "application/json", "User-Agent": "Mozilla/5.0"}, timeout=30)
-                if r.status_code != 200:
-                    continue
-                try:
-                    data = r.json()
-                except Exception:
-                    continue
-                items = data.get("items") or []
-                if not items:
-                    continue
-                player = items[0].get("player") or {}
-                sd = player.get("streamingData") or {}
-                formats = (sd.get("formats") or []) + (sd.get("adaptiveFormats") or [])
-                if not formats:
-                    continue
-                # Pick best: for audio, highest bitrate audio-only mp4/m4a; for video, mp4 with audio+video (formats) first, then highest adaptive
-                _vq = "720"
-                if preferred_quality:
-                    _q = str(preferred_quality).lower().replace("p", "")
-                    if _q in ("2160","1440","1080","720","480","360","240"):
-                        _vq = _q
-                if is_audio:
-                    # Audio-only: mimeType contains audio, pick highest bitrate
-                    _cands = [f for f in formats if "audio" in str(f.get("mimeType","")).lower()]
-                    if not _cands:
-                        continue
-                    _cands.sort(key=lambda f: int(f.get("bitrate") or 0), reverse=True)
-                    durl = _cands[0].get("url")
-                    if not durl:
-                        continue
-                    tmp = os.path.join(output_dir, f"lemnos_{vid}.mp3")
-                    _download_url_to_file(durl, tmp, cap_bytes)
-                    if os.path.exists(tmp) and os.path.getsize(tmp) > 1000:
-                        return tmp, "audio"
-                    continue
-                else:
-                    # Video: prefer formats with both audio+video (mimeType video/mp4, has audioQuality)
-                    _with_av = [f for f in formats if "video" in str(f.get("mimeType","")).lower() and f.get("audioQuality")]
-                    if _with_av:
-                        # Pick closest to _vq, not higher than _vq if possible
-                        def _score(f):
-                            try:
-                                h = int((f.get("qualityLabel") or "0p").replace("p","").split()[0])
-                            except Exception:
-                                h = 0
-                            return -abs(h - int(_vq))
-                        _with_av.sort(key=_score, reverse=True)
-                        durl = _with_av[0].get("url")
-                        if durl:
-                            tmp = os.path.join(output_dir, f"lemnos_{vid}_{_vq}p.mp4")
-                            _download_url_to_file(durl, tmp, cap_bytes)
-                            if os.path.exists(tmp) and os.path.getsize(tmp) > 1000:
-                                return tmp, f"{_vq}p"
-                    # Fallback: highest adaptive video (may be video-only, but try anyway - yt-dlp would mux, we just return it)
-                    _vonly = [f for f in formats if "video" in str(f.get("mimeType","")).lower()]
-                    if _vonly:
-                        _vonly.sort(key=lambda f: int(f.get("bitrate") or 0), reverse=True)
-                        durl = _vonly[0].get("url")
-                        if durl:
-                            tmp = os.path.join(output_dir, f"lemnos_{vid}_{_vq}p.mp4")
-                            _download_url_to_file(durl, tmp, cap_bytes)
-                            if os.path.exists(tmp) and os.path.getsize(tmp) > 1000:
-                                return tmp, f"{_vq}p"
-            except Exception as _e:
-                logger.warning(f"V49 Lemnoslife {_base} failed for {vid}: {str(_e)[:150]}")
-                continue
-    except Exception as e:
-        logger.warning(f"V49 Lemnoslife failed for {url}: {str(e)[:200]}")
-    return None
-
-def _cobalt_download_youtube(url, output_dir, cap_bytes, is_audio=False, preferred_quality=None):
-    """V47: Cobalt FIX - old code used only https://api.cobalt.tools/ with old payload (vQuality/isAudioOnly).
-    That host now returns 400: {"code":"error.api.auth.jwt.missing"} - it needs an API key (JWT) since Cobalt v10.
-    New: try multiple public Cobalt hosts, try NEW payload format first (downloadMode/videoQuality), then OLD format.
-    If host says jwt.missing, skip it and try next host - don't treat as generic failure.
-    Env COBALT_API_KEY (if you get one from cobalt.tools) is sent as Authorization: Api-Key."""
-    import subprocess as _sp
-    _vq = "720"
-    if preferred_quality:
-        _q = str(preferred_quality).lower().replace("p","")
-        if _q in ("2160","1440","1080","720","480","360","240"): _vq = _q
-    # Hosts: official first, then community instances that do NOT require JWT
-    # V48: timelessnesses.me is DEAD - your log: NameResolutionError (DNS fails). Removed.
-    # api.cobalt.tools/api is duplicate of api.cobalt.tools. Keep only 2 hosts that still resolve.
-    # NOTE: api.cobalt.tools now needs COBALT_API_KEY env (get free key at cobalt.tools -> API). Without key it returns jwt.missing.
-    cobalt_hosts = [
-        "https://api.cobalt.tools",
-        "https://cobalt-api.kavin.rocks",
-    ]
-    _api_key = (os.getenv("COBALT_API_KEY", "") or "").strip()
-    # V50: Cobalt free API is GONE (user confirmed). Without a paid/key, api.cobalt.tools returns jwt.missing and kavin is DNS-dead. Skip fast, don't waste 30s.
-    if not _api_key:
-        logger.warning("V50: Cobalt skipped - no COBALT_API_KEY (free API gone), trying next fallback")
-        return None
-    _headers_base = {"Accept": "application/json", "Content-Type": "application/json"}
-    if _api_key:
-        _headers_base["Authorization"] = f"Api-Key {_api_key}"
-    last_err = None
-    for _host in cobalt_hosts:
-        # Try NEW format first, then OLD format
-        payloads = []
-        if is_audio:
-            payloads.append({"url": url, "downloadMode": "audio", "audioFormat": "mp3", "filenameStyle": "basic"})
-            payloads.append({"url": url, "vQuality": _vq, "filenamePattern": "basic", "isAudioOnly": True, "isNoTTWatermark": True, "isTTFullAudio": True, "aFormat": "mp3"})
-        else:
-            payloads.append({"url": url, "downloadMode": "auto", "videoQuality": _vq, "filenameStyle": "basic"})
-            payloads.append({"url": url, "vQuality": _vq, "filenamePattern": "basic", "isAudioOnly": False, "isNoTTWatermark": True, "isTTFullAudio": True})
-        for _payload in payloads:
-            try:
-                # Cobalt v10 endpoint is POST / (some instances need POST /api/json)
-                _endpoints = [_host, _host.rstrip("/") + "/api/json"] if _host.endswith("cobalt.tools") else [_host]
-                # For kavin/timeless hosts, endpoint is just host root
-                if "kavin" in _host or "timeless" in _host:
-                    _endpoints = [_host]
-                for _ep in _endpoints:
-                    try:
-                        r = requests.post(_ep, json=_payload, headers=_headers_base, timeout=30)
-                    except Exception as _e:
-                        last_err = str(_e)[:150]
-                        continue
-                    if r.status_code != 200:
-                        _txt = (r.text or "")[:250]
-                        # JWT missing = this host needs a key, try next host - not a real video failure
-                        if "jwt.missing" in _txt or "api.auth" in _txt:
-                            last_err = f"{_host} needs API key (jwt.missing)"
-                            break  # break endpoints, try next host
-                        last_err = f"{_host} HTTP {r.status_code}: {_txt}"
-                        continue
-                    try:
-                        data = r.json()
-                    except Exception:
-                        last_err = f"{_host} bad JSON"
-                        continue
-                    if data.get("status") not in ("redirect","stream","picker","tunnel"):
-                        # New API may return status=error with jwt missing
-                        _etxt = str(data.get("error") or data.get("text") or "")[:200]
-                        if "jwt" in _etxt.lower() or "auth" in _etxt.lower():
-                            last_err = f"{_host} needs API key (jwt.missing)"
-                            break
-                        last_err = f"{_host} status {data.get('status')}: {_etxt}"
-                        continue
-                    durl = data.get("url")
-                    if not durl and data.get("picker"):
-                        try: durl = data["picker"][0].get("url")
-                        except Exception: durl = None
-                    if not durl:
-                        last_err = f"{_host} no URL"
-                        continue
-                    vid = ""
-                    try:
-                        _m2 = YT_ID_RE.search(url or "")
-                        vid = _m2.group(1) if _m2 else "cobalt"
-                    except Exception: vid = "cobalt"
-                    if is_audio:
-                        tmp = os.path.join(output_dir, f"cobalt_{vid}.mp3")
-                        _download_url_to_file(durl, tmp, cap_bytes)
-                        if os.path.exists(tmp) and os.path.getsize(tmp) > 1000:
-                            return tmp, "audio"
-                        continue
-                    tmp = os.path.join(output_dir, f"cobalt_{vid}_{_vq}p.mp4")
-                    _download_url_to_file(durl, tmp, cap_bytes)
-                    if os.path.exists(tmp) and os.path.getsize(tmp) > 1000:
-                        return tmp, f"{_vq}p"
-                    continue
-                # If this host said jwt.missing, don't try old payload on same host - go to next host
-                if last_err and "jwt.missing" in str(last_err):
-                    break
-            except ValueError:
-                raise
-            except Exception as e:
-                last_err = str(e)[:150]
-                continue
-    logger.warning(f"Cobalt failed for {url}: {last_err}")
-    return None
-
-def _cookies_status():
-    """Returns (exists, lines, size, has_youtube) for cookies.txt - so Render logs show if GitHub actually delivered it."""
-    try:
-        if not os.path.exists("cookies.txt"): return (False, 0, 0, False)
-        size = os.path.getsize("cookies.txt")
-        with open("cookies.txt", "r", errors="ignore") as f: lines = [l for l in f if l.strip() and not l.strip().startswith("#")]
-        has_yt = any("youtube.com" in l.lower() for l in lines)
-        return (True, len(lines), size, has_yt)
-    except Exception: return (False, 0, 0, False)
-
-def _invidious_download_youtube(url, output_dir, cap_bytes, is_audio=False, preferred_quality=None):
-    """Invidious - 3rd fallback server (if Piped + Cobalt both down). Returns (path, quality) or None."""
-    import subprocess as _sp
-    vid = None
-    try:
-        m = YT_ID_RE.search(url or "")
-        vid = m.group(1) if m else None
-    except Exception: pass
-    if not vid: return None
-    # V47: 0011.lt + privacyredirect are DEAD (your log: Max retries exceeded on 0011.lt). Add alive hosts first, dead last.
-    hosts = ["https://invidious.private.coffee", "https://iv.melmac.space", "https://inv.nadeko.net", "https://invidious.flokinet.to", "https://iv.datura.network", "https://invidious.einfachzocken.eu", "https://inv.us.projectsegfau.lt", "https://invidious.privacyredirect.com", "https://invidious.0011.lt"]
-    last_err = None
-    for host in hosts:
-        try:
-            r = requests.get(f"{host}/api/v1/videos/{vid}", timeout=15, headers={"User-Agent": "Mozilla/5.0"})
-            if r.status_code != 200:
-                last_err = f"{host} HTTP {r.status_code}"; continue
-            data = r.json()
-            if data.get("error"):
-                last_err = str(data.get("error"))[:100]; continue
-            try: LAST_TITLE_BY_URL[url] = {"title": data.get("title"), "poster": data.get("author")}
-            except Exception: pass
-            if is_audio:
-                # adaptiveFormats with audio only
-                cands = [f for f in (data.get("adaptiveFormats") or []) if f.get("type","").startswith("audio/") and f.get("url")]
-                if not cands: continue
-                cands = sorted(cands, key=lambda f: int(f.get("bitrate") or 0), reverse=True)
-                durl = cands[0]["url"]
-                tmp = os.path.join(output_dir, f"inv_{vid}.m4a")
-                _download_url_to_file(durl, tmp, cap_bytes)
-                mp3 = os.path.join(output_dir, f"inv_{vid}.mp3")
-                _r = _sp.run([ffmpeg_path, "-y", "-i", tmp, "-vn", "-codec:a", "libmp3lame", "-q:a", "2", mp3], capture_output=True, text=True, timeout=120)
-                try: os.remove(tmp)
-                except Exception: pass
-                if os.path.exists(mp3) and os.path.getsize(mp3) > 1000: return mp3, "audio"
-                continue
-            else:
-                try:
-                    _pq = str(preferred_quality or "720p").lower().replace("p","")
-                    want_h = int(_pq) if _pq.isdigit() else 720
-                except Exception: want_h = 720
-                # formatStreams are combined (video+audio) - easiest
-                combined = [f for f in (data.get("formatStreams") or []) if f.get("url")]
-                # formatStreams have itag, need height: use adaptiveFormats video+audio? Invidious formatStreams lack height, so pick by itag: 22=720p, 18=360p
-                # Prefer itag 22 (720p mp4) then 18 (360p)
-                for want_itag in (22, 18):
-                    for f in combined:
-                        if str(f.get("itag")) == str(want_itag) and f.get("url"):
-                            dest = os.path.join(output_dir, f"inv_{vid}_{'720p' if want_itag==22 else '360p'}.mp4")
-                            _download_url_to_file(f["url"], dest, cap_bytes)
-                            if os.path.exists(dest) and os.path.getsize(dest) > 1000: return dest, ('720p' if want_itag==22 else '360p')
-                # adaptive video + audio merge
-                v_cands = [f for f in (data.get("adaptiveFormats") or []) if f.get("type","").startswith("video/") and f.get("url")]
-                a_cands = [f for f in (data.get("adaptiveFormats") or []) if f.get("type","").startswith("audio/") and f.get("url")]
-                if v_cands and a_cands:
-                    v_cands = sorted(v_cands, key=lambda f: int(f.get("bitrate") or 0), reverse=True)
-                    a_cands = sorted(a_cands, key=lambda f: int(f.get("bitrate") or 0), reverse=True)
-                    v_tmp = os.path.join(output_dir, f"inv_{vid}_v.mp4")
-                    a_tmp = os.path.join(output_dir, f"inv_{vid}_a.m4a")
-                    _download_url_to_file(v_cands[0]["url"], v_tmp, cap_bytes)
-                    _download_url_to_file(a_cands[0]["url"], a_tmp, cap_bytes)
-                    out = os.path.join(output_dir, f"inv_{vid}_{want_h}p.mp4")
-                    _r = _sp.run([ffmpeg_path, "-y", "-i", v_tmp, "-i", a_tmp, "-c:v", "copy", "-c:a", "aac", "-shortest", out], capture_output=True, text=True, timeout=180)
-                    for p in (v_tmp, a_tmp):
-                        try: os.remove(p)
-                        except Exception: pass
-                    if os.path.exists(out) and os.path.getsize(out) > 1000: return out, f"{want_h}p"
-                last_err = "no usable streams"
-        except Exception as e:
-            last_err = str(e)[:100]; continue
-    logger.warning(f"Invidious all hosts failed for {url}: {last_err}")
-    return None
-
-def _clean_filename_part(s):
-    try:
-        s = str(s or "").strip().replace("\n", " ").replace("\r", " ")
-        for ch in ['/', '\\', ':', '*', '?', '"', '<', '>', '|', '`']:
-            s = s.replace(ch, " ")
-        s = " ".join(s.split())
-        return s[:80] if s else ""
-    except Exception:
-        return ""
-def _display_name_for(meta, url, ckey, cache_dict=None):
-    """Returns 'Artist - Title' or 'Title' or ckey. Never just ckey if we know the title."""
-    title = ""
-    poster = ""
-    try:
-        if isinstance(meta, dict):
-            title = _clean_filename_part(meta.get("title") or "")
-            poster = _clean_filename_part(meta.get("poster") or meta.get("uploader") or meta.get("channel") or "")
-    except Exception: pass
-    if not title and isinstance(cache_dict, dict):
-        try:
-            c = cache_dict.get(ckey) or {}
-            title = _clean_filename_part(c.get("title") or "")
-            poster = _clean_filename_part(c.get("poster") or "") or poster
-        except Exception: pass
-    if not title:
-        try:
-            lt = LAST_TITLE_BY_URL.get(url) or {}
-            title = _clean_filename_part(lt.get("title") or "")
-            poster = _clean_filename_part(lt.get("poster") or "") or poster
-        except Exception: pass
-    if not title:
-        try:
-            og = OG_TITLE_CACHE.get(url) or {}
-            title = _clean_filename_part(og.get("title") or "")
-            # og poster is site name (YouTube/TikTok), not creator - don't use it as Artist
-        except Exception: pass
-    if title and poster and poster.lower() not in title.lower():
-        return f"{poster} - {title}"
-    if title:
-        return title
-    return ckey
-
-async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credit_cost=1, preferred_quality=None, meta=None):
+async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t):
     cache = load_json_file(CACHE_FILE)
     ckey = await get_canonical_key(url, chat_id, bot)
-    # V42 universal naming: if we don't have a title yet (TikTok/IG/carousel/images), fetch og:title via plain HTTP (not yt-dlp, so not blocked)
-    try:
-        _pre_cache = load_json_file(CACHE_FILE)
-        _pre_disp = _display_name_for(meta, url, ckey, _pre_cache)
-        if _pre_disp == ckey and url not in OG_TITLE_CACHE:
-            try:
-                _og = await asyncio.wait_for(asyncio.to_thread(_og_title_for_url, url), timeout=8)
-                if _og: OG_TITLE_CACHE[url] = _og
-            except Exception: pass
-    except Exception: pass
     
     if ckey in cache and "file_id" in cache[ckey] and "qualities" not in cache[ckey]:
         cache[ckey]["qualities"] = {"720p": {"file_id": cache[ckey]["file_id"], "vault_msg_id": cache[ckey].get("vault_msg_id"), "size": cache[ckey].get("size", "unknown")}}
@@ -6355,27 +3190,15 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
             asyncio.create_task(schedule_deletion(bot, chat_id, ids + [warn.message_id], 540))
             cache[ckey]["hits"] = cache[ckey].get("hits", 0) + 1
             save_json_file(CACHE_FILE, cache)
-            deduct_credits(user_id, credit_cost, is_batch=False)
-            await send_meta_after(bot, chat_id, url, meta, user_id=user_id)
+            deduct_download_counter(user_id, is_batch=False)
             return True
         except Exception as e:
             logger.error(f"Carousel cache hit failed {ckey}: {e}")  # falls through to re-download
     # =================================================
 
-    _pref = str(preferred_quality or PREF_QUALITY.pop(user_id, None) or "").lower() if dl_type == 'video' else ""
-    if _pref == "auto": _pref = ""
     if ckey in cache and cache[ckey].get("type") in ("video", "images", "audio"):
         cached_qualities = cache[ckey].get("qualities", {})
-        if dl_type == 'video' and _pref:
-            _pref_q = f"{_pref}p" if not _pref.endswith("p") else _pref
-            _want_h = _quality_height(_pref_q)
-            # DIRECTIONAL: only cached qualities >= wanted count. Lower cached (360 when want 1080) is ignored -> fresh download of 1080.
-            # Higher cached (1080 when want 720) is used -> instant upgrade.
-            qualities_order = [q for q in ["1080p", "720p", "480p", "360p", "240p", "worst"] if _quality_height(q) >= _want_h]
-            if _pref_q in qualities_order:
-                qualities_order.remove(_pref_q)
-                qualities_order.insert(0, _pref_q)
-        elif dl_type == 'video': qualities_order = ["1080p", "720p", "480p", "360p", "240p", "worst"]
+        if dl_type == 'video': qualities_order = ["1080p", "720p", "480p", "360p", "worst"]
         elif dl_type == 'audio': qualities_order = ["audio"]
         else: qualities_order = ["original"]
             
@@ -6394,9 +3217,9 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
                     qual_tag = f"[{best_cached_quality}]"
                     kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
                     if dl_type == 'video': 
-                        sent = await bot.send_video(chat_id=chat_id, video=file_id, caption=f"⚡ Cached Instant {qual_tag} | 🎬 {_display_name_for(meta, url, ckey, cache)} | Size {sz} `{ckey}`", reply_markup=kb)
+                        sent = await bot.send_video(chat_id=chat_id, video=file_id, caption=t["cached_instant_video"].format(qual_tag, sz, ckey), reply_markup=kb)
                     elif dl_type == 'audio': 
-                        sent = await bot.send_audio(chat_id=chat_id, audio=file_id, caption=f"⚡ Cached Instant | 🎵 {_display_name_for(meta, url, ckey, cache)} | `{ckey}`", reply_markup=kb)
+                        sent = await bot.send_audio(chat_id=chat_id, audio=file_id, caption=t["cached_instant_audio"].format(ckey), reply_markup=kb)
                     else: 
                         sent = await bot.send_photo(chat_id=chat_id, photo=file_id, caption=t["cached_instant_image"].format(ckey), reply_markup=kb)
                     
@@ -6404,8 +3227,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
                     asyncio.create_task(schedule_deletion(bot, chat_id, [sent.message_id, warn.message_id], 540))
                     cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
                     save_json_file(CACHE_FILE, cache)
-                    deduct_credits(user_id, credit_cost, is_batch=False)
-                    await send_meta_after(bot, chat_id, url, meta, user_id=user_id)
+                    deduct_download_counter(user_id, is_batch=False)
                     return True
             except Exception as e:
                 logger.error(f"Cache send fail {ckey} {best_cached_quality}: {e}")
@@ -6418,8 +3240,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
                         asyncio.create_task(schedule_deletion(bot, chat_id, [fwd.message_id, warn.message_id], 540))
                         cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
                         save_json_file(CACHE_FILE, cache)
-                        deduct_credits(user_id, credit_cost, is_batch=False)
-                        await send_meta_after(bot, chat_id, url, meta, user_id=user_id)
+                        deduct_download_counter(user_id, is_batch=False)
                         return True
                 except Exception as e2:
                     logger.error(f"Vault fallback fail: {e2}")
@@ -6428,9 +3249,6 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
                         save_json_file(CACHE_FILE, cache)
 
     status_msg = await bot.send_message(chat_id=chat_id, text=t["fetching"].format(dl_type) + f"\n`{ckey}`", parse_mode="Markdown")
-    # PART 1: start progress poller (edits status_msg with clean text / admin debug)
-    _progress_key = f"{user_id}_{int(time.time()*1000)}"
-    _progress_task = asyncio.create_task(_poll_progress(bot, chat_id, status_msg, _progress_key, user_id))
     try:
         free_mb = shutil.disk_usage(".").free // (1024*1024)
         min_free = get_min_free_disk_mb()
@@ -6439,7 +3257,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
             
         LAST_CAROUSEL_TRACE.clear()
         file_paths, res, size = await asyncio.wait_for(
-            asyncio.to_thread(download_media_engine, url, dl_type, effective_max_mb, user_id, _progress_key, _pref if dl_type == 'video' else None), timeout=420)
+            asyncio.to_thread(download_media_engine, url, dl_type, effective_max_mb), timeout=420)
         if user_id == ADMIN_ID and LAST_CAROUSEL_TRACE:
             try:
                 await bot.send_message(chat_id=chat_id, text="🧪 Carousel trace:\n" + "\n".join(LAST_CAROUSEL_TRACE)[:3500])
@@ -6463,12 +3281,9 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
                 asyncio.create_task(schedule_deletion(bot, chat_id, [r["message_id"] for r in results] + [warn.message_id], 540))
             finally:
                 shutil.rmtree(os.path.dirname(file_paths[0]), ignore_errors=True)
-            _progress_task.cancel()
-            _PROGRESS_STATE.pop(_progress_key, None)
             await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
-            deduct_credits(user_id, credit_cost, is_batch=False)
+            deduct_download_counter(user_id, is_batch=False)
             await bot.send_message(chat_id=chat_id, text=t["download_success"], reply_markup=kb)
-            await send_meta_after(bot, chat_id, url, meta, user_id=user_id)
             return True
         # =============================================
 
@@ -6483,61 +3298,34 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
             except: cache[ckey]["qualities"]["original"] = {"file_id": sent_media[0].photo[-1].file_id, "size": size}
             for p in file_paths: os.remove(p)
         elif dl_type == 'audio':
-            _disp = _display_name_for(meta, url, ckey, cache)
-            try:
-                _rn = os.path.join(os.path.dirname(file_paths[0]), _clean_filename_part(_disp) + ".mp3") if _disp and _disp != ckey else file_paths[0]
-                if _rn != file_paths[0] and _clean_filename_part(_disp):
-                    os.rename(file_paths[0], _rn); file_paths[0] = _rn
-            except Exception: pass
-            sent_media = await send_audio_file(bot, chat_id, file_paths[0], f"🎵 {_disp} | MP3 192kbps | Size {size} `{ckey}`", "Markdown", status_msg)
+            sent_media = await send_audio_file(bot, chat_id, file_paths[0], f"🎵 Size {size} `{ckey}`", "Markdown", status_msg)
             warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
             asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
             try:
-                vmsg = await bot.send_audio(chat_id=VIDEO_VAULT_ID, audio=sent_media.audio.file_id, caption=f"{_display_name_for(meta, url, ckey, cache)} | {ckey}")
+                vmsg = await bot.send_audio(chat_id=VIDEO_VAULT_ID, audio=sent_media.audio.file_id, caption=ckey)
                 cache[ckey]["qualities"]["audio"] = {"file_id": sent_media.audio.file_id, "vault_msg_id": vmsg.message_id, "size": size}
             except: cache[ckey]["qualities"]["audio"] = {"file_id": sent_media.audio.file_id, "size": size}
             os.remove(file_paths[0])
         else:
-            _disp = _display_name_for(meta, url, ckey, cache)
-            try:
-                _rn = os.path.join(os.path.dirname(file_paths[0]), f"{_clean_filename_part(_disp)} {qual_tag}.mp4") if _disp and _disp != ckey and _clean_filename_part(_disp) else file_paths[0]
-                if _rn != file_paths[0]:
-                    os.rename(file_paths[0], _rn); file_paths[0] = _rn
-            except Exception: pass
-            sent_media = await send_video_file(bot, chat_id, chat_id, file_paths[0], f"🎬 {_disp} | ✨ {qual_tag} | Size {size} `{ckey}`", "Markdown", status_msg)
+            sent_media = await send_video_file(bot, chat_id, chat_id, file_paths[0], f"✨ {qual_tag} Size {size} `{ckey}`", "Markdown", status_msg)
             warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
             asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
             try:
-                vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent_media.video.file_id, caption=f"{_display_name_for(meta, url, ckey, cache)} [{res}] | {ckey}")
+                vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent_media.video.file_id, caption=f"{ckey} [{res}]")
                 cache[ckey]["qualities"][res] = {"file_id": sent_media.video.file_id, "vault_msg_id": vmsg.message_id, "size": size}
             except Exception as e: 
                 logger.error(f"Vault save fail: {e}")
                 cache[ckey]["qualities"][res] = {"file_id": sent_media.video.file_id, "size": size}
             os.remove(file_paths[0])
             
-        try:
-            _t = _display_name_for(meta, url, ckey, cache)
-            if _t and _t != ckey:
-                cache[ckey]["title"] = _t
-                _lt = LAST_TITLE_BY_URL.get(url) or {}
-                if _lt.get("poster"): cache[ckey]["poster"] = _clean_filename_part(_lt.get("poster"))
-        except Exception: pass
         cache[ckey]["hits"] = cache[ckey].get("hits", 0) + 1
         save_json_file(CACHE_FILE, cache)
-        _progress_task.cancel()
-        _PROGRESS_STATE.pop(_progress_key, None)
         await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
-        deduct_credits(user_id, credit_cost, is_batch=False)
+        deduct_download_counter(user_id, is_batch=False)
         
         await bot.send_message(chat_id=chat_id, text=t["download_success"], reply_markup=kb)
-        await send_meta_after(bot, chat_id, url, meta, user_id=user_id)
         return True
     except Exception as e:
-        try:
-            _progress_task.cancel()
-            _PROGRESS_STATE.pop(_progress_key, None)
-        except Exception:
-            pass
         logger.error(f"DL {ckey}: {e}")
         if user_id == ADMIN_ID:
             trace_txt = ("\nTrace:\n" + "\n".join(LAST_CAROUSEL_TRACE)[:1200]) if LAST_CAROUSEL_TRACE else ""
@@ -6545,284 +3333,28 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
                 await bot.send_message(chat_id=chat_id, text=(
                     f"🧪 DL error: {type(e).__name__}: {str(e)[:500]}\n"
                     f"MTProto: ready={MTPROTO['ready'].is_set()} api_id={bool(API_ID)} api_hash={bool(API_HASH)}"
-                    f"{trace_txt}"), parse_mode=None)
+                    f"{trace_txt}"))
             except Exception: pass
         if "FILE_TOO_LARGE" in str(e): err = t["error_50mb"]
         elif "MTPROTO_OFF" in str(e): err = "⚠️ Big files need fast mode, which is offline right now."
         elif "MTPROTO_PEER" in str(e): err = "⚠️ Send /start to this bot once, then send the link again."
-        elif "SITE_BLOCKED" in str(e): err = "⏳ YouTube blocked this video even via WARP + web_embedded + fresh cookies (Render datacenter IP flagged). Try again in 10 mins or try a different video. Credit NOT taken."
+        elif "SITE_BLOCKED" in str(e): err = "⚠️ This site is blocking downloads from our server right now. Please try again later."
         elif isinstance(e, (asyncio.TimeoutError, TimeoutError)): err = "⚠️ This is taking too long, so I stopped. Please try again later."
         else: err = t["error_generic"]
         kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
-        # V16: edit_message_text cannot carry a ReplyKeyboard (only Inline). Edit text only, then send a new msg with kb so grid re-appears.
-        try: await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=err)
-        except: pass
-        try: await bot.send_message(chat_id=chat_id, text="\U0001F447 Send another link \U0001F517", reply_markup=kb)
+        try: await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=err, reply_markup=kb)
         except: pass
         return False
-
-
-async def _resume_pending_link_to_format_menu(bot, chat_id, user_id, retry_url, t):
-    """V11: After refill, show Video/Audio/Images + quality picker instead of auto-downloading.
-    Same menu as a fresh link send. Never calls cached_download_and_send directly."""
-    meta = None
-    try:
-        meta = await asyncio.to_thread(get_social_metadata, retry_url)
-    except Exception:
-        meta = None
-    if meta:
-        title = meta.get("title", "N/A")
-        _d = int(meta.get("duration_sec") or 0)
-        dur = f"{_d // 60}m {_d % 60:02d}s" if _d else "N/A"
-    else:
-        try:
-            title, dur = fetch_url_metadata(retry_url)
-        except Exception:
-            title, dur = "N/A", "N/A"
-    _credit_cost = 1
-    if meta:
-        try:
-            _plat_key = detect_platform_key(retry_url, meta.get("platform", ""))
-            _plat_limits = get_platform_limits(_plat_key)
-            _credit_cost, _time_ok, _size_ok = calculate_cost_and_limits(meta, _plat_limits)
-            if user_id != ADMIN_ID and (not _time_ok or not _size_ok):
-                _why = []
-                if not _time_ok:
-                    _why.append(f"⏱️ Duration {float(meta.get('duration_sec') or 0)/60:.1f} min exceeds {_plat_limits['min']} min limit for {_plat_key}")
-                if not _size_ok:
-                    _why.append(f"📦 Est. size {float(meta.get('est_size_mb') or 0):.1f} MB exceeds {_plat_limits['mb']} MB limit for {_plat_key}")
-                await bot.send_message(chat_id=chat_id, text="❌ Cannot download this link:\n" + "\n".join(_why))
-                return True
-        except Exception:
-            _credit_cost = 1
-    payload_key = f"single_{user_id}_{int(time.time()*1000)}"
-    pending_single_links[payload_key] = retry_url
-    PENDING_META[payload_key] = meta
-    PENDING_CREDIT_COST[payload_key] = _credit_cost
-    _save_pending_file()
-    _fmt_suffix = payload_key
-    try:
-        _yid_fmt = youtube_id_from_url(retry_url) or ""
-        if _yid_fmt:
-            _fmt_suffix = f"yt_{_yid_fmt}"
-    except Exception:
-        pass
-    keyboard = [[InlineKeyboardButton(t["btn_video"], callback_data=f"fmt_vid_{_fmt_suffix}")],[InlineKeyboardButton(t["btn_audio"], callback_data=f"fmt_aud_{_fmt_suffix}")],[InlineKeyboardButton(t["btn_image"], callback_data=f"fmt_img_{_fmt_suffix}")]]
-    _cost_line = f"\n💳 Cost: {_credit_cost} credit{'s' if _credit_cost != 1 else ''}" if _credit_cost > 1 else ""
-    _fmt_text = f"✅ Refilled! Your link is ready:\n\n🎬 {title}\n⏱️ {dur}{_cost_line}\n\n{t['ask_format']}\n\n🔗 {retry_url}"
-    try:
-        await bot.send_message(chat_id=chat_id, text=_fmt_text, reply_markup=InlineKeyboardMarkup(keyboard))
-    except Exception:
-        try:
-            await bot.send_message(chat_id=chat_id, text=f"✅ Refilled!\n\n🎬 Video found\n⏱️ {dur}\n\n{t['ask_format']}\n\n🔗 {retry_url}", reply_markup=InlineKeyboardMarkup(keyboard))
-        except Exception as e2:
-            logger.error(f"resume format menu fail: {e2}")
-    return True
 
 async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     user_id = query.from_user.id
     t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
     if is_banned(user_id): await query.answer(t["banned"], show_alert=True); return
-    track_user_activity(user_id, query.from_user.username if query.from_user else None)
+    track_user_activity(user_id)
     data = query.data
     chat_id = query.message.chat_id
     lang = get_lang(user_id)
-    if data == "batch_forward_hint":
-        await query.answer("Forward any message from your channel to this chat", show_alert=True)
-        return
-    # PART 6: cancel batch-channel setup — always allowed, even without channel membership
-    if data == "cancel_batch_channel":
-        USER_PENDING_BATCH_CHANNEL[user_id] = False
-        _ls = load_linking_states(); _ls.pop(str(user_id), None); save_linking_states(_ls)
-        await query.answer("Cancelled", show_alert=False)
-        try: await query.message.edit_text("✅ Batch channel setup cancelled", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-        except Exception: pass
-        return
-    if data == "check_joined":
-        _p2, _m2 = await check_all_required_channels(context.bot, user_id, get_required_channels())
-        if _p2:
-            await query.answer("✅ All joined! Send your link again.", show_alert=True)
-            try: await query.message.edit_text("✅ All joined! You can use the bot now. Send your link again.")
-            except Exception: pass
-        else:
-            await query.answer("❌ Still missing a channel — tap Join above, then try again.", show_alert=True)
-            try: await send_join_prompt(context.bot, chat_id, user_id, _m2)
-            except Exception: pass
-        return
-    # ===== V36 MUSIC SEARCH callbacks =====
-    if data == "music_cancel":
-        MUSIC_SEARCHING.pop(user_id, None)
-        MUSIC_WAITING.pop(user_id, None)
-        MUSIC_RESULTS.pop(user_id, None)
-        MUSIC_RETRY.pop(user_id, None)
-        await query.answer("Cancelled")
-        try: await query.message.edit_text("✅ Music search cancelled.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-        except Exception:
-            try: await context.bot.send_message(chat_id=chat_id, text="✅ Music search cancelled.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            except Exception: pass
-        return
-    if data == "music_new":
-        if MUSIC_SEARCHING.get(user_id):
-            await query.answer("Still searching... wait a few seconds", show_alert=True)
-            return
-        MUSIC_WAITING[user_id] = True
-        MUSIC_RESULTS.pop(user_id, None)
-        await query.answer("Send song name")
-        try: await query.message.reply_text("🎵 **Music Search**\n\nSend song name.\nExample: Rema - Calm Down\n\nSearch is free. Download is 1 credit.", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="music_cancel")]]))
-        except Exception: pass
-        return
-    if data.startswith("music_more_"):
-        try: _off = int(data[len("music_more_"):])
-        except Exception: _off = 5
-        _prev = MUSIC_RESULTS.get(user_id) or {}
-        _q = _prev.get("query", "")
-        if not _q:
-            await query.answer("Search expired - start a new search.", show_alert=True)
-            return
-        await query.answer("Loading more...")
-        try: await send_music_results(context.bot, chat_id, user_id, _q, _off, t)
-        except Exception as _e: logger.warning(f"music_more failed: {_e}")
-        return
-    if data.startswith("music_dl_"):
-        _vid = data[len("music_dl_"):].strip()
-        if not _vid or len(_vid) > 20:
-            await query.answer("Invalid song.", show_alert=True); return
-        # Channel check like every other handler
-        _passed, _missing = await check_all_required_channels(context.bot, user_id, get_required_channels())
-        if not _passed:
-            await query.answer("Join channel first.", show_alert=True)
-            try: await send_join_prompt(context.bot, chat_id, user_id, _missing)
-            except Exception: pass
-            return
-        await query.answer("Checking credits...")
-        # Credit check - 1 credit for music download
-        if user_id != ADMIN_ID:
-            _left = _music_get_downloads_left(user_id)
-            if _left <= 0:
-                MUSIC_RETRY[user_id] = _vid
-                AD_KIND_BY_USER[user_id] = "single"
-                _assigned = get_global_ab_network(user_id)
-                if _assigned == "monetag":
-                    _kb = adsgram_keyboard(user_id, "wall", 0, 0)
-                    if _kb: await query.message.reply_text(t["limit_reached"], reply_markup=_kb, parse_mode="Markdown")
-                    else: await query.message.reply_text("⚠️ Ad server busy, try again in a moment.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-                    return
-                else:
-                    try:
-                        await context.bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-                        await asyncio.sleep(0.2)
-                    except Exception: pass
-                    _bridge = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
-                    _rw = get_reward_amount()
-                    _kb2 = InlineKeyboardMarkup([[InlineKeyboardButton(f"🔓 Open Link & Watch Timer ⏰ 20s +{_rw}", url=_bridge)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(f"💜 Check & Get Files ✅ +{_rw}", callback_data="verify_user")]])
-                    await query.message.reply_text(t["limit_reached"] + ADSTERRA_USER_GUIDE, reply_markup=_kb2, parse_mode="Markdown")
-                    return
-        try: await query.message.reply_text("📥 Downloading your song... MP3 192kbps")
-        except Exception: pass
-        try:
-            await _music_download_song(context.bot, chat_id, user_id, _vid, t)
-        except Exception as _e:
-            logger.warning(f"music_dl failed {_vid}: {_e}")
-            try: await context.bot.send_message(chat_id=chat_id, text="❌ Failed. Try another song.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-            except Exception: pass
-        return
-    # ===== END V36 MUSIC SEARCH callbacks =====
-    if data in ("admin_reqch", "admin_limits") and user_id == ADMIN_ID:
-        _txt, _kb = build_reqch_panel() if data == "admin_reqch" else build_limits_panel()
-        await query.answer()
-        try: await query.message.reply_text(_txt, reply_markup=_kb, parse_mode="HTML")
-        except Exception: pass
-        return
-    if data.startswith("reqch_") and user_id == ADMIN_ID:
-        if data == "reqch_add":
-            _ls = load_linking_states(); _ls[str(user_id)] = "waiting_for_required_channel"; save_linking_states(_ls)
-            await query.answer("Send / forward the channel")
-            try: await query.message.reply_text("📩 Forward any message from the required channel, or send its @username / -100... ID.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="reqch_cancel")]]))
-            except Exception: pass
-            return
-        if data == "reqch_cancel":
-            _ls = load_linking_states(); _ls.pop(str(user_id), None); save_linking_states(_ls)
-            await query.answer("Cancelled")
-            try: await query.message.edit_text("✅ Cancelled adding required channel.")
-            except Exception: pass
-            return
-        if data == "reqch_done":
-            await query.answer("Done")
-            try: await query.message.edit_text("✅ Required channels saved.")
-            except Exception: pass
-            return
-        if data == "reqch_remove_list":
-            _chs = get_required_channels()
-            if not _chs:
-                await query.answer("No required channels yet", show_alert=True); return
-            _rows = [[InlineKeyboardButton(f"❌ {c}", callback_data=f"reqch_remove_{c}")] for c in _chs]
-            _rows.append([InlineKeyboardButton("⬅ Back", callback_data="reqch_back")])
-            await query.answer("Pick one to remove")
-            try: await query.message.edit_text("➖ Tap a channel to remove it:", reply_markup=InlineKeyboardMarkup(_rows))
-            except Exception: pass
-            return
-        if data == "reqch_back":
-            _txt, _kb = build_reqch_panel()
-            try: await query.message.edit_text(_txt, reply_markup=_kb, parse_mode="HTML")
-            except Exception: pass
-            await query.answer()
-            return
-        if data.startswith("reqch_remove_"):
-            _rem = data[len("reqch_remove_"):]
-            _chs = get_required_channels()
-            if _rem in _chs:
-                _chs.remove(_rem); save_bot_settings(new_channels=_chs)
-            _txt, _kb = build_reqch_panel()
-            await query.answer(f"Removed {_rem}")
-            try: await query.message.edit_text(f"✅ Removed {_rem}\n\n" + _txt, reply_markup=_kb, parse_mode="HTML")
-            except Exception: pass
-            return
-        return
-    if data.startswith("limit_") and user_id == ADMIN_ID:
-        if data == "limit_done":
-            await query.answer("Done")
-            try: await query.message.edit_text("✅ Download limits saved.")
-            except Exception: pass
-            return
-        if data.startswith("limit_plat_"):
-            _plat = data[len("limit_plat_"):]
-            _kb = InlineKeyboardMarkup([
-                [InlineKeyboardButton("10 min / 200 MB", callback_data=f"limit_set_{_plat}_10_200")],
-                [InlineKeyboardButton("15 min / 300 MB", callback_data=f"limit_set_{_plat}_15_300")],
-                [InlineKeyboardButton("5 min / 100 MB", callback_data=f"limit_set_{_plat}_5_100")],
-                [InlineKeyboardButton("30 min / 500 MB", callback_data=f"limit_set_{_plat}_30_500")],
-                [InlineKeyboardButton("⬅ Back", callback_data="limit_back")],
-            ])
-            await query.answer(f"{_plat} presets")
-            try: await query.message.edit_text(f"📊 <b>{_plat}</b> — pick a preset:", reply_markup=_kb, parse_mode="HTML")
-            except Exception: pass
-            return
-        if data == "limit_back":
-            _txt, _kb = build_limits_panel()
-            try: await query.message.edit_text(_txt, reply_markup=_kb, parse_mode="HTML")
-            except Exception: pass
-            await query.answer()
-            return
-        if data.startswith("limit_set_"):
-            _parts = data[len("limit_set_"):].split("_")
-            _plat, _mn, _mb = _parts[0], int(_parts[1]), int(_parts[2])
-            _limits = dict(load_bot_settings().get("platform_limits") or {})
-            _limits[_plat] = {"min": _mn, "mb": _mb}
-            save_bot_settings(new_limits=_limits)
-            _txt, _kb = build_limits_panel()
-            await query.answer(f"{_plat}: {_mn} min / {_mb} MB")
-            try: await query.message.edit_text(f"✅ {_plat}: {_mn} min / {_mb} MB\n\n" + _txt, reply_markup=_kb, parse_mode="HTML")
-            except Exception: pass
-            return
-        return
-    # PART 5: mandatory recurring channel check — EVERY handler, EVERY time
-    _passed, _missing = await check_all_required_channels(context.bot, user_id, get_required_channels())
-    if not _passed:
-        await query.answer("Join required channels first", show_alert=True)
-        try: await send_join_prompt(context.bot, chat_id, user_id, _missing)
-        except Exception: pass
-        return
     
     if data.startswith("fl_"):
         states = load_json_file(FILE_LINK_STATE_FILE)
@@ -6873,21 +3405,14 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             items = state.get("items", [])
             if not items: await query.answer("Send at least one file first", show_alert=True); return
             if user_id != ADMIN_ID:
+                tokens = load_tokens(); profile = tokens.get(str(user_id))
+                if not isinstance(profile, dict): profile = {"user_id": int(user_id), "downloads_left": get_free_amount(), "batch_downloads_left": get_free_amount()*5, "last_reset": time.time()}
                 try:
-                    credit_response = requests.post(
-                        f"{WEB_BASE_URL}/check-download",
-                        json={"user_id": user_id, "is_batch": False},
-                        headers=API_HEADERS,
-                        timeout=8,
-                    )
-                    if credit_response.status_code != 200:
-                        raise RuntimeError(f"credit API HTTP {credit_response.status_code}")
-                    credit_data = credit_response.json()
-                except Exception as e:
-                    logger.warning("File-to-Link credit check failed for %s: %s", user_id, e)
-                    await query.answer(t["fl_ad_busy"], show_alert=True)
-                    return
-                if credit_data.get("status") != "allowed":
+                    last_reset = float(profile.get("last_reset", 0) or 0)
+                    if time.time() - last_reset >= 86400: profile["downloads_left"] = get_free_amount(); profile["batch_downloads_left"] = get_free_amount()*5; profile["last_reset"] = time.time()
+                except: pass
+                remaining = int(profile.get("downloads_left", get_free_amount()) or 0)
+                if remaining <= 0:
                     await query.answer(t["fl_daily_limit"], show_alert=True)
                     assigned_network = get_global_ab_network(user_id)
                     if assigned_network == "monetag":
@@ -6899,6 +3424,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                         reward_kb = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get +1", callback_data="verify_user")]]
                         await query.message.reply_text(t["limit_reached"] + ADSTERRA_USER_GUIDE, reply_markup=InlineKeyboardMarkup(reward_kb), parse_mode="Markdown")
                     return
+                profile["downloads_left"] = remaining - 1
+                tokens[str(user_id)] = profile; save_tokens(tokens)
             token = hashlib.sha256(f"{user_id}:{time.time_ns()}".encode()).hexdigest()[:12]
             expiry_setting = settings.get("expiry", "never")
             expires_at = None if expiry_setting == "never" else time.time() + int(expiry_setting)
@@ -6915,6 +3442,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
         await query.answer(); return
     if data == "admin_skip_ad" and user_id == ADMIN_ID:
+        tokens = load_tokens()
+        if str(user_id) in tokens: del tokens[str(user_id)]; save_tokens(tokens)
         await query.answer(t["admin_skipped"], show_alert=True)
         try: await query.message.edit_text(t["admin_bypassed"], reply_markup=get_main_keyboard(lang, True))
         except: pass
@@ -7068,114 +3597,29 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         keyboard = [[InlineKeyboardButton(t["btn_chat"], callback_data=f"dest_chat_{dl_type}_{payload_key}")], [InlineKeyboardButton(t["btn_chan"], callback_data=f"dest_chan_{dl_type}_{payload_key}")], [InlineKeyboardButton("🔄 Change Channel", callback_data="change_channel")]]
         await context.bot.send_message(chat_id=chat_id, text=t["batch_dest"].format(len(urls)), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
-    if data.startswith("qsel_"):
-        # SELF-CONTAINED: qsel_1080_yt_VIDEOID carries the link itself, survives restart / Render wipe / 2 instances
-        if "_yt_" in data:
-            try:
-                _q2, _ytid = data.split("_yt_", 1)
-                _qual = _q2.split("_", 1)[1]
-                _url2 = f"https://www.youtube.com/watch?v={_ytid}"
-                await query.answer(f"Selected {_qual}p" if _qual != "auto" else "Selected Auto")
-                try: await query.message.delete()
-                except Exception: pass
-                PREF_QUALITY[user_id] = _qual
-                _can = await acquire_slot()
-                if _can:
-                    try: await cached_download_and_send(context.bot, chat_id, user_id, _url2, 'video', t, 1, preferred_quality=_qual, meta=None)
-                    finally:
-                        await release_slot(); PREF_QUALITY.pop(user_id, None)
-                else:
-                    _pos2 = download_queue.qsize()+1
-                    await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, user_id, _url2, 'video', t), 'kwargs': {'credit_cost': 1, 'preferred_quality': _qual, 'meta': None}})
-                    _free2 = shutil.disk_usage(".").free // (1024*1024)
-                    await context.bot.send_message(chat_id=chat_id, text=t["server_busy"].format(active_downloads, MAX_CONCURRENT_SHORT, _free2, _pos2), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-                return
-            except Exception as e:
-                logger.error(f"qsel yt decode: {e}")
-                # fall through to pending-dict path
-        _parts = data.split("_", 2); _qual, _pkey = _parts[1], _parts[2]
-        _sel = PENDING_QUALITY_SELECT.pop(_pkey, None)
-        if not _sel:
-            _load_pending_file()
-            _sel = PENDING_QUALITY_SELECT.pop(_pkey, None)
-        if not _sel:
-            await query.answer("This button expired - bot restarted. Send the link again.", show_alert=True); return
-        _save_pending_file()
-        _url2 = _sel["url"]; _cc2 = _sel.get("credit_cost", 1); _meta2 = _sel.get("meta")
-        await query.answer(f"Selected {_qual}p" if _qual != "auto" else "Selected Auto")
-        try: await query.message.delete()
-        except Exception: pass
-        PREF_QUALITY[user_id] = _qual
-        _can = await acquire_slot()
-        if _can:
-            try: await cached_download_and_send(context.bot, chat_id, user_id, _url2, 'video', t, _cc2, preferred_quality=_qual, meta=_meta2)
-            finally:
-                await release_slot(); PREF_QUALITY.pop(user_id, None)
-        else:
-            _pos2 = download_queue.qsize()+1
-            await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, user_id, _url2, 'video', t), 'kwargs': {'credit_cost': _cc2, 'preferred_quality': _qual, 'meta': _meta2}})
-            _free2 = shutil.disk_usage(".").free // (1024*1024)
-            await context.bot.send_message(chat_id=chat_id, text=t["server_busy"].format(active_downloads, MAX_CONCURRENT_SHORT, _free2, _pos2), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-        return
     if data.startswith("fmt_"):
         parts = data.split("_",2); fmt_type, payload_key = parts[1], parts[2]
-        url = None
-        # 1) Self-contained YouTube ID: fmt_vid_yt_VIDEOID - survives restart, no memory needed
-        if payload_key.startswith("yt_"):
-            url = f"https://www.youtube.com/watch?v={payload_key[3:]}"
-        else:
-            url = pending_single_links.pop(payload_key, None)
-            if not url:
-                _load_pending_file()
-                url = pending_single_links.pop(payload_key, None)
-            if not url:
-                # 2) Fallback: URL is in the format-menu message text itself (🔗 https://...)
-                try:
-                    _mtxt = query.message.text or query.message.caption or ""
-                    _m = re.search(r"https?://\S+", _mtxt)
-                    if _m: url = _m.group(0).rstrip(").,]")
-                except Exception: pass
-            if not url:
-                await query.answer("This button expired - bot restarted. Send the link again.", show_alert=True)
-                return
-        _save_pending_file()
-        _credit_cost = PENDING_CREDIT_COST.pop(payload_key, 1)
-        _meta0 = PENDING_META.pop(payload_key, None)
+        url = pending_single_links.pop(payload_key, None)
+        if not url: await query.answer(t["batch_expired"], show_alert=True); return
         await query.answer(t["checking_vault"])
         await query.message.delete()
         dl_type = 'video'
         if fmt_type == 'aud': dl_type='audio'
         elif fmt_type == 'img': dl_type='images'
         elif fmt_type == 'sub': dl_type='subtitles'
-        if dl_type == 'video' and ('youtube.com' in url.lower() or 'youtu.be' in url.lower()):
-            PENDING_QUALITY_SELECT[payload_key] = {"url": url, "credit_cost": _credit_cost, "meta": _meta0}
-            _save_pending_file()
-            _ytid2 = ""
-            try: _ytid2 = youtube_id_from_url(url) or ""
-            except Exception: _ytid2 = ""
-            if _ytid2:
-                _qsuffix = f"yt_{_ytid2}"
-            else:
-                _qsuffix = payload_key
-            _qkb = InlineKeyboardMarkup([
-                [InlineKeyboardButton("1080p", callback_data=f"qsel_1080_{_qsuffix}"), InlineKeyboardButton("720p", callback_data=f"qsel_720_{_qsuffix}")],
-                [InlineKeyboardButton("480p", callback_data=f"qsel_480_{_qsuffix}"), InlineKeyboardButton("360p", callback_data=f"qsel_360_{_qsuffix}")],
-                [InlineKeyboardButton("240p", callback_data=f"qsel_240_{_qsuffix}"), InlineKeyboardButton("Auto (best)", callback_data=f"qsel_auto_{_qsuffix}")],
-            ])
-            await context.bot.send_message(chat_id=chat_id, text="🎞️ Select video quality:", reply_markup=_qkb)
-            return
+        
         ckey = await get_canonical_key(url, chat_id, context.bot)
         cache = load_json_file(CACHE_FILE)
-        if ckey in cache:
-            await cached_download_and_send(context.bot, chat_id, user_id, url, dl_type, t, _credit_cost, meta=_meta0)
+        if ckey in cache: 
+            await cached_download_and_send(context.bot, chat_id, user_id, url, dl_type, t)
             return
         can_dl = await acquire_slot()
         if can_dl:
-            try: await cached_download_and_send(context.bot, chat_id, user_id, url, dl_type, t, _credit_cost, meta=_meta0)
+            try: await cached_download_and_send(context.bot, chat_id, user_id, url, dl_type, t)
             finally: await release_slot()
         else:
             pos = download_queue.qsize()+1
-            await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, user_id, url, dl_type, t), 'kwargs': {'credit_cost': _credit_cost, 'meta': _meta0}})
+            await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, user_id, url, dl_type, t), 'kwargs': {}})
             free_mb = shutil.disk_usage(".").free // (1024*1024)
             await context.bot.send_message(chat_id=chat_id, text=t["server_busy"].format(active_downloads, MAX_CONCURRENT_SHORT, free_mb, pos), parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         return
@@ -7190,7 +3634,9 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         st = adsgram_status(user_id)
         if st.get("status") != "fallback_available": await query.answer(t["monetag_failed_twice"], show_alert=True); return
         bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
-        # /bridge initializes the Adsterra session without replacing existing balances.
+        tokens = load_tokens()
+        tokens[str(user_id)] = {"user_id": int(user_id), "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": time.time() + 600}
+        save_tokens(tokens)
         await query.message.reply_text(t["monetag_fallback_prompt"] + ADSTERRA_USER_GUIDE, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔓 Open Adsterra Link", url=bridge_link)], [InlineKeyboardButton("✅ Check & Get +1", callback_data="verify_user")]]), parse_mode="Markdown")
         await query.answer(t["adsterra_ready"], show_alert=True)
         return
@@ -7199,7 +3645,7 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if st.get("status") == "pending": await query.answer(t["finish_monetag"], show_alert=True); return
         if st.get("status") == "fallback_available": await query.answer(t["monetag_failed_use_adsterra"], show_alert=True); return
         if st.get("status") != "done": await query.answer(t["ad_link_expired"], show_alert=True); return
-        reward = st.get("reward", get_reward_amount())
+        reward = st.get("reward", 1)
         try: await query.message.delete()
         except: pass
         if st.get("kind") == "test":
@@ -7211,14 +3657,6 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if paused:
             asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"]))
             return
-        # V36 MUSIC: Monetag ad watched for music - download now
-        _music_retry2 = MUSIC_RETRY.pop(user_id, None)
-        if _music_retry2:
-            try: await context.bot.send_message(chat_id=chat_id, text="✅ Ad watched - downloading your song... MP3 192kbps")
-            except Exception: pass
-            try: await _music_download_song(context.bot, chat_id, user_id, _music_retry2, t)
-            except Exception as _e: logger.warning(f"music monetag retry failed: {_e}")
-            return
         msg_start, msg_end = int(st.get("msg_start", 0)), int(st.get("msg_end", 0))
         if msg_start > 0:
             await context.bot.send_message(chat_id=chat_id, text=t["fetching_bundle"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
@@ -7227,10 +3665,13 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
         retry_url = pending_single_links.pop(f"retry_{user_id}", None)
         if retry_url:
-            # V11: do NOT auto-download - show format + quality picker so user can choose
-            try: _save_pending_file()
-            except Exception: pass
-            await _resume_pending_link_to_format_menu(context.bot, chat_id, user_id, retry_url, t)
+            can_dl = await acquire_slot()
+            if can_dl:
+                try: await cached_download_and_send(context.bot, chat_id, user_id, retry_url, "video", t)
+                finally: await release_slot()
+            else:
+                await download_queue.put({'func': cached_download_and_send, 'args': (context.bot, chat_id, user_id, retry_url, "video", t), 'kwargs': {}})
+                await context.bot.send_message(chat_id=chat_id, text=t["queued"].format(download_queue.qsize()), reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
             return
         await context.bot.send_message(chat_id=chat_id, text=t["refilled_send_again"].format(reward), reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
         return
@@ -7282,50 +3723,30 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             member = await context.bot.get_chat_member(chat_id=PUBLIC_CHANNEL_USERNAME, user_id=user_id)
             if member.status not in ["creator","administrator","member"]: await query.answer(t["join_channel_first_alert"], show_alert=True); return
         except: await query.answer(t["join_channel_first"], show_alert=True); return
-        # FIX - claims: send kind so batch claim goes to Batch (+1), single claim goes to Downloads (+1)
-        _ad_kind = AD_KIND_BY_USER.get(user_id, "single")
-        try:
-            claim_response = requests.post(
-                f"{WEB_BASE_URL}/claim-bridge-reward",
-                json={"user_id": user_id, "reward": get_reward_amount(), "kind": _ad_kind, "admin_test": user_id == ADMIN_ID},
-                headers=API_HEADERS,
-                timeout=8,
-            )
-            if claim_response.status_code not in (200, 409, 410):
-                raise RuntimeError(f"claim API HTTP {claim_response.status_code}")
-            claim_data = claim_response.json()
-        except Exception as e:
-            logger.warning("Adsterra reward claim failed for %s: %s", user_id, e)
-            await query.answer(t["server_unreachable"], show_alert=True)
+        tokens = load_tokens()
+        user_str = str(user_id)
+        if user_str not in tokens:
+            if user_id != ADMIN_ID: await query.answer(t["watch_timer_first"], show_alert=True); return
+            reward = get_reward_amount()
+            tokens[user_str] = {"user_id": int(user_id), "downloads_left": reward, "batch_downloads_left": reward * 5, "last_reset": time.time(), "msg_start": 0, "msg_end": 0, "clicked_ad": True, "verified": True, "expires": time.time() + 600}
+            save_tokens(tokens)
+            await query.answer(t["test_ad_verified"], show_alert=True)
+            await query.message.reply_text(t["test_ad_verified_msg"], parse_mode="Markdown", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
             return
-        if claim_data.get("status") != "claimed":
-            await query.answer(t["finish_timer_first"], show_alert=True)
-            return
-        msg_start = int(claim_data.get("msg_start", 0) or 0)
-        msg_end = int(claim_data.get("msg_end", 0) or 0)
-        reward = int(claim_data.get("reward", get_reward_amount()))
+        token_data = tokens[user_str]
+        if not token_data.get("verified", False): await query.answer(t["finish_timer_first"], show_alert=True); return
+        msg_start, msg_end = token_data.get("msg_start",0), token_data.get("msg_end",0)
+        reward = get_reward_amount()
+        tokens[user_str]["downloads_left"] = reward
+        tokens[user_str]["batch_downloads_left"] = reward * 5
+        tokens[user_str]["verified"] = True
+        tokens[user_str]["msg_start"] = 0
+        tokens[user_str]["msg_end"] = 0
+        save_tokens(tokens)
         await query.answer(t["verified_added"])
-        # FIX - claims: clear kind after successful claim so next single ad does not reuse stale batch kind
-        AD_KIND_BY_USER.pop(user_id, None)
-        # V36 MUSIC: if music download was waiting for ad, download it now (1 credit)
-        _music_retry = MUSIC_RETRY.pop(user_id, None)
-        if _music_retry:
-            try: await query.message.reply_text("✅ Ad watched - downloading your song... MP3 192kbps")
-            except Exception: pass
-            try: await _music_download_song(context.bot, chat_id, user_id, _music_retry, t)
-            except Exception as _e: logger.warning(f"music retry after ad failed: {_e}")
-            return
         if user_id in paused_batches:
-            keyboard = [[InlineKeyboardButton(f"▶️ Resume Batch +{reward}", callback_data="resume_batch")]]
+            keyboard = [[InlineKeyboardButton("▶️ Resume Batch +1", callback_data="resume_batch")]]
             await query.message.reply_text(t["resume_prompt"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-            return
-        # V11: Adsterra refill - if user had a pending link, show format + quality picker (don't ask to resend)
-        _retry_v = pending_single_links.get(f"retry_{user_id}")
-        if _retry_v:
-            pending_single_links.pop(f"retry_{user_id}", None)
-            try: _save_pending_file()
-            except Exception: pass
-            await _resume_pending_link_to_format_menu(context.bot, chat_id, user_id, _retry_v, t)
             return
         if msg_start==0: 
             await query.message.reply_text(t["refilled_download"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
@@ -7370,6 +3791,14 @@ async def send_adsgram_test(message, user_id):
 ADSTERRA_TEST_TEXT = "🧪 AD PLACEMENT TEST (Adsterra)\n\n1️⃣ User sends link\n2️⃣ LIMIT REACHED screen appears\n3️⃣ Stay 20s on ad page\n4️⃣ Tap Check & Get +1\n\n👇 TRY THE AD NOW:" + ADSTERRA_USER_GUIDE
 
 async def send_adsterra_test(message, user_id):
+    tokens = load_tokens()
+    uid = str(user_id)
+    now = time.time()
+    if uid in tokens and isinstance(tokens[uid], dict): tokens[uid].update({"msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": now + 600})
+    else:
+        free = get_free_amount()
+        tokens[uid] = {"user_id": int(user_id), "downloads_left": free, "batch_downloads_left": free * 5, "last_reset": now, "msg_start": 0, "msg_end": 0, "clicked_ad": False, "verified": False, "expires": now + 600}
+    save_tokens(tokens)
     bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
     keyboard = [[InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")]]
     await message.reply_text(ADSTERRA_TEST_TEXT, reply_markup=InlineKeyboardMarkup(keyboard))
@@ -7387,7 +3816,7 @@ def build_ad_info_text(user_id):
     else:
         net = "Monetag" if get_global_ab_network(user_id) == "monetag" else "Adsterra"
         head, body = f"Mode: AUTO (you currently get {net})", monetag + adsterra
-    return ("📢 AD INFO\n\nBot: @Michaelbbcvaultbot\n" + head + "\n\n📍 Exact ad placement:\n" + body + "\n• Reward: +3 downloads per completed ad\n\n🧪 To test: tap 🧪 Test Ad or send /testad")
+    return ("📢 AD INFO\n\nBot: @Michaelbbcvaultbot\n" + head + "\n\n📍 Exact ad placement:\n" + body + "\n• Reward: +1 download per completed ad\n\n🧪 To test: tap 🧪 Test Ad or send /testad")
 
 async def test_ad_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
@@ -7419,7 +3848,6 @@ def run_telegram_bot():
         except Exception as e: logger.warning(f"Could not set bot menu commands: {e}")
         app.add_handler(CommandHandler("start", start))
         app.add_handler(CommandHandler("filetolink", file_to_link_command))
-        app.add_handler(CommandHandler("clearpassword", clearpassword_command))
         app.add_handler(CommandHandler("language", language_command))
         app.add_handler(CommandHandler("stats", stats))
         app.add_handler(CommandHandler("status", status_command))
@@ -7434,12 +3862,6 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("restore", restore_command))
         app.add_handler(CommandHandler("setdisk", set_disk_command))
         app.add_handler(CommandHandler("setmtproto", set_mtproto_command))
-        app.add_handler(CommandHandler("setbatchchannel", setbatchchannel_command))
-        app.add_handler(CommandHandler("admin", admin_command))
-        app.add_handler(CommandHandler("reqch", reqch_command))
-        app.add_handler(CommandHandler("channels", reqch_command))
-        app.add_handler(CommandHandler("limits", limit_command))
-        app.add_handler(CommandHandler("setlimit", limit_command))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media_link))
         app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
         app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.PHOTO | filters.VOICE | filters.ATTACHMENT, handle_user_upload))
@@ -7505,23 +3927,7 @@ async def _tell_uploading(status_msg, path):
 
 async def send_video_file(bot, chat_id, target_id, path, caption, parse_mode, status_msg=None):
     if os.path.getsize(path) <= BOT_API_LIMIT_BYTES:
-        # V52 FIX: caption can contain _ * [ ] & etc from TikTok title/URL (?_r=1&_t=...) -> Telegram "Can't parse entities" BadRequest.
-        # Try with parse_mode first, fall back to plain text (no parse) so download still succeeds.
-        try:
-            with open(path, 'rb') as f: return await bot.send_video(chat_id=target_id, video=f, caption=caption, parse_mode=parse_mode)
-        except Exception as _e_parse:
-            if "parse" in str(_e_parse).lower() or "entity" in str(_e_parse).lower():
-                with open(path, 'rb') as f: return await bot.send_video(chat_id=target_id, video=f, caption=caption, parse_mode=None)
-            raise
-    # BUG 1 FIX: first download after restart fails because MTProto hasn't connected yet.
-    # Wait up to 25s for it instead of failing instantly - file is already cached, second try would have worked.
-    if not MTPROTO["ready"].is_set():
-        try:
-            await _tell_uploading(status_msg, path)
-        except Exception: pass
-        for _ in range(25):
-            if MTPROTO["ready"].is_set(): break
-            await asyncio.sleep(1)
+        with open(path, 'rb') as f: return await bot.send_video(chat_id=target_id, video=f, caption=caption, parse_mode=parse_mode)
     await _tell_uploading(status_msg, path)
     info = await asyncio.to_thread(probe_video, path)
     try:
@@ -7540,13 +3946,7 @@ async def send_video_file(bot, chat_id, target_id, path, caption, parse_mode, st
 
 async def send_audio_file(bot, chat_id, path, caption, parse_mode, status_msg=None):
     if os.path.getsize(path) <= BOT_API_LIMIT_BYTES:
-        # V52 FIX: same parse fallback as video - TikTok title/URL can break Markdown/HTML.
-        try:
-            with open(path, 'rb') as f: return await bot.send_audio(chat_id=chat_id, audio=f, caption=caption, parse_mode=parse_mode)
-        except Exception as _e_parse:
-            if "parse" in str(_e_parse).lower() or "entity" in str(_e_parse).lower():
-                with open(path, 'rb') as f: return await bot.send_audio(chat_id=chat_id, audio=f, caption=caption, parse_mode=None)
-            raise
+        with open(path, 'rb') as f: return await bot.send_audio(chat_id=chat_id, audio=f, caption=caption, parse_mode=parse_mode)
     await _tell_uploading(status_msg, path)
     msg = await mtproto_upload("audio", chat_id, path, caption.replace("`", ""))
     media = msg.audio or msg.document
