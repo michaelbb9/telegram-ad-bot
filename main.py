@@ -2683,17 +2683,28 @@ def _ig_carousel_via_json(url, cookiefile=None):
             (f"https://www.ddinstagram.com/p/{_short}/", "ddig"),
             (f"https://www.ddinstagram.com/p/{_short}/embed/", "ddig-embed"),
         ]
+        # V63: Expired IG cookies poison embed/ddinstagram (IG returns login wall instead of public embed). So: embed + ddinstagram ANONYMOUS first, __a=1 WITH cookies last.
+        # Reorder: embed (anon), ddig (anon), ddig-embed (anon), json (with cookies)
+        _try_urls = [
+            (f"https://www.instagram.com/p/{_short}/embed/captioned/", "embed-anon"),
+            (f"https://www.ddinstagram.com/p/{_short}/", "ddig-anon"),
+            (f"https://www.ddinstagram.com/p/{_short}/embed/", "ddig-embed-anon"),
+            (f"https://www.instagram.com/p/{_short}/embed/", "embed2-anon"),
+            (f"https://www.instagram.com/p/{_short}/?__a=1&__d=dis", "json-cookies"),
+        ]
         for _u, _kind in _try_urls:
             try:
                 _h_try = dict(_headers)
+                # V63: anon endpoints get NO cookies (expired sessionid = login wall). Only json-cookies gets cookies.
+                _cookies_try = {} if _kind.endswith("-anon") else _cookies
                 if _kind.startswith("ddig"):
                     _h_try["User-Agent"] = "Mozilla/5.0"
                     _h_try.pop("X-IG-App-ID", None)
                 # V59: WARP for IG (same as YT) - Render IP gets 429, WARP looks like home IP. Fall back to direct if WARP fails.
                 try: _prox59ig = _requests_proxies_for_url(url)
                 except Exception: _prox59ig = None
-                try: _r = requests.get(_u, headers=_h_try, cookies=_cookies, timeout=15, proxies=_prox59ig)
-                except Exception: _r = requests.get(_u, headers=_h_try, cookies=_cookies, timeout=15)
+                try: _r = requests.get(_u, headers=_h_try, cookies=_cookies_try, timeout=15, proxies=_prox59ig)
+                except Exception: _r = requests.get(_u, headers=_h_try, cookies=_cookies_try, timeout=15)
                 _txt = _r.text or ""
                 if not _txt or len(_txt) < 500: continue
                 # If login wall, skip quickly - don't waste time parsing it
@@ -2961,7 +2972,27 @@ def _instaloader_worker(shortcode, folder, cap_bytes):
     try:
         loader.context.session.headers.update({"X-IG-App-ID": "936619743392459", "X-Requested-With": "XMLHttpRequest"})
     except Exception: pass
-    post = instaloader.Post.from_shortcode(loader.context, shortcode)
+    # V63: If sessionid is expired/checkpointed, IG returns login page -> BadResponseException. Expired session is WORSE than anonymous.
+    # Try with session first, if BadResponse/login_required/checkpoint -> clear cookies and retry anonymous (public posts work anonymous via WARP).
+    try:
+        post = instaloader.Post.from_shortcode(loader.context, shortcode)
+    except Exception as _e63:
+        _msg63 = str(_e63).lower()
+        if any(_k in _msg63 for _k in ["badresponse", "login_required", "checkpoint", "fetching post metadata", "401", "403"]):
+            _trace("instaloader: session expired/checkpointed (BadResponse) - retrying ANONYMOUS without cookies")
+            try:
+                loader.context.session.cookies.clear()
+                # Keep WARP proxy after clear
+                try:
+                    _wp63 = _proxy_for_url(f"https://www.instagram.com/p/{shortcode}/")
+                    if _wp63: loader.context.session.proxies.update({"http": _wp63, "https": _wp63})
+                except Exception: pass
+                post = instaloader.Post.from_shortcode(loader.context, shortcode)
+                _trace("instaloader: anonymous retry OK")
+            except Exception as _e63b:
+                raise _e63b
+        else:
+            raise
     _trace(f"instaloader: post found, typename={post.typename}, items={post.mediacount}")
 
     items = []   # (url, default_extension) in post order
@@ -3492,9 +3523,11 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None, cookiefile=
                         _g_args += ["--cookies", cookiefile]
                 except Exception: pass
                 _g_args.append(url)
+                # V63: gallery-dl TIMEOUT 45s wasted on IG throttling. IG: 20s, FB: 45s.
+                _timeout63 = 20 if ("instagram.com" in low or "instagr.am" in low) else 45
                 r = subprocess.run(
                     _g_args,
-                    capture_output=True, text=True, timeout=45)
+                    capture_output=True, text=True, timeout=_timeout63)
                 files = _collect_media(folder)
                 files.sort(key=os.path.getmtime)
                 err = (r.stderr or r.stdout or "").strip().replace("\n", " ")[-160:]
@@ -3509,7 +3542,7 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None, cookiefile=
                         _trace(f"FB cookies: c_user={'YES' if _has_cu else 'MISSING'} xs={'YES' if _has_xs else 'MISSING'} - need fresh export via Get cookies.txt LOCALLY while logged into Facebook (both c_user + xs)")
                     except Exception: pass
             except subprocess.TimeoutExpired:
-                _trace("gallery-dl: TIMEOUT after 45s")
+                _trace(f"gallery-dl: TIMEOUT after {20 if ('instagram.com' in low or 'instagr.am' in low) else 45}s")
                 files = _collect_media(folder)
             except Exception as e:
                 _trace(f"gallery-dl: FAILED {type(e).__name__}: {str(e)[:150]}")
