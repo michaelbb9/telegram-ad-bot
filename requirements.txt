@@ -2,7 +2,7 @@ python-telegram-bot
 Flask
 requests
 imageio-ffmpeg
-yt-dlp[default]
+yt-dlp[default]>=2025.11.01
 beautifulsoup4
 ytmusicapi
 pyrogram
