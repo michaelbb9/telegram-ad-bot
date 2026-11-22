@@ -3716,9 +3716,11 @@ def _music_fmt_dur(sec):
 
 def _music_fmt_year(upload_date):
     try:
-        s = str(upload_date or "")
-        if len(s) >= 4: return s[:4]
-        return "N/A"
+        s = str(upload_date or "").strip()
+        if not s: return "N/A"
+        if "ago" in s.lower(): return s
+        if len(s) >= 4 and s[:4].isdigit(): return s[:4]
+        return s[:10] if s else "N/A"
     except Exception:
         return "N/A"
 
@@ -3731,59 +3733,182 @@ def _music_is_cached(video_id):
     except Exception:
         return False
 
-def search_music_sync(query, want=5, offset=0):
-    """yt-dlp ytsearch. Returns list of dicts. Filtering: skip live/slowed/sped/lyric/cover/karaoke unless user typed it, skip >10min compilations."""
+def _music_filter_and_score(raw_list, query):
+    """Shared filtering + scoring for all search methods. raw_list = dicts with title/channel/duration/view_count."""
+    qlow = (query or "").lower()
+    allow_live = any(w in qlow for w in ["live", "concert", "unplugged"])
+    allow_sped = any(w in qlow for w in ["sped up", "speed up", "slowed", "reverb", "slowed + reverb"])
+    allow_lyric = any(w in qlow for w in ["lyric", "lyrics"])
+    allow_cover = "cover" in qlow
+    out = []
+    for e in raw_list:
+        if not e or not isinstance(e, dict): continue
+        vid = e.get("video_id") or e.get("id") or ""
+        if not vid: continue
+        title = (e.get("title") or "Unknown")[:120]
+        tlow = title.lower()
+        dur = int(e.get("duration_sec") or e.get("duration") or 0)
+        if dur and dur > 600: continue
+        if dur and dur < 30: continue
+        if not allow_live and any(w in tlow for w in [" live", "live version", "live at", "concert"]): continue
+        if not allow_sped and any(w in tlow for w in ["sped up", "slowed", "reverb", "nightcore"]): continue
+        if not allow_lyric and any(w in tlow for w in ["lyric video", "lyrics video", "(lyrics)"]): continue
+        if not allow_cover and "cover" in tlow and "official" not in tlow: continue
+        if "karaoke" in tlow: continue
+        if "instrumental" in tlow and "instrumental" not in qlow: continue
+        channel = e.get("channel") or e.get("uploader") or e.get("uploader_id") or "Unknown"
+        score = 0
+        if "official" in tlow: score += 1000
+        if channel and channel.lower() in tlow: score += 200
+        try: score += int(e.get("view_count") or 0) / 1000000.0
+        except Exception: pass
+        out.append({"video_id": vid, "title": title, "channel": channel, "duration_sec": dur, "view_count": e.get("view_count") or 0, "upload_date": e.get("upload_date") or "", "thumbnail": e.get("thumbnail") or "", "url": f"https://www.youtube.com/watch?v={vid}", "_score": score})
+    out.sort(key=lambda x: x["_score"], reverse=True)
+    for r in out: r.pop("_score", None)
+    return out
+
+def _music_search_ytdlp(query, fetch_n):
+    """Method 1: yt-dlp ytsearch - same cookies/headers as downloads + android client. Works locally, often blocked on Render datacenter IP."""
+    ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True, "socket_timeout": 20, "http_headers": {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"}, "extractor_args": {"youtube": {"player_client": ["android", "web"]}}}
     try:
-        qlow = (query or "").lower()
-        allow_live = any(w in qlow for w in ["live", "concert", "unplugged"])
-        allow_sped = any(w in qlow for w in ["sped up", "speed up", "slowed", "reverb", "slowed + reverb"])
-        allow_lyric = any(w in qlow for w in ["lyric", "lyrics"])
-        allow_cover = "cover" in qlow
-        allow_remix = "remix" in qlow
-        fetch_n = int(offset + want + 10)
-        if fetch_n < 10: fetch_n = 15
-        if fetch_n > 30: fetch_n = 30
-        ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch{fetch_n}:{query}", download=False)
-        entries = (info.get("entries") or []) if isinstance(info, dict) else []
-        out = []
-        for e in entries:
-            if not e or not isinstance(e, dict): continue
-            vid = e.get("id") or ""
-            if not vid: continue
-            title = (e.get("title") or "Unknown")[:120]
-            tlow = title.lower()
-            dur = int(e.get("duration") or 0)
-            # Skip compilations / very long, skip very short clips
-            if dur and dur > 600: continue
-            if dur and dur < 30: continue
-            if not allow_live and any(w in tlow for w in [" live", "live version", "live at", "concert"]): continue
-            if not allow_sped and any(w in tlow for w in ["sped up", "slowed", "reverb", "nightcore"]): continue
-            if not allow_lyric and any(w in tlow for w in ["lyric video", "lyrics video", "(lyrics)"]): continue
-            if not allow_cover and "cover" in tlow and "official" not in tlow: continue
-            if not allow_remix and "karaoke" in tlow: continue
-            if "instrumental" in tlow and "instrumental" not in qlow: continue
-            channel = e.get("uploader") or e.get("channel") or e.get("uploader_id") or "Unknown"
-            thumb = e.get("thumbnail") or ""
-            if not thumb:
-                try:
-                    thumbs = e.get("thumbnails") or []
-                    if thumbs: thumb = thumbs[-1].get("url") or ""
-                except Exception: pass
-            # Score: official first, then views
-            score = 0
-            if "official" in tlow: score += 1000
-            if channel and channel.lower() in tlow: score += 200
-            try: score += int(e.get("view_count") or 0) / 1000000.0
+        if os.path.exists("cookies.txt"): ydl_opts["cookiefile"] = "cookies.txt"
+    except Exception: pass
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(f"ytsearch{fetch_n}:{query}", download=False)
+    entries = (info.get("entries") or []) if isinstance(info, dict) else []
+    raw = []
+    for e in entries:
+        if not e or not isinstance(e, dict): continue
+        thumb = e.get("thumbnail") or ""
+        if not thumb:
+            try:
+                thumbs = e.get("thumbnails") or []
+                if thumbs: thumb = thumbs[-1].get("url") or ""
             except Exception: pass
-            out.append({"video_id": vid, "title": title, "channel": channel, "duration_sec": dur, "view_count": e.get("view_count") or 0, "upload_date": e.get("upload_date") or "", "thumbnail": thumb, "url": f"https://www.youtube.com/watch?v={vid}", "_score": score})
-        out.sort(key=lambda x: x["_score"], reverse=True)
-        for r in out: r.pop("_score", None)
-        return out[offset:offset+want]
+        raw.append({"video_id": e.get("id") or "", "title": e.get("title") or "Unknown", "channel": e.get("uploader") or e.get("channel") or e.get("uploader_id") or "Unknown", "duration_sec": int(e.get("duration") or 0), "view_count": e.get("view_count") or 0, "upload_date": e.get("upload_date") or "", "thumbnail": thumb})
+    return raw
+
+def _music_parse_views_text(vs):
+    try:
+        s = str(vs or "").replace(" views", "").replace(",", "").strip()
+        if not s: return 0
+        if s.endswith("M"): return int(float(s[:-1]) * 1000000)
+        if s.endswith("K"): return int(float(s[:-1]) * 1000)
+        if s.endswith("B"): return int(float(s[:-1]) * 1000000000)
+        return int(float(s)) if s.replace(".", "").isdigit() else 0
+    except Exception: return 0
+
+def _music_search_innertube(query, fetch_n):
+    """Method 2: YouTube Innertube search API (youtubei/v1/search) - POST, works on Render where yt-dlp ytsearch gets 403."""
+    url = "https://www.youtube.com/youtubei/v1/search?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8&prettyPrint=false"
+    payload = {"context": {"client": {"clientName": "WEB", "clientVersion": "2.20240111.09.00", "hl": "en", "gl": "US"}}, "query": query}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36", "Content-Type": "application/json", "Origin": "https://www.youtube.com", "Referer": "https://www.youtube.com/"}
+    r = requests.post(url, json=payload, headers=headers, timeout=20)
+    if r.status_code != 200:
+        raise RuntimeError(f"Innertube HTTP {r.status_code}")
+    data = r.json()
+    contents = data.get("contents", {}).get("twoColumnSearchResultsRenderer", {}).get("primaryContents", {}).get("sectionListRenderer", {}).get("contents", [])
+    raw = []
+    for section in contents:
+        sec_contents = section.get("itemSectionRenderer", {}).get("contents", [])
+        for it in sec_contents:
+            vr = it.get("videoRenderer")
+            if not vr: continue
+            vid = vr.get("videoId") or ""
+            if not vid: continue
+            title = "".join([x.get("text", "") for x in vr.get("title", {}).get("runs", [])]) or "Unknown"
+            channel = "".join([x.get("text", "") for x in vr.get("longBylineText", {}).get("runs", [])]) or "".join([x.get("text", "") for x in vr.get("ownerText", {}).get("runs", [])]) or "Unknown"
+            dur_txt = vr.get("lengthText", {}).get("simpleText", "")
+            dur = 0
+            if dur_txt:
+                try:
+                    parts = dur_txt.split(":")
+                    if len(parts) == 2: dur = int(parts[0]) * 60 + int(parts[1])
+                    elif len(parts) == 3: dur = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+                except Exception: pass
+            views = _music_parse_views_text(vr.get("viewCountText", {}).get("simpleText", ""))
+            thumb = ""
+            try:
+                thumbs = vr.get("thumbnail", {}).get("thumbnails", [])
+                if thumbs: thumb = thumbs[-1].get("url", "")
+            except Exception: pass
+            pub = vr.get("publishedTimeText", {}).get("simpleText", "")
+            raw.append({"video_id": vid, "title": title, "channel": channel, "duration_sec": dur, "view_count": views, "upload_date": pub, "thumbnail": thumb})
+            if len(raw) >= fetch_n: break
+        if len(raw) >= fetch_n: break
+    return raw
+
+def _music_search_itunes_then_innertube(query, fetch_n):
+    """Method 3: iTunes Search API (never blocked, free, no key) for exact title/artist, then Innertube for each exact title to get YouTube ID."""
+    r = requests.get("https://itunes.apple.com/search", params={"term": query, "media": "music", "entity": "song", "limit": 10}, timeout=15)
+    if r.status_code != 200:
+        raise RuntimeError(f"iTunes HTTP {r.status_code}")
+    data = r.json()
+    results = data.get("results") or []
+    raw = []
+    for it in results[:5]:
+        track = (it.get("trackName") or "").strip()
+        artist = (it.get("artistName") or "").strip()
+        if not track: continue
+        exact_q = f"{artist} - {track} official audio" if artist else track
+        try:
+            sub = _music_search_innertube(exact_q, 2)
+            for s in sub:
+                # Keep iTunes artwork as fallback if Innertube thumb missing, prefer Innertube thumb
+                raw.append(s)
+                if len(raw) >= fetch_n: break
+        except Exception as e:
+            logger.warning(f"iTunes->Innertube failed for {exact_q}: {e}")
+            continue
+        if len(raw) >= fetch_n: break
+    return raw
+
+def search_music_sync(query, want=5, offset=0):
+    """Robust search: yt-dlp -> Innertube -> iTunes+Innertube. Returns list. Logs which method worked so Render logs show it."""
+    fetch_n = int(offset + want + 10)
+    if fetch_n < 15: fetch_n = 15
+    if fetch_n > 30: fetch_n = 30
+    # Method 1: yt-dlp
+    try:
+        raw1 = _music_search_ytdlp(query, fetch_n)
+        filt1 = _music_filter_and_score(raw1, query)
+        if filt1:
+            logger.info(f"Music search OK via yt-dlp: {query} -> {len(filt1)}")
+            return filt1[offset:offset+want]
+        logger.warning(f"Music search yt-dlp returned 0 filtered for {query}, trying Innertube")
     except Exception as e:
-        logger.warning(f"search_music_sync failed for {query}: {e}")
-        return []
+        logger.warning(f"Music search yt-dlp failed for {query}: {e}, trying Innertube")
+    # Method 1b: yt-dlp with "official audio" variant - sometimes plain query is blocked but variant works
+    try:
+        if "official" not in (query or "").lower():
+            raw1b = _music_search_ytdlp(f"{query} official audio", fetch_n)
+            filt1b = _music_filter_and_score(raw1b, query)
+            if filt1b:
+                logger.info(f"Music search OK via yt-dlp official-audio variant: {query} -> {len(filt1b)}")
+                return filt1b[offset:offset+want]
+    except Exception as e:
+        logger.warning(f"Music search yt-dlp variant failed for {query}: {e}")
+    # Method 2: Innertube
+    try:
+        raw2 = _music_search_innertube(query, fetch_n)
+        filt2 = _music_filter_and_score(raw2, query)
+        if filt2:
+            logger.info(f"Music search OK via Innertube: {query} -> {len(filt2)}")
+            return filt2[offset:offset+want]
+        logger.warning(f"Music search Innertube returned 0 filtered for {query}, trying iTunes")
+    except Exception as e:
+        logger.warning(f"Music search Innertube failed for {query}: {e}, trying iTunes")
+    # Method 3: iTunes + Innertube
+    try:
+        raw3 = _music_search_itunes_then_innertube(query, fetch_n)
+        filt3 = _music_filter_and_score(raw3, query)
+        if filt3:
+            logger.info(f"Music search OK via iTunes+Innertube: {query} -> {len(filt3)}")
+            return filt3[offset:offset+want]
+    except Exception as e:
+        logger.warning(f"Music search iTunes failed for {query}: {e}")
+    logger.warning(f"Music search ALL methods failed/empty for {query}")
+    return []
 
 async def send_music_results(bot, chat_id, user_id, query, offset, t):
     """Send 5 cards. Each card = thumbnail photo + all info + Download button. Search is free."""
@@ -3792,8 +3917,8 @@ async def send_music_results(bot, chat_id, user_id, query, offset, t):
     except Exception:
         results = []
     if not results:
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔍 Try Again", callback_data="music_new")], [InlineKeyboardButton("❌ Cancel", callback_data="music_cancel")]])
-        await bot.send_message(chat_id=chat_id, text=f"❌ No results for '{query}'.\nTry Artist - Song.\nExample: Rema - Calm Down", reply_markup=kb)
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔁 Try Again", callback_data="music_new")], [InlineKeyboardButton("❌ Cancel", callback_data="music_cancel")]])
+        await bot.send_message(chat_id=chat_id, text=f"⚠️ Search is busy right now for '{query}'.\nYouTube blocked the search for a moment.\nTap Try Again - it usually works on 2nd try.\nOr try: Rema - Calm Down", reply_markup=kb)
         return
     MUSIC_RESULTS[user_id] = {"query": query, "offset": offset, "results": results}
     await bot.send_message(chat_id=chat_id, text=f"🎵 Results for '{query}' ({offset+1}-{offset+len(results)})\nTap Download on the one you want. Search is free, download is 1 credit.")
