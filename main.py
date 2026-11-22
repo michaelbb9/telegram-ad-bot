@@ -3186,9 +3186,58 @@ def _resolve_share_link(url):
         except Exception: pass
     return url
 
+def _fb_via_oembed(url):
+    """V60: Facebook oEmbed is tokenless since 15 June 2026 for public posts (graph.facebook.com/v25.0/oembed_post, no app/token).
+    Also try plugins/post.php?href= which Facebook uses for embeds. Both return embed HTML with scontent image URLs, no c_user/xs needed for PUBLIC posts.
+    Returns list of image URLs or []."""
+    try:
+        import urllib.parse as _up60, html as _h60, re as _re60
+        try: _prox60 = _requests_proxies_for_url(url)
+        except Exception: _prox60 = None
+        _enc = _up60.quote(url, safe='')
+        _out = []
+        for _u in [f"https://graph.facebook.com/v25.0/oembed_post?url={_enc}", f"https://www.facebook.com/plugins/post.php?href={_enc}&show_text=true&width=500"]:
+            try:
+                try: _r = requests.get(_u, headers={"User-Agent": "Mozilla/5.0"}, timeout=15, proxies=_prox60)
+                except Exception: _r = requests.get(_u, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+                _txt = _r.text or ""
+                if not _txt or len(_txt) < 200: continue
+                # oEmbed JSON has "html" field with embed HTML
+                try:
+                    _j = __import__('json').loads(_txt)
+                    _html = _j.get("html", "") or ""
+                    _txt = _txt + " " + _html
+                except Exception: pass
+                # scontent / fbcdn URLs in embed HTML
+                for _m in _re60.finditer(r'https://(?:scontent[^"\'\s]+|[^"\'\s]*\.fbcdn\.net[^"\'\s]+)', _txt):
+                    _u2 = _h60.unescape(_m.group(0)).replace('\\/', '/')
+                    if any(_bad in _u2 for _bad in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32", "s50x50"]): continue
+                    if (".jpg" in _u2 or ".jpeg" in _u2 or ".png" in _u2 or ".webp" in _u2) and _u2 not in _out: _out.append(_u2)
+                # og:image in embed
+                for _m in _re60.finditer(r'og:image["\']?\s*content=["\']([^"\']+)', _txt):
+                    _u2 = _h60.unescape(_m.group(1))
+                    if _u2.startswith('http') and _u2 not in _out: _out.append(_u2)
+                if _out: 
+                    try: _trace(f"FB oEmbed: {len(_out)} image(s) via {_u[:60]}")
+                    except Exception: pass
+                    break
+            except Exception: continue
+        _seen = set(); _res = []
+        for _u in _out:
+            _k = _u.split('?')[0]
+            if _k not in _seen: _seen.add(_k); _res.append(_u)
+        return _res[:20]
+    except Exception: return []
+
 def _fb_images_from_share_page(url):
     """V56: Even if resolve fails, the share page HTML itself has og:image + scontent URLs. Return them directly - don't need gallery-dl.
-    V58: If url is a login URL, parse next= first - don't scrape the login page."""
+    V58: If url is a login URL, parse next= first - don't scrape the login page.
+    V60: Try oEmbed / plugins/post FIRST (tokenless for public posts, no cookies needed), then share page scrape."""
+    # V60: oEmbed first - works without c_user/xs for public posts
+    try:
+        _oem = _fb_via_oembed(url)
+        if _oem: return _oem
+    except Exception: pass
     try:
         if "/login" in (url or ""):
             import urllib.parse as _up58f
@@ -3874,6 +3923,11 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                 _total = sum(os.path.getsize(p) for p in _paths)
                 save_to_file_cache(url, "images", _paths[0])
                 return _paths, "carousel" if len(_paths) > 1 else "original", f"{_total/(1024*1024):.1f}MB"
+        # V60: For FB /share/, if oEmbed + scrape + gallery-dl all fail, it's either private/friends-only OR cookies missing - trace it clearly instead of generic NO_IMAGES
+        try:
+            if "facebook.com" in url.lower() and "/share/" in url.lower():
+                _trace("FB share: oEmbed + scrape + gallery-dl all failed - post is likely private/friends-only OR needs fresh c_user+xs in cookies.txt on MAIN service (not duplicate with MTProto=False)")
+        except Exception: pass
         raise ValueError("NO_IMAGES")
     else:
         tiers = [
