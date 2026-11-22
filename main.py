@@ -2690,6 +2690,9 @@ def _ig_carousel_via_json(url, cookiefile=None):
             (f"https://www.ddinstagram.com/p/{_short}/", "ddig-anon"),
             (f"https://www.ddinstagram.com/p/{_short}/embed/", "ddig-embed-anon"),
             (f"https://www.instagram.com/p/{_short}/embed/", "embed2-anon"),
+            # V65: Dumpor + Picuki public mirrors (no login, no GraphQL) - extra fallback if ddinstagram also 429s
+            (f"https://dumpor.com/p/{_short}", "dumpor-anon"),
+            (f"https://www.picuki.com/media/{_short}", "picuki-anon"),
             (f"https://www.instagram.com/p/{_short}/?__a=1&__d=dis", "json-cookies"),
         ]
         for _u, _kind in _try_urls:
@@ -2697,44 +2700,42 @@ def _ig_carousel_via_json(url, cookiefile=None):
                 _h_try = dict(_headers)
                 # V63: anon endpoints get NO cookies (expired sessionid = login wall). Only json-cookies gets cookies.
                 _cookies_try = {} if _kind.endswith("-anon") else _cookies
-                if _kind.startswith("ddig"):
+                if _kind.startswith("ddig") or _kind.startswith("dumpor") or _kind.startswith("picuki"):
                     _h_try["User-Agent"] = "Mozilla/5.0"
                     _h_try.pop("X-IG-App-ID", None)
                 # V59: WARP for IG (same as YT) - Render IP gets 429, WARP looks like home IP. Fall back to direct if WARP fails.
                 try: _prox59ig = _requests_proxies_for_url(url)
                 except Exception: _prox59ig = None
-                _r = None
+                # V65: WARP fallback was only on exception. Now also retry DIRECT if WARP returns 429/403/login wall (IG throttles WARP IP too).
+                try: _r = requests.get(_u, headers=_h_try, cookies=_cookies_try, timeout=15, proxies=_prox59ig)
+                except Exception: _r = requests.get(_u, headers=_h_try, cookies=_cookies_try, timeout=15)
+                # V65: If WARP gave 429/403/login, try direct once
                 try:
-                    _r = requests.get(_u, headers=_h_try, cookies=_cookies_try, timeout=15, proxies=_prox59ig)
-                except Exception:
-                    pass
-                # A proxy can return a 403/429 or a login wall without raising.
-                # In that case, make one direct attempt before abandoning this endpoint.
-                _txt = (_r.text or "") if _r is not None else ""
-                _login_wall = ("Log in to Instagram" in _txt and "display_url" not in _txt and "scontent" not in _txt and "cdninstagram" not in _txt)
-                if _r is None or getattr(_r, "status_code", 200) >= 400 or _login_wall:
-                    try:
-                        _r_direct = requests.get(_u, headers=_h_try, cookies=_cookies_try, timeout=15)
-                        if getattr(_r_direct, "status_code", 500) < 400 and len(_r_direct.text or "") > len(_txt):
-                            _r = _r_direct
-                            _txt = _r.text or ""
-                    except Exception:
-                        pass
-                if _r is None:
-                    try: _trace(f"IG endpoint failed: {_kind}, no response")
-                    except Exception: pass
-                    continue
-                if getattr(_r, "status_code", 200) >= 400:
-                    try: _trace(f"IG endpoint HTTP { _r.status_code }: {_kind}")
-                    except Exception: pass
-                    continue
-                if not _txt or len(_txt) < 500:
-                    try: _trace(f"IG endpoint empty/short: {_kind}, HTTP {_r.status_code}, {len(_txt)} chars")
+                    _st65 = getattr(_r, 'status_code', 0)
+                    _txt65 = _r.text or ""
+                    _is_blocked65 = _st65 in (429, 403, 401) or ("Log in to Instagram" in _txt65 and "display_url" not in _txt65)
+                    if _is_blocked65 and _prox59ig:
+                        _trace(f"IG JSON [{_kind}]: WARP blocked HTTP {_st65}, retrying DIRECT")
+                        try: _r = requests.get(_u, headers=_h_try, cookies=_cookies_try, timeout=15, proxies=None)
+                        except Exception: pass
+                        try: _trace(f"IG JSON [{_kind}]: DIRECT retry HTTP {getattr(_r,'status_code','?')}, len={len(_r.text or '')}")
+                        except Exception: pass
+                except Exception: pass
+                _txt = _r.text or ""
+                # V64: Diagnose WHY extraction failed - status, length, login wall, 429/403, not silent []
+                try:
+                    _status64 = getattr(_r, 'status_code', '?')
+                    _is_login64 = ("Log in to Instagram" in _txt or "login" in _txt[:2000].lower() and "log in" in _txt[:2000].lower()) and "display_url" not in _txt
+                    _is_429_64 = _status64 == 429 or "Please wait a few minutes" in _txt or "rate limit" in _txt.lower()
+                    _trace(f"IG JSON [{_kind}]: HTTP {_status64}, len={len(_txt)}, login_wall={_is_login64}, 429={_is_429_64}, cookies={'anon' if not _cookies_try else 'with-cookies'}")
+                except Exception: pass
+                if not _txt or len(_txt) < 500: 
+                    try: _trace(f"IG JSON [{_kind}]: empty/too short, skipping")
                     except Exception: pass
                     continue
                 # If login wall, skip quickly - don't waste time parsing it
                 if "Log in to Instagram" in _txt and "display_url" not in _txt and "scontent" not in _txt and "cdninstagram" not in _txt:
-                    try: _trace(f"IG endpoint login wall: {_kind}, HTTP {_r.status_code}")
+                    try: _trace(f"IG JSON [{_kind}]: login wall, skipping")
                     except Exception: pass
                     continue
                 # Try parse as JSON first (for __a=1)
@@ -2769,7 +2770,7 @@ def _ig_carousel_via_json(url, cookiefile=None):
                     _u2 = _h55.unescape(_mm.group(1))
                     if _u2.startswith('http') and _u2 not in _out: _out.append(_u2)
                 if len(_out) >= 2: break
-                if _out and _kind.startswith("ddig"): break
+                if _out and _kind.startswith("ddig"): break  # V65: was _kind == "ddig", but labels are ddig-anon / ddig-embed-anon, so it never fired
             except Exception: continue
         # De-dupe keep order
         _seen = set(); _res = []
@@ -2973,6 +2974,16 @@ def _instaloader_worker(shortcode, folder, cap_bytes):
             try: loader.context.session.proxies.update({"http": _wp61, "https": _wp61})
             except Exception: pass
             _trace(f"instaloader: using WARP proxy")
+    except Exception: pass
+    # V64: Cookie validation - don't assume cookies are usable. Log age + presence.
+    try:
+        import os as _os64, time as _time64
+        if _os64.path.exists("cookies.txt"):
+            _age64 = (_time64.time() - _os64.path.getmtime("cookies.txt"))/86400
+            _ct64 = open("cookies.txt", encoding='utf-8', errors='ignore').read()
+            _has_ig64 = "sessionid" in _ct64
+            _has_fb64 = "c_user" in _ct64 and "xs" in _ct64
+            _trace(f"cookies.txt: age={_age64:.1f}d, IG sessionid={'YES' if _has_ig64 else 'NO'}, FB c_user+xs={'YES' if _has_fb64 else 'NO'} (if >7d old, session likely expired - re-export via Get cookies.txt LOCALLY)")
     except Exception: pass
     # V61: Load IG session from cookies.txt if user has IG sessionid (Get cookies.txt LOCALLY while logged into IG)
     try:
@@ -3207,14 +3218,34 @@ def _resolve_share_link(url):
             {'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)', 'Accept': 'text/html'},
             {'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'},
         ]
-        for _headers in _uas:
+        # V66: Also try mbasic / m.facebook variants for resolution - share token sometimes resolves on mbasic even when www returns login
+        _resolve_urls = [url]
+        try:
+            import urllib.parse as _up66
+            _p66 = _up66.urlparse(url)
+            for _h66 in ["mbasic.facebook.com", "m.facebook.com"]:
+                _resolve_urls.append(_up66.urlunparse((_p66.scheme or "https", _h66, _p66.path, _p66.params, _p66.query, "")))
+        except Exception: pass
+        for _resolve_url in _resolve_urls:
+         for _headers in _uas:
             try:
-                # V59: Try WARP first (home IP), fall back to direct if WARP fails - FB login redirect is IP + cookies, WARP fixes IP part
+                # V66: WARP->DIRECT retry on blocked response too (429/403/login), not just exception - same fix as IG V65
                 try: _prox59 = _requests_proxies_for_url(url)
                 except Exception: _prox59 = None
-                try: _r = _rq56.get(url, headers=_headers, cookies=_cookies, allow_redirects=True, timeout=15, proxies=_prox59)
-                except Exception: _r = _rq56.get(url, headers=_headers, cookies=_cookies, allow_redirects=True, timeout=15)
+                try: _r = _rq56.get(_resolve_url, headers=_headers, cookies=_cookies, allow_redirects=True, timeout=15, proxies=_prox59)
+                except Exception: _r = _rq56.get(_resolve_url, headers=_headers, cookies=_cookies, allow_redirects=True, timeout=15)
+                try:
+                    _st66 = getattr(_r, 'status_code', 0)
+                    _txt66 = _r.text or ""
+                    _blocked66 = _st66 in (429, 403, 401) or ("/login" in (getattr(_r,'url','') or "") and "scontent" not in _txt66)
+                    if _blocked66 and _prox59:
+                        _trace(f"share resolve [{_resolve_url.split('/')[2]}]: WARP blocked HTTP {_st66}, retrying DIRECT")
+                        try: _r = _rq56.get(_resolve_url, headers=_headers, cookies=_cookies, allow_redirects=True, timeout=15, proxies=None)
+                        except Exception: pass
+                except Exception: pass
                 _text = _r.text or ""
+                try: _trace(f"share resolve [{_resolve_url.split('/')[2]}]: HTTP {getattr(_r,'status_code','?')}, len={len(_text)}, final={'login' if '/login' in (getattr(_r,'url','') or '') else 'ok'}")
+                except Exception: pass
                 if not _text or len(_text) < 500: continue
                 # V58 FIX: NEVER accept login URL as resolved (V56 bug). FB /share/ with no valid FB cookies redirects to /login/?next=<real URL>.
                 # The next= param IS the real post (story.php?story_fbid=...). Parse it, don't return login URL.
@@ -3281,6 +3312,9 @@ def _resolve_share_link(url):
     except Exception as _e56:
         try: _trace(f"share resolve failed: {type(_e56).__name__}: {str(_e56)[:100]}")
         except Exception: pass
+    # V66: Don't silently return original share URL - log that resolution FAILED, downstream will fail with NO_IMAGES unless cookies/real link
+    try: _trace(f"share resolve: FAILED - all UAs + mbasic/m returned login/empty for {url[:60]} - returning original share URL (downstream will fail unless FB cookies c_user+xs valid or real photo.php/posts link used)")
+    except Exception: pass
     return url
 
 def _fb_via_oembed(url):
@@ -3388,6 +3422,22 @@ def _fb_via_mbasic(url):
         return []
     except Exception: return []
 
+def _fb_filter_images(urls):
+    """V66: Improve carousel extraction + image URL filtering: drop tiny thumbnails (s32/s50/s64/s100/s150), profile pics, static/rsrc/emoji/sprite, dedupe by base URL without query, prefer larger scontent."""
+    try:
+        _seen=set(); _res=[]
+        for _u in urls or []:
+            if not _u or not _u.startswith('http'): continue
+            _low=_u.lower()
+            if any(_bad in _low for _bad in ["profile_pic","static","rsrc","emoji","sprite","favicon","logo","s32x32","s50x50","s64x64","s100x100","s150x150","p32x32","p50x50","p64x64","p100x100","s32x","s50x"]): continue
+            if ".jpg" not in _low and ".jpeg" not in _low and ".png" not in _low and ".webp" not in _low and ".mp4" not in _low: continue
+            # Dedupe by base URL without query (FB adds different ?oh=... for same image)
+            _k=_u.split('?')[0]
+            if _k in _seen: continue
+            _seen.add(_k); _res.append(_u)
+        return _res[:20]
+    except Exception: return list(urls or [])[:20]
+
 def _fb_images_from_share_page(url):
     """V56: Even if resolve fails, the share page HTML itself has og:image + scontent URLs. Return them directly - don't need gallery-dl.
     V58: If url is a login URL, parse next= first - don't scrape the login page.
@@ -3449,11 +3499,7 @@ def _fb_images_from_share_page(url):
                     if (".jpg" in _u or ".jpeg" in _u or ".png" in _u or ".webp" in _u) and _u not in _out: _out.append(_u)
                 if _out: break
             except Exception: continue
-        _seen = set(); _res = []
-        for _u in _out:
-            _k = _u.split('?')[0]
-            if _k not in _seen: _seen.add(_k); _res.append(_u)
-        return _res[:20]
+        return _fb_filter_images(_out)
     except Exception: return []
 
 def download_carousel(url, output_dir, cap_bytes, http_headers=None, cookiefile=None):
@@ -3461,27 +3507,24 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None, cookiefile=
     V54: Now USES cookies (cookies.txt) - FB/IG block anonymous yt-dlp/gallery-dl since V35. Without cookies, FB=0 images, IG carousel falls back to 1 og:image.
     V55: Resolve FB /share/ links first, else yt-dlp/gallery-dl say Unsupported URL.
     Every step writes one line to LAST_CAROUSEL_TRACE."""
-    # Keep the original URL: Facebook share wrappers can contain useful public
-    # preview data even when resolution to the canonical post fails.
-    original_url = url
-    LAST_CAROUSEL_TRACE.clear()
-    # Resolve FB share links before extractors, but retain original_url for fallback.
+    # V55: FB share link -> real post URL before anything else
     try:
         url = _resolve_share_link(url)
-        if url != original_url:
-            _trace(f"share URL resolved to canonical post: {url[:100]}")
-        else:
-            _trace("share URL not resolved; retaining original wrapper for fallback")
-    except Exception as _resolve_err:
-        _trace(f"share URL resolution error: {type(_resolve_err).__name__}: {str(_resolve_err)[:100]}")
+    except Exception: pass
     # V55: Strip IG tracking (?jplx=..., ?igshid=...) - they make yt-dlp treat same post as different URL and break cache
+    # V65: img_index=2 (e.g. Df3AvgvDV-T?img_index=2) is NOT a separate image - it's slide 2 of same post. Strip it and fetch ENTIRE carousel, not just slide 2.
     try:
         if "instagram.com" in url.lower():
             import urllib.parse as _up55
             _pu = _up55.urlparse(url)
+            _qs65 = _up55.parse_qs(_pu.query)
+            if "img_index" in _qs65:
+                try: _trace(f"IG: img_index={_qs65.get('img_index',['?'])[0]} ignored - fetching ENTIRE carousel for {_pu.path}")
+                except Exception: pass
             _clean = _up55.urlunparse((_pu.scheme, _pu.netloc, _pu.path, '', '', ''))
             if _clean != url: url = _clean
     except Exception: pass
+    LAST_CAROUSEL_TRACE.clear()
     low = url.lower()
     if "youtube.com/post/" in low:
         _trace("start (youtube post)")
@@ -3605,18 +3648,10 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None, cookiefile=
                         return _ig_files
             except Exception as _e55: _trace(f"IG JSON failed: {type(_e55).__name__}: {str(_e55)[:120]}")
         # ---- 3c) V56: FB share page itself has images even if resolve + gallery-dl both fail - try direct share-page scrape FIRST ----
-        if not files and ("facebook.com" in low or "fb.watch" in low or "facebook.com" in (original_url or "").lower()):
+        if not files and ("facebook.com" in low or "fb.watch" in low):
             try:
-                # Try the original share wrapper first, then the canonical URL.
-                # The wrapper may expose preview metadata even if FB blocks resolution.
-                _fb_urls = []
-                _fb_candidates = [original_url]
-                if url and url != original_url:
-                    _fb_candidates.append(url)
-                for _fb_candidate in _fb_candidates:
-                    _fb_urls = _fb_images_from_share_page(_fb_candidate) or scrape_all_html_images(_fb_candidate, cookiefile)
-                    if _fb_urls:
-                        break
+                # _fb_images_from_share_page uses original share URL (before resolve) - it parses og:image + scontent from that page
+                _fb_urls = _fb_images_from_share_page(url) or scrape_all_html_images(url, cookiefile)
                 if _fb_urls:
                     _trace(f"FB scrape: {len(_fb_urls)} image URL(s) found")
                     _fb_files = []
@@ -3628,6 +3663,10 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None, cookiefile=
                         return _fb_files
             except Exception as _e55: _trace(f"FB scrape failed: {type(_e55).__name__}")
 
+        # V64: Final fallback - distinguish genuinely unavailable (404 / private) vs extraction failure (all methods 429/login/timeout)
+        try:
+            _trace(f"CAROUSEL DIAG: yt-dlp entries=0/timeout, gallery-dl timeout, instaloader BadResponse/timeout, IG JSON 0 URLs -> if all were login_wall/429, it's AUTH/IP, not 'post unavailable'. If IG JSON was 404, post is genuinely gone/private.")
+        except Exception: pass
         files = [p for p in files if os.path.getsize(p) <= cap_bytes][:MAX_CAROUSEL_ITEMS]
         # 2+ files is a carousel. Exactly 1 file is accepted only when it came from the
         # photo-post fallback (gallery-dl), so normal single videos are not touched.
