@@ -48,13 +48,75 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-# ===== Deno on PATH (for yt-dlp YouTube support) =====
+# ===== Deno on PATH (for yt-dlp YouTube support + bgutil PO token) =====
 _DENO_BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".deno", "bin")
 if os.path.isdir(_DENO_BIN):
     os.environ["PATH"] = _DENO_BIN + os.pathsep + os.environ.get("PATH", "")
     logger.info(f"Deno path added: {_DENO_BIN}, found={shutil.which('deno')}")
 else:
     logger.warning("Deno folder .deno/bin not found: YouTube may fail")
+
+def _ensure_deno():
+    """V48: bgutil PO-token provider needs Deno to run BotGuard JS. Render does NOT have Deno by default,
+    and .deno/ is not in GitHub (gitignored), so download it once on startup if missing."""
+    try:
+        if shutil.which("deno"):
+            return shutil.which("deno")
+        deno_bin = os.path.join(_DENO_BIN, "deno")
+        if os.path.isfile(deno_bin):
+            try: os.chmod(deno_bin, 0o755)
+            except Exception: pass
+            os.environ["PATH"] = _DENO_BIN + os.pathsep + os.environ.get("PATH", "")
+            return deno_bin
+        # Download Deno 1.46 (stable, works with bgutil) - Linux x64
+        os.makedirs(_DENO_BIN, exist_ok=True)
+        import zipfile, urllib.request
+        _url = "https://github.com/denoland/deno/releases/download/v1.46.3/deno-x86_64-unknown-linux-gnu.zip"
+        _zip = os.path.join(_DENO_BIN, "deno.zip")
+        try:
+            logger.info("V48: Deno not found, downloading Deno for bgutil PO token...")
+            urllib.request.urlretrieve(_url, _zip)
+            with zipfile.ZipFile(_zip, "r") as z:
+                z.extractall(_DENO_BIN)
+            try: os.remove(_zip)
+            except Exception: pass
+            try: os.chmod(deno_bin, 0o755)
+            except Exception: pass
+            os.environ["PATH"] = _DENO_BIN + os.pathsep + os.environ.get("PATH", "")
+            logger.info(f"V48: Deno installed: {deno_bin}, found={shutil.which('deno')}")
+            return deno_bin
+        except Exception as e:
+            logger.warning(f"V48: Deno download failed: {e} - PO token will not work, falling back to iOS")
+            return None
+    except Exception as e:
+        logger.warning(f"V48: _ensure_deno failed: {e}")
+        return None
+
+def _bgutil_available():
+    """V48: check if bgutil-ytdlp-pot-provider plugin is installed (pip). If not, PO token generation will fail."""
+    try:
+        import importlib.util as _ilu2
+        # bgutil plugin registers under yt_dlp_plugins
+        if _ilu2.find_spec("bgutil_ytdlp_pot_provider") is not None:
+            return True
+        # Also check via pip list / yt_dlp plugin discovery
+        try:
+            import pkgutil
+            for _m in pkgutil.iter_modules():
+                if "bgutil" in (_m.name or "").lower():
+                    return True
+        except Exception:
+            pass
+        return False
+    except Exception:
+        return False
+
+# Try to ensure Deno at import time (non-blocking, best effort) - do NOT crash bot if it fails
+try:
+    _ensure_deno()
+    logger.info(f"V48: bgutil_available={_bgutil_available()} deno={shutil.which('deno')}")
+except Exception as _e:
+    logger.warning(f"V48: Deno/bgutil check failed: {_e}")
 # ======================================================
 
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
@@ -1764,12 +1826,16 @@ def _yt_dlp_version():
             return "unknown"
 
 def _yt_ydl_opts_for_youtube(base_opts=None):
-    """V47: YouTube's web client now needs PO token + fails with 'Failed to extract any player response'.
-    iOS client does NOT need PO token and does NOT need webpage player, so try iOS first, then Android, then web.
-    player_skip=['webpage'] skips the webpage player extraction that is failing."""
+    """V48: V47 iOS-first was NOT enough - your log shows yt-dlp 2026.10.26 STILL fails with 'Failed to extract any player response'
+    even on iOS. YouTube now requires PO token (Proof of Origin) for mweb/web AND for some iOS videos too.
+    Fix: use mweb + web with PO token via bgutil (bgutil-ytdlp-pot-provider pip package + Deno), then iOS as fallback.
+    If bgutil is NOT installed, po_token=auto will try anyway, and iOS fallback still runs.
+    Do NOT skip webpage when using PO token - PO token needs webpage session."""
     o = dict(base_opts or {})
+    # V48: PO token via bgutil. 'bgutil' = use bgutil plugin if installed, 'auto' = let yt-dlp pick provider.
+    # Order: mweb (best with PO token, per yt-dlp wiki) -> web (also needs PO token) -> ios -> android (no PO token needed, last resort)
     o.update({
-        "extractor_args": {"youtube": {"player_client": ["ios", "android", "web"], "player_skip": ["webpage"]}},
+        "extractor_args": {"youtube": {"player_client": ["mweb", "web", "ios", "android"], "po_token": ["bgutil", "auto"]}},
         "quiet": True, "no_warnings": True,
     })
     try:
@@ -2893,7 +2959,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
             for _attempt in range(2):
                 try:
                     _opts = dict(ydl_opts)
-                    _opts.update({'format': _fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['ios', 'android', 'web'], 'player_skip': ['webpage']}}})
+                    _opts.update({'format': _fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['mweb', 'web', 'ios', 'android'], 'po_token': ['bgutil', 'auto']}}})
                     with yt_dlp.YoutubeDL(_opts) as ydl:
                         info = ydl.extract_info(url, download=True)
                         try: LAST_TITLE_BY_URL[url] = {"title": info.get("title"), "poster": info.get("uploader") or info.get("channel")}
@@ -2939,7 +3005,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                 import time as _t_wait
                 _t_wait.sleep(15)
                 _retry_opts = dict(ydl_opts)
-                _retry_opts.update({'format': 'best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['ios'], 'player_skip': ['webpage']}}})
+                _retry_opts.update({'format': 'best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['mweb'], 'po_token': ['bgutil', 'auto']}}})
                 with yt_dlp.YoutubeDL(_retry_opts) as ydl:
                     info = ydl.extract_info(url, download=True)
                     try: LAST_TITLE_BY_URL[url] = {"title": info.get("title"), "poster": info.get("uploader") or info.get("channel")}
@@ -3092,7 +3158,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                     if ("failed to extract" in msg or "player response" in msg) and "youtube.com" in url.lower() or "youtu.be" in url.lower():
                         try:
                             _ios_opts = dict(ydl_opts)
-                            _ios_opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, f'%(id)s_{qual_name}.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['ios'], 'player_skip': ['webpage']}}})
+                            _ios_opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, f'%(id)s_{qual_name}.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['mweb'], 'po_token': ['bgutil', 'auto']}}})
                             if qual_name != "worst":
                                 _ios_opts.update({'format': 'bv*+ba/b', 'format_sort': [f"res:{qual_name[:-1]}"]})
                             with yt_dlp.YoutubeDL(_ios_opts) as _ydl2:
@@ -4951,7 +5017,8 @@ def _og_title_for_url(url):
 
 def _piped_streams_for_youtube(video_id):
     """Piped API - a different server fetches from YouTube, so Render IP block doesn't matter. Returns (title, uploader, audioStreams, videoStreams, hls)."""
-    # V47: kavin.rocks + pipedapi-libre.kavin.rocks are DEAD (your log: Max retries exceeded). They were first, so Piped wasted time on dead hosts.
+    # V47/V48: kavin.rocks + pipedapi-libre.kavin.rocks are DEAD (your log: Max retries exceeded). They were first, so Piped wasted time on dead hosts.
+    # NOTE V48: Even alive Piped hosts may fail for this video - Piped also needs PO token now, YouTube blocks Piped's IPs too.
     # New order: alive hosts first, dead kavin hosts last as last resort.
     hosts = ["https://pipedapi.adminforge.de", "https://pipedapi.leptons.xyz", "https://pipedapi.reallyaweso.me", "https://pipedapi.ducks.party", "https://pipedapi.darkness.services", "https://pipedapi.priv.au", "https://api.piped.yt", "https://pipedapi.kavin.rocks", "https://pipedapi-libre.kavin.rocks"]
     last_err = None
@@ -5115,11 +5182,12 @@ def _cobalt_download_youtube(url, output_dir, cap_bytes, is_audio=False, preferr
         _q = str(preferred_quality).lower().replace("p","")
         if _q in ("2160","1440","1080","720","480","360","240"): _vq = _q
     # Hosts: official first, then community instances that do NOT require JWT
+    # V48: timelessnesses.me is DEAD - your log: NameResolutionError (DNS fails). Removed.
+    # api.cobalt.tools/api is duplicate of api.cobalt.tools. Keep only 2 hosts that still resolve.
+    # NOTE: api.cobalt.tools now needs COBALT_API_KEY env (get free key at cobalt.tools -> API). Without key it returns jwt.missing.
     cobalt_hosts = [
         "https://api.cobalt.tools",
         "https://cobalt-api.kavin.rocks",
-        "https://api.cobalt.tools/api",
-        "https://cobalt-api.timelessnesses.me",
     ]
     _api_key = (os.getenv("COBALT_API_KEY", "") or "").strip()
     _headers_base = {"Accept": "application/json", "Content-Type": "application/json"}
@@ -5551,7 +5619,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
         if "FILE_TOO_LARGE" in str(e): err = t["error_50mb"]
         elif "MTPROTO_OFF" in str(e): err = "⚠️ Big files need fast mode, which is offline right now."
         elif "MTPROTO_PEER" in str(e): err = "⚠️ Send /start to this bot once, then send the link again."
-        elif "SITE_BLOCKED" in str(e): err = "⏳ YouTube blocked yt-dlp (player response / PO token). I tried Piped + Cobalt + Invidious too - Piped server was down, Cobalt now needs an API key, Invidious server was down. Try again in a few minutes - credit NOT taken."
+        elif "SITE_BLOCKED" in str(e): err = "⏳ YouTube blocked this video (needs PO token - even newest yt-dlp failed). Piped + Cobalt + Invidious also failed. Cobalt needs a free API key (set COBALT_API_KEY on Render). Try again in a few minutes - credit NOT taken."
         elif isinstance(e, (asyncio.TimeoutError, TimeoutError)): err = "⚠️ This is taking too long, so I stopped. Please try again later."
         else: err = t["error_generic"]
         kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
