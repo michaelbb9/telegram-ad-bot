@@ -11,3 +11,5 @@ gallery-dl
 parth-dl
 instaloader
 bgutil-ytdlp-pot-provider
+yt-dlp-getpot-wpc
+nodriver
