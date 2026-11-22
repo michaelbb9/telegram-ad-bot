@@ -2703,12 +2703,39 @@ def _ig_carousel_via_json(url, cookiefile=None):
                 # V59: WARP for IG (same as YT) - Render IP gets 429, WARP looks like home IP. Fall back to direct if WARP fails.
                 try: _prox59ig = _requests_proxies_for_url(url)
                 except Exception: _prox59ig = None
-                try: _r = requests.get(_u, headers=_h_try, cookies=_cookies_try, timeout=15, proxies=_prox59ig)
-                except Exception: _r = requests.get(_u, headers=_h_try, cookies=_cookies_try, timeout=15)
-                _txt = _r.text or ""
-                if not _txt or len(_txt) < 500: continue
+                _r = None
+                try:
+                    _r = requests.get(_u, headers=_h_try, cookies=_cookies_try, timeout=15, proxies=_prox59ig)
+                except Exception:
+                    pass
+                # A proxy can return a 403/429 or a login wall without raising.
+                # In that case, make one direct attempt before abandoning this endpoint.
+                _txt = (_r.text or "") if _r is not None else ""
+                _login_wall = ("Log in to Instagram" in _txt and "display_url" not in _txt and "scontent" not in _txt and "cdninstagram" not in _txt)
+                if _r is None or getattr(_r, "status_code", 200) >= 400 or _login_wall:
+                    try:
+                        _r_direct = requests.get(_u, headers=_h_try, cookies=_cookies_try, timeout=15)
+                        if getattr(_r_direct, "status_code", 500) < 400 and len(_r_direct.text or "") > len(_txt):
+                            _r = _r_direct
+                            _txt = _r.text or ""
+                    except Exception:
+                        pass
+                if _r is None:
+                    try: _trace(f"IG endpoint failed: {_kind}, no response")
+                    except Exception: pass
+                    continue
+                if getattr(_r, "status_code", 200) >= 400:
+                    try: _trace(f"IG endpoint HTTP { _r.status_code }: {_kind}")
+                    except Exception: pass
+                    continue
+                if not _txt or len(_txt) < 500:
+                    try: _trace(f"IG endpoint empty/short: {_kind}, HTTP {_r.status_code}, {len(_txt)} chars")
+                    except Exception: pass
+                    continue
                 # If login wall, skip quickly - don't waste time parsing it
                 if "Log in to Instagram" in _txt and "display_url" not in _txt and "scontent" not in _txt and "cdninstagram" not in _txt:
+                    try: _trace(f"IG endpoint login wall: {_kind}, HTTP {_r.status_code}")
+                    except Exception: pass
                     continue
                 # Try parse as JSON first (for __a=1)
                 try:
@@ -2742,7 +2769,7 @@ def _ig_carousel_via_json(url, cookiefile=None):
                     _u2 = _h55.unescape(_mm.group(1))
                     if _u2.startswith('http') and _u2 not in _out: _out.append(_u2)
                 if len(_out) >= 2: break
-                if _out and _kind == "ddig": break
+                if _out and _kind.startswith("ddig"): break
             except Exception: continue
         # De-dupe keep order
         _seen = set(); _res = []
@@ -3434,10 +3461,19 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None, cookiefile=
     V54: Now USES cookies (cookies.txt) - FB/IG block anonymous yt-dlp/gallery-dl since V35. Without cookies, FB=0 images, IG carousel falls back to 1 og:image.
     V55: Resolve FB /share/ links first, else yt-dlp/gallery-dl say Unsupported URL.
     Every step writes one line to LAST_CAROUSEL_TRACE."""
-    # V55: FB share link -> real post URL before anything else
+    # Keep the original URL: Facebook share wrappers can contain useful public
+    # preview data even when resolution to the canonical post fails.
+    original_url = url
+    LAST_CAROUSEL_TRACE.clear()
+    # Resolve FB share links before extractors, but retain original_url for fallback.
     try:
         url = _resolve_share_link(url)
-    except Exception: pass
+        if url != original_url:
+            _trace(f"share URL resolved to canonical post: {url[:100]}")
+        else:
+            _trace("share URL not resolved; retaining original wrapper for fallback")
+    except Exception as _resolve_err:
+        _trace(f"share URL resolution error: {type(_resolve_err).__name__}: {str(_resolve_err)[:100]}")
     # V55: Strip IG tracking (?jplx=..., ?igshid=...) - they make yt-dlp treat same post as different URL and break cache
     try:
         if "instagram.com" in url.lower():
@@ -3446,7 +3482,6 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None, cookiefile=
             _clean = _up55.urlunparse((_pu.scheme, _pu.netloc, _pu.path, '', '', ''))
             if _clean != url: url = _clean
     except Exception: pass
-    LAST_CAROUSEL_TRACE.clear()
     low = url.lower()
     if "youtube.com/post/" in low:
         _trace("start (youtube post)")
@@ -3570,10 +3605,18 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None, cookiefile=
                         return _ig_files
             except Exception as _e55: _trace(f"IG JSON failed: {type(_e55).__name__}: {str(_e55)[:120]}")
         # ---- 3c) V56: FB share page itself has images even if resolve + gallery-dl both fail - try direct share-page scrape FIRST ----
-        if not files and ("facebook.com" in low or "fb.watch" in low):
+        if not files and ("facebook.com" in low or "fb.watch" in low or "facebook.com" in (original_url or "").lower()):
             try:
-                # _fb_images_from_share_page uses original share URL (before resolve) - it parses og:image + scontent from that page
-                _fb_urls = _fb_images_from_share_page(url) or scrape_all_html_images(url, cookiefile)
+                # Try the original share wrapper first, then the canonical URL.
+                # The wrapper may expose preview metadata even if FB blocks resolution.
+                _fb_urls = []
+                _fb_candidates = [original_url]
+                if url and url != original_url:
+                    _fb_candidates.append(url)
+                for _fb_candidate in _fb_candidates:
+                    _fb_urls = _fb_images_from_share_page(_fb_candidate) or scrape_all_html_images(_fb_candidate, cookiefile)
+                    if _fb_urls:
+                        break
                 if _fb_urls:
                     _trace(f"FB scrape: {len(_fb_urls)} image URL(s) found")
                     _fb_files = []
