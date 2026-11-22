@@ -1752,11 +1752,48 @@ def save_to_file_cache(link_url, download_type, src_path):
         return None
 
 # --- PART 3: social-media metadata ---
+def _yt_dlp_version():
+    """V47: yt_dlp.__version__ does NOT exist - real version is in yt_dlp.version.__version__. Old code always logged 'unknown'."""
+    try:
+        import yt_dlp.version as _v
+        return getattr(_v, "__version__", "unknown")
+    except Exception:
+        try:
+            return getattr(yt_dlp, "__version__", "unknown")
+        except Exception:
+            return "unknown"
+
+def _yt_ydl_opts_for_youtube(base_opts=None):
+    """V47: YouTube's web client now needs PO token + fails with 'Failed to extract any player response'.
+    iOS client does NOT need PO token and does NOT need webpage player, so try iOS first, then Android, then web.
+    player_skip=['webpage'] skips the webpage player extraction that is failing."""
+    o = dict(base_opts or {})
+    o.update({
+        "extractor_args": {"youtube": {"player_client": ["ios", "android", "web"], "player_skip": ["webpage"]}},
+        "quiet": True, "no_warnings": True,
+    })
+    try:
+        import importlib.util as _ilu
+        if _ilu.find_spec("curl_cffi") is not None:
+            o["impersonate"] = "chrome"
+    except Exception:
+        pass
+    return o
+
 def get_social_metadata(link):
     """Fetch title / poster / views / likes / comments / description / duration / est. size.
     Returns dict, or None on failure (caller falls back to fetch_url_metadata)."""
     try:
-        ydl_meta_opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True}
+        # V47: metadata was using default web client -> same 'Failed to extract any player response' as downloads.
+        # Use iOS-first + skip webpage, and cookies if present, so metadata works even when web client is blocked.
+        ydl_meta_opts = _yt_ydl_opts_for_youtube({"skip_download": True, "noplaylist": True})
+        try:
+            if "tiktok.com" in (link or "").lower() and os.path.exists("tiktok_cookies.txt"):
+                ydl_meta_opts["cookiefile"] = "tiktok_cookies.txt"
+            elif os.path.exists("cookies.txt"):
+                ydl_meta_opts["cookiefile"] = "cookies.txt"
+        except Exception:
+            pass
         with yt_dlp.YoutubeDL(ydl_meta_opts) as ydl:
             info = ydl.extract_info(link, download=False)
         if not info:
@@ -2809,7 +2846,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
     # V44: log cookies + yt-dlp version so Render logs prove if GitHub actually delivered cookies.txt
     try:
         _ce, _cl, _cs, _cyt = _cookies_status()
-        try: _ydlv = getattr(yt_dlp, "__version__", "unknown")
+        try: _ydlv = _yt_dlp_version()
         except Exception: _ydlv = "unknown"
         logger.warning(f"[yt] cookies.txt exists={_ce} lines={_cl} size={_cs} has_youtube={_cyt} cookiefile={cookiefile} yt_dlp={_ydlv} YT_BLOCKED_UNTIL={YT_BLOCKED_UNTIL} now={time.time()}")
     except Exception: pass
@@ -2820,7 +2857,9 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
             _skip_ytdlp_yt = True
             logger.warning(f"[yt] YT_BLOCKED cooldown active, skipping yt-dlp for {url}")
     except Exception: pass
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'proxy': PROXY_URL, 'extractor_args': {'youtube': {'player_client': ['web', 'android', 'ios']}}}
+    # V47: web client is the one that fails with 'Failed to extract any player response' (needs PO token).
+    # iOS first + skip webpage player extraction. Web is last resort only.
+    ydl_opts = _yt_ydl_opts_for_youtube({'http_headers': http_headers, 'proxy': PROXY_URL})
     # PART 1: clean progress (users) / debug log (admin) — hook records, poller edits Telegram message
     if user_id is not None and progress_key:
         ydl_opts['progress_hooks'] = [make_progress_hook(user_id, progress_key)]
@@ -2854,7 +2893,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
             for _attempt in range(2):
                 try:
                     _opts = dict(ydl_opts)
-                    _opts.update({'format': _fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['android', 'ios', 'web', 'tv']}}})
+                    _opts.update({'format': _fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['ios', 'android', 'web'], 'player_skip': ['webpage']}}})
                     with yt_dlp.YoutubeDL(_opts) as ydl:
                         info = ydl.extract_info(url, download=True)
                         try: LAST_TITLE_BY_URL[url] = {"title": info.get("title"), "poster": info.get("uploader") or info.get("channel")}
@@ -2900,7 +2939,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                 import time as _t_wait
                 _t_wait.sleep(15)
                 _retry_opts = dict(ydl_opts)
-                _retry_opts.update({'format': 'best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['android']}}})
+                _retry_opts.update({'format': 'best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['ios'], 'player_skip': ['webpage']}}})
                 with yt_dlp.YoutubeDL(_retry_opts) as ydl:
                     info = ydl.extract_info(url, download=True)
                     try: LAST_TITLE_BY_URL[url] = {"title": info.get("title"), "poster": info.get("uploader") or info.get("channel")}
@@ -2919,9 +2958,12 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
             except Exception as _re:
                 logger.warning(f"Audio 15s retry failed for {url}: {_re}")
                 _last_audio_err = _re
-        # Last resort: Lux can fetch combined video, ffmpeg -> mp3
+        # V47: SKIP Lux for YouTube - it crashes with Go runtime error (your log: asm_amd64.s:1695), wastes 240s, never works for YouTube.
+        # Keep Lux for TikTok/IG/etc where it sometimes works.
+        _is_yt = ("youtube.com" in url.lower() or "youtu.be" in url.lower())
+        # Last resort: Lux can fetch combined video, ffmpeg -> mp3 (non-YouTube only)
         try:
-            _lux = download_with_lux(url, output_dir, cap_bytes, cookiefile)
+            _lux = None if _is_yt else download_with_lux(url, output_dir, cap_bytes, cookiefile)
             if _lux:
                 # Convert lux video to mp3 via ffmpeg
                 import subprocess as _sp
@@ -3045,6 +3087,28 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                 # V15: block has many wordings - check lowercased. V11 only caught exact "not a bot / 429".
                 msg = str(e).lower()
                 if ("not a bot" in msg or "sign in to confirm" in msg or "429" in msg or "403" in msg or "forbidden" in msg or "failed to extract" in msg or "player response" in msg or "no video formats" in msg or "unable to download" in msg or "requested format" in msg):
+                    # V47: 'Failed to extract any player response' is web-client PO-token failure, NOT IP block.
+                    # Try ONE more time with iOS-only (no webpage player) before giving up - iOS often works when web fails.
+                    if ("failed to extract" in msg or "player response" in msg) and "youtube.com" in url.lower() or "youtu.be" in url.lower():
+                        try:
+                            _ios_opts = dict(ydl_opts)
+                            _ios_opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, f'%(id)s_{qual_name}.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['ios'], 'player_skip': ['webpage']}}})
+                            if qual_name != "worst":
+                                _ios_opts.update({'format': 'bv*+ba/b', 'format_sort': [f"res:{qual_name[:-1]}"]})
+                            with yt_dlp.YoutubeDL(_ios_opts) as _ydl2:
+                                _info2 = _ydl2.extract_info(url, download=True)
+                                _path2 = _ydl2.prepare_filename(_info2)
+                                if not os.path.exists(_path2) and os.path.exists(os.path.splitext(_path2)[0]+".mp4"): _path2 = os.path.splitext(_path2)[0]+".mp4"
+                                if os.path.exists(_path2) and os.path.getsize(_path2) > 1000:
+                                    if os.path.getsize(_path2) > cap_bytes:
+                                        os.remove(_path2)
+                                        too_big = True
+                                        continue
+                                    save_to_file_cache(url, "video", _path2)
+                                    return [_path2], best_quality if best_quality != "unknown" else qual_name, f"{os.path.getsize(_path2)/(1024*1024):.1f}MB"
+                        except Exception as _ios_e:
+                            last_err = _ios_e
+                            pass
                     yt_blocked = True
                     break
                 if "unsupported url" in msg:
@@ -3062,8 +3126,10 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
             if insta_files:
                 shutil.rmtree(os.path.dirname(insta_files[0]), ignore_errors=True)
 
+        # V47: SKIP Lux for YouTube - Go crash (asm_amd64.s:1695), never works for YouTube. Keep for other sites.
+        _is_yt_v = ("youtube.com" in url.lower() or "youtu.be" in url.lower())
         # Last-resort independent engine. V15: try it even when blocked - V11 skipped it when blocked.
-        if not too_big:
+        if not too_big and not _is_yt_v:
             lux_path = download_with_lux(url, output_dir, cap_bytes, cookiefile)
             if lux_path:
                 save_to_file_cache(url, "video", lux_path)  # PART 2
@@ -4885,11 +4951,13 @@ def _og_title_for_url(url):
 
 def _piped_streams_for_youtube(video_id):
     """Piped API - a different server fetches from YouTube, so Render IP block doesn't matter. Returns (title, uploader, audioStreams, videoStreams, hls)."""
-    hosts = ["https://pipedapi.kavin.rocks", "https://pipedapi.adminforge.de", "https://pipedapi.leptons.xyz", "https://pipedapi.reallyaweso.me", "https://pipedapi-libre.kavin.rocks"]
+    # V47: kavin.rocks + pipedapi-libre.kavin.rocks are DEAD (your log: Max retries exceeded). They were first, so Piped wasted time on dead hosts.
+    # New order: alive hosts first, dead kavin hosts last as last resort.
+    hosts = ["https://pipedapi.adminforge.de", "https://pipedapi.leptons.xyz", "https://pipedapi.reallyaweso.me", "https://pipedapi.ducks.party", "https://pipedapi.darkness.services", "https://pipedapi.priv.au", "https://api.piped.yt", "https://pipedapi.kavin.rocks", "https://pipedapi-libre.kavin.rocks"]
     last_err = None
     for host in hosts:
         try:
-            r = requests.get(f"{host}/streams/{video_id}", timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+            r = requests.get(f"{host}/streams/{video_id}", timeout=20, headers={"User-Agent": "Mozilla/5.0"})
             if r.status_code != 200:
                 last_err = f"{host} HTTP {r.status_code}"
                 continue
@@ -5036,48 +5104,104 @@ def _piped_download_video_youtube(url, output_dir, cap_bytes, preferred_quality=
     return None
 
 def _cobalt_download_youtube(url, output_dir, cap_bytes, is_audio=False, preferred_quality=None):
-    """Cobalt API - Cobalt server fetches from YouTube, Render IP not used. Returns (path, quality) or None."""
+    """V47: Cobalt FIX - old code used only https://api.cobalt.tools/ with old payload (vQuality/isAudioOnly).
+    That host now returns 400: {"code":"error.api.auth.jwt.missing"} - it needs an API key (JWT) since Cobalt v10.
+    New: try multiple public Cobalt hosts, try NEW payload format first (downloadMode/videoQuality), then OLD format.
+    If host says jwt.missing, skip it and try next host - don't treat as generic failure.
+    Env COBALT_API_KEY (if you get one from cobalt.tools) is sent as Authorization: Api-Key."""
     import subprocess as _sp
-    try:
-        _vq = "720"
-        if preferred_quality:
-            _q = str(preferred_quality).lower().replace("p","")
-            if _q in ("2160","1440","1080","720","480","360","240"): _vq = _q
-        payload = {"url": url, "vQuality": _vq, "filenamePattern": "basic", "isAudioOnly": bool(is_audio), "isNoTTWatermark": True, "isTTFullAudio": True}
-        if is_audio: payload["aFormat"] = "mp3"
-        r = requests.post("https://api.cobalt.tools/", json=payload, headers={"Accept": "application/json", "Content-Type": "application/json"}, timeout=30)
-        if r.status_code != 200:
-            raise RuntimeError(f"Cobalt HTTP {r.status_code}: {r.text[:200]}")
-        data = r.json()
-        if data.get("status") not in ("redirect","stream","picker"):
-            raise RuntimeError(f"Cobalt status {data.get('status')}: {str(data.get('text'))[:200]}")
-        durl = data.get("url")
-        if not durl and data.get("picker"):
-            # picker: list of items, take first video
-            try: durl = data["picker"][0].get("url")
-            except Exception: durl = None
-        if not durl: raise RuntimeError("Cobalt no URL")
-        vid = ""
-        try:
-            m = YT_ID_RE.search(url or "")
-            vid = m.group(1) if m else "cobalt"
-        except Exception: vid = "cobalt"
+    _vq = "720"
+    if preferred_quality:
+        _q = str(preferred_quality).lower().replace("p","")
+        if _q in ("2160","1440","1080","720","480","360","240"): _vq = _q
+    # Hosts: official first, then community instances that do NOT require JWT
+    cobalt_hosts = [
+        "https://api.cobalt.tools",
+        "https://cobalt-api.kavin.rocks",
+        "https://api.cobalt.tools/api",
+        "https://cobalt-api.timelessnesses.me",
+    ]
+    _api_key = (os.getenv("COBALT_API_KEY", "") or "").strip()
+    _headers_base = {"Accept": "application/json", "Content-Type": "application/json"}
+    if _api_key:
+        _headers_base["Authorization"] = f"Api-Key {_api_key}"
+    last_err = None
+    for _host in cobalt_hosts:
+        # Try NEW format first, then OLD format
+        payloads = []
         if is_audio:
-            tmp = os.path.join(output_dir, f"cobalt_{vid}.mp3")
-            _download_url_to_file(durl, tmp, cap_bytes)
-            if os.path.exists(tmp) and os.path.getsize(tmp) > 1000:
-                return tmp, "audio"
-            return None
-        tmp = os.path.join(output_dir, f"cobalt_{vid}_{_vq}p.mp4")
-        _download_url_to_file(durl, tmp, cap_bytes)
-        if os.path.exists(tmp) and os.path.getsize(tmp) > 1000:
-            return tmp, f"{_vq}p"
-        return None
-    except ValueError:
-        raise
-    except Exception as e:
-        logger.warning(f"Cobalt failed for {url}: {e}")
-        return None
+            payloads.append({"url": url, "downloadMode": "audio", "audioFormat": "mp3", "filenameStyle": "basic"})
+            payloads.append({"url": url, "vQuality": _vq, "filenamePattern": "basic", "isAudioOnly": True, "isNoTTWatermark": True, "isTTFullAudio": True, "aFormat": "mp3"})
+        else:
+            payloads.append({"url": url, "downloadMode": "auto", "videoQuality": _vq, "filenameStyle": "basic"})
+            payloads.append({"url": url, "vQuality": _vq, "filenamePattern": "basic", "isAudioOnly": False, "isNoTTWatermark": True, "isTTFullAudio": True})
+        for _payload in payloads:
+            try:
+                # Cobalt v10 endpoint is POST / (some instances need POST /api/json)
+                _endpoints = [_host, _host.rstrip("/") + "/api/json"] if _host.endswith("cobalt.tools") else [_host]
+                # For kavin/timeless hosts, endpoint is just host root
+                if "kavin" in _host or "timeless" in _host:
+                    _endpoints = [_host]
+                for _ep in _endpoints:
+                    try:
+                        r = requests.post(_ep, json=_payload, headers=_headers_base, timeout=30)
+                    except Exception as _e:
+                        last_err = str(_e)[:150]
+                        continue
+                    if r.status_code != 200:
+                        _txt = (r.text or "")[:250]
+                        # JWT missing = this host needs a key, try next host - not a real video failure
+                        if "jwt.missing" in _txt or "api.auth" in _txt:
+                            last_err = f"{_host} needs API key (jwt.missing)"
+                            break  # break endpoints, try next host
+                        last_err = f"{_host} HTTP {r.status_code}: {_txt}"
+                        continue
+                    try:
+                        data = r.json()
+                    except Exception:
+                        last_err = f"{_host} bad JSON"
+                        continue
+                    if data.get("status") not in ("redirect","stream","picker","tunnel"):
+                        # New API may return status=error with jwt missing
+                        _etxt = str(data.get("error") or data.get("text") or "")[:200]
+                        if "jwt" in _etxt.lower() or "auth" in _etxt.lower():
+                            last_err = f"{_host} needs API key (jwt.missing)"
+                            break
+                        last_err = f"{_host} status {data.get('status')}: {_etxt}"
+                        continue
+                    durl = data.get("url")
+                    if not durl and data.get("picker"):
+                        try: durl = data["picker"][0].get("url")
+                        except Exception: durl = None
+                    if not durl:
+                        last_err = f"{_host} no URL"
+                        continue
+                    vid = ""
+                    try:
+                        _m2 = YT_ID_RE.search(url or "")
+                        vid = _m2.group(1) if _m2 else "cobalt"
+                    except Exception: vid = "cobalt"
+                    if is_audio:
+                        tmp = os.path.join(output_dir, f"cobalt_{vid}.mp3")
+                        _download_url_to_file(durl, tmp, cap_bytes)
+                        if os.path.exists(tmp) and os.path.getsize(tmp) > 1000:
+                            return tmp, "audio"
+                        continue
+                    tmp = os.path.join(output_dir, f"cobalt_{vid}_{_vq}p.mp4")
+                    _download_url_to_file(durl, tmp, cap_bytes)
+                    if os.path.exists(tmp) and os.path.getsize(tmp) > 1000:
+                        return tmp, f"{_vq}p"
+                    continue
+                # If this host said jwt.missing, don't try old payload on same host - go to next host
+                if last_err and "jwt.missing" in str(last_err):
+                    break
+            except ValueError:
+                raise
+            except Exception as e:
+                last_err = str(e)[:150]
+                continue
+    logger.warning(f"Cobalt failed for {url}: {last_err}")
+    return None
 
 def _cookies_status():
     """Returns (exists, lines, size, has_youtube) for cookies.txt - so Render logs show if GitHub actually delivered it."""
@@ -5098,7 +5222,8 @@ def _invidious_download_youtube(url, output_dir, cap_bytes, is_audio=False, pref
         vid = m.group(1) if m else None
     except Exception: pass
     if not vid: return None
-    hosts = ["https://inv.nadeko.net", "https://invidious.privacyredirect.com", "https://iv.datura.network", "https://invidious.flokinet.to", "https://invidious.0011.lt"]
+    # V47: 0011.lt + privacyredirect are DEAD (your log: Max retries exceeded on 0011.lt). Add alive hosts first, dead last.
+    hosts = ["https://invidious.private.coffee", "https://iv.melmac.space", "https://inv.nadeko.net", "https://invidious.flokinet.to", "https://iv.datura.network", "https://invidious.einfachzocken.eu", "https://inv.us.projectsegfau.lt", "https://invidious.privacyredirect.com", "https://invidious.0011.lt"]
     last_err = None
     for host in hosts:
         try:
@@ -5426,7 +5551,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
         if "FILE_TOO_LARGE" in str(e): err = t["error_50mb"]
         elif "MTPROTO_OFF" in str(e): err = "⚠️ Big files need fast mode, which is offline right now."
         elif "MTPROTO_PEER" in str(e): err = "⚠️ Send /start to this bot once, then send the link again."
-        elif "SITE_BLOCKED" in str(e): err = "⏳ YouTube is blocking Render IP (can last hours/days). I tried Piped + Cobalt + Invidious too. If you added cookies.txt, check: 1) does it show on GitHub? If not, .gitignore hid it, Render never got it. 2) Render logs must say cookies.txt exists=True. 3) Update requirements.txt to yt-dlp>=2025.10.01 - old yt-dlp fails even with fresh cookies. Credit NOT taken."
+        elif "SITE_BLOCKED" in str(e): err = "⏳ YouTube blocked yt-dlp (player response / PO token). I tried Piped + Cobalt + Invidious too - Piped server was down, Cobalt now needs an API key, Invidious server was down. Try again in a few minutes - credit NOT taken."
         elif isinstance(e, (asyncio.TimeoutError, TimeoutError)): err = "⚠️ This is taking too long, so I stopped. Please try again later."
         else: err = t["error_generic"]
         kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
