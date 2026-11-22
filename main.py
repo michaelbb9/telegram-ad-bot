@@ -1979,13 +1979,10 @@ def _yt_ydl_opts_for_youtube(base_opts=None):
         "extractor_args": {"youtube": {"player_client": ["web_embedded", "tv", "android_vr", "web", "mweb", "ios", "android"], "po_token": ["wpc", "bgutil", "auto"]}},
         "quiet": True, "no_warnings": True,
     })
-    # V51: WARP proxy for yt-dlp (if available) - fixes datacenter IP block
-    try:
-        _proxy = _yt_proxy()
-        if _proxy:
-            o["proxy"] = _proxy
-    except Exception:
-        pass
+    # V52 FIX: DO NOT set proxy here - this function is called for TikTok/Instagram/etc too.
+    # WARP is YouTube-only. Setting it here routed TikTok through Cloudflare IP -> TikTok 10231 Region locked.
+    # YouTube proxy is set explicitly in download_media_engine (YouTube-only check) + get_social_metadata (YouTube-only check).
+    # Leave o['proxy'] as caller set it (PROXY_URL=None = direct for TikTok/IG).
     try:
         import importlib.util as _ilu
         if _ilu.find_spec("curl_cffi") is not None:
@@ -2001,6 +1998,16 @@ def get_social_metadata(link):
         # V47: metadata was using default web client -> same 'Failed to extract any player response' as downloads.
         # Use iOS-first + skip webpage, and cookies if present, so metadata works even when web client is blocked.
         ydl_meta_opts = _yt_ydl_opts_for_youtube({"skip_download": True, "noplaylist": True})
+        # V52: WARP only for YouTube. TikTok/IG must go direct or they get Region locked (10231).
+        try:
+            _is_yt_meta = ("youtube.com" in (link or "").lower() or "youtu.be" in (link or "").lower())
+            if _is_yt_meta:
+                _wp_meta = _yt_proxy()
+                if _wp_meta: ydl_meta_opts["proxy"] = _wp_meta
+            else:
+                # Explicitly clear proxy for non-YouTube - do not inherit WARP
+                ydl_meta_opts.pop("proxy", None)
+        except Exception: pass
         try:
             if "tiktok.com" in (link or "").lower() and os.path.exists("tiktok_cookies.txt"):
                 ydl_meta_opts["cookiefile"] = "tiktok_cookies.txt"
@@ -2856,15 +2863,32 @@ async def _send_items(bot, chat_id, items, caption=None):
     for s in range(0, len(albumable), 10):
         chunk = albumable[s:s + 10]
         cap = {"caption": caption, "parse_mode": "Markdown"} if (first and caption) else {}
-        if len(chunk) == 1:
-            it = chunk[0]
-            if it["kind"] == "video":
-                msgs = [await bot.send_video(chat_id=chat_id, video=it["src"], supports_streaming=True, **cap)]
+        # V52 FIX: Markdown caption can contain _ * [ ] & from TikTok title/URL -> Can't parse entities.
+        # Try Markdown first, fall back to plain text (no parse) so send still succeeds.
+        try:
+            if len(chunk) == 1:
+                it = chunk[0]
+                if it["kind"] == "video":
+                    msgs = [await bot.send_video(chat_id=chat_id, video=it["src"], supports_streaming=True, **cap)]
+                else:
+                    msgs = [await bot.send_photo(chat_id=chat_id, photo=it["src"], **cap)]
             else:
-                msgs = [await bot.send_photo(chat_id=chat_id, photo=it["src"], **cap)]
-        else:
-            media = [_media(it["kind"], it["src"], **(cap if j == 0 else {})) for j, it in enumerate(chunk)]
-            msgs = list(await bot.send_media_group(chat_id=chat_id, media=media))
+                media = [_media(it["kind"], it["src"], **(cap if j == 0 else {})) for j, it in enumerate(chunk)]
+                msgs = list(await bot.send_media_group(chat_id=chat_id, media=media))
+        except Exception as _e_parse:
+            if "parse" in str(_e_parse).lower() or "entity" in str(_e_parse).lower():
+                _cap_plain = {"caption": caption} if (first and caption) else {}
+                if len(chunk) == 1:
+                    it = chunk[0]
+                    if it["kind"] == "video":
+                        msgs = [await bot.send_video(chat_id=chat_id, video=it["src"], supports_streaming=True, **_cap_plain)]
+                    else:
+                        msgs = [await bot.send_photo(chat_id=chat_id, photo=it["src"], **_cap_plain)]
+                else:
+                    media = [_media(it["kind"], it["src"], **(_cap_plain if j == 0 else {})) for j, it in enumerate(chunk)]
+                    msgs = list(await bot.send_media_group(chat_id=chat_id, media=media))
+            else:
+                raise
         out += [x for x in (_item_from_msg(m) for m in msgs) if x]
         first = False
         await asyncio.sleep(1)
@@ -3078,10 +3102,16 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
     if user_id is not None and progress_key:
         ydl_opts['progress_hooks'] = [make_progress_hook(user_id, progress_key)]
     if cookiefile: ydl_opts['cookiefile'] = cookiefile
-    # V51: WARP proxy for YouTube (fixes datacenter IP block)
+    # V52: WARP proxy ONLY for YouTube. TikTok/IG/etc must go DIRECT.
+    # V51 bug: _yt_ydl_opts_for_youtube set WARP for all sites -> TikTok Region locked 10231.
     try:
-        _wp51 = _yt_proxy()
-        if _wp51 and ('youtube.com' in url.lower() or 'youtu.be' in url.lower()): ydl_opts['proxy'] = _wp51
+        _is_yt_dl = ('youtube.com' in url.lower() or 'youtu.be' in url.lower())
+        if _is_yt_dl:
+            _wp51 = _yt_proxy()
+            if _wp51: ydl_opts['proxy'] = _wp51
+        else:
+            # Non-YouTube: force direct, ignore WARP / PROXY_URL (PROXY_URL is None by default)
+            ydl_opts['proxy'] = PROXY_URL
     except Exception: pass
     # V46 browser client: impersonate Chrome if curl_cffi is installed
     try:
@@ -5864,7 +5894,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
                 await bot.send_message(chat_id=chat_id, text=(
                     f"🧪 DL error: {type(e).__name__}: {str(e)[:500]}\n"
                     f"MTProto: ready={MTPROTO['ready'].is_set()} api_id={bool(API_ID)} api_hash={bool(API_HASH)}"
-                    f"{trace_txt}"))
+                    f"{trace_txt}"), parse_mode=None)
             except Exception: pass
         if "FILE_TOO_LARGE" in str(e): err = t["error_50mb"]
         elif "MTPROTO_OFF" in str(e): err = "⚠️ Big files need fast mode, which is offline right now."
@@ -6824,7 +6854,14 @@ async def _tell_uploading(status_msg, path):
 
 async def send_video_file(bot, chat_id, target_id, path, caption, parse_mode, status_msg=None):
     if os.path.getsize(path) <= BOT_API_LIMIT_BYTES:
-        with open(path, 'rb') as f: return await bot.send_video(chat_id=target_id, video=f, caption=caption, parse_mode=parse_mode)
+        # V52 FIX: caption can contain _ * [ ] & etc from TikTok title/URL (?_r=1&_t=...) -> Telegram "Can't parse entities" BadRequest.
+        # Try with parse_mode first, fall back to plain text (no parse) so download still succeeds.
+        try:
+            with open(path, 'rb') as f: return await bot.send_video(chat_id=target_id, video=f, caption=caption, parse_mode=parse_mode)
+        except Exception as _e_parse:
+            if "parse" in str(_e_parse).lower() or "entity" in str(_e_parse).lower():
+                with open(path, 'rb') as f: return await bot.send_video(chat_id=target_id, video=f, caption=caption, parse_mode=None)
+            raise
     # BUG 1 FIX: first download after restart fails because MTProto hasn't connected yet.
     # Wait up to 25s for it instead of failing instantly - file is already cached, second try would have worked.
     if not MTPROTO["ready"].is_set():
@@ -6852,7 +6889,13 @@ async def send_video_file(bot, chat_id, target_id, path, caption, parse_mode, st
 
 async def send_audio_file(bot, chat_id, path, caption, parse_mode, status_msg=None):
     if os.path.getsize(path) <= BOT_API_LIMIT_BYTES:
-        with open(path, 'rb') as f: return await bot.send_audio(chat_id=chat_id, audio=f, caption=caption, parse_mode=parse_mode)
+        # V52 FIX: same parse fallback as video - TikTok title/URL can break Markdown/HTML.
+        try:
+            with open(path, 'rb') as f: return await bot.send_audio(chat_id=chat_id, audio=f, caption=caption, parse_mode=parse_mode)
+        except Exception as _e_parse:
+            if "parse" in str(_e_parse).lower() or "entity" in str(_e_parse).lower():
+                with open(path, 'rb') as f: return await bot.send_audio(chat_id=chat_id, audio=f, caption=caption, parse_mode=None)
+            raise
     await _tell_uploading(status_msg, path)
     msg = await mtproto_upload("audio", chat_id, path, caption.replace("`", ""))
     media = msg.audio or msg.document
