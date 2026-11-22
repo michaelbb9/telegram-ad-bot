@@ -136,6 +136,122 @@ def _chromium_available():
     except Exception:
         return None
 
+
+# ===== V51: Cloudflare WARP (free) - fix for datacenter IP block =====
+# Search proved: Render datacenter IP is flagged, fresh cookies + PO token alone do NOT fix it.
+# WARP makes egress look like ordinary home connection: wgcf registers free WARP identity,
+# wireproxy runs WireGuard in userspace (no root) and exposes local proxy 127.0.0.1:25345 (http) / 25344 (socks5).
+# yt-dlp then uses proxy=http://127.0.0.1:25345. If WARP fails, fall back to direct.
+_WARP_PROC = None
+_WARP_PROXY = None
+
+def _ensure_warp():
+    """V51: Start free Cloudflare WARP proxy if ENABLE_WARP=1 (default ON). Returns proxy URL or None."""
+    global _WARP_PROC, _WARP_PROXY
+    if _WARP_PROXY:
+        return _WARP_PROXY
+    try:
+        if os.getenv("ENABLE_WARP", "1").strip() not in ("1", "true", "yes", "on"):
+            logger.info("V51: WARP disabled via ENABLE_WARP=0")
+            return None
+        # If user set a paid residential proxy, it takes priority over WARP
+        _user_proxy = (os.getenv("YTDLP_PROXY", "") or os.getenv("YT_PROXY", "") or "").strip()
+        if _user_proxy:
+            logger.info(f"V51: Using user proxy YTDLP_PROXY, skipping WARP")
+            _WARP_PROXY = _user_proxy
+            return _WARP_PROXY
+        import subprocess as _sp3, urllib.request, tarfile
+        _bin_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".warp", "bin")
+        os.makedirs(_bin_dir, exist_ok=True)
+        _wgcf = os.path.join(_bin_dir, "wgcf")
+        _wireproxy = os.path.join(_bin_dir, "wireproxy")
+        # Download wgcf + wireproxy if missing (pinned versions from search: wgcf 2.2.31, wireproxy 1.1.2)
+        if not os.path.isfile(_wgcf):
+            try:
+                logger.info("V51: Downloading wgcf for WARP...")
+                urllib.request.urlretrieve("https://github.com/ViRb3/wgcf/releases/download/v2.2.31/wgcf_2.2.31_linux_amd64", _wgcf)
+                os.chmod(_wgcf, 0o755)
+            except Exception as e:
+                logger.warning(f"V51: wgcf download failed: {e}")
+                return None
+        if not os.path.isfile(_wireproxy):
+            try:
+                logger.info("V51: Downloading wireproxy for WARP...")
+                _tgz = os.path.join(_bin_dir, "wireproxy.tar.gz")
+                urllib.request.urlretrieve("https://github.com/windtf/wireproxy/releases/download/v1.1.2/wireproxy_linux_amd64.tar.gz", _tgz)
+                with tarfile.open(_tgz, "r:gz") as _tf:
+                    _tf.extractall(_bin_dir)
+                try: os.remove(_tgz)
+                except Exception: pass
+                if os.path.isfile(_wireproxy):
+                    os.chmod(_wireproxy, 0o755)
+            except Exception as e:
+                logger.warning(f"V51: wireproxy download failed: {e}")
+                return None
+        # Generate WARP profile if missing
+        _conf = os.path.join(_bin_dir, "wireproxy.conf")
+        if not os.path.isfile(_conf):
+            try:
+                logger.info("V51: Registering free WARP identity (wgcf register)...")
+                _env = dict(os.environ); _env["WGCF_PROFILE"] = os.path.join(_bin_dir, "wgcf-profile.conf")
+                # wgcf register creates account + profile
+                _r1 = _sp3.run([_wgcf, "register", "--accept-tos"], capture_output=True, text=True, timeout=60, cwd=_bin_dir)
+                _r2 = _sp3.run([_wgcf, "generate"], capture_output=True, text=True, timeout=60, cwd=_bin_dir)
+                _prof = os.path.join(_bin_dir, "wgcf-profile.conf")
+                if os.path.isfile(_prof):
+                    with open(_prof) as _f: _pc = _f.read()
+                    with open(_conf, "w") as _f:
+                        _f.write(_pc)
+                        _f.write("\n[Socks5]\nBindAddress = 127.0.0.1:25344\n\n[http]\nBindAddress = 127.0.0.1:25345\n")
+                    logger.info("V51: WARP profile generated")
+                else:
+                    logger.warning(f"V51: wgcf generate failed: {_r2.stdout[:200]} {_r2.stderr[:200]}")
+                    return None
+            except Exception as e:
+                logger.warning(f"V51: WARP register failed: {e}")
+                return None
+        # Start wireproxy in background
+        try:
+            if _WARP_PROC is None or _WARP_PROC.poll() is not None:
+                _WARP_PROC = _sp3.Popen([_wireproxy, "-c", _conf], stdout=_sp3.DEVNULL, stderr=_sp3.DEVNULL)
+                import time as _t3
+                _t3.sleep(2)
+                # Test proxy works: try to fetch via proxy
+                try:
+                    import requests as _rq3
+                    _test = _rq3.get("https://www.cloudflare.com/cdn-cgi/trace", proxies={"http": "http://127.0.0.1:25345", "https": "http://127.0.0.1:25345"}, timeout=10)
+                    if _test.status_code == 200 and "warp=on" in _test.text.lower():
+                        logger.info("V51: WARP ON - egress via Cloudflare WARP, warp=on")
+                    else:
+                        logger.info(f"V51: WARP proxy responding, trace warp check: {_test.text[:200]}")
+                except Exception as _e3:
+                    logger.warning(f"V51: WARP proxy test failed: {_e3} - will still try yt-dlp via proxy")
+                _WARP_PROXY = "http://127.0.0.1:25345"
+                return _WARP_PROXY
+        except Exception as e:
+            logger.warning(f"V51: wireproxy start failed: {e}")
+            return None
+    except Exception as e:
+        logger.warning(f"V51: _ensure_warp failed: {e}")
+    return None
+
+def _yt_proxy():
+    """V51: proxy for yt-dlp: YTDLP_PROXY env first, else WARP, else None (direct)."""
+    try:
+        _up = (os.getenv("YTDLP_PROXY", "") or os.getenv("YT_PROXY", "") or "").strip()
+        if _up:
+            return _up
+        return _ensure_warp()
+    except Exception:
+        return None
+
+# Try to start WARP at import (non-blocking, best effort)
+try:
+    _wp = _ensure_warp()
+    logger.info(f"V51: warp_proxy={_wp}")
+except Exception as _e:
+    logger.warning(f"V51: WARP startup failed: {_e}")
+
 # Try to ensure Deno at import time (non-blocking, best effort) - do NOT crash bot if it fails
 try:
     _ensure_deno()
@@ -1851,17 +1967,25 @@ def _yt_dlp_version():
             return "unknown"
 
 def _yt_ydl_opts_for_youtube(base_opts=None):
-    """V50: Cobalt free API is GONE - do not use it as primary. bgutil (Deno JS) alone was NOT enough.
-    Fix per web search + user idea: real Chrome that actually plays the video.
-    yt-dlp-getpot-wpc (by yt-dlp maintainer coletdjnz) launches real Chromium via nodriver, loads YouTube,
-    solves BotGuard, mints WebPO token. That is 'wpc' provider. bgutil kept as second fallback.
-    Order: web (wpc gives WebPO for web) -> mweb -> ios -> android."""
+    """V51: Search proved datacenter IP is root cause, not cookies/PO token.
+    Two fixes we never tried:
+    1) web_embedded + tv + android_vr clients need NO PO token (per yt-dlp PO Token Guide: web/mweb/tv_simply need GVS token, tv/web_embedded/android_vr don't).
+       web_embedded serves itag 251 Opus audio and works from datacenter IP.
+    2) WARP proxy: route yt-dlp via free Cloudflare WARP so egress looks like home connection, not Render datacenter.
+    Order: web_embedded -> tv -> android_vr -> web -> mweb -> ios -> android. Proxy = WARP if available."""
     o = dict(base_opts or {})
-    # V50: po_token wpc = real Chrome via nodriver, bgutil = Deno JS, auto = let yt-dlp pick.
+    # V51: web_embedded first - no PO token needed, most reliable from datacenter IP.
     o.update({
-        "extractor_args": {"youtube": {"player_client": ["web", "mweb", "ios", "android"], "po_token": ["wpc", "bgutil", "auto"]}},
+        "extractor_args": {"youtube": {"player_client": ["web_embedded", "tv", "android_vr", "web", "mweb", "ios", "android"], "po_token": ["wpc", "bgutil", "auto"]}},
         "quiet": True, "no_warnings": True,
     })
+    # V51: WARP proxy for yt-dlp (if available) - fixes datacenter IP block
+    try:
+        _proxy = _yt_proxy()
+        if _proxy:
+            o["proxy"] = _proxy
+    except Exception:
+        pass
     try:
         import importlib.util as _ilu
         if _ilu.find_spec("curl_cffi") is not None:
@@ -2954,6 +3078,11 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
     if user_id is not None and progress_key:
         ydl_opts['progress_hooks'] = [make_progress_hook(user_id, progress_key)]
     if cookiefile: ydl_opts['cookiefile'] = cookiefile
+    # V51: WARP proxy for YouTube (fixes datacenter IP block)
+    try:
+        _wp51 = _yt_proxy()
+        if _wp51 and ('youtube.com' in url.lower() or 'youtu.be' in url.lower()): ydl_opts['proxy'] = _wp51
+    except Exception: pass
     # V46 browser client: impersonate Chrome if curl_cffi is installed
     try:
         import importlib.util as _ilu
@@ -2983,7 +3112,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
             for _attempt in range(2):
                 try:
                     _opts = dict(ydl_opts)
-                    _opts.update({'format': _fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['web', 'mweb', 'ios', 'android'], 'po_token': ['wpc', 'bgutil', 'auto']}}})
+                    _opts.update({'format': _fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['web_embedded', 'tv', 'android_vr', 'web', 'mweb', 'ios', 'android'], 'po_token': ['wpc', 'bgutil', 'auto']}}})
                     with yt_dlp.YoutubeDL(_opts) as ydl:
                         info = ydl.extract_info(url, download=True)
                         try: LAST_TITLE_BY_URL[url] = {"title": info.get("title"), "poster": info.get("uploader") or info.get("channel")}
@@ -3029,7 +3158,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                 import time as _t_wait
                 _t_wait.sleep(15)
                 _retry_opts = dict(ydl_opts)
-                _retry_opts.update({'format': 'best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['web'], 'po_token': ['wpc', 'bgutil', 'auto']}}})
+                _retry_opts.update({'format': 'best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['web_embedded'], 'po_token': ['wpc', 'bgutil', 'auto']}}})
                 with yt_dlp.YoutubeDL(_retry_opts) as ydl:
                     info = ydl.extract_info(url, download=True)
                     try: LAST_TITLE_BY_URL[url] = {"title": info.get("title"), "poster": info.get("uploader") or info.get("channel")}
@@ -3182,7 +3311,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                     if ("failed to extract" in msg or "player response" in msg) and "youtube.com" in url.lower() or "youtu.be" in url.lower():
                         try:
                             _ios_opts = dict(ydl_opts)
-                            _ios_opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, f'%(id)s_{qual_name}.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['web'], 'po_token': ['wpc', 'bgutil', 'auto']}}})
+                            _ios_opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, f'%(id)s_{qual_name}.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['web_embedded'], 'po_token': ['wpc', 'bgutil', 'auto']}}})
                             if qual_name != "worst":
                                 _ios_opts.update({'format': 'bv*+ba/b', 'format_sort': [f"res:{qual_name[:-1]}"]})
                             with yt_dlp.YoutubeDL(_ios_opts) as _ydl2:
@@ -5740,7 +5869,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
         if "FILE_TOO_LARGE" in str(e): err = t["error_50mb"]
         elif "MTPROTO_OFF" in str(e): err = "⚠️ Big files need fast mode, which is offline right now."
         elif "MTPROTO_PEER" in str(e): err = "⚠️ Send /start to this bot once, then send the link again."
-        elif "SITE_BLOCKED" in str(e): err = "⏳ YouTube blocked this video (real-Chrome PO token + Piped + Invidious + Lemnoslife all failed). Need fresh cookies from your own Chrome - run the capture script on your phone/PC, log in, play a video, upload new cookies.txt to GitHub. Credit NOT taken."
+        elif "SITE_BLOCKED" in str(e): err = "⏳ YouTube blocked this video even via WARP + web_embedded + fresh cookies (Render datacenter IP flagged). Try again in 10 mins or try a different video. Credit NOT taken."
         elif isinstance(e, (asyncio.TimeoutError, TimeoutError)): err = "⚠️ This is taking too long, so I stopped. Please try again later."
         else: err = t["error_generic"]
         kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
