@@ -148,6 +148,10 @@ paused_batches = {}
 pending_single_links = {}
 # FIX - batch Adsterra: track kind so pause/out claim gives +1 Batch (not +1 Downloads)
 AD_KIND_BY_USER = {}
+# V36 MUSIC SEARCH: waiting flag, last results per user, retry after ad
+MUSIC_WAITING = {}
+MUSIC_RESULTS = {}
+MUSIC_RETRY = {}
 
 MAX_CONCURRENT_SHORT = 3
 MIN_FREE_DISK_MB = 150
@@ -2952,6 +2956,7 @@ def get_main_keyboard(lang_code, is_admin):
         [KeyboardButton(t["menu_stats"]), KeyboardButton(t["menu_lang"])],
         [KeyboardButton(t["menu_join"]), KeyboardButton(t["menu_help"])],
         [KeyboardButton(t["menu_upload"]), KeyboardButton("🔗 File-to-Link")],
+        [KeyboardButton("🎵 Music Search")],
         [KeyboardButton("🟢 Bot Status")],
         [KeyboardButton("🔄 Change Batch Channel")]
     ]
@@ -3690,7 +3695,173 @@ async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE)
             logger.exception("Fan upload forwarding/storage failed: %s", e)
             await update.message.reply_text("❌ Failed to send your upload. Please try again.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
 
+
+# ===== V36 MUSIC SEARCH =====
+def _music_fmt_views(v):
+    try:
+        v = int(v or 0)
+        if v >= 1000000: return f"{v/1000000:.1f}M"
+        if v >= 1000: return f"{v/1000:.1f}K"
+        return str(v)
+    except Exception:
+        return "N/A"
+
+def _music_fmt_dur(sec):
+    try:
+        s = int(sec or 0)
+        if not s: return "N/A"
+        return f"{s//60}:{s%60:02d}"
+    except Exception:
+        return "N/A"
+
+def _music_fmt_year(upload_date):
+    try:
+        s = str(upload_date or "")
+        if len(s) >= 4: return s[:4]
+        return "N/A"
+    except Exception:
+        return "N/A"
+
+def _music_is_cached(video_id):
+    try:
+        cache = load_json_file(CACHE_FILE)
+        e = cache.get(f"youtube_{video_id}") or {}
+        quals = e.get("qualities") or {}
+        return "audio" in quals
+    except Exception:
+        return False
+
+def search_music_sync(query, want=5, offset=0):
+    """yt-dlp ytsearch. Returns list of dicts. Filtering: skip live/slowed/sped/lyric/cover/karaoke unless user typed it, skip >10min compilations."""
+    try:
+        qlow = (query or "").lower()
+        allow_live = any(w in qlow for w in ["live", "concert", "unplugged"])
+        allow_sped = any(w in qlow for w in ["sped up", "speed up", "slowed", "reverb", "slowed + reverb"])
+        allow_lyric = any(w in qlow for w in ["lyric", "lyrics"])
+        allow_cover = "cover" in qlow
+        allow_remix = "remix" in qlow
+        fetch_n = int(offset + want + 10)
+        if fetch_n < 10: fetch_n = 15
+        if fetch_n > 30: fetch_n = 30
+        ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"ytsearch{fetch_n}:{query}", download=False)
+        entries = (info.get("entries") or []) if isinstance(info, dict) else []
+        out = []
+        for e in entries:
+            if not e or not isinstance(e, dict): continue
+            vid = e.get("id") or ""
+            if not vid: continue
+            title = (e.get("title") or "Unknown")[:120]
+            tlow = title.lower()
+            dur = int(e.get("duration") or 0)
+            # Skip compilations / very long, skip very short clips
+            if dur and dur > 600: continue
+            if dur and dur < 30: continue
+            if not allow_live and any(w in tlow for w in [" live", "live version", "live at", "concert"]): continue
+            if not allow_sped and any(w in tlow for w in ["sped up", "slowed", "reverb", "nightcore"]): continue
+            if not allow_lyric and any(w in tlow for w in ["lyric video", "lyrics video", "(lyrics)"]): continue
+            if not allow_cover and "cover" in tlow and "official" not in tlow: continue
+            if not allow_remix and "karaoke" in tlow: continue
+            if "instrumental" in tlow and "instrumental" not in qlow: continue
+            channel = e.get("uploader") or e.get("channel") or e.get("uploader_id") or "Unknown"
+            thumb = e.get("thumbnail") or ""
+            if not thumb:
+                try:
+                    thumbs = e.get("thumbnails") or []
+                    if thumbs: thumb = thumbs[-1].get("url") or ""
+                except Exception: pass
+            # Score: official first, then views
+            score = 0
+            if "official" in tlow: score += 1000
+            if channel and channel.lower() in tlow: score += 200
+            try: score += int(e.get("view_count") or 0) / 1000000.0
+            except Exception: pass
+            out.append({"video_id": vid, "title": title, "channel": channel, "duration_sec": dur, "view_count": e.get("view_count") or 0, "upload_date": e.get("upload_date") or "", "thumbnail": thumb, "url": f"https://www.youtube.com/watch?v={vid}", "_score": score})
+        out.sort(key=lambda x: x["_score"], reverse=True)
+        for r in out: r.pop("_score", None)
+        return out[offset:offset+want]
+    except Exception as e:
+        logger.warning(f"search_music_sync failed for {query}: {e}")
+        return []
+
+async def send_music_results(bot, chat_id, user_id, query, offset, t):
+    """Send 5 cards. Each card = thumbnail photo + all info + Download button. Search is free."""
+    try:
+        results = await asyncio.to_thread(search_music_sync, query, 5, offset)
+    except Exception:
+        results = []
+    if not results:
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔍 Try Again", callback_data="music_new")], [InlineKeyboardButton("❌ Cancel", callback_data="music_cancel")]])
+        await bot.send_message(chat_id=chat_id, text=f"❌ No results for '{query}'.\nTry Artist - Song.\nExample: Rema - Calm Down", reply_markup=kb)
+        return
+    MUSIC_RESULTS[user_id] = {"query": query, "offset": offset, "results": results}
+    await bot.send_message(chat_id=chat_id, text=f"🎵 Results for '{query}' ({offset+1}-{offset+len(results)})\nTap Download on the one you want. Search is free, download is 1 credit.")
+    for idx, r in enumerate(results):
+        num = offset + idx + 1
+        cached_tag = "⚡ Cached - Instant" if _music_is_cached(r["video_id"]) else "📥 Fresh download"
+        caption = f"{num}. {r['title']}\n🎤 {r['channel']}\n⏱ {_music_fmt_dur(r['duration_sec'])} | 👀 {_music_fmt_views(r['view_count'])} views | 📅 {_music_fmt_year(r['upload_date'])}\n💿 MP3 192kbps | {cached_tag}\n💳 Cost: 1 credit"
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("⬇️ Download This - 1 credit", callback_data=f"music_dl_{r['video_id']}")]])
+        try:
+            if r.get("thumbnail"):
+                await bot.send_photo(chat_id=chat_id, photo=r["thumbnail"], caption=caption, reply_markup=kb)
+            else:
+                await bot.send_message(chat_id=chat_id, text=caption, reply_markup=kb)
+        except Exception:
+            try: await bot.send_message(chat_id=chat_id, text=caption, reply_markup=kb)
+            except Exception: pass
+        await asyncio.sleep(0.15)
+    footer_rows = []
+    if len(results) == 5:
+        footer_rows.append([InlineKeyboardButton("🔄 More Results", callback_data=f"music_more_{offset+5}")])
+    footer_rows.append([InlineKeyboardButton("🔍 New Search", callback_data="music_new")])
+    footer_rows.append([InlineKeyboardButton("❌ Cancel", callback_data="music_cancel")])
+    await bot.send_message(chat_id=chat_id, text="👇 Pick one above, or get more / search again.", reply_markup=InlineKeyboardMarkup(footer_rows))
+
+async def _music_download_song(bot, chat_id, user_id, video_id, t):
+    """Download one music song as audio, 1 credit, cached if available. Assumes credit check already done."""
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    meta = None
+    try:
+        # Use stored search result for title if we have it
+        for _uid, _d in list(MUSIC_RESULTS.items()):
+            if _uid == user_id:
+                for _r in _d.get("results", []):
+                    if _r.get("video_id") == video_id:
+                        meta = {"title": _r.get("title"), "poster": _r.get("channel"), "duration_sec": _r.get("duration_sec"), "views": _r.get("view_count"), "platform": "youtube", "est_size_mb": 0.0}
+                        break
+    except Exception: pass
+    if not meta:
+        try: meta = await asyncio.to_thread(get_social_metadata, url)
+        except Exception: meta = None
+    can_dl = await acquire_slot()
+    if can_dl:
+        try: await cached_download_and_send(bot, chat_id, user_id, url, "audio", t, 1, meta=meta)
+        finally: await release_slot()
+    else:
+        pos = download_queue.qsize()+1
+        await download_queue.put({'func': cached_download_and_send, 'args': (bot, chat_id, user_id, url, "audio", t), 'kwargs': {'credit_cost': 1, 'meta': meta}})
+        free_mb = shutil.disk_usage(".").free // (1024*1024)
+        await bot.send_message(chat_id=chat_id, text=t["server_busy"].format(active_downloads, MAX_CONCURRENT_SHORT, free_mb, pos), parse_mode="Markdown", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
+
+def _music_get_downloads_left(user_id):
+    """Flask profile first (refilled balance), fallback to local tokens."""
+    try:
+        prof = get_user_profile_from_flask(user_id)
+        if prof is not None:
+            return int(prof.get("downloads_left", get_free_amount()))
+    except Exception: pass
+    try:
+        tokens = load_tokens()
+        profile = tokens.get(str(user_id), {})
+        return int(profile.get("downloads_left", get_free_amount()))
+    except Exception:
+        return get_free_amount()
+
+# ===== END V36 MUSIC SEARCH =====
+
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+
     text = update.message.text if update.message.text else ""
     user_id = update.message.from_user.id
     chat_id = update.message.chat_id
@@ -3797,7 +3968,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if record.get("max_clicks", 0) and record.get("clicks", 0) >= record["max_clicks"]: await update.message.reply_text(t["link_limit_reached"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID)); return
         await send_file_link_payload(update, context, token, record)
         return
-    menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🔗 File-to-Link", "🟢 Bot Status", "🔄 Change Batch Channel", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel", t.get("menu_edit_welcome", "✏️ Edit Welcome Msg"), "📢 Required Channels", "📊 Download Limits"]
+    menu_texts = [t["menu_stats"], t["menu_lang"], t["menu_help"], t["menu_join"], t["menu_upload"], t["menu_uploads"], "🔗 File-to-Link", "🎵 Music Search", "❌ Cancel Music Search", "🟢 Bot Status", "🔄 Change Batch Channel", "📢 Broadcast", "⚡ Create Flash Drop", "⚙️ Ad Toggle Panel", t.get("menu_edit_welcome", "✏️ Edit Welcome Msg"), "📢 Required Channels", "📊 Download Limits"]
     if text in menu_texts:
         if text != t["menu_upload"]:
             context.user_data.pop("admin_vault_upload_mode", None)
@@ -3961,6 +4132,47 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             reply_markup=get_main_keyboard(lang, True)
         )
         return
+    # ===== V36 MUSIC SEARCH - button first, never auto-detect random text =====
+    if text.strip() == "🎵 Music Search":
+        MUSIC_WAITING[user_id] = True
+        MUSIC_RESULTS.pop(user_id, None)
+        _mkb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="music_cancel")]])
+        await update.message.reply_text("🎵 **Music Search**\n\nSend song name.\nExample: Rema - Calm Down\n\nSearch is free. Download is 1 credit.\nTap Cancel to stop.", parse_mode="Markdown", reply_markup=_mkb)
+        return
+    if text.strip() in ("❌ Cancel Music Search", "❌ Cancel"):
+        if MUSIC_WAITING.get(user_id):
+            MUSIC_WAITING.pop(user_id, None)
+            MUSIC_RESULTS.pop(user_id, None)
+            await update.message.reply_text("✅ Music search cancelled.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+            return
+    if MUSIC_WAITING.get(user_id):
+        # User pasted a link while waiting -> cancel music mode and fall through to normal link handling
+        if "http" in text.lower():
+            MUSIC_WAITING.pop(user_id, None)
+        else:
+            # Ignore other menu buttons while waiting - let them fall through below (they clear waiting via menu_texts)
+            if text not in menu_texts:
+                q = text.strip()
+                MUSIC_WAITING.pop(user_id, None)
+                if len(q) < 2:
+                    await update.message.reply_text("Send a song name - at least 2 characters. Example: Rema - Calm Down")
+                    MUSIC_WAITING[user_id] = True
+                    return
+                if len(q) > 120:
+                    q = q[:120]
+                _searching = await update.message.reply_text(f"🔍 Searching for '{q}'...")
+                try:
+                    await send_music_results(context.bot, chat_id, user_id, q, 0, t)
+                except Exception as _me:
+                    logger.warning(f"music search failed: {_me}")
+                    await update.message.reply_text("❌ Search failed. Try again.")
+                try: await _searching.delete()
+                except Exception: pass
+                return
+    if text in menu_texts and text != "🎵 Music Search":
+        # Leaving music mode when tapping any other menu button
+        MUSIC_WAITING.pop(user_id, None)
+    # ===== END V36 MUSIC SEARCH =====
     extracted_urls = re.findall(r'https?://[^\s]+', text)
     filtered = [u for u in extracted_urls if not ("t.me/" in u and "start=" in u)]
     extracted_urls = filtered
@@ -4571,6 +4783,80 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             try: await send_join_prompt(context.bot, chat_id, user_id, _m2)
             except Exception: pass
         return
+    # ===== V36 MUSIC SEARCH callbacks =====
+    if data == "music_cancel":
+        MUSIC_WAITING.pop(user_id, None)
+        MUSIC_RESULTS.pop(user_id, None)
+        MUSIC_RETRY.pop(user_id, None)
+        await query.answer("Cancelled")
+        try: await query.message.edit_text("✅ Music search cancelled.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+        except Exception:
+            try: await context.bot.send_message(chat_id=chat_id, text="✅ Music search cancelled.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+            except Exception: pass
+        return
+    if data == "music_new":
+        MUSIC_WAITING[user_id] = True
+        MUSIC_RESULTS.pop(user_id, None)
+        await query.answer("Send song name")
+        try: await query.message.reply_text("🎵 **Music Search**\n\nSend song name.\nExample: Rema - Calm Down\n\nSearch is free. Download is 1 credit.", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="music_cancel")]]))
+        except Exception: pass
+        return
+    if data.startswith("music_more_"):
+        try: _off = int(data[len("music_more_"):])
+        except Exception: _off = 5
+        _prev = MUSIC_RESULTS.get(user_id) or {}
+        _q = _prev.get("query", "")
+        if not _q:
+            await query.answer("Search expired - start a new search.", show_alert=True)
+            return
+        await query.answer("Loading more...")
+        try: await send_music_results(context.bot, chat_id, user_id, _q, _off, t)
+        except Exception as _e: logger.warning(f"music_more failed: {_e}")
+        return
+    if data.startswith("music_dl_"):
+        _vid = data[len("music_dl_"):].strip()
+        if not _vid or len(_vid) > 20:
+            await query.answer("Invalid song.", show_alert=True); return
+        # Channel check like every other handler
+        _passed, _missing = await check_all_required_channels(context.bot, user_id, get_required_channels())
+        if not _passed:
+            await query.answer("Join channel first.", show_alert=True)
+            try: await send_join_prompt(context.bot, chat_id, user_id, _missing)
+            except Exception: pass
+            return
+        await query.answer("Checking credits...")
+        # Credit check - 1 credit for music download
+        if user_id != ADMIN_ID:
+            _left = _music_get_downloads_left(user_id)
+            if _left <= 0:
+                MUSIC_RETRY[user_id] = _vid
+                AD_KIND_BY_USER[user_id] = "single"
+                _assigned = get_global_ab_network(user_id)
+                if _assigned == "monetag":
+                    _kb = adsgram_keyboard(user_id, "wall", 0, 0)
+                    if _kb: await query.message.reply_text(t["limit_reached"], reply_markup=_kb, parse_mode="Markdown")
+                    else: await query.message.reply_text("⚠️ Ad server busy, try again in a moment.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+                    return
+                else:
+                    try:
+                        await context.bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+                        await asyncio.sleep(0.2)
+                    except Exception: pass
+                    _bridge = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
+                    _rw = get_reward_amount()
+                    _kb2 = InlineKeyboardMarkup([[InlineKeyboardButton(f"🔓 Open Link & Watch Timer ⏰ 20s +{_rw}", url=_bridge)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(f"💜 Check & Get Files ✅ +{_rw}", callback_data="verify_user")]])
+                    await query.message.reply_text(t["limit_reached"] + ADSTERRA_USER_GUIDE, reply_markup=_kb2, parse_mode="Markdown")
+                    return
+        try: await query.message.reply_text("📥 Downloading your song... MP3 192kbps")
+        except Exception: pass
+        try:
+            await _music_download_song(context.bot, chat_id, user_id, _vid, t)
+        except Exception as _e:
+            logger.warning(f"music_dl failed {_vid}: {_e}")
+            try: await context.bot.send_message(chat_id=chat_id, text="❌ Failed. Try another song.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+            except Exception: pass
+        return
+    # ===== END V36 MUSIC SEARCH callbacks =====
     if data in ("admin_reqch", "admin_limits") and user_id == ADMIN_ID:
         _txt, _kb = build_reqch_panel() if data == "admin_reqch" else build_limits_panel()
         await query.answer()
@@ -5054,6 +5340,14 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if paused:
             asyncio.create_task(process_url_batch(context.bot, user_id, paused["chat_id"], paused["target_destination_id"], paused["urls"], paused["dl_type"], start_index=paused["next_index"]))
             return
+        # V36 MUSIC: Monetag ad watched for music - download now
+        _music_retry2 = MUSIC_RETRY.pop(user_id, None)
+        if _music_retry2:
+            try: await context.bot.send_message(chat_id=chat_id, text="✅ Ad watched - downloading your song... MP3 192kbps")
+            except Exception: pass
+            try: await _music_download_song(context.bot, chat_id, user_id, _music_retry2, t)
+            except Exception as _e: logger.warning(f"music monetag retry failed: {_e}")
+            return
         msg_start, msg_end = int(st.get("msg_start", 0)), int(st.get("msg_end", 0))
         if msg_start > 0:
             await context.bot.send_message(chat_id=chat_id, text=t["fetching_bundle"], reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
@@ -5142,6 +5436,14 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.answer(t["verified_added"])
         # FIX - claims: clear kind after successful claim so next single ad does not reuse stale batch kind
         AD_KIND_BY_USER.pop(user_id, None)
+        # V36 MUSIC: if music download was waiting for ad, download it now (1 credit)
+        _music_retry = MUSIC_RETRY.pop(user_id, None)
+        if _music_retry:
+            try: await query.message.reply_text("✅ Ad watched - downloading your song... MP3 192kbps")
+            except Exception: pass
+            try: await _music_download_song(context.bot, chat_id, user_id, _music_retry, t)
+            except Exception as _e: logger.warning(f"music retry after ad failed: {_e}")
+            return
         if user_id in paused_batches:
             keyboard = [[InlineKeyboardButton(f"▶️ Resume Batch +{reward}", callback_data="resume_batch")]]
             await query.message.reply_text(t["resume_prompt"], reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
