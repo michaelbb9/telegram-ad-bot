@@ -93,18 +93,16 @@ def _ensure_deno():
         return None
 
 def _bgutil_available():
-    """V49 FIX: V48 check was wrong - plugin is under yt_dlp_plugins, not top-level bgutil_ytdlp_pot_provider.
-    So V48 always logged False even when installed. Now checks pip show + yt_dlp_plugins folder + deno."""
+    """V50: now checks BOTH PO providers: wpc (real Chrome via nodriver) + bgutil (Deno JS)."""
     try:
-        # 1) pip show
-        try:
-            import subprocess as _sp2
-            _r = _sp2.run(["pip", "show", "bgutil-ytdlp-pot-provider"], capture_output=True, text=True, timeout=5)
-            if _r.returncode == 0 and "bgutil" in (_r.stdout or "").lower():
-                return True
-        except Exception:
-            pass
-        # 2) yt_dlp_plugins folder contains bgutil
+        import subprocess as _sp2
+        for _pkg in ["yt-dlp-getpot-wpc", "bgutil-ytdlp-pot-provider"]:
+            try:
+                _r = _sp2.run(["pip", "show", _pkg], capture_output=True, text=True, timeout=5)
+                if _r.returncode == 0 and ("wpc" in (_r.stdout or "").lower() or "bgutil" in (_r.stdout or "").lower()):
+                    return True
+            except Exception:
+                pass
         try:
             import importlib.util as _ilu2
             _spec = _ilu2.find_spec("yt_dlp_plugins")
@@ -113,28 +111,35 @@ def _bgutil_available():
                 for _p in (_spec.submodule_search_locations or []):
                     try:
                         for _f in _os2.listdir(_p):
-                            if "bgutil" in _f.lower():
+                            if "bgutil" in _f.lower() or "wpc" in _f.lower() or "getpot" in _f.lower():
                                 return True
                     except Exception:
                         pass
-        except Exception:
-            pass
-        # 3) any module with bgutil in name
-        try:
-            import pkgutil
-            for _m in pkgutil.iter_modules():
-                if "bgutil" in (_m.name or "").lower():
-                    return True
         except Exception:
             pass
         return False
     except Exception:
         return False
 
+def _chromium_available():
+    """V50: wpc needs real Chromium/Chrome on Render. Log it so startup shows if PO token can even run."""
+    try:
+        for _bin in ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable"]:
+            if shutil.which(_bin):
+                return shutil.which(_bin)
+        # nodriver downloads Chrome to ~/.cache/nodriver
+        import os as _os3
+        _cand = os.path.join(os.path.expanduser("~"), ".cache", "nodriver")
+        if os.path.isdir(_cand):
+            return _cand
+        return None
+    except Exception:
+        return None
+
 # Try to ensure Deno at import time (non-blocking, best effort) - do NOT crash bot if it fails
 try:
     _ensure_deno()
-    logger.info(f"V48: bgutil_available={_bgutil_available()} deno={shutil.which('deno')}")
+    logger.info(f"V50: pot_provider_available={_bgutil_available()} chromium={_chromium_available()} deno={shutil.which('deno')}")
 except Exception as _e:
     logger.warning(f"V48: Deno/bgutil check failed: {_e}")
 # ======================================================
@@ -1846,16 +1851,15 @@ def _yt_dlp_version():
             return "unknown"
 
 def _yt_ydl_opts_for_youtube(base_opts=None):
-    """V48: V47 iOS-first was NOT enough - your log shows yt-dlp 2026.10.26 STILL fails with 'Failed to extract any player response'
-    even on iOS. YouTube now requires PO token (Proof of Origin) for mweb/web AND for some iOS videos too.
-    Fix: use mweb + web with PO token via bgutil (bgutil-ytdlp-pot-provider pip package + Deno), then iOS as fallback.
-    If bgutil is NOT installed, po_token=auto will try anyway, and iOS fallback still runs.
-    Do NOT skip webpage when using PO token - PO token needs webpage session."""
+    """V50: Cobalt free API is GONE - do not use it as primary. bgutil (Deno JS) alone was NOT enough.
+    Fix per web search + user idea: real Chrome that actually plays the video.
+    yt-dlp-getpot-wpc (by yt-dlp maintainer coletdjnz) launches real Chromium via nodriver, loads YouTube,
+    solves BotGuard, mints WebPO token. That is 'wpc' provider. bgutil kept as second fallback.
+    Order: web (wpc gives WebPO for web) -> mweb -> ios -> android."""
     o = dict(base_opts or {})
-    # V48: PO token via bgutil. 'bgutil' = use bgutil plugin if installed, 'auto' = let yt-dlp pick provider.
-    # Order: mweb (best with PO token, per yt-dlp wiki) -> web (also needs PO token) -> ios -> android (no PO token needed, last resort)
+    # V50: po_token wpc = real Chrome via nodriver, bgutil = Deno JS, auto = let yt-dlp pick.
     o.update({
-        "extractor_args": {"youtube": {"player_client": ["mweb", "web", "ios", "android"], "po_token": ["bgutil", "auto"]}},
+        "extractor_args": {"youtube": {"player_client": ["web", "mweb", "ios", "android"], "po_token": ["wpc", "bgutil", "auto"]}},
         "quiet": True, "no_warnings": True,
     })
     try:
@@ -2979,7 +2983,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
             for _attempt in range(2):
                 try:
                     _opts = dict(ydl_opts)
-                    _opts.update({'format': _fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['mweb', 'web', 'ios', 'android'], 'po_token': ['bgutil', 'auto']}}})
+                    _opts.update({'format': _fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['web', 'mweb', 'ios', 'android'], 'po_token': ['wpc', 'bgutil', 'auto']}}})
                     with yt_dlp.YoutubeDL(_opts) as ydl:
                         info = ydl.extract_info(url, download=True)
                         try: LAST_TITLE_BY_URL[url] = {"title": info.get("title"), "poster": info.get("uploader") or info.get("channel")}
@@ -3025,7 +3029,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                 import time as _t_wait
                 _t_wait.sleep(15)
                 _retry_opts = dict(ydl_opts)
-                _retry_opts.update({'format': 'best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['mweb'], 'po_token': ['bgutil', 'auto']}}})
+                _retry_opts.update({'format': 'best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['web'], 'po_token': ['wpc', 'bgutil', 'auto']}}})
                 with yt_dlp.YoutubeDL(_retry_opts) as ydl:
                     info = ydl.extract_info(url, download=True)
                     try: LAST_TITLE_BY_URL[url] = {"title": info.get("title"), "poster": info.get("uploader") or info.get("channel")}
@@ -3178,7 +3182,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                     if ("failed to extract" in msg or "player response" in msg) and "youtube.com" in url.lower() or "youtu.be" in url.lower():
                         try:
                             _ios_opts = dict(ydl_opts)
-                            _ios_opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, f'%(id)s_{qual_name}.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['mweb'], 'po_token': ['bgutil', 'auto']}}})
+                            _ios_opts.update({'format': fmt, 'outtmpl': os.path.join(output_dir, f'%(id)s_{qual_name}.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes, 'extractor_args': {'youtube': {'player_client': ['web'], 'po_token': ['wpc', 'bgutil', 'auto']}}})
                             if qual_name != "worst":
                                 _ios_opts.update({'format': 'bv*+ba/b', 'format_sort': [f"res:{qual_name[:-1]}"]})
                             with yt_dlp.YoutubeDL(_ios_opts) as _ydl2:
@@ -5303,6 +5307,10 @@ def _cobalt_download_youtube(url, output_dir, cap_bytes, is_audio=False, preferr
         "https://cobalt-api.kavin.rocks",
     ]
     _api_key = (os.getenv("COBALT_API_KEY", "") or "").strip()
+    # V50: Cobalt free API is GONE (user confirmed). Without a paid/key, api.cobalt.tools returns jwt.missing and kavin is DNS-dead. Skip fast, don't waste 30s.
+    if not _api_key:
+        logger.warning("V50: Cobalt skipped - no COBALT_API_KEY (free API gone), trying next fallback")
+        return None
     _headers_base = {"Accept": "application/json", "Content-Type": "application/json"}
     if _api_key:
         _headers_base["Authorization"] = f"Api-Key {_api_key}"
@@ -5732,7 +5740,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
         if "FILE_TOO_LARGE" in str(e): err = t["error_50mb"]
         elif "MTPROTO_OFF" in str(e): err = "⚠️ Big files need fast mode, which is offline right now."
         elif "MTPROTO_PEER" in str(e): err = "⚠️ Send /start to this bot once, then send the link again."
-        elif "SITE_BLOCKED" in str(e): err = "⏳ YouTube blocked this video (PO token + Piped + Cobalt + Invidious + Lemnoslife all failed). Try a different video - this one may need login / age check. Cobalt needs COBALT_API_KEY on Render. Credit NOT taken."
+        elif "SITE_BLOCKED" in str(e): err = "⏳ YouTube blocked this video (real-Chrome PO token + Piped + Invidious + Lemnoslife all failed). Need fresh cookies from your own Chrome - run the capture script on your phone/PC, log in, play a video, upload new cookies.txt to GitHub. Credit NOT taken."
         elif isinstance(e, (asyncio.TimeoutError, TimeoutError)): err = "⚠️ This is taking too long, so I stopped. Please try again later."
         else: err = t["error_generic"]
         kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
