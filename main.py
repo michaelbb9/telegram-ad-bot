@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V82 - FROM V81 + FACEBOOK ONLY (Comet ported from V74/V75 safe fix. TikTok/YouTube/Music/IG untouched)
+# BOT V83 - FROM V82 + FACEBOOK POST-ONLY FILTER (V82 returned whole page: sidebar/feed/logo/placeholders. V83 anchors to target post via og: + plugins embed, best-per-photo, content dedupe. TikTok/YouTube/Music/IG untouched)
 # STOP PATCHING V74/V75. This file is V35 exact, except for ONE isolated change:
 #  - YouTube ONLY: V51 method (web_embedded + WARP + impersonate), with DIRECT fallback if WARP fails.
 #  - TikTok: V35 exact. No WARP, no web_embedded, no impersonate, no extractor_args. TikTok was working in V35.
@@ -9,6 +9,7 @@
 #  - Instagram: V35 exact. No changes.
 #  - Error logging: admin DL error now includes full traceback (last 800 chars) so an empty AssertionError can be traced to a real line.
 #  - YouTube fallback: if WARP/web_embedded tiers fail, retry once with V35 plain opts (DIRECT, no WARP, no web_embedded).
+# V83: FACEBOOK POST-ONLY - see _fb_filter_to_anchor + _fb_dedupe_files. TikTok/YouTube/Music/IG untouched.
 # V82: FACEBOOK ONLY - see FB block before _fetch_media_url. TikTok/YouTube/Music/IG untouched.
 # V81: MUSIC FILENAME ONLY - audio file on disk renamed to real title before send, title/performer passed to Telegram, cached ID-named files re-upload once with correct name then store title.
 # V80: YOUTUBE AUDIO FALLBACK ONLY - audio branch now tries WARP format-chain then DIRECT format-chain with 30s timeout, like V78 video. Non-YouTube audio untouched.
@@ -2605,92 +2606,96 @@ def _fb_comet_session():
         return None, ""
 
 def _fb_comet_via_curl_cffi(url):
-    """V74 - THE FB FIX, mirror of IG Polaris V73.
-    Why V55-V73 FB failed: plain requests (no TLS fingerprint) + mbasic (dead since Sep 2026, redirects to login)
-    + 12x WARP->DIRECT retry on a LOGIN wall (login is not a proxy block, so retrying the same URL just buys the same wall).
-    What signed-out facebook.com ships now is the Comet Relay store, inline as <script type="application/json" data-sjs>.
-    So: warm LSD session with curl_cffi chrome impersonation (same as IG Polaris), GET the resolved post page once,
-    parse data-sjs blocks + og:video/og:image, walk for playable_url / image.uri / scontent.
-    NO cookies needed for PUBLIC posts. NO mbasic. NO 12x loop. Returns [media URLs] or [].
-    Do NOT call /api/graphql with a hand-built doc_id - Comet replay only ever runs an operation the page itself shipped;
-    hand-built variables fail with 'A server error occurred' / allowlist 1675004. Reading the page's own Relay store is the supported path."""
-    try: _trace(f"FB Comet V74: {str(url)[:80]}")
-    except Exception: pass
+    """V83 - post-only Comet. V82 returned the whole page (47 URLs: target + sidebar/feed + logo + placeholders).
+    V83: og:video/og:image + plugins/post.php (target post only) build the anchor ID set; data-sjs
+    candidates that do not share an anchor photo ID are sidebar/feed junk and are dropped. Then
+    best-per-photo keeps the clearest copy of each target photo. Fallbacks degrade, never crash."""
+    try:
+        _trace("FB Comet V83: " + str(url)[:80])
+    except Exception:
+        pass
     try:
         from curl_cffi import requests as _creq
     except Exception:
         return []
     _sess, _lsd = _fb_comet_session()
-    if _sess is None: return []
-    _out = []
+    if _sess is None:
+        return []
     try:
         _headers = {"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "none", "Sec-Fetch-User": "?1", "Upgrade-Insecure-Requests": "1", "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"}
-        if _lsd: _headers["X-FB-LSD"] = _lsd
+        if _lsd:
+            _headers["X-FB-LSD"] = _lsd
         _r = _sess.get(url, headers=_headers, timeout=25, allow_redirects=True)
         _txt = _r.text or ""
-        _final = str(getattr(_r, 'url', '') or '')
-        try: _trace(f"FB Comet V74: GET HTTP {_r.status_code} len={len(_txt)} final={_final[:100]} body={_txt[:200]!r}")
-        except Exception: pass
-        _has_media = ('scontent' in _txt or 'fbcdn' in _txt or 'playable_url' in _txt)
-        if ('/login' in _final or 'Log in to Facebook' in _txt[:3000]) and not _has_media:
-            try: _trace("FB Comet V74: login wall, trying plugins/post.php once (FB own embed, no login for public posts)")
-            except Exception: pass
-            try:
-                import urllib.parse as _up74
-                _enc = _up74.quote(url, safe='')
-                _rp = _sess.get(f"https://www.facebook.com/plugins/post.php?href={_enc}&show_text=true&width=500", headers=_headers, timeout=20)
-                _txt2 = _rp.text or ""
-                try: _trace(f"FB Comet V74: plugins/post.php HTTP {_rp.status_code} len={len(_txt2)}")
-                except Exception: pass
-                if _txt2 and len(_txt2) > 500:
-                    _txt = _txt + " " + _txt2
-                    _has_media = ('scontent' in _txt or 'fbcdn' in _txt)
-            except Exception: pass
-            if not _has_media:
-                return []
+        _final = str(getattr(_r, "url", "") or "")
+        try:
+            _trace("FB Comet V83: GET HTTP " + str(_r.status_code) + " len=" + str(len(_txt)) + " final=" + _final[:100])
+        except Exception:
+            pass
+        _has_media = ("scontent" in _txt or "fbcdn" in _txt or "playable_url" in _txt)
+        if ("/login" in _final or "Log in to Facebook" in _txt[:3000]) and not _has_media:
+            return []
+        _og_video = ""
+        _og_image = ""
+        try:
+            _soup83 = BeautifulSoup(_txt, "html.parser")
+            _mv = _soup83.find("meta", property="og:video")
+            if _mv and _mv.get("content"):
+                _og_video = _mv.get("content")
+            _mi = _soup83.find("meta", property="og:image")
+            if _mi and _mi.get("content"):
+                _og_image = _mi.get("content")
+        except Exception:
+            pass
+        _plugins = []
+        try:
+            _plugins = _fb_plugins_urls(_sess, url, _headers)
+        except Exception:
+            _plugins = []
+        _raw = []
         try:
             for _m in re.finditer(r'<script[^>]+type="application/json"[^>]*data-sjs[^>]*>(.*?)</script>', _txt, flags=re.S):
-                _raw = _m.group(1).strip()
-                if not _raw: continue
+                _chunk = _m.group(1).strip()
+                if not _chunk:
+                    continue
                 try:
-                    import json as _j74
-                    _obj = _j74.loads(_raw)
-                except Exception: continue
-                _found = _fb_collect_media_from_json(_obj)
-                for _u in _found:
-                    if _u not in _out: _out.append(_u)
-            if _out:
-                try: _trace(f"FB Comet V74: OK via data-sjs, {len(_out)} item(s)")
-                except Exception: pass
-                return _out[:20]
+                    import json as _j83
+                    _obj = _j83.loads(_chunk)
+                except Exception:
+                    continue
+                for _u in _fb_collect_media_from_json(_obj):
+                    if _u not in _raw:
+                        _raw.append(_u)
         except Exception as _e:
-            try: _trace(f"FB Comet V74: data-sjs parse failed {str(_e)[:100]}")
-            except Exception: pass
-        try:
-            import html as _h74
-            for _pat in [r'<meta[^>]+property=["\']og:video["\'][^>]+content=["\']([^"\']+)["\']', r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']']:
-                for _m in re.finditer(_pat, _txt):
-                    _u = _h74.unescape(_m.group(1))
-                    if _u.startswith('http') and _u not in _out: _out.append(_u)
-            for _m in re.finditer(r"https://(?:scontent[^\s'\"]+|[^\s'\"]*\.fbcdn\.net[^\s'\"]+)", _txt):
-                _u = _h74.unescape(_m.group(0)).replace('\\/', '/')
-                if any(_b in _u for _b in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32"]): continue
-                if (".jpg" in _u or ".jpeg" in _u or ".png" in _u or ".webp" in _u or ".mp4" in _u) and _u not in _out: _out.append(_u)
-            _seen = set(); _ded = []
-            for _u in _out:
-                _k = _u.split('?')[0]
-                if _k not in _seen: _seen.add(_k); _ded.append(_u)
-            _out = _ded
-            if _out:
-                try: _trace(f"FB Comet V74: OK via og/scontent fallback, {len(_out)} item(s)")
-                except Exception: pass
-                return _out[:20]
-        except Exception: pass
+            try:
+                _trace("FB Comet V83: data-sjs parse failed " + str(_e)[:100])
+            except Exception:
+                pass
+        if _raw:
+            _kept = _fb_filter_to_anchor(_raw, _plugins, _og_video, _og_image)
+            if _kept:
+                try:
+                    _trace("FB Comet V83: OK via data-sjs, raw=" + str(len(_raw)) + " kept=" + str(len(_kept)))
+                except Exception:
+                    pass
+                return _kept[:20]
+        _fb_all = _fb_extract_scontent_urls(_txt)
+        if _fb_all:
+            _kept2 = _fb_filter_to_anchor(_fb_all, _plugins, _og_video, _og_image)
+            if _kept2:
+                try:
+                    _trace("FB Comet V83: OK via scontent fallback, raw=" + str(len(_fb_all)) + " kept=" + str(len(_kept2)))
+                except Exception:
+                    pass
+                return _kept2[:20]
         return []
     except Exception as _e:
-        try: _trace(f"FB Comet V74: FAILED {str(_e)[:150]}")
-        except Exception: pass
+        try:
+            _trace("FB Comet V83: FAILED " + str(_e)[:150])
+        except Exception:
+            pass
         return []
+
 
 def _fb_resolve_share_v74(url):
     """V74: Resolve FB /share/p|v|r/ + fb.watch ONCE with a warmed curl_cffi session. No 12x loop, no mbasic.
@@ -2763,30 +2768,24 @@ def _resolve_share_link(url):
         return url
 
 def _fb_via_oembed(url):
-    """V74: Facebook oEmbed is tokenless since 15 Jun 2026 (graph.facebook.com/v25.0/oembed_post, no token for public posts).
-    BUT oEmbed returns ONLY embed HTML (fb-post div + sdk.js) - Nov 2026 checks: no author, no title, no thumbnail, NO media URLs.
-    So oEmbed is a liveness/canonical check only, NOT a media source. Media comes from _fb_comet_via_curl_cffi (Relay store) or plugins/post.php.
-    This function now tries plugins/post.php (which DOES contain scontent) via curl_cffi."""
+    """V83: plugins/post.php embed (target post only) + junk filter + best-per-photo."""
     try:
-        import urllib.parse as _up60, html as _h60, re as _re60
-        _out = []
-        try:
-            _sess60, _lsd60 = _fb_comet_session()
-            if _sess60 is not None:
-                _enc = _up60.quote(url, safe='')
-                _r = _sess60.get(f"https://www.facebook.com/plugins/post.php?href={_enc}&show_text=true&width=500", timeout=20)
-                _txt = _r.text or ""
-                for _m in _re60.finditer(r"https://(?:scontent[^\s'\"]+|[^\s'\"]*\.fbcdn\.net[^\s'\"]+)", _txt):
-                    _u2 = _h60.unescape(_m.group(0)).replace('\/', '/')
-                    if any(_bad in _u2 for _bad in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32", "s50x50"]): continue
-                    if (".jpg" in _u2 or ".jpeg" in _u2 or ".png" in _u2 or ".webp" in _u2) and _u2 not in _out: _out.append(_u2)
-                if _out:
-                    try: _trace(f"FB plugins/post V74: {len(_out)} image(s)")
-                    except Exception: pass
-                    return _out[:20]
-        except Exception: pass
+        _sess83, _lsd83 = _fb_comet_session()
+        if _sess83 is None:
+            return []
+        _headers83 = {"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "none", "Sec-Fetch-User": "?1", "Upgrade-Insecure-Requests": "1"}
+        _found83 = _fb_plugins_urls(_sess83, url, _headers83)
+        _found83 = _fb_filter_images(_found83)
+        if _found83:
+            try:
+                _trace("FB plugins/post V83: " + str(len(_found83)) + " image(s)")
+            except Exception:
+                pass
+            return _found83[:20]
         return []
-    except Exception: return []
+    except Exception:
+        return []
+
 
 def _fb_via_mbasic(url):
     """V74: RETIRED. mbasic.facebook.com is gone (Sep 2026: every mbasic path redirects to the login form; deeper links tagged refsrc=deprecated).
@@ -2796,21 +2795,327 @@ def _fb_via_mbasic(url):
     except Exception: pass
     return []
 
-def _fb_filter_images(urls):
-    """V66: Improve carousel extraction + image URL filtering: drop tiny thumbnails (s32/s50/s64/s100/s150), profile pics, static/rsrc/emoji/sprite, dedupe by base URL without query, prefer larger scontent."""
+
+# ---------------- V83: post-only filtering ----------------
+# V82 bug: _fb_collect_media_from_json walked the WHOLE Relay store, so one post page
+# returned 47 URLs: target photo + sidebar/feed posts + page logo + blank profile
+# placeholders + blurred preview copies of the same photos. The bot then sent 20 junk items.
+# V83 fix: anchor to the TARGET post only. og:video/og:image + plugins/post.php (an embed
+# that contains ONLY the target post) give us the target photo/video IDs. Comet candidates
+# whose photo ID is not in the anchor set are sidebar/feed junk -> dropped. Then best-per-photo
+# keeps the clearest (largest) copy of each photo, and _fb_dedupe_files drops tiny/blank/
+# duplicate files after download. Fallbacks degrade gracefully, never crash.
+def _fb_photo_ids(url):
+    """Photo/video IDs in a CDN URL: long digit runs in the path + fbid-style query params."""
     try:
-        _seen=set(); _res=[]
+        _u = url or ""
+        _ids = set(re.findall(r"\d{8,}", _u.split("?")[0]))
+        for _m in re.finditer(r"(?:fbid|story_fbid|photo_id|video_id|id)=(\d{8,})", _u):
+            _ids.add(_m.group(1))
+        return _ids
+    except Exception:
+        return set()
+
+def _fb_url_size_score(url):
+    """Higher = clearer/larger copy of the same photo. _o (original) wins, then size tokens."""
+    try:
+        _low = (url or "").lower()
+        _score = 100000 if ("_o." in _low or "_o_" in _low or "original" in _low) else 0
+        for _m in re.finditer(r"s(\d+)x(\d+)", _low):
+            _score = max(_score, int(_m.group(1)), int(_m.group(2)))
+        _m = re.search(r"stp=[^&]*s(\d+)", _low)
+        if _m:
+            _score = max(_score, int(_m.group(1)))
+        for _tok in ("s32", "s50", "s64", "s100", "s150", "s200", "s320", "thumb", "blur", "placeholder"):
+            if _tok in _low:
+                _score -= 5000
+        return _score
+    except Exception:
+        return 0
+
+def _fb_is_junk_url(url):
+    """Chrome / placeholders / thumbnails. Used ONLY on non-anchor fallback, never on anchor matches."""
+    try:
+        _low = (url or "").lower()
+        for _b in ("profile_pic", "profile.php", "images/profile", "static", "rsrc", "emoji",
+                   "sprite", "favicon", "logo", "placeholder", "silhouette", "blank",
+                   "default", "avatar", "cover", "sidebar", "suggested", "reaction",
+                   "sticker", "s32x", "s50x", "s64x", "s100x", "s150x", "s200x", "s320x",
+                   "p32x", "p50x", "p64x", "p100x", "p150x", "p200x"):
+            if _b in _low:
+                return True
+        return False
+    except Exception:
+        return False
+
+def _fb_best_per_photo(urls):
+    """Group candidates by photo ID (or normalized base path), keep the clearest URL per photo."""
+    try:
+        _groups = {}
+        _order = []
         for _u in urls or []:
-            if not _u or not _u.startswith('http'): continue
-            _low=_u.lower()
-            if any(_bad in _low for _bad in ["profile_pic","static","rsrc","emoji","sprite","favicon","logo","s32x32","s50x50","s64x64","s100x100","s150x150","p32x32","p50x50","p64x64","p100x100","s32x","s50x"]): continue
-            if ".jpg" not in _low and ".jpeg" not in _low and ".png" not in _low and ".webp" not in _low and ".mp4" not in _low: continue
-            # Dedupe by base URL without query (FB adds different ?oh=... for same image)
-            _k=_u.split('?')[0]
-            if _k in _seen: continue
-            _seen.add(_k); _res.append(_u)
-        return _res[:20]
-    except Exception: return list(urls or [])[:20]
+            if not _u or not isinstance(_u, str):
+                continue
+            _ids = _fb_photo_ids(_u)
+            _key = ("id", sorted(_ids)[0]) if _ids else ("base", _u.split("?")[0].lower())
+            if _key not in _groups:
+                _groups[_key] = _u
+                _order.append(_key)
+            elif _fb_url_size_score(_u) > _fb_url_size_score(_groups[_key]):
+                _groups[_key] = _u
+        return [_groups[_k] for _k in _order]
+    except Exception:
+        return list(urls or [])
+
+def _fb_extract_scontent_urls(html_text):
+    """Quote-safe scontent/fbcdn extraction. Pattern has no quote chars, so it cannot break like V75."""
+    _out = []
+    try:
+        import html as _h83
+        for _raw in re.findall(r"https://[^\s<>]+", html_text or ""):
+            _u = _raw
+            while _u and _u[-1] in (chr(34), chr(39), chr(41), chr(93), chr(44), chr(59), chr(92)):
+                _u = _u[:-1]
+            while _u and _u[0] in (chr(34), chr(39), chr(40), chr(91)):
+                _u = _u[1:]
+            _u = _h83.unescape(_u).replace(chr(92) + "/", "/")
+            _low = _u.lower()
+            if ("scontent" in _low or "fbcdn" in _low) and (".jpg" in _low or ".jpeg" in _low or ".png" in _low or ".webp" in _low or ".mp4" in _low):
+                if _u not in _out:
+                    _out.append(_u)
+    except Exception:
+        pass
+    return _out
+
+def _fb_plugins_urls(sess, url, headers):
+    """plugins/post.php embed contains ONLY the target post -> its scontent URLs are the anchor."""
+    try:
+        import urllib.parse as _up83
+        _enc = _up83.quote(url or "", safe="")
+        _rp = sess.get("https://www.facebook.com/plugins/post.php?href=" + _enc + "&show_text=true&width=500", headers=headers, timeout=20)
+        _txt = _rp.text or ""
+        _found = _fb_extract_scontent_urls(_txt)
+        _found = [u for u in _found if not _fb_is_junk_url(u)]
+        try:
+            _trace("FB V83: plugins embed HTTP " + str(_rp.status_code) + " len=" + str(len(_txt)) + " urls=" + str(len(_found)))
+        except Exception:
+            pass
+        return _found
+    except Exception:
+        return []
+
+def _fb_filter_to_anchor(candidates, anchor_urls, og_video, og_image):
+    """Keep only Comet candidates that belong to the target post (photo-ID overlap with anchor set)."""
+    try:
+        _anchor_ids = set()
+        for _a in (anchor_urls or []):
+            _anchor_ids |= _fb_photo_ids(_a)
+        for _a in (og_video, og_image):
+            if _a:
+                _anchor_ids |= _fb_photo_ids(_a)
+        try:
+            _trace("FB V83: raw=" + str(len(candidates or [])) + " anchor_urls=" + str(len(anchor_urls or [])) + " anchor_ids=" + str(len(_anchor_ids)) + " og_video=" + ("YES" if og_video else "NO") + " og_image=" + ("YES" if og_image else "NO"))
+        except Exception:
+            pass
+        if og_video:
+            _vids = [u for u in (candidates or []) if ".mp4" in u.split("?")[0].lower()]
+            _matched = [u for u in _vids if (_fb_photo_ids(u) & _anchor_ids)]
+            if _matched:
+                return _fb_best_per_photo(_matched)
+            _clean_og = og_video
+            if _clean_og and _clean_og.startswith("http"):
+                return [_clean_og]
+        if _anchor_ids:
+            _matched = [u for u in (candidates or []) if (_fb_photo_ids(u) & _anchor_ids)]
+            if _matched:
+                return _fb_best_per_photo(_matched)
+        if og_image and not _fb_is_junk_url(og_image):
+            return [og_image]
+        _cleaned = [u for u in (candidates or []) if not _fb_is_junk_url(u)]
+        return _fb_best_per_photo(_cleaned)
+    except Exception:
+        return list(candidates or [])
+
+def _fb_image_size(path):
+    """(w,h) without PIL: JPEG SOF + PNG header. Returns (0,0) when unknown."""
+    try:
+        import struct as _st83
+        with open(path, "rb") as _f:
+            _head = _f.read(32)
+        if _head[:3] == b"\xff\xd8\xff":
+            with open(path, "rb") as _f:
+                _data = _f.read()
+            _i = 2
+            while _i < len(_data) - 9:
+                if _data[_i] != 0xFF:
+                    _i += 1
+                    continue
+                _marker = _data[_i + 1]
+                if _marker in (0xC0, 0xC1, 0xC2):
+                    _h = _st83.unpack(">H", _data[_i + 5:_i + 7])[0]
+                    _w = _st83.unpack(">H", _data[_i + 7:_i + 9])[0]
+                    return (_w, _h)
+                if _marker in (0xD8, 0x01) or 0xD0 <= _marker <= 0xD7:
+                    _i += 2
+                    continue
+                _ln = _st83.unpack(">H", _data[_i + 2:_i + 4])[0]
+                _i += 2 + _ln
+        elif _head[:8] == b"\x89PNG\r\n\x1a\n":
+            _w, _h = _st83.unpack(">II", _head[16:24])
+            return (_w, _h)
+    except Exception:
+        pass
+    return (0, 0)
+
+def _fb_dedupe_files(paths):
+    """FB-only post-download cleanup: drop tiny / blank / exact-duplicate / blurred-duplicate files."""
+    try:
+        _kept = []
+        _hashes = set()
+        _pil = None
+        try:
+            from PIL import Image as _PILImage, ImageStat as _PILStat
+            _pil = (_PILImage, _PILStat)
+        except Exception:
+            _pil = None
+        _ahashes = []
+        for _p in paths or []:
+            try:
+                if not _p or not os.path.exists(_p):
+                    continue
+                _ext = os.path.splitext(_p)[1].lower()
+                _size = os.path.getsize(_p)
+                if _size < 1000:
+                    try:
+                        os.remove(_p)
+                    except Exception:
+                        pass
+                    continue
+                if _ext in VIDEO_EXT:
+                    import hashlib as _hl83
+                    _h = _hl83.md5(open(_p, "rb").read()).hexdigest()
+                    if _h in _hashes:
+                        try:
+                            os.remove(_p)
+                        except Exception:
+                            pass
+                        continue
+                    _hashes.add(_h)
+                    _kept.append(_p)
+                    continue
+                if _ext not in PHOTO_EXT:
+                    _kept.append(_p)
+                    continue
+                _w, _h = (0, 0)
+                _ahash = None
+                _is_blank = False
+                if _pil is not None:
+                    try:
+                        _im = _pil[0].open(_p)
+                        _w, _h = _im.size
+                        _cx, _cy = _w // 2, _h // 2
+                        _crop = _im.crop((max(0, _cx - 64), max(0, _cy - 64), min(_w, _cx + 64), min(_h, _cy + 64)))
+                        _thumb = _crop.convert("L")
+                        _st = _pil[1].Stat(_thumb).stddev
+                        _std83 = _st[0] if _st else 999
+                        _small = _crop.convert("RGB")
+                        _gray = 0
+                        _total = 0
+                        _sat_sum = 0
+                        _bri_sum = 0
+                        for _px in _small.getdata():
+                            _total += 1
+                            _sat_sum += max(_px) - min(_px)
+                            _bri_sum += sum(_px) / 3.0
+                            if max(_px) - min(_px) < 10 and max(_px) > 180:
+                                _gray += 1
+                        _gray_frac83 = (_gray / float(_total)) if _total else 0
+                        _mean_sat83 = (_sat_sum / float(_total)) if _total else 999
+                        _mean_bri83 = (_bri_sum / float(_total)) if _total else 0
+                        if _gray_frac83 > 0.92 and _mean_sat83 < 15 and _mean_bri83 > 190 and _std83 < 25:
+                            _is_blank = True
+                        _athumb = _im.convert("L").resize((16, 16))
+                        _bits = []
+                        _avg = sum(_athumb.getdata()) / 256.0
+                        for _px in _athumb.getdata():
+                            _bits.append("1" if _px >= _avg else "0")
+                        _ahash = int("".join(_bits), 2)
+                    except Exception:
+                        _w, _h = _fb_image_size(_p)
+                else:
+                    _w, _h = _fb_image_size(_p)
+                if _w and _h and max(_w, _h) < 300:
+                    try:
+                        _trace("FB V83 dedupe: drop tiny " + str(_w) + "x" + str(_h) + " " + os.path.basename(_p))
+                    except Exception:
+                        pass
+                    try:
+                        os.remove(_p)
+                    except Exception:
+                        pass
+                    continue
+                if _is_blank:
+                    try:
+                        _trace("FB V83 dedupe: drop blank/placeholder " + os.path.basename(_p))
+                    except Exception:
+                        pass
+                    try:
+                        os.remove(_p)
+                    except Exception:
+                        pass
+                    continue
+                import hashlib as _hl83b
+                with open(_p, "rb") as _fh:
+                    _h2 = _hl83b.md5(_fh.read()).hexdigest()
+                if _h2 in _hashes:
+                    try:
+                        os.remove(_p)
+                    except Exception:
+                        pass
+                    continue
+                _hashes.add(_h2)
+                if _ahash is not None:
+                    _dup_idx = None
+                    for _ki, _kh in enumerate(_ahashes):
+                        _dist = bin(_kh[0] ^ _ahash).count("1")
+                        if _dist <= 3:
+                            _dup_idx = _ki
+                            break
+                    if _dup_idx is not None:
+                        _old = _kept[_dup_idx]
+                        if _size > os.path.getsize(_old):
+                            try:
+                                os.remove(_old)
+                            except Exception:
+                                pass
+                            _kept[_dup_idx] = _p
+                            _ahashes[_dup_idx] = (_ahash, _size)
+                        else:
+                            try:
+                                os.remove(_p)
+                            except Exception:
+                                pass
+                        continue
+                    _ahashes.append((_ahash, _size))
+                _kept.append(_p)
+            except Exception:
+                if _p and os.path.exists(_p):
+                    _kept.append(_p)
+                continue
+        return _kept
+    except Exception:
+        return list(paths or [])
+
+
+def _fb_filter_images(urls):
+    """V83: junk filter + best-per-photo (keeps clearest copy of each photo). Used on fallback lists."""
+    try:
+        _clean = [u for u in (urls or []) if u and isinstance(u, str) and u.startswith("http") and not _fb_is_junk_url(u)]
+        _clean = [u for u in _clean if (".jpg" in u.lower() or ".jpeg" in u.lower() or ".png" in u.lower() or ".webp" in u.lower() or ".mp4" in u.lower())]
+        return _fb_best_per_photo(_clean)[:20]
+    except Exception:
+        return list(urls or [])[:20]
+
 
 def _fb_images_from_share_page(url):
     """V74: Comet first (Relay store), then plugins/post.php. No mbasic, no plain-requests loop (both just hit login wall)."""
@@ -3069,6 +3374,7 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None):
                             _ext = ".mp4" if ".mp4" in _u.split("?")[0] else ".jpg"
                             _comet_files.append(_fetch_media_url(_u, os.path.join(folder, f"{_i:03d}"), cap_bytes, _ext))
                         except Exception as _e74: _trace(f"FB Comet file {_i} failed: {type(_e74).__name__}")
+                    _comet_files = _fb_dedupe_files(_comet_files)
                     if _comet_files:
                         _trace(f"RESULT: OK via FB Comet, {len(_comet_files)} item(s)")
                         return _comet_files
@@ -3148,6 +3454,7 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None):
                     for _i, _u in enumerate(_fb_urls[:MAX_CAROUSEL_ITEMS], start=1):
                         try: _fb_files.append(_fetch_media_url(_u, os.path.join(folder, f"{_i:03d}"), cap_bytes, ".jpg"))
                         except Exception: continue
+                    _fb_files = _fb_dedupe_files(_fb_files)
                     if _fb_files:
                         _trace(f"RESULT: OK via FB scrape, {len(_fb_files)} item(s)")
                         return _fb_files
@@ -3482,6 +3789,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                             _fb82_paths.append(_fetch_media_url(_u82, os.path.join(output_dir, f"img_{int(time.time())}_{_i82:02d}"), cap_bytes, _ext82))
                         except Exception:
                             continue
+                    _fb82_paths = _fb_dedupe_files(_fb82_paths)
                     if _fb82_paths:
                         _total82 = sum(os.path.getsize(p) for p in _fb82_paths)
                         save_to_file_cache(url, "images", _fb82_paths[0])
