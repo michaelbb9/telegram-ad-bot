@@ -3025,16 +3025,19 @@ def _instaloader_worker(shortcode, folder, cap_bytes):
         loader = instaloader.Instaloader(**kwargs)  # V61: NO fatal_status_codes - 429 is retryable, not fatal
     except TypeError:
         loader = instaloader.Instaloader(**kwargs)
+    # Instaloader exposes its requests.Session as context._session in current versions.
+    # Some older forks expose context.session, so support both without assuming either.
+    _ig_session = getattr(loader.context, "_session", None) or getattr(loader.context, "session", None)
+    if _ig_session is None:
+        raise RuntimeError("Instaloader has no accessible requests session")
     # V61: WARP proxy on Instaloader's own session (same trick as YT)
     try:
         _wp61 = _proxy_for_url(f"https://www.instagram.com/p/{shortcode}/")
         if _wp61:
-            try: loader.context._session.proxies.update({"http": _wp61, "https": _wp61})
-            except Exception: pass
-            try: loader.context.session.proxies.update({"http": _wp61, "https": _wp61})
-            except Exception: pass
-            _trace(f"instaloader: using WARP proxy")
-    except Exception: pass
+            _ig_session.proxies.update({"http": _wp61, "https": _wp61})
+            _trace("instaloader: using WARP proxy")
+    except Exception as _proxy_exc:
+        _trace(f"instaloader: proxy setup skipped: {type(_proxy_exc).__name__}")
     # V61: Load IG session from cookies.txt if user has IG sessionid (Get cookies.txt LOCALLY while logged into IG)
     try:
         import http.cookiejar as _cj61
@@ -3049,7 +3052,7 @@ def _instaloader_worker(shortcode, folder, cap_bytes):
                     _ig_cookies[_c.name] = _c.value
             if _ig_cookies:
                 for _k, _v in _ig_cookies.items():
-                    try: loader.context.session.cookies.set(_k, _v, domain=".instagram.com")
+                    try: _ig_session.cookies.set(_k, _v, domain=".instagram.com")
                     except Exception: pass
                 _trace(f"instaloader: loaded IG session from cookies.txt ({len(_ig_cookies)} cookies)")
             else:
@@ -3058,7 +3061,7 @@ def _instaloader_worker(shortcode, folder, cap_bytes):
         _trace(f"instaloader: session load skipped: {_e61}")
     # V61: IG now requires X-IG-App-ID for GraphQL
     try:
-        loader.context.session.headers.update({"X-IG-App-ID": "936619743392459", "X-Requested-With": "XMLHttpRequest"})
+        _ig_session.headers.update({"X-IG-App-ID": "936619743392459", "X-Requested-With": "XMLHttpRequest"})
     except Exception: pass
     # V63: If sessionid is expired/checkpointed, IG returns login page -> BadResponseException. Expired session is WORSE than anonymous.
     # Try with session first, if BadResponse/login_required/checkpoint -> clear cookies and retry anonymous (public posts work anonymous via WARP).
@@ -3069,11 +3072,11 @@ def _instaloader_worker(shortcode, folder, cap_bytes):
         if any(_k in _msg63 for _k in ["badresponse", "login_required", "checkpoint", "fetching post metadata", "401", "403"]):
             _trace("instaloader: session expired/checkpointed (BadResponse) - retrying ANONYMOUS without cookies")
             try:
-                loader.context.session.cookies.clear()
+                _ig_session.cookies.clear()
                 # Keep WARP proxy after clear
                 try:
                     _wp63 = _proxy_for_url(f"https://www.instagram.com/p/{shortcode}/")
-                    if _wp63: loader.context.session.proxies.update({"http": _wp63, "https": _wp63})
+                    if _wp63: _ig_session.proxies.update({"http": _wp63, "https": _wp63})
                 except Exception: pass
                 post = instaloader.Post.from_shortcode(loader.context, shortcode)
                 _trace("instaloader: anonymous retry OK")
