@@ -2802,6 +2802,32 @@ def _ig_carousel_via_json(url, cookiefile=None):
                         _marker_hits = [f"{_mk}:{_txt.lower().count(_mk.lower())}" for _mk in _markers if _mk.lower() in _txt.lower()]
                         _trace(f"IG endpoint no media: {_kind}, HTTP {_r.status_code}, type={_ctype}, chars={len(_txt)}, title={_title_text}, final={_final_url[:100]}")
                         _trace("IG endpoint markers: " + (", ".join(_marker_hits[:12]) if _marker_hits else "none of the known post/login markers found"))
+                        # V64 diagnostic: count actual CDN URL candidates, not just occurrences
+                        # of the text "cdninstagram.com" in Instagram's large JS bundles.
+                        try:
+                            import urllib.parse as _igup64
+                            _url_scan64 = (_scan_txt.replace("\\u003d", "=")
+                                                   .replace("\\u0025", "%")
+                                                   .replace("\\u002b", "+")
+                                                   .replace("\\u0026", "&"))
+                            _cdn_matches64 = re.findall(r'https?://[^"\'<>\\\s]{1,1200}', _url_scan64)
+                            _cdn_samples64 = []
+                            _cdn_count64 = 0
+                            for _candidate64 in _cdn_matches64:
+                                _candidate64 = _h55.unescape(_candidate64).rstrip('\\\\),;]')
+                                _parsed64 = _igup64.urlsplit(_candidate64)
+                                _host64 = (_parsed64.hostname or "").lower()
+                                if not (_host64.endswith("cdninstagram.com") or _host64.endswith("fbcdn.net")):
+                                    continue
+                                _cdn_count64 += 1
+                                if len(_cdn_samples64) < 5:
+                                    # Never log signed query strings or tokens.
+                                    _cdn_samples64.append(f"{_host64}{_parsed64.path[:100]} [query={'yes' if _parsed64.query else 'no'}]")
+                            _trace(f"IG CDN URL candidates: {_cdn_count64}")
+                            if _cdn_samples64:
+                                _trace("IG CDN URL samples (query omitted): " + " | ".join(_cdn_samples64))
+                        except Exception as _diag64:
+                            _trace(f"IG CDN URL diagnostic skipped: {type(_diag64).__name__}")
                     except Exception: pass
                 if len(_out) >= 2: break
                 if _out and _kind.startswith("ddig"): break
