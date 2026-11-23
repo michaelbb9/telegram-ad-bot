@@ -2686,6 +2686,7 @@ def _ig_carousel_via_json(url, cookiefile=None):
             (f"https://www.ddinstagram.com/p/{_short}/", "ddig"),
             (f"https://www.ddinstagram.com/p/{_short}/embed/", "ddig-embed"),
         ]
+        # V70: ddinstagram/Dumpor block WARP/CF IPs (403). Try them DIRECT first, not via WARP. Embed tries WARP first, mirrors try DIRECT first.
         # V63: Expired IG cookies poison embed/ddinstagram (IG returns login wall instead of public embed). So: embed + ddinstagram ANONYMOUS first, __a=1 WITH cookies last.
         # Reorder: embed (anon), ddig (anon), ddig-embed (anon), json (with cookies)
         _try_urls = [
@@ -2709,9 +2710,15 @@ def _ig_carousel_via_json(url, cookiefile=None):
                 # V59: WARP for IG (same as YT) - Render IP gets 429, WARP looks like home IP. Fall back to direct if WARP fails.
                 try: _prox59ig = _requests_proxies_for_url(url)
                 except Exception: _prox59ig = None
+                # V70: Mirrors (ddinstagram/dumpor/picuki) block WARP - try DIRECT first for them, WARP first for IG embed. Then retry the other way if blocked.
+                _is_mirror70 = _kind.startswith("ddig") or _kind.startswith("dumpor") or _kind.startswith("picuki")
+                if _is_mirror70:
+                    try: _r = requests.get(_u, headers=_h_try, cookies=_cookies_try, timeout=15, proxies=None)
+                    except Exception: _r = requests.get(_u, headers=_h_try, cookies=_cookies_try, timeout=15, proxies=_prox59ig)
+                else:
+                    try: _r = requests.get(_u, headers=_h_try, cookies=_cookies_try, timeout=15, proxies=_prox59ig)
+                    except Exception: _r = requests.get(_u, headers=_h_try, cookies=_cookies_try, timeout=15)
                 # V65: WARP fallback was only on exception. Now also retry DIRECT if WARP returns 429/403/login wall (IG throttles WARP IP too).
-                try: _r = requests.get(_u, headers=_h_try, cookies=_cookies_try, timeout=15, proxies=_prox59ig)
-                except Exception: _r = requests.get(_u, headers=_h_try, cookies=_cookies_try, timeout=15)
                 # V65: If WARP gave 429/403/login, try direct once
                 try:
                     _st65 = getattr(_r, 'status_code', 0)
@@ -2766,13 +2773,15 @@ def _ig_carousel_via_json(url, cookiefile=None):
                 # V69: Unescape \/ BEFORE regex - IG HTML has https:\/\/scontent... escaped, so https:// regex missed every URL (mentions=733, total_urls=0). Also handle //cdninstagram.com protocol-relative.
                 try: _txt = _txt.replace('\\/', '/').replace('\\u0026', '&').replace('&amp;', '&')
                 except Exception: pass
+                # V70: NO-COOKIE route - ddinstagram/Dumpor/Picuki serve media from THEIR OWN domains (ddinstagram.com/..., dumpor.com/...), NOT cdninstagram.com. Old parser only looked for cdninstagram/scontent, so it dropped every mirror URL (200 OK but 0 candidates). Now look for mirror domains too.
                 # V67: Distinguish CDN MENTIONS (string appears 736x in JS) from actual URL CANDIDATES. Old parser required .jpg/.png/.webp - but IG CDN URLs often have NO extension, just /v/t51... + _nc_cat/oh=/oe= params. That dropped real slides.
                 # Count mentions vs candidates, log 5 samples (host+path only, query stripped)
                 try:
                     _mentions67 = _txt.count("cdninstagram.com") + _txt.count("scontent")
                     _cand67 = []
                     _assets67 = 0
-                    for _mm67 in re.finditer(r'(?:https:)?//[^"\'\s<>]+(?:cdninstagram\.com|scontent[^"\'\s<>]*|fbcdn\.net)[^"\'\s<>]*', _txt):
+                    # V70: Include mirror domains (ddinstagram, dumpor, picuki, imginn) - these are the NO-COOKIE media URLs
+                    for _mm67 in re.finditer(r'(?:https:)?//[^"\'\s<>]+(?:cdninstagram\.com|scontent[^"\'\s<>]*|fbcdn\.net|ddinstagram\.com|dumpor\.com|picuki\.com|imginn\.com)[^"\'\s<>]*', _txt):
                         _u67 = _h55.unescape(_mm67.group(0)).replace('\\/', '/')
                         if _u67.startswith('//'): _u67 = 'https:' + _u67
                         # V68: static.cdninstagram.com/rsrc.php/... are WEBSITE assets (JS/CSS), not carousel photos. Filter them out, count separately.
@@ -2784,7 +2793,7 @@ def _ig_carousel_via_json(url, cookiefile=None):
                             continue
                         _cand67.append(_u67)
                     # Media candidates: have /v/ (video/image version) OR _n. OR oh=/oe=/_nc_ OR .jpg/.png/.webp/.mp4 - not just extension
-                    _media67 = [ _u for _u in _cand67 if ("/v/" in _u or "/t51" in _u or "/t39" in _u or "_n." in _u or "oh=" in _u or "oe=" in _u or "_nc_" in _u or ".jpg" in _u or ".jpeg" in _u or ".png" in _u or ".webp" in _u or ".mp4" in _u) ]
+                    _media67 = [ _u for _u in _cand67 if ("/v/" in _u or "/t51" in _u or "/t39" in _u or "_n." in _u or "oh=" in _u or "oe=" in _u or "_nc_" in _u or ".jpg" in _u or ".jpeg" in _u or ".png" in _u or ".webp" in _u or ".mp4" in _u or "ddinstagram.com" in _u or "dumpor.com" in _u or "picuki.com" in _u or "imginn.com" in _u) ]
                     _trace(f"IG CDN URL candidates: mentions={_mentions67}, total_urls={len(_cand67)}, media_candidates={len(_media67)}, website_assets_filtered={_assets67} [{_kind}]")
                     try:
                         _samples67 = []
@@ -2806,6 +2815,10 @@ def _ig_carousel_via_json(url, cookiefile=None):
                     _u2 = _h55.unescape(_mm.group(0)).replace('\\/', '/')
                     if any(_bad in _u2 for _bad in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32", "s50x50"]): continue
                     if (".jpg" in _u2 or ".jpeg" in _u2 or ".png" in _u2 or ".webp" in _u2 or "/v/" in _u2 or "oh=" in _u2) and _u2 not in _out: _out.append(_u2)
+                # V70: og:image + og:video for mirrors (ddinstagram/dumpor put ALL carousel slides as multiple og:image tags, not just first)
+                for _mm in re.finditer(r'<meta[^>]+property=["\']og:video["\'][^>]+content=["\']([^"\']+)["\']', _txt):
+                    _u2 = _h55.unescape(_mm.group(1))
+                    if _u2.startswith('http') and _u2 not in _out: _out.append(_u2)
                 # og:image as well (at least 1)
                 for _mm in re.finditer(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', _txt):
                     _u2 = _h55.unescape(_mm.group(1))
