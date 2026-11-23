@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V77 - FROM V76 (V35 + YouTube V51) + 3 SMALL YOUTUBE FIXES ONLY
+# BOT V78 - FROM V77 + YOUTUBE FORMAT FIX ONLY (TikTok untouched)
 # STOP PATCHING V74/V75. This file is V35 exact, except for ONE isolated change:
 #  - YouTube ONLY: V51 method (web_embedded + WARP + impersonate), with DIRECT fallback if WARP fails.
 #  - TikTok: V35 exact. No WARP, no web_embedded, no impersonate, no extractor_args. TikTok was working in V35.
@@ -9,6 +9,9 @@
 #  - Instagram: V35 exact. No changes.
 #  - Error logging: admin DL error now includes full traceback (last 800 chars) so an empty AssertionError can be traced to a real line.
 #  - YouTube fallback: if WARP/web_embedded tiers fail, retry once with V35 plain opts (DIRECT, no WARP, no web_embedded).
+# V78 FIXES (YouTube only, TikTok untouched):
+#  V78: V77 gave real error 'Requested format is not available' for _tg8n9rikgQ.
+#  Fix: full client list back (web_embedded..android) + po_token AUTO only, NO impersonate. Plus 'best' fallback before DIRECT.
 # V77 FIXES (YouTube only, TikTok untouched):
 #  1. Removed po_token [wpc,bgutil] + impersonate=chrome from YouTube opts - they assert with empty message when wpc/bgutil missing or curl_cffi mismatched.
 #     Now YouTube uses ONLY web_embedded/tv/android_vr (no PO token needed) + WARP.
@@ -189,11 +192,12 @@ def _yt_ydl_opts_for_youtube(base_opts=None):
     Order: web_embedded -> tv -> android_vr -> web -> mweb -> ios -> android. Proxy = WARP if available."""
     o = dict(base_opts or {})
     # V51: web_embedded first - no PO token needed, most reliable from datacenter IP.
-    # V77: V51 worked, but po_token [wpc,bgutil] + impersonate=chrome assert with empty message
-    # when wpc/bgutil are not installed or curl_cffi version does not match yt-dlp.
-    # web_embedded / tv / android_vr need NO PO token, so we use ONLY those three, no po_token, no impersonate.
+    # V78: V77 was too narrow - web_embedded/tv/android_vr alone have NO format for _tg8n9rikgQ -> "Requested format is not available".
+    # Put back full client list: web_embedded/tv/android_vr (no PO token) first, then web/mweb/ios/android.
+    # po_token: AUTO only (not wpc/bgutil) - wpc/bgutil missing is what asserted in V51.
+    # impersonate: STILL OFF - impersonate=chrome + curl_cffi is what asserted with empty message.
     o.update({
-        "extractor_args": {"youtube": {"player_client": ["web_embedded", "tv", "android_vr"]}},
+        "extractor_args": {"youtube": {"player_client": ["web_embedded", "tv", "android_vr", "web", "mweb", "ios", "android"], "po_token": ["auto"]}},
         "quiet": True, "no_warnings": True,
     })
     # V51: WARP proxy for yt-dlp (if available) - fixes datacenter IP block
@@ -3047,6 +3051,20 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                     break
                 continue
 
+        # V78 YouTube BEST fallback: if tiers failed with "Requested format is not available", try plain 'best' (no height, no bv*+ba) with WARP opts.
+        # 'best' is the most permissive format - it succeeds when bv*+ba finds nothing (e.g. only combined mp4 exists).
+        if _is_yt76 and not too_big and last_err is not None and "requested format" in str(last_err).lower():
+            try:
+                _o_best = dict(ydl_opts); _o_best.update({'format': 'best', 'outtmpl': os.path.join(output_dir, '%(id)s_best.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
+                with yt_dlp.YoutubeDL(_o_best) as _ydlb:
+                    _infob = _ydlb.extract_info(url, download=True)
+                    _pb = _ydlb.prepare_filename(_infob)
+                    if not os.path.exists(_pb) and os.path.exists(os.path.splitext(_pb)[0]+'.mp4'): _pb = os.path.splitext(_pb)[0]+'.mp4'
+                    if os.path.exists(_pb) and os.path.getsize(_pb) > 1000 and os.path.getsize(_pb) <= cap_bytes:
+                        save_to_file_cache(url, 'video', _pb)
+                        return [_pb], 'best', f"{os.path.getsize(_pb)/(1024*1024):.1f}MB"
+            except Exception as _eb:
+                last_err = _eb
         # V76 YouTube DIRECT fallback: if WARP/web_embedded tiers failed (e.g. wireproxy dead, or empty AssertionError from yt-dlp options),
         # retry once with V35 plain opts (DIRECT, no WARP, no web_embedded, no impersonate). This is what stops WARP from killing YouTube.
         if _is_yt76 and not too_big and last_err is not None:
@@ -3054,7 +3072,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                 _plain76 = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers}
                 if cookiefile: _plain76['cookiefile'] = cookiefile
                 if user_id is not None and progress_key: _plain76['progress_hooks'] = [make_progress_hook(user_id, progress_key)]
-                for _q2, _f2 in [('720p', 'bv*[height<=720]+ba/b[height<=720]'), ('360p', 'bv*[height<=360]+ba/b[height<=360]'), ('worst', 'worst')]:
+                for _q2, _f2 in [('best', 'best'), ('720p', 'bv*[height<=720]+ba/b[height<=720]'), ('360p', 'bv*[height<=360]+ba/b[height<=360]'), ('worst', 'worst')]:
                     try:
                         _o2 = dict(_plain76); _o2.update({'format': _f2, 'outtmpl': os.path.join(output_dir, f'%(id)s_direct_{_q2}.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
                         with yt_dlp.YoutubeDL(_o2) as _ydl2:
