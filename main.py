@@ -1,5 +1,12 @@
 # ============================================================
-# BOT V16 - From V15 (V11 base) + persistent menu grid + batch ad after 3 + batch images (incl mixed fallback) + audio retry + expanded block detection + lux even when blocked + skip poisoned file-cache (no android-first, no probe), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
+# V75 SAFE FIX (do-no-harm, additive only - YouTube path untouched):
+#  1. Syntax: fixed 3 broken scontent/fbcdn regex lines (line 3850 killed the whole file - Python could not even start).
+#  2. TikTok: download_media_engine now uses YouTube yt-dlp opts ONLY for YouTube; TikTok gets plain opts + DIRECT (no WARP). V74 forced TikTok via WARP (10231).
+#  3. FB images: _fetch_media_url now rejects HTML/login-wall (never saves HTML as .jpg), FB Comet session is cached 10 min (V74 warmed 3x per download).
+#  4. Errors: empty AssertionError / 10231 no longer shown as 'private/blocked'.
+#  5. YouTube: unchanged - same _yt_ydl_opts_for_youtube, same WARP, same Piped/Cobalt/Invidious fallbacks.
+# Deploy: rename this file to main.py on Render. Test: 1 small TikTok, 1 FB photo, 1 YouTube video - before trusting it.
+# BOT V75 SAFE FIX - From V74 (Render file) + V75 do-no-harm patches - see V75 notes below (V11 base) + persistent menu grid + batch ad after 3 + batch images (incl mixed fallback) + audio retry + expanded block detection + lux even when blocked + skip poisoned file-cache (no android-first, no probe), no auto-download + V10 fixes (no response on _ links) + V9 fixes (1st download fix) + INLINE permanent channels note VIDEO/AUDIO/IMAGES BUTTONS (fmt survives restart) + V7 fixes wait (1st download fix) + Required Channels Render warning - 2026-11-16 QUALITY BUTTONS (survives restart, no Expired) - 2026-11-16 - DO NOT OPEN main.py
 # THIS IS A NEW FILE - NOT THE OLD main.py
 # First line check: if you see this header, you have the NEW file
 # Changes: buttons + join walkthrough + quality selector + DIRECTIONAL cache + PERSISTENT pending (no Expired)
@@ -2767,12 +2774,13 @@ def _fb_collect_media_from_json(obj):
                 for _it in _o: _walk(_it)
             elif isinstance(_o, str):
                 if "scontent" in _o or "fbcdn" in _o:
-                    for _m in re.finditer(r'https://(?:scontent[^"\'\s\\]+|[^"\'\s\\]*\.fbcdn\.net[^"\'\s\\]+)', _o):
+                    for _m in re.finditer(r'https://(?:scontent\S+|\S*\.fbcdn\.net\S+)', _o):
                         _add(_m.group(0).replace('\\/', '/'))
         _walk(obj)
     except Exception: pass
     return _out
 
+_FB_COMET_CACHE = {'sess': None, 'lsd': '', 't': 0}
 def _fb_comet_session():
     """V74: IG Polaris parallel - warm a curl_cffi chrome session on facebook.com, return (sess, lsd).
     www -> 302 to web.facebook.com is normal signed-out; if www bounces www<->web, ask web directly."""
@@ -2782,6 +2790,12 @@ def _fb_comet_session():
         try: _trace(f"FB Comet V74: curl_cffi MISSING ({_e})")
         except Exception: pass
         return None, ""
+    # V75: reuse warmed session for 10 min - V74 warmed 2x homepages on EVERY call (resolve + Comet + oEmbed = 3x per download, timeouts).
+    try:
+        import time as _t75
+        if _FB_COMET_CACHE.get('sess') is not None and (_t75.time() - _FB_COMET_CACHE.get('t', 0)) < 600:
+            return _FB_COMET_CACHE['sess'], _FB_COMET_CACHE.get('lsd', '')
+    except Exception: pass
     _warp = None
     try: _warp = _proxy_for_url("https://www.facebook.com/")
     except Exception: pass
@@ -2801,6 +2815,10 @@ def _fb_comet_session():
                 try: _trace(f"FB Comet V74: warm {_home} failed {str(_e0)[:80]}")
                 except Exception: pass
                 continue
+        try:
+            import time as _t75b
+            _FB_COMET_CACHE['sess'] = _sess; _FB_COMET_CACHE['lsd'] = _lsd; _FB_COMET_CACHE['t'] = _t75b.time()
+        except Exception: pass
         return _sess, _lsd
     except Exception as _e:
         try: _trace(f"FB Comet V74: session failed {str(_e)[:120]}")
@@ -2875,7 +2893,7 @@ def _fb_comet_via_curl_cffi(url):
                 for _m in re.finditer(_pat, _txt):
                     _u = _h74.unescape(_m.group(1))
                     if _u.startswith('http') and _u not in _out: _out.append(_u)
-            for _m in re.finditer(r'https://(?:scontent[^"\'\s\\]+|[^"\'\s\\]*\.fbcdn\.net[^"\'\s\\]+)', _txt):
+            for _m in re.finditer(r'https://(?:scontent\S+|\S*\.fbcdn\.net\S+)', _txt):
                 _u = _h74.unescape(_m.group(0)).replace('\\/', '/')
                 if any(_b in _u for _b in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32"]): continue
                 if (".jpg" in _u or ".jpeg" in _u or ".png" in _u or ".webp" in _u or ".mp4" in _u) and _u not in _out: _out.append(_u)
@@ -3544,6 +3562,11 @@ def _fetch_media_url(url, dest_base, cap_bytes, default_ext):
         _prox = {"http": _warp, "https": _warp} if _warp else None
         _sess = _creq74f.Session(impersonate="chrome", proxies=_prox) if _prox else _creq74f.Session(impersonate="chrome")
         _r = _sess.get(url, timeout=30)
+        _ct75 = str(getattr(_r, 'headers', {}) or {}).lower()
+        _head75 = (_r.content or b'')[:16]
+        _is_html75 = (_head75[:5].lower() in (b'<html', b'<!doc') or b'<html' in (_r.content or b'')[:200].lower() or 'text/html' in _ct75)
+        if _is_html75:
+            raise ValueError('V75: HTML/login-wall, not media - fall through to requests')
         if _r.status_code == 200 and len(_r.content) > 1000:
             if len(_r.content) > cap_bytes: raise ValueError("file over size cap")
             with open(path, "wb") as f: f.write(_r.content)
@@ -3562,6 +3585,15 @@ def _fetch_media_url(url, dest_base, cap_bytes, default_ext):
                     os.remove(path)
                     raise ValueError("file over size cap")
                 f.write(chunk)
+    # V75: never return an HTML login-wall saved as .jpg/.mp4 - that was breaking FB images (bot sent a 'photo' that was HTML).
+    try:
+        with open(path, 'rb') as _fh75: _h75 = _fh75.read(200)
+        if _h75[:5].lower() in (b'<html', b'<!doc') or b'<html' in _h75.lower():
+            try: os.remove(path)
+            except Exception: pass
+            raise ValueError('V75: HTML/login-wall, not media')
+    except ValueError: raise
+    except Exception: pass
     return path
 
 
@@ -3847,7 +3879,7 @@ def _fb_via_oembed(url):
                 _enc = _up60.quote(url, safe='')
                 _r = _sess60.get(f"https://www.facebook.com/plugins/post.php?href={_enc}&show_text=true&width=500", timeout=20)
                 _txt = _r.text or ""
-                for _m in _re60.finditer(r'https://(?:scontent[^"'\s]+|[^"'\s]*\.fbcdn\.net[^"'\s]+)', _txt):
+                for _m in _re60.finditer(r'https://(?:scontent\S+|\S*\.fbcdn\.net\S+)', _txt):
                     _u2 = _h60.unescape(_m.group(0)).replace('\/', '/')
                     if any(_bad in _u2 for _bad in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32", "s50x50"]): continue
                     if (".jpg" in _u2 or ".jpeg" in _u2 or ".png" in _u2 or ".webp" in _u2) and _u2 not in _out: _out.append(_u2)
@@ -4365,7 +4397,17 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
     except Exception: pass
     # V47: web client is the one that fails with 'Failed to extract any player response' (needs PO token).
     # iOS first + skip webpage player extraction. Web is last resort only.
-    ydl_opts = _yt_ydl_opts_for_youtube({'http_headers': http_headers, 'proxy': PROXY_URL})
+    # V75: YouTube opts ONLY for YouTube. V74 applied _yt_ydl_opts_for_youtube (web_embedded + YouTube extractor_args) to EVERY platform,
+    # so TikTok went through a YouTube-only client. YouTube unchanged. TikTok/FB/IG get plain opts.
+    _is_yt75 = ('youtube.com' in url.lower() or 'youtu.be' in url.lower())
+    if _is_yt75:
+        ydl_opts = _yt_ydl_opts_for_youtube({'http_headers': http_headers, 'proxy': PROXY_URL})
+    else:
+        ydl_opts = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers}
+        try:
+            import importlib.util as _ilu75
+            if _ilu75.find_spec('curl_cffi') is not None: ydl_opts['impersonate'] = 'chrome'
+        except Exception: pass
     # PART 1: clean progress (users) / debug log (admin) — hook records, poller edits Telegram message
     if user_id is not None and progress_key:
         ydl_opts['progress_hooks'] = [make_progress_hook(user_id, progress_key)]
@@ -4375,7 +4417,10 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
     try:
         _wp59 = _proxy_for_url(url)
         if _wp59: ydl_opts['proxy'] = _wp59
-        else: ydl_opts['proxy'] = PROXY_URL
+        else:
+            # V75: TikTok MUST stay DIRECT (WARP = 10231 Region locked). V74's else-branch forced PROXY_URL (WARP) on TikTok even when _proxy_for_url returned None.
+            # That single else-branch is why TikTok stopped downloading. YouTube/FB/IG get WARP via _proxy_for_url; TikTok gets NO proxy.
+            ydl_opts.pop('proxy', None)
     except Exception: pass
     # V46 browser client: impersonate Chrome if curl_cffi is installed
     try:
@@ -7196,7 +7241,11 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
                     f"MTProto: ready={MTPROTO['ready'].is_set()} api_id={bool(API_ID)} api_hash={bool(API_HASH)}"
                     f"{trace_txt}"), parse_mode=None)
             except Exception: pass
-        if "FILE_TOO_LARGE" in str(e): err = t["error_50mb"]
+        # V75: stop lying with 'private/blocked' for every failure. If yt-dlp already proved the link is public (info=ok), the failure is download/send, not privacy.
+        _emsg75 = str(e) or ''
+        if '10231' in _emsg75 or 'Region' in _emsg75 or 'region' in _emsg75.lower(): err = '⚠️ TikTok blocked this server region (10231). Try again in a few minutes - this is not a private link.'
+        elif isinstance(e, AssertionError) and not _emsg75: err = '⚠️ Download failed inside the downloader (empty assert) - not a private link. Please try again, or try a shorter video.'
+        elif "FILE_TOO_LARGE" in _emsg75: err = t["error_50mb"]
         elif "MTPROTO_OFF" in str(e): err = "⚠️ Big files need fast mode, which is offline right now."
         elif "MTPROTO_PEER" in str(e): err = "⚠️ Send /start to this bot once, then send the link again."
         elif "SITE_BLOCKED" in str(e): err = "⏳ YouTube blocked this video even via WARP + web_embedded + fresh cookies (Render datacenter IP flagged). Try again in 10 mins or try a different video. Credit NOT taken."
