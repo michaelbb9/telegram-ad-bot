@@ -2651,108 +2651,171 @@ def scrape_html_images(url, cookiefile=None):
     return None
 
 
-def _ig_polaris_via_curl_cffi(shortcode):
-    """V72 - Polaris GraphQL, from gallery-dl #9564 (tested July 2026), Instaloader PR #2706, yt-dlp #17075, FxEmbed #2299.
-    WHY EMBED HTML FAILS: Embed HTML is now a JS shell - 737 static assets, 0 media URLs. Data is NOT in HTML.
-    WHY PLAIN requests FAILS: IG refuses Python requests at TLS layer with 429 empty body. Need curl_cffi impersonate="chrome" (yt-dlp requires it for anon IG since 2026.07).
-    STEPS (no sessionid needed for public posts):
-      1) GET https://www.instagram.com/ once with curl_cffi impersonate=chrome -> get csrftoken cookie.
-      2) POST https://www.instagram.com/graphql/query with X-IG-App-ID 936619743392459 + X-CSRFToken + doc_id 27128499623469141 (PolarisPostRootQuery) + variables {shortcode, __relay...: False}
-      3) Parse data.xdt_api__v1__media__shortcode__web_info.items[0] -> carousel_media[] / video_versions / image_versions2
-    FALLBACK doc_ids: 27130156389949648 (PolarisLoggedOutDesktopWWWPostRootContentQuery, yt-dlp #17075) + 8845758582119845 (old xdt_shortcode_media, deprecated June 2026 but try last).
-    doc_id rotates every 2-4 weeks - if all 3 return empty, log ROTATED, do NOT blame cookies.
-    """
+
+def _shortcode_to_media_id(shortcode):
+    """V73: shortcode IS base64url(media_id). Vette lesson 2026-08-13: instagramMediaId replaces a lookup with arithmetic. Alphabet A-Za-z0-9-_ . Df3AvgvDV-T -> 19-digit media_id."""
     try:
-        _trace(f"IG Polaris: trying curl_cffi GraphQL for {shortcode} (no sessionid needed, csrftoken only)")
+        _alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+        _v = 0
+        for _c in (shortcode or "").strip():
+            if _c not in _alpha: continue
+            _v = _v * 64 + _alpha.index(_c)
+        return str(_v) if _v else ""
+    except Exception: return ""
+
+def _extract_lsd_from_html(html):
+    """V73: LSD from __eqmc, required for Polaris GraphQL (FxEmbed 2299, yt-dlp). Patterns from real homepage HTML."""
+    try:
+        if not html: return ""
+        for _pat in [r'"LSD",\[\],\{"token":"([^"]+)"\}', r'"LSD",\s*\[\],\s*\{[^}]*"token"\s*:\s*"([^"]+)"', r'"lsd"\s*:\s*"([^"]+)"', r'LSD[^"]*"token"\s*:\s*"([^"]+)"', r'"__eqmc"[^}]*"token":"([^"]+)"']:
+            _m = re.search(_pat, html)
+            if _m and _m.group(1): return _m.group(1)
+    except Exception: pass
+    return ""
+
+def _collect_ig_media_from_json(obj):
+    """V73: Recursive walk - Polaris shapes differ by doc_id: xdt_api__v1__media__shortcode__web_info.items[0], polaris root, /api/v1/media/info items[0]. Collect carousel_media/video_versions/image_versions2 in order, dedup."""
+    _out = []
+    try:
+        def _add(_u):
+            if _u and isinstance(_u, str) and _u.startswith("http") and _u not in _out: _out.append(_u)
+        def _walk(_o):
+            if isinstance(_o, dict):
+                # carousel first (preserves order)
+                if isinstance(_o.get("carousel_media"), list):
+                    for _cm in _o["carousel_media"]:
+                        if isinstance(_cm, dict):
+                            if isinstance(_cm.get("video_versions"), list) and _cm["video_versions"]: _add(_cm["video_versions"][0].get("url"))
+                            elif isinstance(_cm.get("image_versions2"), dict):
+                                _c = _cm["image_versions2"].get("candidates") or []
+                                if _c: _add(_c[0].get("url"))
+                    # do NOT walk into carousel again below - but still walk other keys
+                if isinstance(_o.get("video_versions"), list) and _o["video_versions"] and "carousel_media" not in _o:
+                    _add(_o["video_versions"][0].get("url"))
+                if isinstance(_o.get("image_versions2"), dict) and "carousel_media" not in _o:
+                    _c2 = _o["image_versions2"].get("candidates") or []
+                    if _c2: _add(_c2[0].get("url"))
+                # video_url / display_url (xdt_shortcode_media legacy)
+                if _o.get("video_url"): _add(_o["video_url"])
+                if _o.get("display_url"): _add(_o["display_url"])
+                for _k, _v in _o.items():
+                    if _k in ("carousel_media", "video_versions", "image_versions2", "video_url", "display_url"): continue
+                    _walk(_v)
+            elif isinstance(_o, list):
+                for _it in _o: _walk(_it)
+        _walk(obj)
+    except Exception: pass
+    return _out
+
+def _ig_polaris_via_curl_cffi(shortcode):
+    """V73 - FIXES V72 401 len=119 / 200 len=90.
+    V72 BUG: POSTed to /graphql/query with {shortcode} + only csrftoken. FxEmbed 2299 / yt-dlp #17075 actually do:
+      POST https://www.instagram.com/api/graphql with {media_id} (shortcode decoded base64, NOT shortcode string)
+      + LSD from __eqmc in homepage HTML + X-ASBD-ID 359341 + X-FB-LSD + X-FB-Friendly-Name + get_ruling_for_content warm-up
+      + body lsd, fb_api_caller_class=RelayModern, fb_api_req_friendly_name=PolarisLoggedOutDesktopWWWPostRootContentQuery, server_timestamps=true, doc_id 27130156389949648
+    V72 also went DIRECT from Render IP, not via WARP that Instaloader used. V73 routes via _proxy_for_url (WARP) like Instaloader.
+    FALLBACK: /api/v1/media/<media_id>/info/ - the endpoint the logged-in web client itself calls (Vette lesson 2026-08-13). It returns video_versions even when GraphQL answers {"errors":[{"message":"execution error"}],"data":null} for doc_id 8845758582119845.
+    LOGS BODY SNIPPET for 401/200-empty so next trace shows WHAT Instagram said, not just len.
+    """
+    try: _trace(f"IG Polaris V73: shortcode={shortcode} media_id={_shortcode_to_media_id(shortcode)} (WARP={bool(_proxy_for_url('https://www.instagram.com/'))})")
     except Exception: pass
     try:
         from curl_cffi import requests as _creq
     except Exception as _e:
-        try: _trace(f"IG Polaris: curl_cffi MISSING ({_e}) - add curl_cffi<0.16 to requirements.txt, falling back to plain requests (will likely 429)")
+        try: _trace(f"IG Polaris V73: curl_cffi MISSING ({_e}) - add curl_cffi<0.16")
         except Exception: pass
         return []
-    _doc_ids = ["27128499623469141", "27130156389949648", "8845758582119845"]
-    # 1) Warm session - GET homepage to get csrftoken
+    _media_id = _shortcode_to_media_id(shortcode)
+    _warp = None
+    try: _warp = _proxy_for_url("https://www.instagram.com/")
+    except Exception: pass
     try:
-        _sess = _creq.Session(impersonate="chrome")
+        _prox = {"http": _warp, "https": _warp} if _warp else None
+        _sess = _creq.Session(impersonate="chrome", proxies=_prox) if _prox else _creq.Session(impersonate="chrome")
+        # 1) Warm homepage - cookies + LSD
         _r0 = _sess.get("https://www.instagram.com/", timeout=20)
         _csrf = ""
         try:
             for _k, _v in _sess.cookies.items():
                 if _k == "csrftoken": _csrf = _v
         except Exception: pass
-        if not _csrf:
-            try: _csrf = _r0.cookies.get("csrftoken", "")
+        _html0 = ""
+        try: _html0 = _r0.text or ""
+        except Exception: pass
+        _lsd = _extract_lsd_from_html(_html0)
+        try: _trace(f"IG Polaris V73: homepage HTTP {_r0.status_code} csrftoken={'YES' if _csrf else 'NO'} lsd={'YES len='+str(len(_lsd)) if _lsd else 'NO (Polaris will fail without it)'}")
+        except Exception: pass
+        _base_h = {"X-IG-App-ID": "936619743392459", "X-ASBD-ID": "359341", "X-IG-WWW-Claim": "0", "X-CSRFToken": _csrf, "Referer": f"https://www.instagram.com/p/{shortcode}/", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"}
+        # 2) get_ruling_for_content warm-up (FxEmbed) - status ok = logged-out API will grant content
+        try:
+            _rr = _sess.get(f"https://www.instagram.com/api/v1/web/get_ruling_for_content/?content_type=MEDIA&target_id={_media_id}", headers=dict(_base_h, **{"Accept": "*/*", "Origin": "https://www.instagram.com"}), timeout=15)
+            try: _trace(f"IG Polaris V73: ruling HTTP {_rr.status_code} body={(_rr.text or '')[:120]}")
             except Exception: pass
-        if not _csrf:
-            try: _trace("IG Polaris: no csrftoken from homepage (IG may have 429d datacenter IP) - trying without CSRF")
+        except Exception as _e: 
+            try: _trace(f"IG Polaris V73: ruling failed {str(_e)[:80]}")
             except Exception: pass
-        # 2) Try each doc_id
-        for _doc in _doc_ids:
-            try:
-                _vars = {"shortcode": shortcode, "__relay_internal__pv__PolarisAIGMMediaWebLabelEnabledrelayprovider": False}
-                import json as _json72
-                _payload = {"doc_id": _doc, "variables": _json72.dumps(_vars)}
-                _headers72 = {"X-IG-App-ID": "936619743392459", "X-CSRFToken": _csrf, "X-Requested-With": "XMLHttpRequest", "Referer": f"https://www.instagram.com/p/{shortcode}/"}
-                _r = _sess.post("https://www.instagram.com/graphql/query", headers=_headers72, data=_payload, timeout=25)
-                try: _trace(f"IG Polaris: doc_id {_doc} -> HTTP {_r.status_code}, len={len(_r.text or '')}")
-                except Exception: pass
-                if _r.status_code != 200: continue
-                try: _j = _r.json()
-                except Exception: continue
-                # New format: xdt_api__v1__media__shortcode__web_info
-                _items = None
-                try: _items = _j.get("data", {}).get("xdt_api__v1__media__shortcode__web_info", {}).get("items", [])
-                except Exception: pass
-                if _items:
-                    _it = _items[0]
-                    _out72 = []
-                    # Carousel
-                    try:
-                        for _cm in (_it.get("carousel_media") or []):
-                            try:
-                                if _cm.get("video_versions"): _out72.append(_cm["video_versions"][0]["url"])
-                                elif _cm.get("image_versions2"): _out72.append(_cm["image_versions2"]["candidates"][0]["url"])
-                            except Exception: pass
-                    except Exception: pass
-                    if not _out72:
-                        try:
-                            if _it.get("video_versions"): _out72.append(_it["video_versions"][0]["url"])
-                            elif _it.get("image_versions2"): _out72.append(_it["image_versions2"]["candidates"][0]["url"])
+        # 3a) CORRECT Polaris: /api/graphql with media_id + LSD
+        try:
+            import json as _j73
+            _body = {"lsd": _lsd, "fb_api_caller_class": "RelayModern", "fb_api_req_friendly_name": "PolarisLoggedOutDesktopWWWPostRootContentQuery", "server_timestamps": "true", "variables": _j73.dumps({"media_id": _media_id}), "doc_id": "27130156389949648"}
+            _h73 = dict(_base_h, **{"Content-Type": "application/x-www-form-urlencoded", "X-FB-Friendly-Name": "PolarisLoggedOutDesktopWWWPostRootContentQuery", "X-FB-LSD": _lsd, "X-Requested-With": "XMLHttpRequest"})
+            _r = _sess.post("https://www.instagram.com/api/graphql", headers=_h73, data=_body, timeout=25)
+            _txt = _r.text or ""
+            try: _trace(f"IG Polaris V73: /api/graphql doc 27130156389949648 -> HTTP {_r.status_code} len={len(_txt)} body={_txt[:200]}")
+            except Exception: pass
+            if _r.status_code == 200 and _txt.strip().startswith("{"):
+                try:
+                    _out = _collect_ig_media_from_json(_r.json())
+                    if _out:
+                        try: _trace(f"IG Polaris V73: OK via /api/graphql PolarisLoggedOut, {len(_out)} item(s)")
                         except Exception: pass
-                    if _out72:
-                        try: _trace(f"IG Polaris: OK via doc_id {_doc}, {len(_out72)} item(s) via xdt_api__v1__media__shortcode__web_info")
-                        except Exception: pass
-                        return _out72
-                # Old format: xdt_shortcode_media
-                _scm = None
-                try: _scm = _j.get("data", {}).get("xdt_shortcode_media")
+                        return _out
                 except Exception: pass
-                if _scm:
-                    _out72b = []
-                    try:
-                        _edges = (_scm.get("edge_sidecar_to_children") or {}).get("edges") or []
-                        for _e in _edges:
-                            _n = _e.get("node") or {}
-                            if _n.get("video_url"): _out72b.append(_n["video_url"])
-                            elif _n.get("display_url"): _out72b.append(_n["display_url"])
-                    except Exception: pass
-                    if not _out72b:
-                        if _scm.get("video_url"): _out72b.append(_scm["video_url"])
-                        elif _scm.get("display_url"): _out72b.append(_scm["display_url"])
-                    if _out72b:
-                        try: _trace(f"IG Polaris: OK via doc_id {_doc}, {len(_out72b)} item(s) via xdt_shortcode_media")
+        except Exception as _e73:
+            try: _trace(f"IG Polaris V73: /api/graphql error {str(_e73)[:120]}")
+            except Exception: pass
+        # 3b) /api/v1/media/<id>/info/ - works when GraphQL errors (Vette 2026-08-13)
+        try:
+            _r2 = _sess.get(f"https://www.instagram.com/api/v1/media/{_media_id}/info/", headers=dict(_base_h, **{"Accept": "application/json"}), timeout=25)
+            _t2 = _r2.text or ""
+            try: _trace(f"IG Polaris V73: /api/v1/media/info -> HTTP {_r2.status_code} len={len(_t2)} body={_t2[:200]}")
+            except Exception: pass
+            if _r2.status_code == 200 and _t2.strip().startswith("{"):
+                try:
+                    _out2 = _collect_ig_media_from_json(_r2.json())
+                    if _out2:
+                        try: _trace(f"IG Polaris V73: OK via /api/v1/media/info, {len(_out2)} item(s)")
                         except Exception: pass
-                        return _out72b
-            except Exception as _e72:
-                try: _trace(f"IG Polaris: doc_id {_doc} error {str(_e72)[:120]}")
+                        return _out2
                 except Exception: pass
-                continue
-        try: _trace("IG Polaris: all 3 doc_ids returned empty - doc_id may have ROTATED (every 2-4 weeks) or IP 429d, not a cookie problem")
+        except Exception as _e73b:
+            try: _trace(f"IG Polaris V73: /api/v1/media/info error {str(_e73b)[:120]}")
+            except Exception: pass
+        # 3c) Legacy /graphql/query with shortcode + full headers (gallery-dl 9564 shape, but WITH LSD/ASBD)
+        try:
+            import json as _j73c
+            _payload = {"doc_id": "27128499623469141", "variables": _j73c.dumps({"shortcode": shortcode, "[STRIPPED 66 bytes]": False})}
+            _h73c = dict(_base_h, **{"X-FB-LSD": _lsd, "X-Requested-With": "XMLHttpRequest"})
+            _r3 = _sess.post("https://www.instagram.com/graphql/query", headers=_h73c, data=_payload, timeout=25)
+            _t3 = _r3.text or ""
+            try: _trace(f"IG Polaris V73: /graphql/query doc 27128499623469141 -> HTTP {_r3.status_code} len={len(_t3)} body={_t3[:200]}")
+            except Exception: pass
+            if _r3.status_code == 200 and _t3.strip().startswith("{"):
+                try:
+                    _out3 = _collect_ig_media_from_json(_r3.json())
+                    if _out3:
+                        try: _trace(f"IG Polaris V73: OK via /graphql/query PolarisPostRoot, {len(_out3)} item(s)")
+                        except Exception: pass
+                        return _out3
+                except Exception: pass
+        except Exception as _e73c:
+            try: _trace(f"IG Polaris V73: /graphql/query error {str(_e73c)[:120]}")
+            except Exception: pass
+        try: _trace("IG Polaris V73: all 3 paths empty - check body snippets above: 401=login_required (needs LSD+ruling), 200 len~90={data:{}} (wrong variables), 200 login-wall HTML (IP blocked)")
         except Exception: pass
         return []
     except Exception as _e:
-        try: _trace(f"IG Polaris: FAILED {str(_e)[:150]}")
+        try: _trace(f"IG Polaris V73: FAILED {str(_e)[:150]}")
         except Exception: pass
         return []
 
