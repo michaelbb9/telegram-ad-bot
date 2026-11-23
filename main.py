@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V80 - FROM V79 + YOUTUBE AUDIO FALLBACK ONLY (Music download hang fix, TikTok/Video/FB/IG untouched)
+# BOT V81 - FROM V80 + MUSIC FILENAME ONLY (Audio file renamed to Artist - Title.mp3, TikTok/Video/FB/IG untouched)
 # STOP PATCHING V74/V75. This file is V35 exact, except for ONE isolated change:
 #  - YouTube ONLY: V51 method (web_embedded + WARP + impersonate), with DIRECT fallback if WARP fails.
 #  - TikTok: V35 exact. No WARP, no web_embedded, no impersonate, no extractor_args. TikTok was working in V35.
@@ -9,6 +9,7 @@
 #  - Instagram: V35 exact. No changes.
 #  - Error logging: admin DL error now includes full traceback (last 800 chars) so an empty AssertionError can be traced to a real line.
 #  - YouTube fallback: if WARP/web_embedded tiers fail, retry once with V35 plain opts (DIRECT, no WARP, no web_embedded).
+# V81: MUSIC FILENAME ONLY - audio file on disk renamed to real title before send, title/performer passed to Telegram, cached ID-named files re-upload once with correct name then store title.
 # V80: YOUTUBE AUDIO FALLBACK ONLY - audio branch now tries WARP format-chain then DIRECT format-chain with 30s timeout, like V78 video. Non-YouTube audio untouched.
 # V79: MUSIC SEARCH ONLY (V36-V40 code, adapted to use V78 YouTube opts for search). TikTok/YouTube/FB/IG untouched except Music button added.
 # V78 FIXES (YouTube only, TikTok untouched):
@@ -4890,6 +4891,40 @@ async def set_mtproto_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(f"✅ MTProto max upload size set to **{value}MB**\nMTProto ready: **{'✅ Yes' if _ready2 else '❌ No — still capped at 49MB until API_ID/API_HASH are set on Render and bot restarts'}**\nEffective limit now: **{_eff2}MB**", parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
     except ValueError: await update.message.reply_text("❌ Invalid number.", reply_markup=get_main_keyboard("en", True))
 
+
+def _audio_clean_filename(meta, ckey):
+    """V81 Music naming: build 'Artist - Title.mp3' from meta, or None if no real title.
+    Meta from Music Search is {title, poster=channel}. Direct links use get_social_metadata title/poster.
+    Returns (filename, display_title, performer) or None."""
+    try:
+        if not meta or not isinstance(meta, dict):
+            return None
+        title = str(meta.get("title") or "").strip()
+        if not title or title.lower() in ("unknown", "n/a", "none"):
+            return None
+        performer = str(meta.get("poster") or meta.get("channel") or meta.get("uploader") or "").strip()
+        def _clean(s):
+            s = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '-', s)
+            s = re.sub(r'\s+', ' ', s).strip().strip('.')
+            return s[:120]
+        clean_title = _clean(title)
+        if not clean_title:
+            return None
+        clean_perf = _clean(performer) if performer else ""
+        if clean_perf and clean_title.lower().startswith(clean_perf.lower() + " - "):
+            fname = f"{clean_title}.mp3"
+            disp = clean_title
+        elif clean_perf:
+            fname = f"{clean_perf} - {clean_title}.mp3"
+            disp = f"{clean_perf} - {clean_title}"
+        else:
+            fname = f"{clean_title}.mp3"
+            disp = clean_title
+        fname = fname.replace("/", "-").replace("\\", "-")
+        return (fname, disp, clean_perf)
+    except Exception:
+        return None
+
 async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credit_cost=1, preferred_quality=None, meta=None):
     cache = load_json_file(CACHE_FILE)
     ckey = await get_canonical_key(url, chat_id, bot)
@@ -4948,8 +4983,16 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
                     kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
                     if dl_type == 'video': 
                         sent = await bot.send_video(chat_id=chat_id, video=file_id, caption=t["cached_instant_video"].format(qual_tag, sz, ckey), reply_markup=kb)
-                    elif dl_type == 'audio': 
-                        sent = await bot.send_audio(chat_id=chat_id, audio=file_id, caption=t["cached_instant_audio"].format(ckey), reply_markup=kb)
+                    elif dl_type == 'audio':
+                        # V81: if this cached file was uploaded with ID name (no title stored), do NOT reuse it - fall through to fresh download so it re-uploads with real title once, then stores title.
+                        _want = _audio_clean_filename(meta, ckey)
+                        _stored_title = cache[ckey].get("title") if isinstance(cache.get(ckey), dict) else None
+                        if _want and _stored_title != _want[1]:
+                            raise ValueError("V81_REUPLOAD_WITH_TITLE")
+                        _cap = t["cached_instant_audio"].format(ckey)
+                        if _stored_title:
+                            _cap = f"🎵 {_stored_title}\n" + _cap
+                        sent = await bot.send_audio(chat_id=chat_id, audio=file_id, caption=_cap, reply_markup=kb)
                     else: 
                         sent = await bot.send_photo(chat_id=chat_id, photo=file_id, caption=t["cached_instant_image"].format(ckey), reply_markup=kb)
                     
@@ -4962,6 +5005,9 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
                     return True
             except Exception as e:
                 logger.error(f"Cache send fail {ckey} {best_cached_quality}: {e}")
+                if "V81_REUPLOAD_WITH_TITLE" in str(e):
+                    # Skip vault forward - it holds old ID-named file. Fall through to fresh download.
+                    cached = {}
                 try:
                     vmid = cached.get("vault_msg_id")
                     if vmid:
@@ -5036,12 +5082,28 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
             except: cache[ckey]["qualities"]["original"] = {"file_id": sent_media[0].photo[-1].file_id, "size": size}
             for p in file_paths: os.remove(p)
         elif dl_type == 'audio':
-            sent_media = await send_audio_file(bot, chat_id, file_paths[0], f"🎵 Size {size} `{ckey}`", "Markdown", status_msg)
+            # V81: rename file on disk from <id>.mp3 to "Artist - Title.mp3" BEFORE sending, so saved file has real name. Caption also shows title, not just cache ID.
+            _af = _audio_clean_filename(meta, ckey)
+            _a_title = None; _a_perf = None
+            if _af:
+                _a_title, _a_perf = _af[1], _af[2]
+                try:
+                    _old_p = file_paths[0]
+                    _new_p = os.path.join(os.path.dirname(_old_p), _af[0])
+                    if os.path.abspath(_old_p) != os.path.abspath(_new_p):
+                        if os.path.exists(_new_p): os.remove(_new_p)
+                        os.rename(_old_p, _new_p)
+                        file_paths[0] = _new_p
+                except Exception as _re:
+                    logger.warning(f"V81 rename failed: {_re}")
+            _a_cap = f"🎵 {_a_title}\nSize {size} | `{ckey}`" if _a_title else f"🎵 Size {size} `{ckey}`"
+            sent_media = await send_audio_file(bot, chat_id, file_paths[0], _a_cap, "Markdown", status_msg, title=_a_title, performer=_a_perf)
             warn = await bot.send_message(chat_id=chat_id, text=t["auto_delete_9m"], reply_markup=kb)
             asyncio.create_task(schedule_deletion(bot, chat_id, [sent_media.message_id, warn.message_id], 540))
             try:
                 vmsg = await bot.send_audio(chat_id=VIDEO_VAULT_ID, audio=sent_media.audio.file_id, caption=ckey)
                 cache[ckey]["qualities"]["audio"] = {"file_id": sent_media.audio.file_id, "vault_msg_id": vmsg.message_id, "size": size}
+                if _a_title: cache[ckey]["title"] = _a_title
             except: cache[ckey]["qualities"]["audio"] = {"file_id": sent_media.audio.file_id, "size": size}
             os.remove(file_paths[0])
         else:
@@ -6052,11 +6114,15 @@ async def send_video_file(bot, chat_id, target_id, path, caption, parse_mode, st
         message_id = copied.message_id
     return types.SimpleNamespace(message_id=message_id, video=types.SimpleNamespace(file_id=file_id))
 
-async def send_audio_file(bot, chat_id, path, caption, parse_mode, status_msg=None):
+async def send_audio_file(bot, chat_id, path, caption, parse_mode, status_msg=None, title=None, performer=None):
+    # V81: title/performer fix "Unknown artist - <id>.mp3" in player. File on disk is already renamed to real title before this call.
+    _extra = {}
+    if title: _extra["title"] = title
+    if performer: _extra["performer"] = performer
     if os.path.getsize(path) <= BOT_API_LIMIT_BYTES:
-        with open(path, 'rb') as f: return await bot.send_audio(chat_id=chat_id, audio=f, caption=caption, parse_mode=parse_mode)
+        with open(path, 'rb') as f: return await bot.send_audio(chat_id=chat_id, audio=f, caption=caption, parse_mode=parse_mode, **_extra)
     await _tell_uploading(status_msg, path)
-    msg = await mtproto_upload("audio", chat_id, path, caption.replace("`", ""))
+    msg = await mtproto_upload("audio", chat_id, path, caption.replace("`", ""), **_extra)
     media = msg.audio or msg.document
     return types.SimpleNamespace(message_id=msg.id, audio=types.SimpleNamespace(file_id=media.file_id))
 
