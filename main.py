@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V79 - FROM V78 + MUSIC SEARCH ONLY (TikTok + YouTube untouched, Facebook/Instagram untouched)
+# BOT V80 - FROM V79 + YOUTUBE AUDIO FALLBACK ONLY (Music download hang fix, TikTok/Video/FB/IG untouched)
 # STOP PATCHING V74/V75. This file is V35 exact, except for ONE isolated change:
 #  - YouTube ONLY: V51 method (web_embedded + WARP + impersonate), with DIRECT fallback if WARP fails.
 #  - TikTok: V35 exact. No WARP, no web_embedded, no impersonate, no extractor_args. TikTok was working in V35.
@@ -9,6 +9,7 @@
 #  - Instagram: V35 exact. No changes.
 #  - Error logging: admin DL error now includes full traceback (last 800 chars) so an empty AssertionError can be traced to a real line.
 #  - YouTube fallback: if WARP/web_embedded tiers fail, retry once with V35 plain opts (DIRECT, no WARP, no web_embedded).
+# V80: YOUTUBE AUDIO FALLBACK ONLY - audio branch now tries WARP format-chain then DIRECT format-chain with 30s timeout, like V78 video. Non-YouTube audio untouched.
 # V79: MUSIC SEARCH ONLY (V36-V40 code, adapted to use V78 YouTube opts for search). TikTok/YouTube/FB/IG untouched except Music button added.
 # V78 FIXES (YouTube only, TikTok untouched):
 #  V78: V77 gave real error 'Requested format is not available' for _tg8n9rikgQ.
@@ -2954,7 +2955,66 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
     # ============================================================
     
     if download_type == 'audio':
-        # V15 (from V11): audio had no retry, video did. First audio hit blocked -> wait 5s -> retry once.
+        # V80 FIX (Music download hang): audio had NO fallback, video had 3.
+        # V79 audio tried only bestaudio/best on WARP, no timeout, no DIRECT fallback.
+        # If WARP is slow or web_embedded has no bestaudio for this video, it hung to the 420s timeout.
+        # Now: YouTube audio gets same idea as V78 video - WARP format-chain, then DIRECT format-chain, each with 30s socket timeout, fail fast.
+        # Non-YouTube audio keeps V15 exact behaviour.
+        if _is_yt76:
+            _audio_formats = ['bestaudio/best', 'bestaudio[ext=m4a]/bestaudio/best', 'best', 'bv*+ba/b', 'worst']
+            _audio_last_err = None
+            _audio_blocked = False
+            # Build two opt-sets: WARP (V78 YouTube opts) then DIRECT (V35 plain, no WARP, no extractor_args)
+            _audio_opt_sets = []
+            try:
+                _warp_audio = _yt_ydl_opts_for_youtube({'http_headers': http_headers, 'socket_timeout': 30})
+                if cookiefile: _warp_audio['cookiefile'] = cookiefile
+                if user_id is not None and progress_key: _warp_audio['progress_hooks'] = [make_progress_hook(user_id, progress_key)]
+                _audio_opt_sets.append(_warp_audio)
+            except Exception:
+                pass
+            _direct_audio = {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'socket_timeout': 30}
+            if cookiefile: _direct_audio['cookiefile'] = cookiefile
+            if user_id is not None and progress_key: _direct_audio['progress_hooks'] = [make_progress_hook(user_id, progress_key)]
+            _audio_opt_sets.append(_direct_audio)
+            for _oi, _base_audio_opts in enumerate(_audio_opt_sets):
+                for _fmt in _audio_formats:
+                    try:
+                        _opts_a = dict(_base_audio_opts)
+                        _opts_a.update({'format': _fmt, 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
+                        with yt_dlp.YoutubeDL(_opts_a) as ydl:
+                            info = ydl.extract_info(url, download=True)
+                            base = os.path.splitext(ydl.prepare_filename(info))[0]
+                            path = f"{base}.mp3"
+                            if os.path.exists(path):
+                                if os.path.getsize(path) > cap_bytes:
+                                    os.remove(path)
+                                    raise ValueError("FILE_TOO_LARGE")
+                                save_to_file_cache(url, "audio", path)
+                                return [path], "audio", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
+                        raise ValueError("FILE_NOT_FOUND")
+                    except ValueError:
+                        raise
+                    except Exception as _ae:
+                        _audio_last_err = _ae
+                        _m = str(_ae).lower()
+                        if ("not a bot" in _m or "sign in to confirm" in _m or "429" in _m or "403" in _m or "forbidden" in _m or "failed to extract" in _m or "player response" in _m or "no video formats" in _m or "unable to download" in _m or "requested format" in _m):
+                            _audio_blocked = True
+                        # Try next format in same opt-set, then next opt-set. No long sleep - fail fast.
+                        continue
+                # Between WARP and DIRECT, tiny pause so we do not hammer
+                if _oi == 0:
+                    try:
+                        import time as _t_a
+                        _t_a.sleep(2)
+                    except Exception:
+                        pass
+            if _audio_blocked:
+                raise ValueError("SITE_BLOCKED")
+            if _audio_last_err is not None:
+                raise _audio_last_err
+            raise ValueError("FILE_NOT_FOUND")
+        # Non-YouTube: V15 exact behaviour
         for _attempt in range(2):
             try:
                 ydl_opts.update({'format': 'bestaudio/best', 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'), 'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}], 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
