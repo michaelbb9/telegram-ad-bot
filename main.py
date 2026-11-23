@@ -2650,9 +2650,123 @@ def scrape_html_images(url, cookiefile=None):
     except Exception as e: logger.error(f"Scrape: {e}")
     return None
 
+
+def _ig_polaris_via_curl_cffi(shortcode):
+    """V72 - Polaris GraphQL, from gallery-dl #9564 (tested July 2026), Instaloader PR #2706, yt-dlp #17075, FxEmbed #2299.
+    WHY EMBED HTML FAILS: Embed HTML is now a JS shell - 737 static assets, 0 media URLs. Data is NOT in HTML.
+    WHY PLAIN requests FAILS: IG refuses Python requests at TLS layer with 429 empty body. Need curl_cffi impersonate="chrome" (yt-dlp requires it for anon IG since 2026.07).
+    STEPS (no sessionid needed for public posts):
+      1) GET https://www.instagram.com/ once with curl_cffi impersonate=chrome -> get csrftoken cookie.
+      2) POST https://www.instagram.com/graphql/query with X-IG-App-ID 936619743392459 + X-CSRFToken + doc_id 27128499623469141 (PolarisPostRootQuery) + variables {shortcode, __relay...: False}
+      3) Parse data.xdt_api__v1__media__shortcode__web_info.items[0] -> carousel_media[] / video_versions / image_versions2
+    FALLBACK doc_ids: 27130156389949648 (PolarisLoggedOutDesktopWWWPostRootContentQuery, yt-dlp #17075) + 8845758582119845 (old xdt_shortcode_media, deprecated June 2026 but try last).
+    doc_id rotates every 2-4 weeks - if all 3 return empty, log ROTATED, do NOT blame cookies.
+    """
+    try:
+        _trace(f"IG Polaris: trying curl_cffi GraphQL for {shortcode} (no sessionid needed, csrftoken only)")
+    except Exception: pass
+    try:
+        from curl_cffi import requests as _creq
+    except Exception as _e:
+        try: _trace(f"IG Polaris: curl_cffi MISSING ({_e}) - add curl_cffi<0.16 to requirements.txt, falling back to plain requests (will likely 429)")
+        except Exception: pass
+        return []
+    _doc_ids = ["27128499623469141", "27130156389949648", "8845758582119845"]
+    # 1) Warm session - GET homepage to get csrftoken
+    try:
+        _sess = _creq.Session(impersonate="chrome")
+        _r0 = _sess.get("https://www.instagram.com/", timeout=20)
+        _csrf = ""
+        try:
+            for _k, _v in _sess.cookies.items():
+                if _k == "csrftoken": _csrf = _v
+        except Exception: pass
+        if not _csrf:
+            try: _csrf = _r0.cookies.get("csrftoken", "")
+            except Exception: pass
+        if not _csrf:
+            try: _trace("IG Polaris: no csrftoken from homepage (IG may have 429d datacenter IP) - trying without CSRF")
+            except Exception: pass
+        # 2) Try each doc_id
+        for _doc in _doc_ids:
+            try:
+                _vars = {"shortcode": shortcode, "__relay_internal__pv__PolarisAIGMMediaWebLabelEnabledrelayprovider": False}
+                import json as _json72
+                _payload = {"doc_id": _doc, "variables": _json72.dumps(_vars)}
+                _headers72 = {"X-IG-App-ID": "936619743392459", "X-CSRFToken": _csrf, "X-Requested-With": "XMLHttpRequest", "Referer": f"https://www.instagram.com/p/{shortcode}/"}
+                _r = _sess.post("https://www.instagram.com/graphql/query", headers=_headers72, data=_payload, timeout=25)
+                try: _trace(f"IG Polaris: doc_id {_doc} -> HTTP {_r.status_code}, len={len(_r.text or '')}")
+                except Exception: pass
+                if _r.status_code != 200: continue
+                try: _j = _r.json()
+                except Exception: continue
+                # New format: xdt_api__v1__media__shortcode__web_info
+                _items = None
+                try: _items = _j.get("data", {}).get("xdt_api__v1__media__shortcode__web_info", {}).get("items", [])
+                except Exception: pass
+                if _items:
+                    _it = _items[0]
+                    _out72 = []
+                    # Carousel
+                    try:
+                        for _cm in (_it.get("carousel_media") or []):
+                            try:
+                                if _cm.get("video_versions"): _out72.append(_cm["video_versions"][0]["url"])
+                                elif _cm.get("image_versions2"): _out72.append(_cm["image_versions2"]["candidates"][0]["url"])
+                            except Exception: pass
+                    except Exception: pass
+                    if not _out72:
+                        try:
+                            if _it.get("video_versions"): _out72.append(_it["video_versions"][0]["url"])
+                            elif _it.get("image_versions2"): _out72.append(_it["image_versions2"]["candidates"][0]["url"])
+                        except Exception: pass
+                    if _out72:
+                        try: _trace(f"IG Polaris: OK via doc_id {_doc}, {len(_out72)} item(s) via xdt_api__v1__media__shortcode__web_info")
+                        except Exception: pass
+                        return _out72
+                # Old format: xdt_shortcode_media
+                _scm = None
+                try: _scm = _j.get("data", {}).get("xdt_shortcode_media")
+                except Exception: pass
+                if _scm:
+                    _out72b = []
+                    try:
+                        _edges = (_scm.get("edge_sidecar_to_children") or {}).get("edges") or []
+                        for _e in _edges:
+                            _n = _e.get("node") or {}
+                            if _n.get("video_url"): _out72b.append(_n["video_url"])
+                            elif _n.get("display_url"): _out72b.append(_n["display_url"])
+                    except Exception: pass
+                    if not _out72b:
+                        if _scm.get("video_url"): _out72b.append(_scm["video_url"])
+                        elif _scm.get("display_url"): _out72b.append(_scm["display_url"])
+                    if _out72b:
+                        try: _trace(f"IG Polaris: OK via doc_id {_doc}, {len(_out72b)} item(s) via xdt_shortcode_media")
+                        except Exception: pass
+                        return _out72b
+            except Exception as _e72:
+                try: _trace(f"IG Polaris: doc_id {_doc} error {str(_e72)[:120]}")
+                except Exception: pass
+                continue
+        try: _trace("IG Polaris: all 3 doc_ids returned empty - doc_id may have ROTATED (every 2-4 weeks) or IP 429d, not a cookie problem")
+        except Exception: pass
+        return []
+    except Exception as _e:
+        try: _trace(f"IG Polaris: FAILED {str(_e)[:150]}")
+        except Exception: pass
+        return []
+
 def _ig_carousel_via_json(url, cookiefile=None):
     """V55: IG carousel slides are NOT in og:image (only first). They are in ?__a=1&__d=dis JSON: graphql.shortcode_media.edge_sidecar_to_children.edges[].node.display_url / video_url.
     This does NOT hit api/graphql (which 429s Render IP), it hits the post JSON endpoint. Returns list of image/video URLs."""
+    # V72: Polaris GraphQL FIRST (gallery-dl #9564, Instaloader #2706, yt-dlp #17075) - embed HTML has 0 media, Polaris has full carousel. No sessionid needed.
+    try:
+        _m72 = re.search(r"/(p|reel|tv)/([A-Za-z0-9_-]+)", url)
+        if _m72:
+            _pol = _ig_polaris_via_curl_cffi(_m72.group(2))
+            if _pol:
+                return _pol
+    except Exception: pass
     # V68: Validate session once - if EXPIRED, embed/ddinstagram will be tried ANONYMOUS (expired cookies are worse than anon)
     try: _validate_ig_session()
     except Exception: pass
@@ -3025,7 +3139,7 @@ def _validate_ig_session():
             if "instagram.com" in (_c.domain or "") and _c.name in ("sessionid", "csrftoken", "ds_user_id"):
                 _ig[_c.name] = _c.value
         if "sessionid" not in _ig:
-            _trace("IG session: NO sessionid in cookies.txt - anonymous only (fresh file but exported while NOT logged into IG, or only YT/FB logged in - re-export while IG logged in)")
+            _trace("IG session: NO sessionid - anonymous only (csrftoken+mid+ig_did ARE enough for anonymous GraphQL, V71 will try that - no re-export needed for public posts)")
             return False
         # Lightweight validation: /accounts/edit/ returns 200 + username if logged in, login redirect if expired. Don't log values.
         try:
@@ -3057,13 +3171,19 @@ def _instaloader_worker(shortcode, folder, cap_bytes):
         loader = instaloader.Instaloader(**kwargs)  # V61: NO fatal_status_codes - 429 is retryable, not fatal
     except TypeError:
         loader = instaloader.Instaloader(**kwargs)
+    # V71: Fix AttributeError - InstaloaderContext has _session, NOT .session. Old code used .session and crashed on anonymous retry. Helper gets _session safely.
+    def _get_sess71():
+        try: return loader.context._session
+        except Exception:
+            try: return loader.context.session
+            except Exception: return None
     # V61: WARP proxy on Instaloader's own session (same trick as YT)
     try:
         _wp61 = _proxy_for_url(f"https://www.instagram.com/p/{shortcode}/")
         if _wp61:
-            try: loader.context._session.proxies.update({"http": _wp61, "https": _wp61})
-            except Exception: pass
-            try: loader.context.session.proxies.update({"http": _wp61, "https": _wp61})
+            try:
+                _s71 = _get_sess71()
+                if _s71 is not None: _s71.proxies.update({"http": _wp61, "https": _wp61})
             except Exception: pass
             _trace(f"instaloader: using WARP proxy")
     except Exception: pass
@@ -3091,7 +3211,9 @@ def _instaloader_worker(shortcode, folder, cap_bytes):
                     _ig_cookies[_c.name] = _c.value
             if _ig_cookies:
                 for _k, _v in _ig_cookies.items():
-                    try: loader.context.session.cookies.set(_k, _v, domain=".instagram.com")
+                    try:
+                        _s71c = _get_sess71()
+                        if _s71c is not None: _s71c.cookies.set(_k, _v, domain=".instagram.com")
                     except Exception: pass
                 _trace(f"instaloader: loaded IG cookies from cookies.txt: {sorted(_ig_cookies.keys())} (need sessionid+csrftoken+ds_user_id for GraphQL, mid/ig_did/rur alone = anonymous)")
             else:
@@ -3100,7 +3222,8 @@ def _instaloader_worker(shortcode, folder, cap_bytes):
         _trace(f"instaloader: session load skipped: {_e61}")
     # V61: IG now requires X-IG-App-ID for GraphQL
     try:
-        loader.context.session.headers.update({"X-IG-App-ID": "936619743392459", "X-Requested-With": "XMLHttpRequest"})
+        _s71h = _get_sess71()
+        if _s71h is not None: _s71h.headers.update({"X-IG-App-ID": "936619743392459", "X-Requested-With": "XMLHttpRequest"})
     except Exception: pass
     # V63: If sessionid is expired/checkpointed, IG returns login page -> BadResponseException. Expired session is WORSE than anonymous.
     # Try with session first, if BadResponse/login_required/checkpoint -> clear cookies and retry anonymous (public posts work anonymous via WARP).
@@ -3111,11 +3234,12 @@ def _instaloader_worker(shortcode, folder, cap_bytes):
         if any(_k in _msg63 for _k in ["badresponse", "login_required", "checkpoint", "fetching post metadata", "401", "403"]):
             _trace("instaloader: session expired/checkpointed (BadResponse) - retrying ANONYMOUS without cookies")
             try:
-                loader.context.session.cookies.clear()
+                _s71r = _get_sess71()
+                if _s71r is not None: _s71r.cookies.clear()
                 # Keep WARP proxy after clear
                 try:
                     _wp63 = _proxy_for_url(f"https://www.instagram.com/p/{shortcode}/")
-                    if _wp63: loader.context.session.proxies.update({"http": _wp63, "https": _wp63})
+                    if _wp63 and _s71r is not None: _s71r.proxies.update({"http": _wp63, "https": _wp63})
                 except Exception: pass
                 post = instaloader.Post.from_shortcode(loader.context, shortcode)
                 _trace("instaloader: anonymous retry OK")
