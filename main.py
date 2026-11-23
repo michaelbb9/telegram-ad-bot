@@ -1,14 +1,15 @@
 # ============================================================
-# BOT V81 - FROM V80 + MUSIC FILENAME ONLY (Audio file renamed to Artist - Title.mp3, TikTok/Video/FB/IG untouched)
+# BOT V82 - FROM V81 + FACEBOOK ONLY (Comet ported from V74/V75 safe fix. TikTok/YouTube/Music/IG untouched)
 # STOP PATCHING V74/V75. This file is V35 exact, except for ONE isolated change:
 #  - YouTube ONLY: V51 method (web_embedded + WARP + impersonate), with DIRECT fallback if WARP fails.
 #  - TikTok: V35 exact. No WARP, no web_embedded, no impersonate, no extractor_args. TikTok was working in V35.
-#  - Facebook: V35 exact. Still broken for share/p links that redirect to login (see trace: final=https://www.facebook.com/login/).
-#    No Comet, no Polaris, no curl_cffi in V76. FB is NEXT step, alone, after TikTok+YouTube are confirmed.
+#  - Facebook: V82 Comet (V74/V75 port). Warm curl_cffi session + Relay store + plugins/post.php fallback. No mbasic, no cookies.
+#    One bug fixed from V75: _fb_collect_media_from_json used undefined _txt in its str-branch (crashed the walk) -> now uses _o.
 #  - Music Search: NOT in V76. It was not in V35 (V36). It is NEXT step, alone, after TikTok+YouTube are confirmed.
 #  - Instagram: V35 exact. No changes.
 #  - Error logging: admin DL error now includes full traceback (last 800 chars) so an empty AssertionError can be traced to a real line.
 #  - YouTube fallback: if WARP/web_embedded tiers fail, retry once with V35 plain opts (DIRECT, no WARP, no web_embedded).
+# V82: FACEBOOK ONLY - see FB block before _fetch_media_url. TikTok/YouTube/Music/IG untouched.
 # V81: MUSIC FILENAME ONLY - audio file on disk renamed to real title before send, title/performer passed to Telegram, cached ID-named files re-upload once with correct name then store title.
 # V80: YOUTUBE AUDIO FALLBACK ONLY - audio branch now tries WARP format-chain then DIRECT format-chain with 30s timeout, like V78 video. Non-YouTube audio untouched.
 # V79: MUSIC SEARCH ONLY (V36-V40 code, adapted to use V78 YouTube opts for search). TikTok/YouTube/FB/IG untouched except Music button added.
@@ -2483,13 +2484,388 @@ def _trace(msg):
     LAST_CAROUSEL_TRACE.append(msg)
     logger.warning(f"[carousel] {msg}")
 
+# ============================================================
+# V82 FACEBOOK ONLY - ported verbatim from V74/V75 (safe fix).
+# TikTok / YouTube / Music / Instagram untouched.
+# Method: warm curl_cffi chrome session (LSD) -> GET post page once ->
+# parse Comet Relay store (<script data-sjs>) for playable_url / image.uri /
+# scontent, fallback og:video/og:image + plugins/post.php. No cookies, no mbasic,
+# no 12x retry loop. /share/ resolved once via same session.
+# ============================================================
+def _proxy_for_url(url):
+    """V59: Same WARP trick as YouTube, now for FB + IG too.
+    V51: WARP for YT only, because TikTok got Region locked 10231 on WARP. That was correct for TikTok, but wrong for FB/IG.
+    V35 failing proves FB/IG are ALSO IP-blocked from Render datacenter IP (IG 429, FB login redirect). WARP makes Render look like home IP.
+    TikTok stays DIRECT. Everything else (YT, FB, IG) gets WARP if available, else direct."""
+    try:
+        _low = (url or "").lower()
+        if "tiktok.com" in _low or "vt.tiktok" in _low or "vm.tiktok" in _low:
+            return None  # TikTok: direct only, WARP = 10231 Region locked
+        if any(_d in _low for _d in ["youtube.com", "youtu.be", "facebook.com", "fb.watch", "fb.gg", "instagram.com", "instagr.am"]):
+            return _yt_proxy()
+        return None
+    except Exception: return None
+
+def _requests_proxies_for_url(url):
+    """V59: requests.get proxies dict for WARP (http + https), or None for direct."""
+    try:
+        _p = _proxy_for_url(url)
+        if _p: return {"http": _p, "https": _p}
+    except Exception: pass
+    return None
+
+def _extract_lsd_from_html(html):
+    """V73: LSD from __eqmc, required for Polaris GraphQL (FxEmbed 2299, yt-dlp). Patterns from real homepage HTML."""
+    try:
+        if not html: return ""
+        for _pat in [r'"LSD",\[\],\{"token":"([^"]+)"\}', r'"LSD",\s*\[\],\s*\{[^}]*"token"\s*:\s*"([^"]+)"', r'"lsd"\s*:\s*"([^"]+)"', r'LSD[^"]*"token"\s*:\s*"([^"]+)"', r'"__eqmc"[^}]*"token":"([^"]+)"']:
+            _m = re.search(_pat, html)
+            if _m and _m.group(1): return _m.group(1)
+    except Exception: pass
+    return ""
+
+def _fb_collect_media_from_json(obj):
+    """V74: Recursive walk of Comet Relay store. Collects in document order:
+    playable_url / playable_url_quality_hd / browser_native_hd_url / browser_native_sd_url (video),
+    photo image uri / scontent / fbcdn image URLs. Dedup, filter chrome (profile_pic/static/emoji/sprite)."""
+    _out = []
+    try:
+        def _add(_u):
+            if not _u or not isinstance(_u, str): return
+            _u = _u.strip()
+            if not _u.startswith("http"): return
+            if any(_b in _u for _b in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32", "s50x50", "s64x64"]): return
+            if (".mp4" in _u.split("?")[0] or ".jpg" in _u or ".jpeg" in _u or ".png" in _u or ".webp" in _u or "scontent" in _u or "fbcdn" in _u) and _u not in _out:
+                _out.append(_u)
+        def _walk(_o):
+            if isinstance(_o, dict):
+                for _k in ("playable_url_quality_hd", "playable_url", "browser_native_hd_url", "browser_native_sd_url"):
+                    if _o.get(_k): _add(_o.get(_k))
+                _img = _o.get("image")
+                if isinstance(_img, dict) and _img.get("uri"): _add(_img.get("uri"))
+                if isinstance(_img, str): _add(_img)
+                if _o.get("uri") and isinstance(_o.get("uri"), str) and ("scontent" in _o["uri"] or "fbcdn" in _o["uri"]): _add(_o["uri"])
+                for _k, _v in _o.items():
+                    if _k in ("playable_url_quality_hd", "playable_url", "browser_native_hd_url", "browser_native_sd_url", "image"): continue
+                    _walk(_v)
+            elif isinstance(_o, list):
+                for _it in _o: _walk(_it)
+            elif isinstance(_o, str):
+                if "scontent" in _o or "fbcdn" in _o:
+                    for _m in re.finditer(r"https://(?:scontent[^\s'\"]+|[^\s'\"]*\.fbcdn\.net[^\s'\"]+)", _o):
+                        _add(_m.group(0).replace('\\/', '/'))
+        _walk(obj)
+    except Exception: pass
+    return _out
+
+_FB_COMET_CACHE = {'sess': None, 'lsd': '', 't': 0}
+
+def _fb_comet_session():
+    """V74: IG Polaris parallel - warm a curl_cffi chrome session on facebook.com, return (sess, lsd).
+    www -> 302 to web.facebook.com is normal signed-out; if www bounces www<->web, ask web directly."""
+    try:
+        from curl_cffi import requests as _creq
+    except Exception as _e:
+        try: _trace(f"FB Comet V74: curl_cffi MISSING ({_e})")
+        except Exception: pass
+        return None, ""
+    # V75: reuse warmed session for 10 min - V74 warmed 2x homepages on EVERY call (resolve + Comet + oEmbed = 3x per download, timeouts).
+    try:
+        import time as _t75
+        if _FB_COMET_CACHE.get('sess') is not None and (_t75.time() - _FB_COMET_CACHE.get('t', 0)) < 600:
+            return _FB_COMET_CACHE['sess'], _FB_COMET_CACHE.get('lsd', '')
+    except Exception: pass
+    _warp = None
+    try: _warp = _proxy_for_url("https://www.facebook.com/")
+    except Exception: pass
+    try:
+        _prox = {"http": _warp, "https": _warp} if _warp else None
+        _sess = _creq.Session(impersonate="chrome", proxies=_prox) if _prox else _creq.Session(impersonate="chrome")
+        _lsd = ""
+        for _home in ["https://www.facebook.com/", "https://web.facebook.com/"]:
+            try:
+                _r0 = _sess.get(_home, timeout=20, headers={"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "none", "Sec-Fetch-User": "?1", "Upgrade-Insecure-Requests": "1"})
+                _html0 = _r0.text or ""
+                _lsd = _extract_lsd_from_html(_html0)
+                try: _trace(f"FB Comet V74: warm {_home} HTTP {_r0.status_code} len={len(_html0)} lsd={'YES' if _lsd else 'NO'} final={str(getattr(_r0,'url',''))[:80]}")
+                except Exception: pass
+                if _lsd or len(_html0) > 50000: break
+            except Exception as _e0:
+                try: _trace(f"FB Comet V74: warm {_home} failed {str(_e0)[:80]}")
+                except Exception: pass
+                continue
+        try:
+            import time as _t75b
+            _FB_COMET_CACHE['sess'] = _sess; _FB_COMET_CACHE['lsd'] = _lsd; _FB_COMET_CACHE['t'] = _t75b.time()
+        except Exception: pass
+        return _sess, _lsd
+    except Exception as _e:
+        try: _trace(f"FB Comet V74: session failed {str(_e)[:120]}")
+        except Exception: pass
+        return None, ""
+
+def _fb_comet_via_curl_cffi(url):
+    """V74 - THE FB FIX, mirror of IG Polaris V73.
+    Why V55-V73 FB failed: plain requests (no TLS fingerprint) + mbasic (dead since Sep 2026, redirects to login)
+    + 12x WARP->DIRECT retry on a LOGIN wall (login is not a proxy block, so retrying the same URL just buys the same wall).
+    What signed-out facebook.com ships now is the Comet Relay store, inline as <script type="application/json" data-sjs>.
+    So: warm LSD session with curl_cffi chrome impersonation (same as IG Polaris), GET the resolved post page once,
+    parse data-sjs blocks + og:video/og:image, walk for playable_url / image.uri / scontent.
+    NO cookies needed for PUBLIC posts. NO mbasic. NO 12x loop. Returns [media URLs] or [].
+    Do NOT call /api/graphql with a hand-built doc_id - Comet replay only ever runs an operation the page itself shipped;
+    hand-built variables fail with 'A server error occurred' / allowlist 1675004. Reading the page's own Relay store is the supported path."""
+    try: _trace(f"FB Comet V74: {str(url)[:80]}")
+    except Exception: pass
+    try:
+        from curl_cffi import requests as _creq
+    except Exception:
+        return []
+    _sess, _lsd = _fb_comet_session()
+    if _sess is None: return []
+    _out = []
+    try:
+        _headers = {"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "none", "Sec-Fetch-User": "?1", "Upgrade-Insecure-Requests": "1", "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"}
+        if _lsd: _headers["X-FB-LSD"] = _lsd
+        _r = _sess.get(url, headers=_headers, timeout=25, allow_redirects=True)
+        _txt = _r.text or ""
+        _final = str(getattr(_r, 'url', '') or '')
+        try: _trace(f"FB Comet V74: GET HTTP {_r.status_code} len={len(_txt)} final={_final[:100]} body={_txt[:200]!r}")
+        except Exception: pass
+        _has_media = ('scontent' in _txt or 'fbcdn' in _txt or 'playable_url' in _txt)
+        if ('/login' in _final or 'Log in to Facebook' in _txt[:3000]) and not _has_media:
+            try: _trace("FB Comet V74: login wall, trying plugins/post.php once (FB own embed, no login for public posts)")
+            except Exception: pass
+            try:
+                import urllib.parse as _up74
+                _enc = _up74.quote(url, safe='')
+                _rp = _sess.get(f"https://www.facebook.com/plugins/post.php?href={_enc}&show_text=true&width=500", headers=_headers, timeout=20)
+                _txt2 = _rp.text or ""
+                try: _trace(f"FB Comet V74: plugins/post.php HTTP {_rp.status_code} len={len(_txt2)}")
+                except Exception: pass
+                if _txt2 and len(_txt2) > 500:
+                    _txt = _txt + " " + _txt2
+                    _has_media = ('scontent' in _txt or 'fbcdn' in _txt)
+            except Exception: pass
+            if not _has_media:
+                return []
+        try:
+            for _m in re.finditer(r'<script[^>]+type="application/json"[^>]*data-sjs[^>]*>(.*?)</script>', _txt, flags=re.S):
+                _raw = _m.group(1).strip()
+                if not _raw: continue
+                try:
+                    import json as _j74
+                    _obj = _j74.loads(_raw)
+                except Exception: continue
+                _found = _fb_collect_media_from_json(_obj)
+                for _u in _found:
+                    if _u not in _out: _out.append(_u)
+            if _out:
+                try: _trace(f"FB Comet V74: OK via data-sjs, {len(_out)} item(s)")
+                except Exception: pass
+                return _out[:20]
+        except Exception as _e:
+            try: _trace(f"FB Comet V74: data-sjs parse failed {str(_e)[:100]}")
+            except Exception: pass
+        try:
+            import html as _h74
+            for _pat in [r'<meta[^>]+property=["\']og:video["\'][^>]+content=["\']([^"\']+)["\']', r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']']:
+                for _m in re.finditer(_pat, _txt):
+                    _u = _h74.unescape(_m.group(1))
+                    if _u.startswith('http') and _u not in _out: _out.append(_u)
+            for _m in re.finditer(r"https://(?:scontent[^\s'\"]+|[^\s'\"]*\.fbcdn\.net[^\s'\"]+)", _txt):
+                _u = _h74.unescape(_m.group(0)).replace('\\/', '/')
+                if any(_b in _u for _b in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32"]): continue
+                if (".jpg" in _u or ".jpeg" in _u or ".png" in _u or ".webp" in _u or ".mp4" in _u) and _u not in _out: _out.append(_u)
+            _seen = set(); _ded = []
+            for _u in _out:
+                _k = _u.split('?')[0]
+                if _k not in _seen: _seen.add(_k); _ded.append(_u)
+            _out = _ded
+            if _out:
+                try: _trace(f"FB Comet V74: OK via og/scontent fallback, {len(_out)} item(s)")
+                except Exception: pass
+                return _out[:20]
+        except Exception: pass
+        return []
+    except Exception as _e:
+        try: _trace(f"FB Comet V74: FAILED {str(_e)[:150]}")
+        except Exception: pass
+        return []
+
+def _fb_resolve_share_v74(url):
+    """V74: Resolve FB /share/p|v|r/ + fb.watch ONCE with a warmed curl_cffi session. No 12x loop, no mbasic.
+    /share/ token is opaque (server-side redirect, does not encode destination) - the ONLY correct resolve is to
+    fetch it with a real browser fingerprint and read the final URL / login next= / oEmbed canonical.
+    Returns resolved URL or original. Never returns a /login URL."""
+    try:
+        _low = (url or "").lower()
+        if not any(_d in _low for _d in ["facebook.com/share/", "fb.watch", "fb.gg/", "facebook.com/share"]):
+            return url
+        try: _trace(f"FB share resolve V74: {url[:80]} (single attempt, curl_cffi + LSD)")
+        except Exception: pass
+        _sess, _lsd = _fb_comet_session()
+        if _sess is None: return url
+        try:
+            import urllib.parse as _up74r
+            _headers = {"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "none", "Sec-Fetch-User": "?1", "Upgrade-Insecure-Requests": "1"}
+            _r = _sess.get(url, headers=_headers, timeout=20, allow_redirects=True)
+            _final = str(getattr(_r, 'url', '') or '')
+            _txt = _r.text or ""
+            try: _trace(f"FB share resolve V74: HTTP {_r.status_code} len={len(_txt)} final={_final[:120]}")
+            except Exception: pass
+            if _final and ("/login" in _final or "/checkpoint" in _final):
+                _qs = _up74r.parse_qs(_up74r.urlparse(_final).query)
+                _next = (_qs.get("next") or [""])[0]
+                if _next:
+                    _next = _up74r.unquote(_next)
+                    if _next.startswith("/"): _next = "https://www.facebook.com" + _next
+                    if _next.startswith("http") and "/login" not in _next and "/share/" not in _next:
+                        try: _trace(f"FB share resolve V74: login next= -> {_next[:100]}")
+                        except Exception: pass
+                        return _next
+                try:
+                    _enc = _up74r.quote(url, safe='')
+                    _ro = _sess.get(f"https://graph.facebook.com/v25.0/oembed_post?url={_enc}", timeout=15)
+                    _jo = _ro.json() if _ro.text.strip().startswith("{") else {}
+                    _html_o = _jo.get("html", "") or ""
+                    _m = re.search(r'data-href="([^"]+)"', _html_o)
+                    if _m and _m.group(1).startswith("http") and "/share/" not in _m.group(1):
+                        try: _trace(f"FB share resolve V74: oEmbed canonical -> {_m.group(1)[:100]}")
+                        except Exception: pass
+                        return _m.group(1)
+                except Exception: pass
+                try: _trace("FB share resolve V74: FAILED - login wall, no next=, no oEmbed canonical. Returning original share URL; Comet will try plugins/post.php. If post is friends-only/private, it genuinely needs c_user+xs.")
+                except Exception: pass
+                return url
+            if _final and _final != url and "/share/" not in _final and "/login" not in _final:
+                return _final
+            import html as _h74r
+            for _pat in [r'<meta[^>]+property=["\']og:url["\'][^>]+content=["\']([^"\']+)["\']', r'<link[^>]+rel=["\']canonical["\'][^>]+href=["\']([^"\']+)["\']']:
+                _m = re.search(_pat, _txt)
+                if _m:
+                    _cand = _h74r.unescape(_m.group(1)).strip()
+                    if _cand.startswith("http") and "/share/" not in _cand and "/login" not in _cand:
+                        return _cand
+            return url
+        except Exception as _e:
+            try: _trace(f"FB share resolve V74: failed {str(_e)[:100]}")
+            except Exception: pass
+            return url
+    except Exception:
+        return url
+
+def _resolve_share_link(url):
+    """V74: Delegate to single-attempt curl_cffi+LSD resolver. Old V55-V73 loop did 3 hosts x 4 UAs x WARP->DIRECT = 12 login-wall hits.
+    mbasic is dead (Sep 2026 redirects to login), login is not a proxy block, so retrying never helped."""
+    try:
+        return _fb_resolve_share_v74(url)
+    except Exception:
+        return url
+
+def _fb_via_oembed(url):
+    """V74: Facebook oEmbed is tokenless since 15 Jun 2026 (graph.facebook.com/v25.0/oembed_post, no token for public posts).
+    BUT oEmbed returns ONLY embed HTML (fb-post div + sdk.js) - Nov 2026 checks: no author, no title, no thumbnail, NO media URLs.
+    So oEmbed is a liveness/canonical check only, NOT a media source. Media comes from _fb_comet_via_curl_cffi (Relay store) or plugins/post.php.
+    This function now tries plugins/post.php (which DOES contain scontent) via curl_cffi."""
+    try:
+        import urllib.parse as _up60, html as _h60, re as _re60
+        _out = []
+        try:
+            _sess60, _lsd60 = _fb_comet_session()
+            if _sess60 is not None:
+                _enc = _up60.quote(url, safe='')
+                _r = _sess60.get(f"https://www.facebook.com/plugins/post.php?href={_enc}&show_text=true&width=500", timeout=20)
+                _txt = _r.text or ""
+                for _m in _re60.finditer(r"https://(?:scontent[^\s'\"]+|[^\s'\"]*\.fbcdn\.net[^\s'\"]+)", _txt):
+                    _u2 = _h60.unescape(_m.group(0)).replace('\/', '/')
+                    if any(_bad in _u2 for _bad in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32", "s50x50"]): continue
+                    if (".jpg" in _u2 or ".jpeg" in _u2 or ".png" in _u2 or ".webp" in _u2) and _u2 not in _out: _out.append(_u2)
+                if _out:
+                    try: _trace(f"FB plugins/post V74: {len(_out)} image(s)")
+                    except Exception: pass
+                    return _out[:20]
+        except Exception: pass
+        return []
+    except Exception: return []
+
+def _fb_via_mbasic(url):
+    """V74: RETIRED. mbasic.facebook.com is gone (Sep 2026: every mbasic path redirects to the login form; deeper links tagged refsrc=deprecated).
+    V62 premise 'mbasic serves public posts without login' is no longer true - it just burns requests on the login wall.
+    Kept as stub so old callers do not crash; always returns []. Use _fb_comet_via_curl_cffi instead."""
+    try: _trace("FB mbasic V74: skipped - mbasic retired Sep 2026, redirects to login")
+    except Exception: pass
+    return []
+
+def _fb_filter_images(urls):
+    """V66: Improve carousel extraction + image URL filtering: drop tiny thumbnails (s32/s50/s64/s100/s150), profile pics, static/rsrc/emoji/sprite, dedupe by base URL without query, prefer larger scontent."""
+    try:
+        _seen=set(); _res=[]
+        for _u in urls or []:
+            if not _u or not _u.startswith('http'): continue
+            _low=_u.lower()
+            if any(_bad in _low for _bad in ["profile_pic","static","rsrc","emoji","sprite","favicon","logo","s32x32","s50x50","s64x64","s100x100","s150x150","p32x32","p50x50","p64x64","p100x100","s32x","s50x"]): continue
+            if ".jpg" not in _low and ".jpeg" not in _low and ".png" not in _low and ".webp" not in _low and ".mp4" not in _low: continue
+            # Dedupe by base URL without query (FB adds different ?oh=... for same image)
+            _k=_u.split('?')[0]
+            if _k in _seen: continue
+            _seen.add(_k); _res.append(_u)
+        return _res[:20]
+    except Exception: return list(urls or [])[:20]
+
+def _fb_images_from_share_page(url):
+    """V74: Comet first (Relay store), then plugins/post.php. No mbasic, no plain-requests loop (both just hit login wall)."""
+    try:
+        _comet = _fb_comet_via_curl_cffi(url)
+        if _comet: return _comet
+    except Exception: pass
+    try:
+        _oem = _fb_via_oembed(url)
+        if _oem: return _oem
+    except Exception: pass
+    try:
+        if "/login" in (url or ""):
+            import urllib.parse as _up58f
+            _qs = _up58f.parse_qs(_up58f.urlparse(url).query)
+            _next = (_qs.get("next") or [""])[0]
+            if _next:
+                _next = _up58f.unquote(_next)
+                if _next.startswith("/"): _next = "https://www.facebook.com" + _next
+                if _next.startswith("http"):
+                    _c2 = _fb_comet_via_curl_cffi(_next)
+                    if _c2: return _c2
+    except Exception: pass
+    return []
+
+
 
 def _fetch_media_url(url, dest_base, cap_bytes, default_ext):
-    """Download one slide to dest_base + extension. Returns the file path."""
+    """V74: Download one slide to dest_base + extension. Returns file path.
+    scontent/fbcdn URLs need a real browser fingerprint - plain requests with Mozilla/5.0 gets 403/login wall.
+    Try curl_cffi chrome first (same session style as Comet/Polaris), fall back to requests."""
     ext = os.path.splitext(url.split("?")[0])[1].lower()
     if ext not in (PHOTO_EXT | VIDEO_EXT):
         ext = default_ext
     path = dest_base + ext
+    # curl_cffi first
+    try:
+        from curl_cffi import requests as _creq74f
+        _warp = None
+        try: _warp = _proxy_for_url(url)
+        except Exception: pass
+        _prox = {"http": _warp, "https": _warp} if _warp else None
+        _sess = _creq74f.Session(impersonate="chrome", proxies=_prox) if _prox else _creq74f.Session(impersonate="chrome")
+        _r = _sess.get(url, timeout=30)
+        _ct75 = str(getattr(_r, 'headers', {}) or {}).lower()
+        _head75 = (_r.content or b'')[:16]
+        _is_html75 = (_head75[:5].lower() in (b'<html', b'<!doc') or b'<html' in (_r.content or b'')[:200].lower() or 'text/html' in _ct75)
+        if _is_html75:
+            raise ValueError('V75: HTML/login-wall, not media - fall through to requests')
+        if _r.status_code == 200 and len(_r.content) > 1000:
+            if len(_r.content) > cap_bytes: raise ValueError("file over size cap")
+            with open(path, "wb") as f: f.write(_r.content)
+            return path
+    except Exception:
+        pass
     with requests.get(url, headers={"User-Agent": "Mozilla/5.0"},
                       stream=True, timeout=25) as r:
         r.raise_for_status()
@@ -2502,6 +2878,15 @@ def _fetch_media_url(url, dest_base, cap_bytes, default_ext):
                     os.remove(path)
                     raise ValueError("file over size cap")
                 f.write(chunk)
+    # V75: never return an HTML login-wall saved as .jpg/.mp4 - that was breaking FB images (bot sent a 'photo' that was HTML).
+    try:
+        with open(path, 'rb') as _fh75: _h75 = _fh75.read(200)
+        if _h75[:5].lower() in (b'<html', b'<!doc') or b'<html' in _h75.lower():
+            try: os.remove(path)
+            except Exception: pass
+            raise ValueError('V75: HTML/login-wall, not media')
+    except ValueError: raise
+    except Exception: pass
     return path
 
 
@@ -2652,6 +3037,11 @@ def download_youtube_post(url, output_dir, cap_bytes):
 def download_carousel(url, output_dir, cap_bytes, http_headers=None):
     """Return [paths] (post order) for a multi-item OR single-photo post, else [].
     No cookies. Every step writes one line to LAST_CAROUSEL_TRACE."""
+    # V82: FB /share/ -> real post URL first (single curl_cffi attempt, V74). No-op for non-FB.
+    try:
+        url = _resolve_share_link(url)
+    except Exception:
+        pass
     LAST_CAROUSEL_TRACE.clear()
     low = url.lower()
     if "youtube.com/post/" in low:
@@ -2665,6 +3055,24 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None):
     os.makedirs(folder, exist_ok=True)
     files, ytdlp_failed, gallery_ran = [], False, False
     try:
+        # ---- 0) V82 FB Comet FIRST (ported V74) - bypasses yt-dlp/gallery-dl for FB ----
+        # yt-dlp says 'Unsupported URL' for /share/, gallery-dl exit=64. Comet reads the page's own
+        # Relay store, so it works for /share/, /posts/, /photo.php, /reel/, fb.watch - no cookies for public posts.
+        if "facebook.com" in low or "fb.watch" in low or "fb.gg" in low:
+            try:
+                _comet_urls = _fb_comet_via_curl_cffi(url)
+                if _comet_urls:
+                    _trace(f"FB Comet: {len(_comet_urls)} media URL(s) found")
+                    _comet_files = []
+                    for _i, _u in enumerate(_comet_urls[:MAX_CAROUSEL_ITEMS], start=1):
+                        try:
+                            _ext = ".mp4" if ".mp4" in _u.split("?")[0] else ".jpg"
+                            _comet_files.append(_fetch_media_url(_u, os.path.join(folder, f"{_i:03d}"), cap_bytes, _ext))
+                        except Exception as _e74: _trace(f"FB Comet file {_i} failed: {type(_e74).__name__}")
+                    if _comet_files:
+                        _trace(f"RESULT: OK via FB Comet, {len(_comet_files)} item(s)")
+                        return _comet_files
+            except Exception as _e74: _trace(f"FB Comet failed: {type(_e74).__name__}: {str(_e74)[:120]}")
         # ---- 1) yt-dlp ----
         try:
             base = {"quiet": True, "no_warnings": True, "noplaylist": False,
@@ -2730,6 +3138,20 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None):
                 _trace(f"RESULT: OK via instaloader, {len(insta_files)} item(s)")
                 return insta_files
 
+        # ---- 3c) V82 FB scrape fallback: Comet (cached session) + plugins/post.php, after gallery-dl ----
+        if not files and ("facebook.com" in low or "fb.watch" in low):
+            try:
+                _fb_urls = _fb_images_from_share_page(url)
+                if _fb_urls:
+                    _trace(f"FB scrape: {len(_fb_urls)} image URL(s) found")
+                    _fb_files = []
+                    for _i, _u in enumerate(_fb_urls[:MAX_CAROUSEL_ITEMS], start=1):
+                        try: _fb_files.append(_fetch_media_url(_u, os.path.join(folder, f"{_i:03d}"), cap_bytes, ".jpg"))
+                        except Exception: continue
+                    if _fb_files:
+                        _trace(f"RESULT: OK via FB scrape, {len(_fb_files)} item(s)")
+                        return _fb_files
+            except Exception as _e55: _trace(f"FB scrape failed: {type(_e55).__name__}")
         files = [p for p in files if os.path.getsize(p) <= cap_bytes][:MAX_CAROUSEL_ITEMS]
         # 2+ files is a carousel. Exactly 1 file is accepted only when it came from the
         # photo-post fallback (gallery-dl), so normal single videos are not touched.
@@ -3047,6 +3469,25 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                 raise
         raise ValueError("FILE_NOT_FOUND")
     elif download_type == 'images':
+        # V82: FB single-photo via Comet first (carousel already tried it, but carousel returns []
+        # when yt-dlp succeeds with 0 files and gallery never runs - this is the second chance).
+        if "facebook.com" in url.lower() or "fb.watch" in url.lower() or "fb.gg" in url.lower():
+            try:
+                _fb82_urls = _fb_images_from_share_page(url)
+                if _fb82_urls:
+                    _fb82_paths = []
+                    for _i82, _u82 in enumerate(_fb82_urls[:MAX_CAROUSEL_ITEMS], start=1):
+                        try:
+                            _ext82 = ".mp4" if ".mp4" in _u82.split("?")[0] else ".jpg"
+                            _fb82_paths.append(_fetch_media_url(_u82, os.path.join(output_dir, f"img_{int(time.time())}_{_i82:02d}"), cap_bytes, _ext82))
+                        except Exception:
+                            continue
+                    if _fb82_paths:
+                        _total82 = sum(os.path.getsize(p) for p in _fb82_paths)
+                        save_to_file_cache(url, "images", _fb82_paths[0])
+                        return _fb82_paths, "carousel" if len(_fb82_paths) > 1 else "original", f"{_total82/(1024*1024):.1f}MB"
+            except Exception:
+                pass
         img_url = scrape_html_images(url, cookiefile)
         if img_url:
             data = requests.get(img_url, headers=http_headers, timeout=15).content
