@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V83 - FROM V82 + FACEBOOK POST-ONLY FILTER (V82 returned whole page: sidebar/feed/logo/placeholders. V83 anchors to target post via og: + plugins embed, best-per-photo, content dedupe. TikTok/YouTube/Music/IG untouched)
+# BOT V84 - FROM V83 + FACEBOOK SHARE LOGIN-WALL FOLLOW (V83 gave up on /share/ -> login/?next=story.php. V84 follows next=, tries oEmbed canonical + m/web variants + plugins on the resolved URL. TikTok/YouTube/Music/IG untouched)
 # STOP PATCHING V74/V75. This file is V35 exact, except for ONE isolated change:
 #  - YouTube ONLY: V51 method (web_embedded + WARP + impersonate), with DIRECT fallback if WARP fails.
 #  - TikTok: V35 exact. No WARP, no web_embedded, no impersonate, no extractor_args. TikTok was working in V35.
@@ -9,6 +9,7 @@
 #  - Instagram: V35 exact. No changes.
 #  - Error logging: admin DL error now includes full traceback (last 800 chars) so an empty AssertionError can be traced to a real line.
 #  - YouTube fallback: if WARP/web_embedded tiers fail, retry once with V35 plain opts (DIRECT, no WARP, no web_embedded).
+# V84: FACEBOOK SHARE LOGIN-WALL - see _fb_comet_via_curl_cffi candidate loop. TikTok/YouTube/Music/IG untouched.
 # V83: FACEBOOK POST-ONLY - see _fb_filter_to_anchor + _fb_dedupe_files. TikTok/YouTube/Music/IG untouched.
 # V82: FACEBOOK ONLY - see FB block before _fetch_media_url. TikTok/YouTube/Music/IG untouched.
 # V81: MUSIC FILENAME ONLY - audio file on disk renamed to real title before send, title/performer passed to Telegram, cached ID-named files re-upload once with correct name then store title.
@@ -2605,13 +2606,84 @@ def _fb_comet_session():
         except Exception: pass
         return None, ""
 
-def _fb_comet_via_curl_cffi(url):
-    """V83 - post-only Comet. V82 returned the whole page (47 URLs: target + sidebar/feed + logo + placeholders).
-    V83: og:video/og:image + plugins/post.php (target post only) build the anchor ID set; data-sjs
-    candidates that do not share an anchor photo ID are sidebar/feed junk and are dropped. Then
-    best-per-photo keeps the clearest copy of each target photo. Fallbacks degrade, never crash."""
+
+# ---------------- V84: share login-wall follow ----------------
+# V83 trace for /share/p/1JJRrj3g13: GET -> login/?next=story.php?story_fbid=..., og=NO, plugins=0, raw=2 (login page junk) -> NO_IMAGES.
+# V83 gave up at the login wall. The real post is behind next= (story.php) / oEmbed canonical (/posts/<id>).
+# V84: Comet tries a candidate chain - resolved canonical, next= story URL, m/web variants, original -
+# and on a login wall it follows next=, tries oEmbed canonical, and tries plugins/post.php on the
+# RESOLVED url (plugins for the raw share token returned 0). First candidate that yields media wins.
+_FB_SHARE_CACHE = {}
+
+def _fb_next_from_login_url(final_url):
+    """Decode the next= param of a /login/?next=... URL. Returns '' when none."""
     try:
-        _trace("FB Comet V83: " + str(url)[:80])
+        import urllib.parse as _up84
+        _qs = _up84.parse_qs(_up84.urlparse(final_url or "").query)
+        _nxt = (_qs.get("next") or [""])[0]
+        if _nxt:
+            _nxt = _up84.unquote(_nxt)
+            if _nxt.startswith("/"):
+                _nxt = "https://www.facebook.com" + _nxt
+            if _nxt.startswith("http") and "/login" not in _nxt:
+                return _nxt
+    except Exception:
+        pass
+    return ""
+
+def _fb_oembed_canonical(sess, url):
+    """Tokenless oEmbed -> embed HTML -> data-href canonical post URL. Returns '' when none."""
+    try:
+        import urllib.parse as _up84o
+        _enc = _up84o.quote(url or "", safe="")
+        _ro = sess.get("https://graph.facebook.com/v25.0/oembed_post?url=" + _enc, timeout=15)
+        _txt = _ro.text or ""
+        if not _txt.strip().startswith("{"):
+            return ""
+        import json as _j84o
+        _jo = _j84o.loads(_txt)
+        _html = _jo.get("html", "") or ""
+        if not _html:
+            return ""
+        _soup = BeautifulSoup(_html, "html.parser")
+        _el = _soup.find(attrs={"data-href": True})
+        if _el:
+            _href = _el.get("data-href", "") or ""
+            if _href.startswith("http") and "/login" not in _href and "/share/" not in _href:
+                return _href
+    except Exception:
+        pass
+    return ""
+
+def _fb_story_variants(url):
+    """m/web variants of a facebook.com post URL. m.facebook.com sometimes serves public posts w/o login."""
+    try:
+        _low = (url or "").lower()
+        if "facebook.com/" not in _low or "fb.watch" in _low or "fb.gg" in _low:
+            return []
+        import urllib.parse as _up84v
+        _p = _up84v.urlparse(url)
+        _path = _p.path or ""
+        if not _path or _path == "/":
+            return []
+        _q = ("?" + _p.query) if _p.query else ""
+        _out = []
+        for _host in ("m.facebook.com", "web.facebook.com"):
+            _v = "https://" + _host + _path + _q
+            if _v not in _out:
+                _out.append(_v)
+        return _out
+    except Exception:
+        return []
+
+
+def _fb_comet_via_curl_cffi(url):
+    """V84 - candidate-chain Comet. V83 fetched ONE url and gave up on the login wall.
+    V84: share -> resolved canonical; then for each candidate: GET; on login wall, follow next=,
+    try oEmbed canonical, try plugins/post.php on the RESOLVED url, try m/web variants.
+    First candidate that yields target media wins. V83 anchor filtering unchanged."""
+    try:
+        _trace("FB Comet V84: " + str(url)[:80])
     except Exception:
         pass
     try:
@@ -2625,136 +2697,234 @@ def _fb_comet_via_curl_cffi(url):
         _headers = {"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "none", "Sec-Fetch-User": "?1", "Upgrade-Insecure-Requests": "1", "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"}
         if _lsd:
             _headers["X-FB-LSD"] = _lsd
-        _r = _sess.get(url, headers=_headers, timeout=25, allow_redirects=True)
-        _txt = _r.text or ""
-        _final = str(getattr(_r, "url", "") or "")
+        _queue = []
+        _seen_q = set()
+        def _push84(_u):
+            if _u and isinstance(_u, str) and _u.startswith("http") and "/login" not in _u and _u not in _seen_q:
+                _seen_q.add(_u)
+                _queue.append(_u)
         try:
-            _trace("FB Comet V83: GET HTTP " + str(_r.status_code) + " len=" + str(len(_txt)) + " final=" + _final[:100])
+            _resolved84 = _fb_resolve_share_v74(url)
         except Exception:
-            pass
-        _has_media = ("scontent" in _txt or "fbcdn" in _txt or "playable_url" in _txt)
-        if ("/login" in _final or "Log in to Facebook" in _txt[:3000]) and not _has_media:
-            return []
-        _og_video = ""
-        _og_image = ""
-        try:
-            _soup83 = BeautifulSoup(_txt, "html.parser")
-            _mv = _soup83.find("meta", property="og:video")
-            if _mv and _mv.get("content"):
-                _og_video = _mv.get("content")
-            _mi = _soup83.find("meta", property="og:image")
-            if _mi and _mi.get("content"):
-                _og_image = _mi.get("content")
-        except Exception:
-            pass
-        _plugins = []
-        try:
-            _plugins = _fb_plugins_urls(_sess, url, _headers)
-        except Exception:
-            _plugins = []
-        _raw = []
-        try:
-            for _m in re.finditer(r'<script[^>]+type="application/json"[^>]*data-sjs[^>]*>(.*?)</script>', _txt, flags=re.S):
-                _chunk = _m.group(1).strip()
-                if not _chunk:
-                    continue
-                try:
-                    import json as _j83
-                    _obj = _j83.loads(_chunk)
-                except Exception:
-                    continue
-                for _u in _fb_collect_media_from_json(_obj):
-                    if _u not in _raw:
-                        _raw.append(_u)
-        except Exception as _e:
+            _resolved84 = url
+        _push84(_resolved84)
+        _push84(url)
+        _tried84 = set()
+        while _queue and len(_tried84) < 5:
+            _cand = _queue.pop(0)
+            if _cand in _tried84:
+                continue
+            _tried84.add(_cand)
             try:
-                _trace("FB Comet V83: data-sjs parse failed " + str(_e)[:100])
+                _trace("FB Comet V84: try " + _cand[:100])
             except Exception:
                 pass
-        if _raw:
-            _kept = _fb_filter_to_anchor(_raw, _plugins, _og_video, _og_image)
-            if _kept:
+            try:
+                _r = _sess.get(_cand, headers=_headers, timeout=25, allow_redirects=True)
+            except Exception as _e84g:
                 try:
-                    _trace("FB Comet V83: OK via data-sjs, raw=" + str(len(_raw)) + " kept=" + str(len(_kept)))
+                    _trace("FB Comet V84: GET failed " + str(_e84g)[:80])
                 except Exception:
                     pass
-                return _kept[:20]
-        _fb_all = _fb_extract_scontent_urls(_txt)
-        if _fb_all:
-            _kept2 = _fb_filter_to_anchor(_fb_all, _plugins, _og_video, _og_image)
-            if _kept2:
+                continue
+            _txt = _r.text or ""
+            _final = str(getattr(_r, "url", "") or "")
+            try:
+                _trace("FB Comet V84: GET HTTP " + str(_r.status_code) + " len=" + str(len(_txt)) + " final=" + _final[:100])
+            except Exception:
+                pass
+            _is_login84 = ("/login" in _final or "/checkpoint" in _final or "Log in to Facebook" in _txt[:3000])
+            if _is_login84:
+                _plug84 = []
                 try:
-                    _trace("FB Comet V83: OK via scontent fallback, raw=" + str(len(_fb_all)) + " kept=" + str(len(_kept2)))
+                    _plug84 = _fb_plugins_urls(_sess, _cand, _headers)
+                except Exception:
+                    _plug84 = []
+                if _plug84:
+                    _kept84 = _fb_filter_images(_plug84)
+                    if _kept84:
+                        try:
+                            _trace("FB Comet V84: OK via plugins on login-walled candidate, " + str(len(_kept84)))
+                        except Exception:
+                            pass
+                        return _kept84[:20]
+                _nxt84 = _fb_next_from_login_url(_final)
+                if _nxt84:
+                    _push84(_nxt84)
+                _canon84 = ""
+                try:
+                    _canon84 = _fb_oembed_canonical(_sess, _cand)
+                except Exception:
+                    _canon84 = ""
+                if _canon84:
+                    _push84(_canon84)
+                for _v84 in _fb_story_variants(_cand):
+                    _push84(_v84)
+                if _nxt84:
+                    for _v84b in _fb_story_variants(_nxt84):
+                        _push84(_v84b)
+                try:
+                    _trace("FB Comet V84: login wall, queued next/oembed/variants")
                 except Exception:
                     pass
-                return _kept2[:20]
+                continue
+            _og_video = ""
+            _og_image = ""
+            try:
+                _soup84 = BeautifulSoup(_txt, "html.parser")
+                _mv = _soup84.find("meta", property="og:video")
+                if _mv and _mv.get("content"):
+                    _og_video = _mv.get("content")
+                _mi = _soup84.find("meta", property="og:image")
+                if _mi and _mi.get("content"):
+                    _og_image = _mi.get("content")
+            except Exception:
+                pass
+            _plugins = []
+            try:
+                _plugins = _fb_plugins_urls(_sess, _cand, _headers)
+            except Exception:
+                _plugins = []
+            _raw = []
+            try:
+                for _m in re.finditer(r'<script[^>]+type="application/json"[^>]*data-sjs[^>]*>(.*?)</script>', _txt, flags=re.S):
+                    _chunk = _m.group(1).strip()
+                    if not _chunk:
+                        continue
+                    try:
+                        import json as _j84
+                        _obj = _j84.loads(_chunk)
+                    except Exception:
+                        continue
+                    for _u in _fb_collect_media_from_json(_obj):
+                        if _u not in _raw:
+                            _raw.append(_u)
+            except Exception as _e:
+                try:
+                    _trace("FB Comet V84: data-sjs parse failed " + str(_e)[:100])
+                except Exception:
+                    pass
+            if _raw:
+                _kept = _fb_filter_to_anchor(_raw, _plugins, _og_video, _og_image)
+                if _kept:
+                    try:
+                        _trace("FB Comet V84: OK via data-sjs, raw=" + str(len(_raw)) + " kept=" + str(len(_kept)))
+                    except Exception:
+                        pass
+                    return _kept[:20]
+            _fb_all = _fb_extract_scontent_urls(_txt)
+            if _fb_all:
+                _kept2 = _fb_filter_to_anchor(_fb_all, _plugins, _og_video, _og_image)
+                if _kept2:
+                    try:
+                        _trace("FB Comet V84: OK via scontent fallback, raw=" + str(len(_fb_all)) + " kept=" + str(len(_kept2)))
+                    except Exception:
+                        pass
+                    return _kept2[:20]
+            try:
+                _trace("FB Comet V84: no media on candidate, trying next")
+            except Exception:
+                pass
+        try:
+            _trace("FB Comet V84: all candidates exhausted, no media")
+        except Exception:
+            pass
         return []
     except Exception as _e:
         try:
-            _trace("FB Comet V83: FAILED " + str(_e)[:150])
+            _trace("FB Comet V84: FAILED " + str(_e)[:150])
         except Exception:
             pass
         return []
 
 
 def _fb_resolve_share_v74(url):
-    """V74: Resolve FB /share/p|v|r/ + fb.watch ONCE with a warmed curl_cffi session. No 12x loop, no mbasic.
-    /share/ token is opaque (server-side redirect, does not encode destination) - the ONLY correct resolve is to
-    fetch it with a real browser fingerprint and read the final URL / login next= / oEmbed canonical.
+    """V84: Resolve FB /share/p|v|r/ + fb.watch. V74 returned next= (story.php) immediately and never
+    tried oEmbed; story.php also login-walls, so Comet got the share token again. V84: collect
+    oEmbed canonical FIRST (true /posts/<id> permalink), then next=, then final/og:url. Cached 10 min.
     Returns resolved URL or original. Never returns a /login URL."""
     try:
         _low = (url or "").lower()
         if not any(_d in _low for _d in ["facebook.com/share/", "fb.watch", "fb.gg/", "facebook.com/share"]):
             return url
-        try: _trace(f"FB share resolve V74: {url[:80]} (single attempt, curl_cffi + LSD)")
-        except Exception: pass
-        _sess, _lsd = _fb_comet_session()
-        if _sess is None: return url
         try:
-            import urllib.parse as _up74r
+            import time as _t84
+            _hit = _FB_SHARE_CACHE.get(url)
+            if _hit and (_t84.time() - _hit[1]) < 600:
+                return _hit[0]
+        except Exception:
+            pass
+        try:
+            _trace("FB share resolve V84: " + str(url)[:80])
+        except Exception:
+            pass
+        _sess, _lsd = _fb_comet_session()
+        if _sess is None:
+            return url
+        try:
+            import urllib.parse as _up84r
             _headers = {"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "none", "Sec-Fetch-User": "?1", "Upgrade-Insecure-Requests": "1"}
             _r = _sess.get(url, headers=_headers, timeout=20, allow_redirects=True)
-            _final = str(getattr(_r, 'url', '') or '')
+            _final = str(getattr(_r, "url", "") or "")
             _txt = _r.text or ""
-            try: _trace(f"FB share resolve V74: HTTP {_r.status_code} len={len(_txt)} final={_final[:120]}")
-            except Exception: pass
+            try:
+                _trace("FB share resolve V84: HTTP " + str(_r.status_code) + " len=" + str(len(_txt)) + " final=" + _final[:120])
+            except Exception:
+                pass
+            _cands84 = []
+            def _add84(_u):
+                if _u and isinstance(_u, str) and _u.startswith("http") and "/login" not in _u and "/share/" not in _u and _u not in _cands84:
+                    _cands84.append(_u)
+            try:
+                _canon84 = _fb_oembed_canonical(_sess, url)
+                if _canon84:
+                    _add84(_canon84)
+            except Exception:
+                pass
             if _final and ("/login" in _final or "/checkpoint" in _final):
-                _qs = _up74r.parse_qs(_up74r.urlparse(_final).query)
-                _next = (_qs.get("next") or [""])[0]
-                if _next:
-                    _next = _up74r.unquote(_next)
-                    if _next.startswith("/"): _next = "https://www.facebook.com" + _next
-                    if _next.startswith("http") and "/login" not in _next and "/share/" not in _next:
-                        try: _trace(f"FB share resolve V74: login next= -> {_next[:100]}")
-                        except Exception: pass
-                        return _next
+                _nxt84 = _fb_next_from_login_url(_final)
+                if _nxt84:
+                    _add84(_nxt84)
+                    try:
+                        _canon84b = _fb_oembed_canonical(_sess, _nxt84)
+                        if _canon84b:
+                            _add84(_canon84b)
+                    except Exception:
+                        pass
+            elif _final and _final != url:
+                _add84(_final)
+            try:
+                _soup84r = BeautifulSoup(_txt, "html.parser")
+                _og84 = _soup84r.find("meta", property="og:url")
+                if _og84 and _og84.get("content"):
+                    _add84(_og84.get("content"))
+                _lk84 = _soup84r.find("link", rel="canonical")
+                if _lk84 and _lk84.get("href"):
+                    _add84(_lk84.get("href"))
+            except Exception:
+                pass
+            if _cands84:
+                _best84 = _cands84[0]
                 try:
-                    _enc = _up74r.quote(url, safe='')
-                    _ro = _sess.get(f"https://graph.facebook.com/v25.0/oembed_post?url={_enc}", timeout=15)
-                    _jo = _ro.json() if _ro.text.strip().startswith("{") else {}
-                    _html_o = _jo.get("html", "") or ""
-                    _m = re.search(r'data-href="([^"]+)"', _html_o)
-                    if _m and _m.group(1).startswith("http") and "/share/" not in _m.group(1):
-                        try: _trace(f"FB share resolve V74: oEmbed canonical -> {_m.group(1)[:100]}")
-                        except Exception: pass
-                        return _m.group(1)
-                except Exception: pass
-                try: _trace("FB share resolve V74: FAILED - login wall, no next=, no oEmbed canonical. Returning original share URL; Comet will try plugins/post.php. If post is friends-only/private, it genuinely needs c_user+xs.")
-                except Exception: pass
-                return url
-            if _final and _final != url and "/share/" not in _final and "/login" not in _final:
-                return _final
-            import html as _h74r
-            for _pat in [r'<meta[^>]+property=["\']og:url["\'][^>]+content=["\']([^"\']+)["\']', r'<link[^>]+rel=["\']canonical["\'][^>]+href=["\']([^"\']+)["\']']:
-                _m = re.search(_pat, _txt)
-                if _m:
-                    _cand = _h74r.unescape(_m.group(1)).strip()
-                    if _cand.startswith("http") and "/share/" not in _cand and "/login" not in _cand:
-                        return _cand
+                    import time as _t84b
+                    _FB_SHARE_CACHE[url] = (_best84, _t84b.time())
+                except Exception:
+                    pass
+                try:
+                    _trace("FB share resolve V84: -> " + _best84[:100])
+                except Exception:
+                    pass
+                return _best84
+            try:
+                _trace("FB share resolve V84: FAILED - no canonical/next. Returning share URL; Comet will try candidates.")
+            except Exception:
+                pass
             return url
         except Exception as _e:
-            try: _trace(f"FB share resolve V74: failed {str(_e)[:100]}")
-            except Exception: pass
+            try:
+                _trace("FB share resolve V84: failed " + str(_e)[:100])
+            except Exception:
+                pass
             return url
     except Exception:
         return url
@@ -2768,20 +2938,29 @@ def _resolve_share_link(url):
         return url
 
 def _fb_via_oembed(url):
-    """V83: plugins/post.php embed (target post only) + junk filter + best-per-photo."""
+    """V84: resolve share -> canonical first, then plugins/post.php on the RESOLVED url (plugins for the raw share token returned 0)."""
     try:
-        _sess83, _lsd83 = _fb_comet_session()
-        if _sess83 is None:
+        try:
+            _url84 = _fb_resolve_share_v74(url)
+        except Exception:
+            _url84 = url
+        _sess84, _lsd84 = _fb_comet_session()
+        if _sess84 is None:
             return []
-        _headers83 = {"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "none", "Sec-Fetch-User": "?1", "Upgrade-Insecure-Requests": "1"}
-        _found83 = _fb_plugins_urls(_sess83, url, _headers83)
-        _found83 = _fb_filter_images(_found83)
-        if _found83:
+        _headers84 = {"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "none", "Sec-Fetch-User": "?1", "Upgrade-Insecure-Requests": "1"}
+        _found84 = _fb_plugins_urls(_sess84, _url84, _headers84)
+        if not _found84 and _url84 != url:
             try:
-                _trace("FB plugins/post V83: " + str(len(_found83)) + " image(s)")
+                _found84 = _fb_plugins_urls(_sess84, url, _headers84)
+            except Exception:
+                _found84 = []
+        _found84 = _fb_filter_images(_found84)
+        if _found84:
+            try:
+                _trace("FB plugins/post V84: " + str(len(_found84)) + " image(s)")
             except Exception:
                 pass
-            return _found83[:20]
+            return _found84[:20]
         return []
     except Exception:
         return []
