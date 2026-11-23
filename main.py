@@ -2790,7 +2790,18 @@ def _ig_carousel_via_json(url, cookiefile=None):
                         _final_url = getattr(_r, "url", _u)
                         _title = re.search(r"<title[^>]*>(.*?)</title>", _txt, flags=re.I|re.S)
                         _title_text = re.sub(r"\s+", " ", _title.group(1)).strip()[:70] if _title else "no title"
+                        # Diagnostic only: identify which Instagram page/payload variant was served
+                        # without logging cookies, session values, or the full HTML response.
+                        _markers = (
+                            "display_url", "video_url", "image_versions2", "video_versions",
+                            "edge_sidecar_to_children", "xdt_shortcode_media", "xdt_api__v1__media",
+                            "shortcode_media", "__additionalDataLoaded", "window._sharedData",
+                            "PolarisPostRoot", "LoginAndSignupPage", "loginForm", "accounts/login",
+                            "scontent", "cdninstagram.com", "og:image", "graphql"
+                        )
+                        _marker_hits = [f"{_mk}:{_txt.lower().count(_mk.lower())}" for _mk in _markers if _mk.lower() in _txt.lower()]
                         _trace(f"IG endpoint no media: {_kind}, HTTP {_r.status_code}, type={_ctype}, chars={len(_txt)}, title={_title_text}, final={_final_url[:100]}")
+                        _trace("IG endpoint markers: " + (", ".join(_marker_hits[:12]) if _marker_hits else "none of the known post/login markers found"))
                     except Exception: pass
                 if len(_out) >= 2: break
                 if _out and _kind.startswith("ddig"): break
