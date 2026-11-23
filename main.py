@@ -2763,14 +2763,18 @@ def _ig_carousel_via_json(url, cookiefile=None):
                 for _mm in re.finditer(r'"video_url"\s*:\s*"([^"]+)"', _txt):
                     _u2 = _h55.unescape(_mm.group(1)).replace('\\/', '/')
                     if _u2.startswith('http') and _u2 not in _out: _out.append(_u2)
+                # V69: Unescape \/ BEFORE regex - IG HTML has https:\/\/scontent... escaped, so https:// regex missed every URL (mentions=733, total_urls=0). Also handle //cdninstagram.com protocol-relative.
+                try: _txt = _txt.replace('\\/', '/').replace('\\u0026', '&').replace('&amp;', '&')
+                except Exception: pass
                 # V67: Distinguish CDN MENTIONS (string appears 736x in JS) from actual URL CANDIDATES. Old parser required .jpg/.png/.webp - but IG CDN URLs often have NO extension, just /v/t51... + _nc_cat/oh=/oe= params. That dropped real slides.
                 # Count mentions vs candidates, log 5 samples (host+path only, query stripped)
                 try:
                     _mentions67 = _txt.count("cdninstagram.com") + _txt.count("scontent")
                     _cand67 = []
                     _assets67 = 0
-                    for _mm67 in re.finditer(r'https://[^"\'\s<>]+(?:cdninstagram\.com|scontent[^"\'\s<>]*|fbcdn\.net)[^"\'\s<>]*', _txt):
+                    for _mm67 in re.finditer(r'(?:https:)?//[^"\'\s<>]+(?:cdninstagram\.com|scontent[^"\'\s<>]*|fbcdn\.net)[^"\'\s<>]*', _txt):
                         _u67 = _h55.unescape(_mm67.group(0)).replace('\\/', '/')
+                        if _u67.startswith('//'): _u67 = 'https:' + _u67
                         # V68: static.cdninstagram.com/rsrc.php/... are WEBSITE assets (JS/CSS), not carousel photos. Filter them out, count separately.
                         if "static.cdninstagram.com/rsrc" in _u67 or "/rsrc.php" in _u67 or "static.cdninstagram.com" in _u67:
                             _assets67 += 1
@@ -3008,7 +3012,7 @@ def _validate_ig_session():
             if "instagram.com" in (_c.domain or "") and _c.name in ("sessionid", "csrftoken", "ds_user_id"):
                 _ig[_c.name] = _c.value
         if "sessionid" not in _ig:
-            _trace("IG session: NO sessionid in cookies.txt - anonymous only")
+            _trace("IG session: NO sessionid in cookies.txt - anonymous only (fresh file but exported while NOT logged into IG, or only YT/FB logged in - re-export while IG logged in)")
             return False
         # Lightweight validation: /accounts/edit/ returns 200 + username if logged in, login redirect if expired. Don't log values.
         try:
@@ -3076,7 +3080,7 @@ def _instaloader_worker(shortcode, folder, cap_bytes):
                 for _k, _v in _ig_cookies.items():
                     try: loader.context.session.cookies.set(_k, _v, domain=".instagram.com")
                     except Exception: pass
-                _trace(f"instaloader: loaded IG session from cookies.txt ({len(_ig_cookies)} cookies)")
+                _trace(f"instaloader: loaded IG cookies from cookies.txt: {sorted(_ig_cookies.keys())} (need sessionid+csrftoken+ds_user_id for GraphQL, mid/ig_did/rur alone = anonymous)")
             else:
                 _trace("instaloader: no IG sessionid in cookies.txt - anonymous (GraphQL may 429, will fall back to embed JSON)")
     except Exception as _e61:
