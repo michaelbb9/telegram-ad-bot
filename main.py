@@ -2014,46 +2014,78 @@ def _yt_ydl_opts_for_youtube(base_opts=None):
     return o
 
 def get_social_metadata(link):
-    """Fetch title / poster / views / likes / comments / description / duration / est. size.
-    Returns dict, or None on failure (caller falls back to fetch_url_metadata)."""
+    """V74: Fetch title / poster / views / likes / comments / description / duration / est. size.
+    V73 BUG (your N/A screenshot): this applied _yt_ydl_opts_for_youtube (YouTube web_embedded client lock) to EVERY platform,
+    so TikTok metadata went through a YouTube-only client and came back thin. And vt.tiktok.com short links were passed
+    raw to yt-dlp, which then returned the site title 'TikTok - Make Your Day' with no stats.
+    V74: YouTube opts ONLY for youtube.com/youtu.be. Others use plain opts. TikTok: resolve vt/vm -> canonical /video/<id> first,
+    then if yt-dlp is still thin, read SIGI_STATE from the TikTok page itself. Thin record (site title + all N/A) = failure -> None."""
     try:
-        # V47: metadata was using default web client -> same 'Failed to extract any player response' as downloads.
-        # Use iOS-first + skip webpage, and cookies if present, so metadata works even when web client is blocked.
-        ydl_meta_opts = _yt_ydl_opts_for_youtube({"skip_download": True, "noplaylist": True})
-        # V59: WARP for YT + FB + IG metadata too (metadata also 429s from Render IP). TikTok direct only.
+        _link = link or ""
+        _low = _link.lower()
+        # TikTok short link -> canonical before anything else
+        if "vt.tiktok" in _low or "vm.tiktok" in _low:
+            try: _link = _tiktok_resolve_short(_link)
+            except Exception: pass
+        _is_yt = ("youtube.com" in _low or "youtu.be" in _low)
+        if _is_yt:
+            ydl_meta_opts = _yt_ydl_opts_for_youtube({"skip_download": True, "noplaylist": True})
+            try:
+                _wp_meta = _proxy_for_url(_link)
+                if _wp_meta: ydl_meta_opts["proxy"] = _wp_meta
+                else: ydl_meta_opts.pop("proxy", None)
+            except Exception: pass
+        else:
+            # Non-YouTube: plain opts, NO YouTube player_client lock. curl_cffi impersonation if available.
+            ydl_meta_opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True}
+            try:
+                import importlib.util as _ilu
+                if _ilu.find_spec("curl_cffi") is not None:
+                    ydl_meta_opts["impersonate"] = "chrome"
+            except Exception: pass
+            # TikTok stays DIRECT (WARP = 10231 Region locked). FB/IG get WARP via _proxy_for_url.
+            try:
+                _wp_meta = _proxy_for_url(_link)
+                if _wp_meta: ydl_meta_opts["proxy"] = _wp_meta
+            except Exception: pass
         try:
-            _wp_meta = _proxy_for_url(link)
-            if _wp_meta: ydl_meta_opts["proxy"] = _wp_meta
-            else: ydl_meta_opts.pop("proxy", None)
-        except Exception: pass
-        try:
-            if "tiktok.com" in (link or "").lower() and os.path.exists("tiktok_cookies.txt"):
+            if "tiktok.com" in _low and os.path.exists("tiktok_cookies.txt"):
                 ydl_meta_opts["cookiefile"] = "tiktok_cookies.txt"
             elif os.path.exists("cookies.txt"):
                 ydl_meta_opts["cookiefile"] = "cookies.txt"
         except Exception:
             pass
         with yt_dlp.YoutubeDL(ydl_meta_opts) as ydl:
-            info = ydl.extract_info(link, download=False)
+            info = ydl.extract_info(_link, download=False)
         if not info:
+            # TikTok page fallback before giving up
+            if "tiktok.com" in _low:
+                try: return _tiktok_meta_via_page(_link)
+                except Exception: pass
             return None
         if isinstance(info, dict) and info.get("entries"):
             entries = [e for e in info["entries"] if e]
             info = entries[0] if entries else info
         if not isinstance(info, dict):
             return None
+        # Thin-record guard: site title + no stats = yt-dlp did NOT actually get the video (V73 screenshot case)
+        _thin_title = str(info.get("title") or "").strip()
+        _has_stats = any(info.get(k) is not None for k in ("view_count", "like_count", "comment_count", "duration"))
+        if _thin_title in ("TikTok - Make Your Day", "Make Your Day", "TikTok", "Instagram", "Facebook") and not _has_stats:
+            if "tiktok.com" in _low:
+                try:
+                    _pm = _tiktok_meta_via_page(_link)
+                    if _pm: return _pm
+                except Exception: pass
+            return None
         size = info.get("filesize_approx") or info.get("filesize") or 0
         if not size:
-            # Best-effort: largest filesize_approx among formats (usually the combined format)
             try:
                 fmts = info.get("formats") or []
                 cand = [f.get("filesize_approx") or f.get("filesize") or 0 for f in fmts]
                 size = max(cand) if cand else 0
             except Exception:
                 size = 0
-        # V53: Restore + expand V35 metadata - capture EVERYTHING yt-dlp gives, not just title/views.
-        # web_embedded returns thin metadata (often no views/likes), so we keep all fields and let format show N/A if missing.
-        # upload_date is YYYYMMDD -> format as DD Mon YYYY. Tags/categories/thumbnail kept for card.
         _up = str(info.get("upload_date") or info.get("release_date") or "")
         _up_fmt = _up
         try:
@@ -2061,7 +2093,6 @@ def get_social_metadata(link):
                 import datetime as _dt53
                 _up_fmt = _dt53.datetime.strptime(_up, "%Y%m%d").strftime("%d %b %Y")
         except Exception: pass
-        # Best format for resolution/fps/codec (largest video format)
         _best_fmt = {}
         try:
             _fmts = info.get("formats") or []
@@ -2104,9 +2135,18 @@ def get_social_metadata(link):
         }
     except Exception as e:
         logger.warning(f"get_social_metadata: {e}")
+        # Last resort for TikTok: page hydration (does not need yt-dlp)
+        try:
+            if "tiktok.com" in (link or "").lower():
+                return _tiktok_meta_via_page(link)
+        except Exception: pass
         return None
 
+
 def format_social_metadata(meta):
+    """V74: V35 clean look restored. V53 added 3 lines (Uploaded / Reposts-Shares-Saves / Resolution-FPS-Video-Audio-Format)
+    that TikTok/IG/FB never provide via yt-dlp, so they rendered as a wall of N/A even when the download worked.
+    Now: only show a line if at least one field on it is real. If metadata failed entirely, caller sends NO card (V35 behaviour)."""
     if not meta:
         return ""
     def _num(v):
@@ -2114,19 +2154,20 @@ def format_social_metadata(meta):
             return f"{int(v):,}" if v is not None and v != "N/A" else "N/A"
         except Exception:
             return str(v)
+    def _is_real(v):
+        return v not in (None, "", "N/A", 0, "0")
     dur = int(meta.get("duration_sec") or 0)
     dur_txt = f"{dur // 60}m {dur % 60:02d}s" if dur else "N/A"
     est = float(meta.get("est_size_mb") or 0)
     est_txt = f"{est:.1f} MB" if est > 0 else "Unknown"
     desc = (meta.get("desc") or "").strip()
     if len(desc) > 280:
-        desc = desc[:280] + "…"
-    # V53: Full V35 card + more - this is the metadata you liked. Show everything we have, hide N/A gracefully.
+        desc = desc[:280] + "\u2026"
     def _fmt_val(v):
         return str(v) if v not in (None, "", "N/A", 0) else "N/A"
     _chan = meta.get('channel') or meta.get('poster') or 'N/A'
     _chan_id = meta.get('channel_id') or meta.get('uploader_id') or ''
-    _chan_line = f"👤 @{_chan}" + (f"  (ID: {_chan_id})" if _chan_id and _chan_id != 'N/A' else "")
+    _chan_line = f"\U0001f464 @{_chan}" + (f"  (ID: {_chan_id})" if _chan_id and _chan_id != 'N/A' else "")
     _vid = meta.get('video_id') or ''
     _up = meta.get('upload_date') or 'N/A'
     _w = meta.get('width') or 'N/A'
@@ -2137,32 +2178,40 @@ def format_social_metadata(meta):
     _ext = meta.get('ext') or 'N/A'
     _res = f"{_w}x{_h}" if _w != 'N/A' and _h != 'N/A' else "N/A"
     lines = [
-        f"🎬 {meta.get('title', 'N/A')}",
+        f"\U0001f3ac {meta.get('title', 'N/A')}",
         _chan_line,
-        f"📅 Uploaded: {_up}" + (f"  🆔 Video ID: {_vid}" if _vid else ""),
-        f"👁️ Views: {_num(meta.get('views'))}  👍 Likes: {_num(meta.get('likes'))}  💬 Comments: {_num(meta.get('comments'))}",
-        f"🔁 Reposts: {_num(meta.get('reposts'))}  📤 Shares: {_num(meta.get('shares'))}  💾 Saves: {_num(meta.get('saves'))}",
-        f"⏱️ Duration: {dur_txt}  📦 Est. size: {est_txt}  🌐 {meta.get('platform', 'unknown')}",
-        f"🎞️ Resolution: {_res}  🎞️ FPS: {_fmt_val(_fps)}  🎞️ Video: {_fmt_val(_vc)}  🔊 Audio: {_fmt_val(_ac)}  📁 Format: {_fmt_val(_ext)}",
     ]
-    # Tags / categories - V35 didn't show these, V53 adds them (yt-dlp gives them for YouTube)
+    # Uploaded: only if we actually know it (YouTube yes, TikTok via page yes, FB/IG often no)
+    if _is_real(_up) or _is_real(_vid):
+        _up_line = f"\U0001f4c5 Uploaded: {_up}" if _is_real(_up) else "\U0001f4c5 Uploaded: N/A"
+        if _vid: _up_line += f"  \U0001f194 Video ID: {_vid}"
+        lines.append(_up_line)
+    # Views/Likes/Comments: always show (core V35 line) - but if ALL three are N/A, caller should not have sent the card at all
+    lines.append(f"\U0001f441\ufe0f Views: {_num(meta.get('views'))}  \U0001f44d Likes: {_num(meta.get('likes'))}  \U0001f4ac Comments: {_num(meta.get('comments'))}")
+    # Reposts/Shares/Saves: only if at least one is real (TikTok has them, YouTube/FB usually do not)
+    if _is_real(meta.get('reposts')) or _is_real(meta.get('shares')) or _is_real(meta.get('saves')):
+        lines.append(f"\U0001f501 Reposts: {_num(meta.get('reposts'))}  \U0001f4e4 Shares: {_num(meta.get('shares'))}  \U0001f4be Saves: {_num(meta.get('saves'))}")
+    lines.append(f"\u23f1\ufe0f Duration: {dur_txt}  \U0001f4e6 Est. size: {est_txt}  \U0001f310 {meta.get('platform', 'unknown')}")
+    # Resolution/FPS/Video/Audio/Format: only if resolution is real (YouTube yes, TikTok/IG/FB via yt-dlp usually no)
+    if _is_real(_res) and _res != "N/A":
+        lines.append(f"\U0001f39e\ufe0f Resolution: {_res}  \U0001f39e\ufe0f FPS: {_fmt_val(_fps)}  \U0001f39e\ufe0f Video: {_fmt_val(_vc)}  \U0001f50a Audio: {_fmt_val(_ac)}  \U0001f4c1 Format: {_fmt_val(_ext)}")
     try:
         _tags = meta.get('tags') or []
         if _tags:
             _tags_txt = ", ".join([str(t) for t in _tags[:8]])
-            lines.append(f"🏷️ Tags: {_tags_txt}")
+            lines.append(f"\U0001f3f7\ufe0f Tags: {_tags_txt}")
         _cats = meta.get('categories') or []
         if _cats:
-            lines.append(f"📂 Category: {', '.join([str(c) for c in _cats[:3]])}")
+            lines.append(f"\U0001f4c2 Category: {', '.join([str(c) for c in _cats[:3]])}")
     except Exception: pass
     if desc and desc != "Preview only":
-        lines.append(f"📝 {desc}")
+        lines.append(f"\U0001f4dd {desc}")
     _url = meta.get('webpage_url') or ''
     if _url:
-        lines.append(f"🔗 { _url }")
+        lines.append(f"\U0001f517 { _url }")
     return "\n".join(lines)
 
-# --- PART 4: limit + credit calculator ---
+
 def calculate_cost_and_limits(meta_data, platform_settings):
     """Returns (credit_cost, time_ok, size_ok). Unknown size (0) never false-blocks."""
     try:
@@ -2257,44 +2306,59 @@ async def send_join_prompt(bot, chat_id, user_id, missing):
             logger.error(f"send_join_prompt: {e}")
 
 async def send_meta_after(bot, chat_id, url, meta, user_id=None):
+    """V74: V35 behaviour restored - if metadata genuinely failed, send NO card. V53 Fallback 3 built a fake card
+    from the OG page title ('TikTok - Make Your Day') with poster N/A + every stat N/A. That is what your screenshot shows.
+    A fake N/A card is worse than no card: it looks like the bot broke metadata, when the real failure was yt-dlp thin record."""
     try:
         m = meta
-        # V53: If first metadata fetch failed (e.g. web_embedded thin record), retry with plain yt-dlp (no client lock, no WARP)
-        # so we still get views/likes/comments like V35 did. Never silently skip the card you like.
         if not m:
             try:
                 m = await asyncio.to_thread(get_social_metadata, url)
             except Exception:
                 m = None
         if not m:
-            # Fallback 2: plain yt-dlp without web_embedded/WARP - V35 style, gets full metadata
+            # Fallback 2: plain yt-dlp (no client lock, no WARP) - V35 style, with TikTok canonical resolve
             try:
                 def _plain_meta(_u):
                     try:
+                        _cu = _u
+                        try:
+                            if "vt.tiktok" in (_u or "").lower() or "vm.tiktok" in (_u or "").lower():
+                                _cu = _tiktok_resolve_short(_u)
+                        except Exception: pass
                         with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True}) as _ydl:
-                            _info = _ydl.extract_info(_u, download=False)
+                            _info = _ydl.extract_info(_cu, download=False)
                             if isinstance(_info, dict) and _info.get("entries"):
                                 _e = [e for e in _info["entries"] if e]
                                 _info = _e[0] if _e else _info
                             if not isinstance(_info, dict): return None
+                            # Thin guard: site title, no stats -> not real metadata
+                            if str(_info.get("title") or "").strip() in ("TikTok - Make Your Day", "Make Your Day") and _info.get("view_count") is None and _info.get("like_count") is None:
+                                return None
                             return {"title": _info.get("title") or "N/A", "poster": _info.get("uploader") or _info.get("channel") or "N/A", "channel": _info.get("channel") or _info.get("uploader") or "N/A", "channel_id": _info.get("channel_id") or _info.get("uploader_id") or "N/A", "uploader_id": _info.get("uploader_id") or "N/A", "views": _info.get("view_count", "N/A"), "likes": _info.get("like_count", "N/A"), "dislikes": _info.get("dislike_count", "N/A"), "comments": _info.get("comment_count", "N/A"), "reposts": _info.get("repost_count", "N/A"), "shares": _info.get("share_count", "N/A"), "saves": _info.get("save_count", "N/A"), "desc": (_info.get("description") or "Preview only")[:600], "duration_sec": int(_info.get("duration") or 0), "platform": _info.get("extractor_key") or _info.get("extractor") or "unknown", "est_size_mb": 0.0, "filesize_approx": 0, "upload_date": str(_info.get("upload_date") or "N/A"), "video_id": _info.get("id") or "", "width": _info.get("width") or "N/A", "height": _info.get("height") or "N/A", "fps": _info.get("fps") or "N/A", "vcodec": _info.get("vcodec") or "N/A", "acodec": _info.get("acodec") or "N/A", "ext": _info.get("ext") or "N/A", "tags": _info.get("tags") or [], "categories": _info.get("categories") or [], "webpage_url": _info.get("webpage_url") or _u, "thumbnail": _info.get("thumbnail") or ""}
                     except Exception: return None
                 m = await asyncio.to_thread(_plain_meta, url)
             except Exception:
                 m = None
         if not m:
-            # Fallback 3: minimal card from title cache so you still get *something* - never blank
+            # TikTok page hydration as last real attempt
             try:
-                _disp = _display_name_for(None, url, url, None)
-                if _disp and _disp != url:
-                    m = {"title": _disp, "poster": "N/A", "channel": "N/A", "views": "N/A", "likes": "N/A", "comments": "N/A", "reposts": "N/A", "shares": "N/A", "saves": "N/A", "desc": "", "duration_sec": 0, "platform": "unknown", "est_size_mb": 0.0, "upload_date": "N/A", "video_id": "", "width": "N/A", "height": "N/A", "fps": "N/A", "vcodec": "N/A", "acodec": "N/A", "ext": "N/A", "tags": [], "categories": [], "webpage_url": url}
+                if "tiktok.com" in (url or "").lower():
+                    m = await asyncio.to_thread(_tiktok_meta_via_page, url)
             except Exception: pass
         if not m:
+            # V74: NO Fallback 3. V35 sent no card on failure - do the same. Never send an all-N/A fake card.
             return
+        # All-N/A guard: if every stat + poster is N/A and title is a site title, this is a thin record - do not send it
+        try:
+            _all_na = all((m.get(k) in (None, "N/A", 0)) for k in ("views", "likes", "comments", "reposts", "shares", "saves"))
+            _bad_title = str(m.get("title") or "").strip() in ("TikTok - Make Your Day", "Make Your Day", "TikTok", "Instagram", "Facebook")
+            if _all_na and _bad_title:
+                return
+        except Exception: pass
         card = format_social_metadata(m)
         if not card:
             return
-        # V16: attach main keyboard so grid stays after metadata card (it is the last message).
         _mkb = None
         if user_id is not None:
             try: _mkb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
@@ -2308,6 +2372,7 @@ async def send_meta_after(bot, chat_id, url, meta, user_id=None):
                 pass
     except Exception as e:
         logger.warning(f"send_meta_after: {e}")
+
 
 def build_reqch_panel():
     chans = get_required_channels()
@@ -2672,6 +2737,308 @@ def _extract_lsd_from_html(html):
             if _m and _m.group(1): return _m.group(1)
     except Exception: pass
     return ""
+
+
+def _fb_collect_media_from_json(obj):
+    """V74: Recursive walk of Comet Relay store. Collects in document order:
+    playable_url / playable_url_quality_hd / browser_native_hd_url / browser_native_sd_url (video),
+    photo image uri / scontent / fbcdn image URLs. Dedup, filter chrome (profile_pic/static/emoji/sprite)."""
+    _out = []
+    try:
+        def _add(_u):
+            if not _u or not isinstance(_u, str): return
+            _u = _u.strip()
+            if not _u.startswith("http"): return
+            if any(_b in _u for _b in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32", "s50x50", "s64x64"]): return
+            if (".mp4" in _u.split("?")[0] or ".jpg" in _u or ".jpeg" in _u or ".png" in _u or ".webp" in _u or "scontent" in _u or "fbcdn" in _u) and _u not in _out:
+                _out.append(_u)
+        def _walk(_o):
+            if isinstance(_o, dict):
+                for _k in ("playable_url_quality_hd", "playable_url", "browser_native_hd_url", "browser_native_sd_url"):
+                    if _o.get(_k): _add(_o.get(_k))
+                _img = _o.get("image")
+                if isinstance(_img, dict) and _img.get("uri"): _add(_img.get("uri"))
+                if isinstance(_img, str): _add(_img)
+                if _o.get("uri") and isinstance(_o.get("uri"), str) and ("scontent" in _o["uri"] or "fbcdn" in _o["uri"]): _add(_o["uri"])
+                for _k, _v in _o.items():
+                    if _k in ("playable_url_quality_hd", "playable_url", "browser_native_hd_url", "browser_native_sd_url", "image"): continue
+                    _walk(_v)
+            elif isinstance(_o, list):
+                for _it in _o: _walk(_it)
+            elif isinstance(_o, str):
+                if "scontent" in _o or "fbcdn" in _o:
+                    for _m in re.finditer(r'https://(?:scontent[^"\'\s\\]+|[^"\'\s\\]*\.fbcdn\.net[^"\'\s\\]+)', _o):
+                        _add(_m.group(0).replace('\\/', '/'))
+        _walk(obj)
+    except Exception: pass
+    return _out
+
+def _fb_comet_session():
+    """V74: IG Polaris parallel - warm a curl_cffi chrome session on facebook.com, return (sess, lsd).
+    www -> 302 to web.facebook.com is normal signed-out; if www bounces www<->web, ask web directly."""
+    try:
+        from curl_cffi import requests as _creq
+    except Exception as _e:
+        try: _trace(f"FB Comet V74: curl_cffi MISSING ({_e})")
+        except Exception: pass
+        return None, ""
+    _warp = None
+    try: _warp = _proxy_for_url("https://www.facebook.com/")
+    except Exception: pass
+    try:
+        _prox = {"http": _warp, "https": _warp} if _warp else None
+        _sess = _creq.Session(impersonate="chrome", proxies=_prox) if _prox else _creq.Session(impersonate="chrome")
+        _lsd = ""
+        for _home in ["https://www.facebook.com/", "https://web.facebook.com/"]:
+            try:
+                _r0 = _sess.get(_home, timeout=20, headers={"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "none", "Sec-Fetch-User": "?1", "Upgrade-Insecure-Requests": "1"})
+                _html0 = _r0.text or ""
+                _lsd = _extract_lsd_from_html(_html0)
+                try: _trace(f"FB Comet V74: warm {_home} HTTP {_r0.status_code} len={len(_html0)} lsd={'YES' if _lsd else 'NO'} final={str(getattr(_r0,'url',''))[:80]}")
+                except Exception: pass
+                if _lsd or len(_html0) > 50000: break
+            except Exception as _e0:
+                try: _trace(f"FB Comet V74: warm {_home} failed {str(_e0)[:80]}")
+                except Exception: pass
+                continue
+        return _sess, _lsd
+    except Exception as _e:
+        try: _trace(f"FB Comet V74: session failed {str(_e)[:120]}")
+        except Exception: pass
+        return None, ""
+
+def _fb_comet_via_curl_cffi(url):
+    """V74 - THE FB FIX, mirror of IG Polaris V73.
+    Why V55-V73 FB failed: plain requests (no TLS fingerprint) + mbasic (dead since Sep 2026, redirects to login)
+    + 12x WARP->DIRECT retry on a LOGIN wall (login is not a proxy block, so retrying the same URL just buys the same wall).
+    What signed-out facebook.com ships now is the Comet Relay store, inline as <script type="application/json" data-sjs>.
+    So: warm LSD session with curl_cffi chrome impersonation (same as IG Polaris), GET the resolved post page once,
+    parse data-sjs blocks + og:video/og:image, walk for playable_url / image.uri / scontent.
+    NO cookies needed for PUBLIC posts. NO mbasic. NO 12x loop. Returns [media URLs] or [].
+    Do NOT call /api/graphql with a hand-built doc_id - Comet replay only ever runs an operation the page itself shipped;
+    hand-built variables fail with 'A server error occurred' / allowlist 1675004. Reading the page's own Relay store is the supported path."""
+    try: _trace(f"FB Comet V74: {str(url)[:80]}")
+    except Exception: pass
+    try:
+        from curl_cffi import requests as _creq
+    except Exception:
+        return []
+    _sess, _lsd = _fb_comet_session()
+    if _sess is None: return []
+    _out = []
+    try:
+        _headers = {"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "none", "Sec-Fetch-User": "?1", "Upgrade-Insecure-Requests": "1", "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"}
+        if _lsd: _headers["X-FB-LSD"] = _lsd
+        _r = _sess.get(url, headers=_headers, timeout=25, allow_redirects=True)
+        _txt = _r.text or ""
+        _final = str(getattr(_r, 'url', '') or '')
+        try: _trace(f"FB Comet V74: GET HTTP {_r.status_code} len={len(_txt)} final={_final[:100]} body={_txt[:200]!r}")
+        except Exception: pass
+        _has_media = ('scontent' in _txt or 'fbcdn' in _txt or 'playable_url' in _txt)
+        if ('/login' in _final or 'Log in to Facebook' in _txt[:3000]) and not _has_media:
+            try: _trace("FB Comet V74: login wall, trying plugins/post.php once (FB own embed, no login for public posts)")
+            except Exception: pass
+            try:
+                import urllib.parse as _up74
+                _enc = _up74.quote(url, safe='')
+                _rp = _sess.get(f"https://www.facebook.com/plugins/post.php?href={_enc}&show_text=true&width=500", headers=_headers, timeout=20)
+                _txt2 = _rp.text or ""
+                try: _trace(f"FB Comet V74: plugins/post.php HTTP {_rp.status_code} len={len(_txt2)}")
+                except Exception: pass
+                if _txt2 and len(_txt2) > 500:
+                    _txt = _txt + " " + _txt2
+                    _has_media = ('scontent' in _txt or 'fbcdn' in _txt)
+            except Exception: pass
+            if not _has_media:
+                return []
+        try:
+            for _m in re.finditer(r'<script[^>]+type="application/json"[^>]*data-sjs[^>]*>(.*?)</script>', _txt, flags=re.S):
+                _raw = _m.group(1).strip()
+                if not _raw: continue
+                try:
+                    import json as _j74
+                    _obj = _j74.loads(_raw)
+                except Exception: continue
+                _found = _fb_collect_media_from_json(_obj)
+                for _u in _found:
+                    if _u not in _out: _out.append(_u)
+            if _out:
+                try: _trace(f"FB Comet V74: OK via data-sjs, {len(_out)} item(s)")
+                except Exception: pass
+                return _out[:20]
+        except Exception as _e:
+            try: _trace(f"FB Comet V74: data-sjs parse failed {str(_e)[:100]}")
+            except Exception: pass
+        try:
+            import html as _h74
+            for _pat in [r'<meta[^>]+property=["\']og:video["\'][^>]+content=["\']([^"\']+)["\']', r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']']:
+                for _m in re.finditer(_pat, _txt):
+                    _u = _h74.unescape(_m.group(1))
+                    if _u.startswith('http') and _u not in _out: _out.append(_u)
+            for _m in re.finditer(r'https://(?:scontent[^"\'\s\\]+|[^"\'\s\\]*\.fbcdn\.net[^"\'\s\\]+)', _txt):
+                _u = _h74.unescape(_m.group(0)).replace('\\/', '/')
+                if any(_b in _u for _b in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32"]): continue
+                if (".jpg" in _u or ".jpeg" in _u or ".png" in _u or ".webp" in _u or ".mp4" in _u) and _u not in _out: _out.append(_u)
+            _seen = set(); _ded = []
+            for _u in _out:
+                _k = _u.split('?')[0]
+                if _k not in _seen: _seen.add(_k); _ded.append(_u)
+            _out = _ded
+            if _out:
+                try: _trace(f"FB Comet V74: OK via og/scontent fallback, {len(_out)} item(s)")
+                except Exception: pass
+                return _out[:20]
+        except Exception: pass
+        return []
+    except Exception as _e:
+        try: _trace(f"FB Comet V74: FAILED {str(_e)[:150]}")
+        except Exception: pass
+        return []
+
+def _fb_resolve_share_v74(url):
+    """V74: Resolve FB /share/p|v|r/ + fb.watch ONCE with a warmed curl_cffi session. No 12x loop, no mbasic.
+    /share/ token is opaque (server-side redirect, does not encode destination) - the ONLY correct resolve is to
+    fetch it with a real browser fingerprint and read the final URL / login next= / oEmbed canonical.
+    Returns resolved URL or original. Never returns a /login URL."""
+    try:
+        _low = (url or "").lower()
+        if not any(_d in _low for _d in ["facebook.com/share/", "fb.watch", "fb.gg/", "facebook.com/share"]):
+            return url
+        try: _trace(f"FB share resolve V74: {url[:80]} (single attempt, curl_cffi + LSD)")
+        except Exception: pass
+        _sess, _lsd = _fb_comet_session()
+        if _sess is None: return url
+        try:
+            import urllib.parse as _up74r
+            _headers = {"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "none", "Sec-Fetch-User": "?1", "Upgrade-Insecure-Requests": "1"}
+            _r = _sess.get(url, headers=_headers, timeout=20, allow_redirects=True)
+            _final = str(getattr(_r, 'url', '') or '')
+            _txt = _r.text or ""
+            try: _trace(f"FB share resolve V74: HTTP {_r.status_code} len={len(_txt)} final={_final[:120]}")
+            except Exception: pass
+            if _final and ("/login" in _final or "/checkpoint" in _final):
+                _qs = _up74r.parse_qs(_up74r.urlparse(_final).query)
+                _next = (_qs.get("next") or [""])[0]
+                if _next:
+                    _next = _up74r.unquote(_next)
+                    if _next.startswith("/"): _next = "https://www.facebook.com" + _next
+                    if _next.startswith("http") and "/login" not in _next and "/share/" not in _next:
+                        try: _trace(f"FB share resolve V74: login next= -> {_next[:100]}")
+                        except Exception: pass
+                        return _next
+                try:
+                    _enc = _up74r.quote(url, safe='')
+                    _ro = _sess.get(f"https://graph.facebook.com/v25.0/oembed_post?url={_enc}", timeout=15)
+                    _jo = _ro.json() if _ro.text.strip().startswith("{") else {}
+                    _html_o = _jo.get("html", "") or ""
+                    _m = re.search(r'data-href="([^"]+)"', _html_o)
+                    if _m and _m.group(1).startswith("http") and "/share/" not in _m.group(1):
+                        try: _trace(f"FB share resolve V74: oEmbed canonical -> {_m.group(1)[:100]}")
+                        except Exception: pass
+                        return _m.group(1)
+                except Exception: pass
+                try: _trace("FB share resolve V74: FAILED - login wall, no next=, no oEmbed canonical. Returning original share URL; Comet will try plugins/post.php. If post is friends-only/private, it genuinely needs c_user+xs.")
+                except Exception: pass
+                return url
+            if _final and _final != url and "/share/" not in _final and "/login" not in _final:
+                return _final
+            import html as _h74r
+            for _pat in [r'<meta[^>]+property=["\']og:url["\'][^>]+content=["\']([^"\']+)["\']', r'<link[^>]+rel=["\']canonical["\'][^>]+href=["\']([^"\']+)["\']']:
+                _m = re.search(_pat, _txt)
+                if _m:
+                    _cand = _h74r.unescape(_m.group(1)).strip()
+                    if _cand.startswith("http") and "/share/" not in _cand and "/login" not in _cand:
+                        return _cand
+            return url
+        except Exception as _e:
+            try: _trace(f"FB share resolve V74: failed {str(_e)[:100]}")
+            except Exception: pass
+            return url
+    except Exception:
+        return url
+
+def _tiktok_resolve_short(url):
+    """V74: vt.tiktok.com / vm.tiktok.com carry NO post ID - it only exists after the redirect resolves.
+    Follow it once (curl_cffi chrome, direct - TikTok 10231 on WARP) to https://www.tiktok.com/@user/video/<id> before yt-dlp/metadata."""
+    try:
+        _low = (url or "").lower()
+        if "vt.tiktok" not in _low and "vm.tiktok" not in _low:
+            return url
+        try:
+            from curl_cffi import requests as _creq74
+            _r = _creq74.get(url, impersonate="chrome", timeout=15, allow_redirects=True)
+            _final = str(getattr(_r, 'url', '') or '')
+            if _final and "/video/" in _final: return _final
+        except Exception: pass
+        try:
+            import requests as _rq74
+            _r2 = _rq74.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15, allow_redirects=True)
+            _final2 = str(getattr(_r2, 'url', '') or '')
+            if _final2 and "/video/" in _final2: return _final2
+        except Exception: pass
+        return url
+    except Exception: return url
+
+def _tiktok_meta_via_page(url):
+    """V74: TikTok page hydration (SIGI_STATE) - TikTok parallel of FB Comet / IG Polaris.
+    yt-dlp TikTok maps playCount->view_count, diggCount->like_count, shareCount->repost_count, collectCount->save_count.
+    When yt-dlp returns thin (web_embedded / short-link), read the same numbers from the page itself. Returns dict or None."""
+    try:
+        _canon = _tiktok_resolve_short(url)
+        try:
+            from curl_cffi import requests as _creq74b
+            _r = _creq74b.get(_canon, impersonate="chrome", timeout=20, headers={"Referer": "https://www.tiktok.com/"})
+            _txt = _r.text or ""
+        except Exception:
+            import requests as _rq74b
+            _r = _rq74b.get(_canon, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
+            _txt = _r.text or ""
+        if not _txt or len(_txt) < 1000: return None
+        import json as _j74t
+        _data = None
+        _m = re.search(r'<script[^>]+id="SIGI_STATE"[^>]*>(.*?)</script>', _txt, flags=re.S)
+        if _m:
+            try: _data = _j74t.loads(_m.group(1))
+            except Exception: pass
+        _item = None
+        try:
+            def _walk(_o):
+                nonlocal _item
+                if _item is not None: return
+                if isinstance(_o, dict):
+                    if "stats" in _o and isinstance(_o.get("stats"), dict) and ("playCount" in _o["stats"] or "diggCount" in _o["stats"]):
+                        _item = _o; return
+                    for _v in _o.values(): _walk(_v)
+                elif isinstance(_o, list):
+                    for _it in _o: _walk(_it)
+            _walk(_data if _data is not None else {})
+        except Exception: pass
+        if not _item: return None
+        _stats = _item.get("stats") or {}
+        _author = _item.get("author") or {}
+        _desc = _item.get("desc") or ""
+        _create = _item.get("createTime") or 0
+        _up = ""
+        try:
+            import datetime as _dt74
+            if _create: _up = _dt74.datetime.fromtimestamp(int(_create)).strftime("%d %b %Y")
+        except Exception: pass
+        _dur = 0
+        try: _dur = int((_item.get("video") or {}).get("duration") or 0)
+        except Exception: pass
+        return {"title": _desc[:280] or "TikTok video", "poster": _author.get("nickname") or _author.get("uniqueId") or "N/A",
+                "channel": _author.get("nickname") or _author.get("uniqueId") or "N/A",
+                "channel_id": _author.get("uniqueId") or "N/A", "uploader_id": _author.get("uniqueId") or "N/A",
+                "views": _stats.get("playCount", "N/A"), "likes": _stats.get("diggCount", "N/A"),
+                "comments": _stats.get("commentCount", "N/A"), "reposts": _stats.get("shareCount", "N/A"),
+                "shares": _stats.get("shareCount", "N/A"), "saves": _stats.get("collectCount", "N/A"),
+                "desc": _desc[:600], "duration_sec": _dur, "platform": "TikTok", "est_size_mb": 0.0,
+                "filesize_approx": 0, "upload_date": _up or "N/A", "video_id": str(_item.get("id") or ""),
+                "width": "N/A", "height": "N/A", "fps": "N/A", "vcodec": "N/A", "acodec": "N/A", "ext": "mp4",
+                "tags": [], "categories": [], "webpage_url": _canon, "thumbnail": ""}
+    except Exception:
+        return None
+
 
 def _collect_ig_media_from_json(obj):
     """V73: Recursive walk - Polaris shapes differ by doc_id: xdt_api__v1__media__shortcode__web_info.items[0], polaris root, /api/v1/media/info items[0]. Collect carousel_media/video_versions/image_versions2 in order, dedup."""
@@ -3064,12 +3431,7 @@ def scrape_all_html_images(url, cookiefile=None):
             if _m and ("instagram.com" in url.lower() or "instagr.am" in url.lower()):
                 _urls_to_try.append(f"https://www.instagram.com/{_m.group(1)}/{_m.group(2)}/embed/")
         except Exception: pass
-        # 2) Try mbasic for Facebook (lighter, less JS/login wall)
-        try:
-            if "facebook.com" in url.lower() or "fb.watch" in url.lower():
-                _mb = url.replace("www.facebook.com", "mbasic.facebook.com").replace("web.facebook.com", "mbasic.facebook.com")
-                if _mb != url: _urls_to_try.append(_mb)
-        except Exception: pass
+        # 2) V74: mbasic REMOVED - retired Sep 2026, redirects to login. Comet (above) is the FB path.
         _found = []
         for _u in _urls_to_try:
             try:
@@ -3166,11 +3528,28 @@ def _trace(msg):
 
 
 def _fetch_media_url(url, dest_base, cap_bytes, default_ext):
-    """Download one slide to dest_base + extension. Returns the file path."""
+    """V74: Download one slide to dest_base + extension. Returns file path.
+    scontent/fbcdn URLs need a real browser fingerprint - plain requests with Mozilla/5.0 gets 403/login wall.
+    Try curl_cffi chrome first (same session style as Comet/Polaris), fall back to requests."""
     ext = os.path.splitext(url.split("?")[0])[1].lower()
     if ext not in (PHOTO_EXT | VIDEO_EXT):
         ext = default_ext
     path = dest_base + ext
+    # curl_cffi first
+    try:
+        from curl_cffi import requests as _creq74f
+        _warp = None
+        try: _warp = _proxy_for_url(url)
+        except Exception: pass
+        _prox = {"http": _warp, "https": _warp} if _warp else None
+        _sess = _creq74f.Session(impersonate="chrome", proxies=_prox) if _prox else _creq74f.Session(impersonate="chrome")
+        _r = _sess.get(url, timeout=30)
+        if _r.status_code == 200 and len(_r.content) > 1000:
+            if len(_r.content) > cap_bytes: raise ValueError("file over size cap")
+            with open(path, "wb") as f: f.write(_r.content)
+            return path
+    except Exception:
+        pass
     with requests.get(url, headers={"User-Agent": "Mozilla/5.0"},
                       stream=True, timeout=25) as r:
         r.raise_for_status()
@@ -3446,260 +3825,49 @@ def download_youtube_post(url, output_dir, cap_bytes):
 
 
 def _resolve_share_link(url):
-    """V55+V56: FB /share/p/, /share/r/, /share/v/, fb.watch are short links. yt-dlp + gallery-dl say 'Unsupported URL' for them.
-    V55 only followed HTTP redirects - FB /share/ returns 200 login-wall, NOT a redirect, so it failed.
-    V56: Parse the share page HTML itself - real post is in og:url / canonical / fbid / permalink_url. Also try facebookexternalhit UA (FB serves og tags to crawlers without login).
-    Returns real post URL or original."""
+    """V74: Delegate to single-attempt curl_cffi+LSD resolver. Old V55-V73 loop did 3 hosts x 4 UAs x WARP->DIRECT = 12 login-wall hits.
+    mbasic is dead (Sep 2026 redirects to login), login is not a proxy block, so retrying never helped."""
     try:
-        _low = (url or "").lower()
-        if not any(_d in _low for _d in ["facebook.com/share/", "fb.watch", "fb.gg/", "facebook.com/share"]):
-            return url
-        import requests as _rq56
-        import html as _html56
-        import re as _re56
-        _cookies = {}
-        try:
-            if __import__('os').path.exists("cookies.txt"):
-                for _line in open("cookies.txt", encoding='utf-8', errors='ignore'):
-                    _line = _line.strip()
-                    if not _line or _line.startswith('#'): continue
-                    _parts = _line.split('\t')
-                    if len(_parts) >= 7: _cookies[_parts[5]] = _parts[6]
-        except Exception: pass
-        # 1) HTTP redirect (rare, but cheap)
-        try:
-            _r = _rq56.head(url, headers=dict(BROWSER_HEADERS) if 'BROWSER_HEADERS' in globals() else {'User-Agent': 'Mozilla/5.0'}, allow_redirects=True, timeout=10, cookies=_cookies)
-            _final = getattr(_r, 'url', '') or url
-            # V58: If HEAD gives login URL, parse next= param - don't return login URL
-            if _final and ("/login" in _final or "/checkpoint" in _final):
-                try:
-                    import urllib.parse as _up58h
-                    _qs = _up58h.parse_qs(_up58h.urlparse(_final).query)
-                    _next = (_qs.get("next") or [""])[0]
-                    if _next:
-                        _next = _up58h.unquote(_next)
-                        if _next.startswith("/"): _next = "https://www.facebook.com" + _next
-                        if _next.startswith("http") and "/login" not in _next:
-                            return _next
-                except Exception: pass
-                # Login - need FB cookies, don't return login URL
-                pass
-            elif _final and _final != url and "/share/" not in _final and "/login" not in _final:
-                try: _trace(f"share resolved (redirect): {url[:60]} -> {_final[:80]}")
-                except Exception: pass
-                return _final
-        except Exception: pass
-        # 2) HTML parse - try 3 UAs: browser, facebook crawler (gets og tags without login), plain Mozilla
-        _uas = [
-            dict(BROWSER_HEADERS) if 'BROWSER_HEADERS' in globals() else {'User-Agent': 'Mozilla/5.0'},
-            # V62: mbasic feature-phone UA - FB serves lightweight HTML without login for PUBLIC posts (facebookexternalhit is for external pages, NOT FB posts)
-            {'User-Agent': 'Mozilla/5.0 (compatible; Nokia 3310; Symbian OS 9.1) AppleWebKit/537.36', 'Accept': 'text/html'},
-            {'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)', 'Accept': 'text/html'},
-            {'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'},
-        ]
-        # V66: Also try mbasic / m.facebook variants for resolution - share token sometimes resolves on mbasic even when www returns login
-        _resolve_urls = [url]
-        try:
-            import urllib.parse as _up66
-            _p66 = _up66.urlparse(url)
-            for _h66 in ["mbasic.facebook.com", "m.facebook.com"]:
-                _resolve_urls.append(_up66.urlunparse((_p66.scheme or "https", _h66, _p66.path, _p66.params, _p66.query, "")))
-        except Exception: pass
-        for _resolve_url in _resolve_urls:
-         for _headers in _uas:
-            try:
-                # V66: WARP->DIRECT retry on blocked response too (429/403/login), not just exception - same fix as IG V65
-                try: _prox59 = _requests_proxies_for_url(url)
-                except Exception: _prox59 = None
-                try: _r = _rq56.get(_resolve_url, headers=_headers, cookies=_cookies, allow_redirects=True, timeout=15, proxies=_prox59)
-                except Exception: _r = _rq56.get(_resolve_url, headers=_headers, cookies=_cookies, allow_redirects=True, timeout=15)
-                try:
-                    _st66 = getattr(_r, 'status_code', 0)
-                    _txt66 = _r.text or ""
-                    _blocked66 = _st66 in (429, 403, 401) or ("/login" in (getattr(_r,'url','') or "") and "scontent" not in _txt66)
-                    if _blocked66 and _prox59:
-                        _trace(f"share resolve [{_resolve_url.split('/')[2]}]: WARP blocked HTTP {_st66}, retrying DIRECT")
-                        try: _r = _rq56.get(_resolve_url, headers=_headers, cookies=_cookies, allow_redirects=True, timeout=15, proxies=None)
-                        except Exception: pass
-                except Exception: pass
-                _text = _r.text or ""
-                try: _trace(f"share resolve [{_resolve_url.split('/')[2]}]: HTTP {getattr(_r,'status_code','?')}, len={len(_text)}, final={'login' if '/login' in (getattr(_r,'url','') or '') else 'ok'}")
-                except Exception: pass
-                if not _text or len(_text) < 500: continue
-                # V58 FIX: NEVER accept login URL as resolved (V56 bug). FB /share/ with no valid FB cookies redirects to /login/?next=<real URL>.
-                # The next= param IS the real post (story.php?story_fbid=...). Parse it, don't return login URL.
-                _final2 = getattr(_r, 'url', '') or ""
-                if _final2 and ("/login" in _final2 or "/checkpoint" in _final2):
-                    try:
-                        import urllib.parse as _up58
-                        _qs = _up58.parse_qs(_up58.urlparse(_final2).query)
-                        _next = (_qs.get("next") or [""])[0]
-                        if _next:
-                            _next = _up58.unquote(_next)
-                            if _next.startswith("/") : _next = "https://www.facebook.com" + _next
-                            if _next.startswith("http") and "/login" not in _next and "/share/" not in _next:
-                                try: _trace(f"share resolved (login next=): {url[:50]} -> {_next[:80]}")
-                                except Exception: pass
-                                return _next
-                    except Exception: pass
-                    # Login with no usable next= -> this share needs valid FB cookies, don't pretend we resolved it
-                    try: _trace("share resolve: got login page - FB cookies missing/expired (need c_user + xs in cookies.txt)")
-                    except Exception: pass
-                    continue
-                if _final2 and _final2 != url and "/share/" not in _final2 and "/login" not in _final2:
-                    try: _trace(f"share resolved (GET redirect): {url[:60]} -> {_final2[:80]}")
-                    except Exception: pass
-                    return _final2
-                # og:url / canonical - this is the real post URL for public posts even when logged out
-                _og = _re56.search(r'<meta[^>]+property=["\']og:url["\'][^>]+content=["\']([^"\']+)["\']', _text)
-                if not _og:
-                    _og = _re56.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:url["\']', _text)
-                if _og:
-                    _cand = _html56.unescape(_og.group(1)).strip()
-                    if _cand and _cand.startswith('http') and "/share/" not in _cand:
-                        try: _trace(f"share resolved (og:url): {url[:50]} -> {_cand[:80]}")
-                        except Exception: pass
-                        return _cand
-                _can = _re56.search(r'<link[^>]+rel=["\']canonical["\'][^>]+href=["\']([^"\']+)["\']', _text)
-                if _can:
-                    _cand = _html56.unescape(_can.group(1)).strip()
-                    if _cand and _cand.startswith('http') and "/share/" not in _cand:
-                        try: _trace(f"share resolved (canonical): {url[:50]} -> {_cand[:80]}")
-                        except Exception: pass
-                        return _cand
-                # permalink / fbid in JSON - e.g. "permalink_url":"https://www.facebook.com/photo.php?fbid=123"
-                for _pat in [r'"permalink_url"\s*:\s*"([^"]+)"', r'photo\.php\?fbid=(\d+)', r'"fbid"\s*:\s*"(\d+)"', r'/posts/(\d+)', r'/photo\.php\?fbid=(\d+)']:
-                    _m = _re56.search(_pat, _text)
-                    if _m:
-                        _v = _html56.unescape(_m.group(1)).replace('\\/', '/')
-                        if _v.startswith('http') and "/share/" not in _v:
-                            try: _trace(f"share resolved (permalink): {url[:50]} -> {_v[:80]}")
-                            except Exception: pass
-                            return _v
-                        elif _v.isdigit():
-                            _cand2 = f"https://www.facebook.com/photo.php?fbid={_v}"
-                            try: _trace(f"share resolved (fbid): {url[:50]} -> {_cand2[:80]}")
-                            except Exception: pass
-                            return _cand2
-                # meta refresh redirect: <meta http-equiv="refresh" content="0;url=...">
-                _ref = _re56.search(r'http-equiv=["\']refresh["\'][^>]+url=([^"\'>\s]+)', _text, flags=_re56.I)
-                if _ref:
-                    _cand = _html56.unescape(_ref.group(1)).strip()
-                    if _cand.startswith('http') and "/share/" not in _cand:
-                        return _cand
-            except Exception: continue
-    except Exception as _e56:
-        try: _trace(f"share resolve failed: {type(_e56).__name__}: {str(_e56)[:100]}")
-        except Exception: pass
-    # V66: Don't silently return original share URL - log that resolution FAILED, downstream will fail with NO_IMAGES unless cookies/real link
-    try: _trace(f"share resolve: FAILED - all UAs + mbasic/m returned login/empty for {url[:60]} - returning original share URL (downstream will fail unless FB cookies c_user+xs valid or real photo.php/posts link used)")
-    except Exception: pass
-    return url
+        return _fb_resolve_share_v74(url)
+    except Exception:
+        return url
+
 
 def _fb_via_oembed(url):
-    """V60: Facebook oEmbed is tokenless since 15 June 2026 for public posts (graph.facebook.com/v25.0/oembed_post, no app/token).
-    Also try plugins/post.php?href= which Facebook uses for embeds. Both return embed HTML with scontent image URLs, no c_user/xs needed for PUBLIC posts.
-    Returns list of image URLs or []."""
+    """V74: Facebook oEmbed is tokenless since 15 Jun 2026 (graph.facebook.com/v25.0/oembed_post, no token for public posts).
+    BUT oEmbed returns ONLY embed HTML (fb-post div + sdk.js) - Nov 2026 checks: no author, no title, no thumbnail, NO media URLs.
+    So oEmbed is a liveness/canonical check only, NOT a media source. Media comes from _fb_comet_via_curl_cffi (Relay store) or plugins/post.php.
+    This function now tries plugins/post.php (which DOES contain scontent) via curl_cffi."""
     try:
         import urllib.parse as _up60, html as _h60, re as _re60
-        try: _prox60 = _requests_proxies_for_url(url)
-        except Exception: _prox60 = None
-        _enc = _up60.quote(url, safe='')
         _out = []
-        for _u in [f"https://graph.facebook.com/v25.0/oembed_post?url={_enc}", f"https://www.facebook.com/plugins/post.php?href={_enc}&show_text=true&width=500"]:
-            try:
-                try: _r = requests.get(_u, headers={"User-Agent": "Mozilla/5.0"}, timeout=15, proxies=_prox60)
-                except Exception: _r = requests.get(_u, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+        try:
+            _sess60, _lsd60 = _fb_comet_session()
+            if _sess60 is not None:
+                _enc = _up60.quote(url, safe='')
+                _r = _sess60.get(f"https://www.facebook.com/plugins/post.php?href={_enc}&show_text=true&width=500", timeout=20)
                 _txt = _r.text or ""
-                if not _txt or len(_txt) < 200: continue
-                # oEmbed JSON has "html" field with embed HTML
-                try:
-                    _j = __import__('json').loads(_txt)
-                    _html = _j.get("html", "") or ""
-                    _txt = _txt + " " + _html
-                except Exception: pass
-                # scontent / fbcdn URLs in embed HTML
-                for _m in _re60.finditer(r'https://(?:scontent[^"\'\s]+|[^"\'\s]*\.fbcdn\.net[^"\'\s]+)', _txt):
-                    _u2 = _h60.unescape(_m.group(0)).replace('\\/', '/')
+                for _m in _re60.finditer(r'https://(?:scontent[^"'\s]+|[^"'\s]*\.fbcdn\.net[^"'\s]+)', _txt):
+                    _u2 = _h60.unescape(_m.group(0)).replace('\/', '/')
                     if any(_bad in _u2 for _bad in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32", "s50x50"]): continue
                     if (".jpg" in _u2 or ".jpeg" in _u2 or ".png" in _u2 or ".webp" in _u2) and _u2 not in _out: _out.append(_u2)
-                # og:image in embed
-                for _m in _re60.finditer(r'og:image["\']?\s*content=["\']([^"\']+)', _txt):
-                    _u2 = _h60.unescape(_m.group(1))
-                    if _u2.startswith('http') and _u2 not in _out: _out.append(_u2)
-                if _out: 
-                    try: _trace(f"FB oEmbed: {len(_out)} image(s) via {_u[:60]}")
+                if _out:
+                    try: _trace(f"FB plugins/post V74: {len(_out)} image(s)")
                     except Exception: pass
-                    break
-            except Exception: continue
-        _seen = set(); _res = []
-        for _u in _out:
-            _k = _u.split('?')[0]
-            if _k not in _seen: _seen.add(_k); _res.append(_u)
-        return _res[:20]
-    except Exception: return []
-
-def _fb_via_mbasic(url):
-    """V62: Try mbasic + m.facebook with feature-phone / old-mobile UAs, via WARP. For PUBLIC posts FB serves mbasic HTML without login.
-    Returns [image URLs] or []. For private/friends-only posts mbasic also redirects to login - then [] and caller falls back to cookies."""
-    try:
-        import urllib.parse as _up62, html as _h62, re as _re62
-        _orig = url
-        # Build mbasic / m variants
-        _variants = []
-        try:
-            _p = _up62.urlparse(url)
-            for _host in ["mbasic.facebook.com", "m.facebook.com"]:
-                _variants.append(_up62.urlunparse((_p.scheme or "https", _host, _p.path, _p.params, _p.query, "")))
+                    return _out[:20]
         except Exception: pass
-        _variants.append(url)
-        _uas62 = [
-            {"User-Agent": "Mozilla/5.0 (compatible; Nokia 3310; Symbian OS 9.1) AppleWebKit/537.36", "Accept": "text/html"},
-            {"User-Agent": "Opera/9.80 (J2ME/MIDP; Opera Mini/9.80 (J2ME/22.478; U; en) Presto/2.5.25 Version/10.54", "Accept": "text/html"},
-            {"User-Agent": "Mozilla/5.0 (Linux; Android 4.4; Nexus 5 Build/KRT16M) AppleWebKit/537.36 (KHTML, like Gecko) Version/1.5 Chrome/33.0.0.0 Mobile Safari/537.36", "Accept": "text/html"},
-        ]
-        for _vu in _variants:
-            for _h in _uas62:
-                try:
-                    try: _prox62 = _requests_proxies_for_url(_vu)
-                    except Exception: _prox62 = None
-                    # Need FB cookies if present (cookies.txt may have c_user+xs) - send them, else anonymous
-                    _cookies62 = {}
-                    try:
-                        if __import__('os').path.exists("cookies.txt"):
-                            for _line in open("cookies.txt", encoding='utf-8', errors='ignore'):
-                                _line=_line.strip()
-                                if not _line or _line.startswith('#'): continue
-                                _parts=_line.split('\t')
-                                if len(_parts)>=7: _cookies62[_parts[5]]=_parts[6]
-                    except Exception: pass
-                    try: _r = requests.get(_vu, headers=_h, cookies=_cookies62, timeout=15, proxies=_prox62, allow_redirects=True)
-                    except Exception: _r = requests.get(_vu, headers=_h, cookies=_cookies62, timeout=15, allow_redirects=True)
-                    _txt = _r.text or ""
-                    _final62 = getattr(_r, 'url', '') or ""
-                    if "/login" in _final62 or "login" in _txt[:2000].lower() and "log in" in _txt[:2000].lower() and len(_txt) < 20000 and "scontent" not in _txt:
-                        continue
-                    if not _txt or len(_txt) < 500: continue
-                    _out = []
-                    for _m in _re62.finditer(r'https://(?:scontent[^"\'\s]+|[^"\'\s]*\.fbcdn\.net[^"\'\s]+)', _txt):
-                        _u = _h62.unescape(_m.group(0)).replace('\\/', '/')
-                        if any(_bad in _u for _bad in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32", "s50x50"]): continue
-                        if (".jpg" in _u or ".jpeg" in _u or ".png" in _u or ".webp" in _u) and _u not in _out: _out.append(_u)
-                    for _m in _re62.finditer(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', _txt):
-                        _u = _h62.unescape(_m.group(1))
-                        if _u.startswith('http') and _u not in _out: _out.append(_u)
-                    if _out:
-                        try: _trace(f"FB mbasic: {len(_out)} image(s) via {_vu[:60]}")
-                        except Exception: pass
-                        # dedupe
-                        _seen=set(); _res=[]
-                        for _u in _out:
-                            _k=_u.split('?')[0]
-                            if _k not in _seen: _seen.add(_k); _res.append(_u)
-                        return _res[:20]
-                except Exception: continue
         return []
     except Exception: return []
+
+
+def _fb_via_mbasic(url):
+    """V74: RETIRED. mbasic.facebook.com is gone (Sep 2026: every mbasic path redirects to the login form; deeper links tagged refsrc=deprecated).
+    V62 premise 'mbasic serves public posts without login' is no longer true - it just burns requests on the login wall.
+    Kept as stub so old callers do not crash; always returns []. Use _fb_comet_via_curl_cffi instead."""
+    try: _trace("FB mbasic V74: skipped - mbasic retired Sep 2026, redirects to login")
+    except Exception: pass
+    return []
+
 
 def _fb_filter_images(urls):
     """V66: Improve carousel extraction + image URL filtering: drop tiny thumbnails (s32/s50/s64/s100/s150), profile pics, static/rsrc/emoji/sprite, dedupe by base URL without query, prefer larger scontent."""
@@ -3718,20 +3886,14 @@ def _fb_filter_images(urls):
     except Exception: return list(urls or [])[:20]
 
 def _fb_images_from_share_page(url):
-    """V56: Even if resolve fails, the share page HTML itself has og:image + scontent URLs. Return them directly - don't need gallery-dl.
-    V58: If url is a login URL, parse next= first - don't scrape the login page.
-    V60: Try oEmbed / plugins/post FIRST (tokenless for public posts, no cookies needed), then share page scrape."""
-    # V60: oEmbed first - works without c_user/xs for public posts
+    """V74: Comet first (Relay store), then plugins/post.php. No mbasic, no plain-requests loop (both just hit login wall)."""
+    try:
+        _comet = _fb_comet_via_curl_cffi(url)
+        if _comet: return _comet
+    except Exception: pass
     try:
         _oem = _fb_via_oembed(url)
         if _oem: return _oem
-    except Exception: pass
-    # V62: mbasic / m.facebook with feature-phone UA - FB serves lightweight HTML without login for PUBLIC posts.
-    # Search: "pretend to be an old feature phone, and Facebook will serve you a clean, lightweight HTML version that's fully scrapeable"
-    # facebookexternalhit does NOT bypass login for FB posts themselves - it's for external pages shared ON FB. So mbasic is the real no-cookie route.
-    try:
-        _mb = _fb_via_mbasic(url)
-        if _mb: return _mb
     except Exception: pass
     try:
         if "/login" in (url or ""):
@@ -3741,45 +3903,12 @@ def _fb_images_from_share_page(url):
             if _next:
                 _next = _up58f.unquote(_next)
                 if _next.startswith("/"): _next = "https://www.facebook.com" + _next
-                if _next.startswith("http"): url = _next
+                if _next.startswith("http"):
+                    _c2 = _fb_comet_via_curl_cffi(_next)
+                    if _c2: return _c2
     except Exception: pass
-    try:
-        import requests as _rq56b, html as _html56b, re as _re56b
-        _cookies = {}
-        try:
-            if __import__('os').path.exists("cookies.txt"):
-                for _line in open("cookies.txt", encoding='utf-8', errors='ignore'):
-                    _line = _line.strip()
-                    if not _line or _line.startswith('#'): continue
-                    _parts = _line.split('\t')
-                    if len(_parts) >= 7: _cookies[_parts[5]] = _parts[6]
-        except Exception: pass
-        _uas = [
-            {'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)', 'Accept': 'text/html'},
-            dict(BROWSER_HEADERS) if 'BROWSER_HEADERS' in globals() else {'User-Agent': 'Mozilla/5.0'},
-        ]
-        _out = []
-        for _headers in _uas:
-            try:
-                try: _prox59b = _requests_proxies_for_url(url)
-                except Exception: _prox59b = None
-                try: _r = _rq56b.get(url, headers=_headers, cookies=_cookies, timeout=15, proxies=_prox59b)
-                except Exception: _r = _rq56b.get(url, headers=_headers, cookies=_cookies, timeout=15)
-                _text = _r.text or ""
-                if not _text or len(_text) < 500: continue
-                # og:image (first image)
-                for _m in _re56b.finditer(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', _text):
-                    _u = _html56b.unescape(_m.group(1))
-                    if _u.startswith('http') and _u not in _out: _out.append(_u)
-                # All scontent / fbcdn URLs in page (carousel slides)
-                for _m in _re56b.finditer(r'https://(?:scontent[^"\'\s]+|[^"\'\s]*\.fbcdn\.net[^"\'\s]+)', _text):
-                    _u = _html56b.unescape(_m.group(0)).replace('\\/', '/')
-                    if any(_bad in _u for _bad in ["profile_pic", "static", "rsrc", "emoji", "sprite", "favicon", "logo", "150x150", "s32x32", "s50x50"]): continue
-                    if (".jpg" in _u or ".jpeg" in _u or ".png" in _u or ".webp" in _u) and _u not in _out: _out.append(_u)
-                if _out: break
-            except Exception: continue
-        return _fb_filter_images(_out)
-    except Exception: return []
+    return []
+
 
 def download_carousel(url, output_dir, cap_bytes, http_headers=None, cookiefile=None):
     """Return [paths] (post order) for a multi-item OR single-photo post, else [].
@@ -3816,6 +3945,24 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None, cookiefile=
     os.makedirs(folder, exist_ok=True)
     files, ytdlp_failed, gallery_ran = [], False, False
     try:
+        # ---- 0) V74 FB Comet FIRST (mirror of IG Polaris) - bypasses yt-dlp/gallery-dl entirely for FB ----
+        # yt-dlp says 'Unsupported URL' for /share/, gallery-dl exit=64 for the same reason. Comet reads the page's own
+        # Relay store, so it works for /share/, /posts/, /photo.php, /reel/, fb.watch - no cookies needed for public posts.
+        if "facebook.com" in low or "fb.watch" in low or "fb.gg" in low:
+            try:
+                _comet_urls = _fb_comet_via_curl_cffi(url)
+                if _comet_urls:
+                    _trace(f"FB Comet: {len(_comet_urls)} media URL(s) found")
+                    _comet_files = []
+                    for _i, _u in enumerate(_comet_urls[:MAX_CAROUSEL_ITEMS], start=1):
+                        try:
+                            _ext = ".mp4" if ".mp4" in _u.split("?")[0] else ".jpg"
+                            _comet_files.append(_fetch_media_url(_u, os.path.join(folder, f"{_i:03d}"), cap_bytes, _ext))
+                        except Exception as _e74: _trace(f"FB Comet file {_i} failed: {type(_e74).__name__}")
+                    if _comet_files:
+                        _trace(f"RESULT: OK via FB Comet, {len(_comet_files)} item(s)")
+                        return _comet_files
+            except Exception as _e74: _trace(f"FB Comet failed: {type(_e74).__name__}: {str(_e74)[:120]}")
         # ---- 1) yt-dlp ----
         # V54: cookiefile from caller (cookies.txt) - FB/IG need it now
         try:
