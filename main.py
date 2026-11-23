@@ -1,12 +1,12 @@
 # ============================================================
-# BOT V84 - FROM V83 + FACEBOOK SHARE LOGIN-WALL FOLLOW (V83 gave up on /share/ -> login/?next=story.php. V84 follows next=, tries oEmbed canonical + m/web variants + plugins on the resolved URL. TikTok/YouTube/Music/IG untouched)
+# BOT V85 - FROM V84 + INSTAGRAM POLARIS CAROUSEL (V84 IG was yt-dlp -> gallery-dl -> Instaloader only; carousels failed. V85 adds V73 Polaris GraphQL FIRST: /api/graphql + /api/v1/media/info + /graphql/query, curl_cffi chrome + WARP + csrftoken/LSD, carousel_media in order. Instaloader stays as fallback. FB/TikTok/YouTube/Music untouched)
 # STOP PATCHING V74/V75. This file is V35 exact, except for ONE isolated change:
 #  - YouTube ONLY: V51 method (web_embedded + WARP + impersonate), with DIRECT fallback if WARP fails.
 #  - TikTok: V35 exact. No WARP, no web_embedded, no impersonate, no extractor_args. TikTok was working in V35.
 #  - Facebook: V82 Comet (V74/V75 port). Warm curl_cffi session + Relay store + plugins/post.php fallback. No mbasic, no cookies.
 #    One bug fixed from V75: _fb_collect_media_from_json used undefined _txt in its str-branch (crashed the walk) -> now uses _o.
 #  - Music Search: NOT in V76. It was not in V35 (V36). It is NEXT step, alone, after TikTok+YouTube are confirmed.
-#  - Instagram: V35 exact. No changes.
+#  - Instagram: V85 Polaris FIRST (ported V73), Instaloader fallback. V35 exact before that.
 #  - Error logging: admin DL error now includes full traceback (last 800 chars) so an empty AssertionError can be traced to a real line.
 #  - YouTube fallback: if WARP/web_embedded tiers fail, retry once with V35 plain opts (DIRECT, no WARP, no web_embedded).
 # V84: FACEBOOK SHARE LOGIN-WALL - see _fb_comet_via_curl_cffi candidate loop. TikTok/YouTube/Music/IG untouched.
@@ -3374,6 +3374,197 @@ def _fetch_media_url(url, dest_base, cap_bytes, default_ext):
     return path
 
 
+def _shortcode_to_media_id(shortcode):
+    """V73: shortcode IS base64url(media_id). Vette lesson 2026-08-13: instagramMediaId replaces a lookup with arithmetic. Alphabet A-Za-z0-9-_ . Df3AvgvDV-T -> 19-digit media_id."""
+    try:
+        _alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+        _v = 0
+        for _c in (shortcode or "").strip():
+            if _c not in _alpha: continue
+            _v = _v * 64 + _alpha.index(_c)
+        return str(_v) if _v else ""
+    except Exception: return ""
+
+def _collect_ig_media_from_json(obj):
+    """V73: Recursive walk - Polaris shapes differ by doc_id: xdt_api__v1__media__shortcode__web_info.items[0], polaris root, /api/v1/media/info items[0]. Collect carousel_media/video_versions/image_versions2 in order, dedup."""
+    _out = []
+    try:
+        def _add(_u):
+            if _u and isinstance(_u, str) and _u.startswith("http") and _u not in _out: _out.append(_u)
+        def _walk(_o):
+            if isinstance(_o, dict):
+                # carousel first (preserves order)
+                if isinstance(_o.get("carousel_media"), list):
+                    for _cm in _o["carousel_media"]:
+                        if isinstance(_cm, dict):
+                            if isinstance(_cm.get("video_versions"), list) and _cm["video_versions"]: _add(_cm["video_versions"][0].get("url"))
+                            elif isinstance(_cm.get("image_versions2"), dict):
+                                _c = _cm["image_versions2"].get("candidates") or []
+                                if _c: _add(_c[0].get("url"))
+                    # do NOT walk into carousel again below - but still walk other keys
+                if isinstance(_o.get("video_versions"), list) and _o["video_versions"] and "carousel_media" not in _o:
+                    _add(_o["video_versions"][0].get("url"))
+                if isinstance(_o.get("image_versions2"), dict) and "carousel_media" not in _o:
+                    _c2 = _o["image_versions2"].get("candidates") or []
+                    if _c2: _add(_c2[0].get("url"))
+                # video_url / display_url (xdt_shortcode_media legacy)
+                if _o.get("video_url"): _add(_o["video_url"])
+                if _o.get("display_url"): _add(_o["display_url"])
+                for _k, _v in _o.items():
+                    if _k in ("carousel_media", "video_versions", "image_versions2", "video_url", "display_url"): continue
+                    _walk(_v)
+            elif isinstance(_o, list):
+                for _it in _o: _walk(_it)
+        _walk(obj)
+    except Exception: pass
+    return _out
+
+def _ig_polaris_via_curl_cffi(shortcode):
+    """V85 - port of V73 Polaris (V84 had NO Polaris: IG was yt-dlp -> gallery-dl -> Instaloader, carousels failed).
+    V73 - FIXES V72 401 len=119 / 200 len=90.
+    V72 BUG: POSTed to /graphql/query with {shortcode} + only csrftoken. FxEmbed 2299 / yt-dlp #17075 actually do:
+      POST https://www.instagram.com/api/graphql with {media_id} (shortcode decoded base64, NOT shortcode string)
+      + LSD from __eqmc in homepage HTML + X-ASBD-ID 359341 + X-FB-LSD + X-FB-Friendly-Name + get_ruling_for_content warm-up
+      + body lsd, fb_api_caller_class=RelayModern, fb_api_req_friendly_name=PolarisLoggedOutDesktopWWWPostRootContentQuery, server_timestamps=true, doc_id 27130156389949648
+    V72 also went DIRECT from Render IP, not via WARP that Instaloader used. V73 routes via _proxy_for_url (WARP) like Instaloader.
+    FALLBACK: /api/v1/media/<media_id>/info/ - the endpoint the logged-in web client itself calls (Vette lesson 2026-08-13). It returns video_versions even when GraphQL answers {"errors":[{"message":"execution error"}],"data":null} for doc_id 8845758582119845.
+    LOGS BODY SNIPPET for 401/200-empty so next trace shows WHAT Instagram said, not just len.
+    """
+    try: _trace(f"IG Polaris V85: shortcode={shortcode} media_id={_shortcode_to_media_id(shortcode)} (WARP={bool(_proxy_for_url('https://www.instagram.com/'))})")
+    except Exception: pass
+    try:
+        from curl_cffi import requests as _creq
+    except Exception as _e:
+        try: _trace(f"IG Polaris V85: curl_cffi MISSING ({_e}) - add curl_cffi<0.16")
+        except Exception: pass
+        return [], False
+    _media_id = _shortcode_to_media_id(shortcode)
+    _warp = None
+    try: _warp = _proxy_for_url("https://www.instagram.com/")
+    except Exception: pass
+    try:
+        _prox = {"http": _warp, "https": _warp} if _warp else None
+        _sess = _creq.Session(impersonate="chrome", proxies=_prox) if _prox else _creq.Session(impersonate="chrome")
+        # 1) Warm homepage - cookies + LSD
+        _r0 = _sess.get("https://www.instagram.com/", timeout=20)
+        _csrf = ""
+        try:
+            for _k, _v in _sess.cookies.items():
+                if _k == "csrftoken": _csrf = _v
+        except Exception: pass
+        _html0 = ""
+        try: _html0 = _r0.text or ""
+        except Exception: pass
+        _lsd = _extract_lsd_from_html(_html0)
+        try: _trace(f"IG Polaris V85: homepage HTTP {_r0.status_code} csrftoken={'YES' if _csrf else 'NO'} lsd={'YES len='+str(len(_lsd)) if _lsd else 'NO (Polaris will fail without it)'}")
+        except Exception: pass
+        _base_h = {"X-IG-App-ID": "936619743392459", "X-ASBD-ID": "359341", "X-IG-WWW-Claim": "0", "X-CSRFToken": _csrf, "Referer": f"https://www.instagram.com/p/{shortcode}/", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"}
+        # 2) get_ruling_for_content warm-up (FxEmbed) - status ok = logged-out API will grant content
+        try:
+            _rr = _sess.get(f"https://www.instagram.com/api/v1/web/get_ruling_for_content/?content_type=MEDIA&target_id={_media_id}", headers=dict(_base_h, **{"Accept": "*/*", "Origin": "https://www.instagram.com"}), timeout=15)
+            try: _trace(f"IG Polaris V85: ruling HTTP {_rr.status_code} body={(_rr.text or '')[:120]}")
+            except Exception: pass
+        except Exception as _e: 
+            try: _trace(f"IG Polaris V85: ruling failed {str(_e)[:80]}")
+            except Exception: pass
+        # 3a) CORRECT Polaris: /api/graphql with media_id + LSD
+        try:
+            import json as _j73
+            _body = {"lsd": _lsd, "fb_api_caller_class": "RelayModern", "fb_api_req_friendly_name": "PolarisLoggedOutDesktopWWWPostRootContentQuery", "server_timestamps": "true", "variables": _j73.dumps({"media_id": _media_id}), "doc_id": "27130156389949648"}
+            _h73 = dict(_base_h, **{"Content-Type": "application/x-www-form-urlencoded", "X-FB-Friendly-Name": "PolarisLoggedOutDesktopWWWPostRootContentQuery", "X-FB-LSD": _lsd, "X-Requested-With": "XMLHttpRequest"})
+            _r = _sess.post("https://www.instagram.com/api/graphql", headers=_h73, data=_body, timeout=25)
+            _txt = _r.text or ""
+            try: _trace(f"IG Polaris V85: /api/graphql doc 27130156389949648 -> HTTP {_r.status_code} len={len(_txt)} body={_txt[:200]}")
+            except Exception: pass
+            if _r.status_code == 200 and _txt.strip().startswith("{"):
+                try:
+                    _out = _collect_ig_media_from_json(_r.json())
+                    if _out:
+                        try: _trace(f"IG Polaris V85: OK via /api/graphql PolarisLoggedOut, {len(_out)} item(s)")
+                        except Exception: pass
+                        return _out, ("carousel_media" in _txt)
+                except Exception: pass
+        except Exception as _e73:
+            try: _trace(f"IG Polaris V85: /api/graphql error {str(_e73)[:120]}")
+            except Exception: pass
+        # 3b) /api/v1/media/<id>/info/ - works when GraphQL errors (Vette 2026-08-13)
+        try:
+            _r2 = _sess.get(f"https://www.instagram.com/api/v1/media/{_media_id}/info/", headers=dict(_base_h, **{"Accept": "application/json"}), timeout=25)
+            _t2 = _r2.text or ""
+            try: _trace(f"IG Polaris V85: /api/v1/media/info -> HTTP {_r2.status_code} len={len(_t2)} body={_t2[:200]}")
+            except Exception: pass
+            if _r2.status_code == 200 and _t2.strip().startswith("{"):
+                try:
+                    _out2 = _collect_ig_media_from_json(_r2.json())
+                    if _out2:
+                        try: _trace(f"IG Polaris V85: OK via /api/v1/media/info, {len(_out2)} item(s)")
+                        except Exception: pass
+                        return _out2, ("carousel_media" in _t2)
+                except Exception: pass
+        except Exception as _e73b:
+            try: _trace(f"IG Polaris V85: /api/v1/media/info error {str(_e73b)[:120]}")
+            except Exception: pass
+        # 3c) Legacy /graphql/query with shortcode + full headers (gallery-dl 9564 shape, but WITH LSD/ASBD)
+        try:
+            import json as _j73c
+            _payload = {"doc_id": "27128499623469141", "variables": _j73c.dumps({"shortcode": shortcode, "[STRIPPED 66 bytes]": False})}
+            _h73c = dict(_base_h, **{"X-FB-LSD": _lsd, "X-Requested-With": "XMLHttpRequest"})
+            _r3 = _sess.post("https://www.instagram.com/graphql/query", headers=_h73c, data=_payload, timeout=25)
+            _t3 = _r3.text or ""
+            try: _trace(f"IG Polaris V85: /graphql/query doc 27128499623469141 -> HTTP {_r3.status_code} len={len(_t3)} body={_t3[:200]}")
+            except Exception: pass
+            if _r3.status_code == 200 and _t3.strip().startswith("{"):
+                try:
+                    _out3 = _collect_ig_media_from_json(_r3.json())
+                    if _out3:
+                        try: _trace(f"IG Polaris V85: OK via /graphql/query PolarisPostRoot, {len(_out3)} item(s)")
+                        except Exception: pass
+                        return _out3, ("carousel_media" in _t3)
+                except Exception: pass
+        except Exception as _e73c:
+            try: _trace(f"IG Polaris V85: /graphql/query error {str(_e73c)[:120]}")
+            except Exception: pass
+        try: _trace("IG Polaris V85: all 3 paths empty - check body snippets above: 401=login_required (needs LSD+ruling), 200 len~90={data:{}} (wrong variables), 200 login-wall HTML (IP blocked)")
+        except Exception: pass
+        return [], False
+    except Exception as _e:
+        try: _trace(f"IG Polaris V85: FAILED {str(_e)[:150]}")
+        except Exception: pass
+        return [], False
+
+def _ig_polaris_files(url, output_dir, cap_bytes):
+    """V85: Polaris URLs -> downloaded files. Returns (files, is_carousel)."""
+    try:
+        _m85 = re.search(r"/(p|reel|tv)/([A-Za-z0-9_-]+)", url or "")
+        if not _m85:
+            return [], False
+        _urls85, _is_car85 = _ig_polaris_via_curl_cffi(_m85.group(2))
+        if not _urls85:
+            return [], _is_car85
+        _folder85 = os.path.join(output_dir, f"igp_{uuid.uuid4().hex[:10]}")
+        os.makedirs(_folder85, exist_ok=True)
+        _files85 = []
+        for _i85, _u85 in enumerate(_urls85[:MAX_CAROUSEL_ITEMS], start=1):
+            try:
+                _ext85 = ".mp4" if ".mp4" in _u85.split("?")[0] else ".jpg"
+                _files85.append(_fetch_media_url(_u85, os.path.join(_folder85, f"{_i85:03d}"), cap_bytes, _ext85))
+            except Exception as _e85:
+                try:
+                    _trace(f"IG Polaris: slide {_i85} failed: {type(_e85).__name__}: {str(_e85)[:100]}")
+                except Exception:
+                    pass
+        try:
+            _trace(f"IG Polaris: downloaded {len(_files85)} file(s), carousel={_is_car85}")
+        except Exception:
+            pass
+        return _files85, _is_car85
+    except Exception as _e:
+        try:
+            _trace(f"IG Polaris files FAILED {type(_e).__name__}: {str(_e)[:120]}")
+        except Exception:
+            pass
+        return [], False
+
 def _instaloader_worker(shortcode, folder, cap_bytes):
     kwargs = dict(quiet=True, sleep=False, max_connection_attempts=1,
                   request_timeout=20, download_comments=False,
@@ -3409,16 +3600,40 @@ def _instaloader_worker(shortcode, folder, cap_bytes):
 
 
 def download_instagram_post(url, output_dir, cap_bytes, min_items=2):
-    """Instaloader fallback with a hard 40s limit. Returns [] on any failure."""
+    """V85: Polaris FIRST (V73, carousel_media in order), Instaloader fallback with a hard 40s limit. Returns [] on any failure."""
     low = url.lower()
-    if instaloader is None:
-        _trace("instaloader: not installed")
-        return []
     if "instagram.com" not in low and "instagr.am" not in low:
         return []
     match = re.search(r"/(?:p|reel|tv)/([A-Za-z0-9_-]+)", url)
     if not match:
         _trace("instaloader: no shortcode in link")
+        return []
+    # V85: Polaris first - it returns the full carousel, Instaloader only sees singles reliably.
+    try:
+        _pf85, _is_car85 = _ig_polaris_files(url, output_dir, cap_bytes)
+        if _pf85:
+            if (not _is_car85 or len(_pf85) >= 2) and len(_pf85) >= min_items:
+                try:
+                    _trace(f"RESULT: OK via IG Polaris, {len(_pf85)} item(s)")
+                except Exception:
+                    pass
+                return _pf85
+            # Partial carousel from Polaris (1 slide of a carousel) - discard, give Instaloader a chance at all slides.
+            try:
+                _trace(f"IG Polaris: carousel but only {len(_pf85)} file(s), falling through to Instaloader")
+            except Exception:
+                pass
+            try:
+                shutil.rmtree(os.path.dirname(_pf85[0]), ignore_errors=True)
+            except Exception:
+                pass
+    except Exception as _e85p:
+        try:
+            _trace(f"IG Polaris: FAILED {type(_e85p).__name__}: {str(_e85p)[:120]}")
+        except Exception:
+            pass
+    if instaloader is None:
+        _trace("instaloader: not installed")
         return []
     folder = os.path.join(output_dir, f"insta_{uuid.uuid4().hex[:10]}")
     os.makedirs(folder, exist_ok=True)
