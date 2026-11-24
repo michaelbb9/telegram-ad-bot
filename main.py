@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V90 - FROM V84 + INSTAGRAM POLARIS CAROUSEL (V84 IG was yt-dlp -> gallery-dl -> Instaloader only; carousels failed. V85 adds V73 Polaris GraphQL FIRST: /api/graphql + /api/v1/media/info + /graphql/query, curl_cffi chrome + WARP + csrftoken/LSD, carousel_media in order. Instaloader stays as fallback. FB/TikTok/YouTube/Music untouched)
+# BOT V91 - FROM V84 + INSTAGRAM POLARIS CAROUSEL (V84 IG was yt-dlp -> gallery-dl -> Instaloader only; carousels failed. V85 adds V73 Polaris GraphQL FIRST: /api/graphql + /api/v1/media/info + /graphql/query, curl_cffi chrome + WARP + csrftoken/LSD, carousel_media in order. Instaloader stays as fallback. FB/TikTok/YouTube/Music untouched)
 # STOP PATCHING V74/V75. This file is V35 exact, except for ONE isolated change:
 #  - YouTube ONLY: V51 method (web_embedded + WARP + impersonate), with DIRECT fallback if WARP fails.
 #  - TikTok: V35 exact. No WARP, no web_embedded, no impersonate, no extractor_args. TikTok was working in V35.
@@ -3247,8 +3247,26 @@ def _fb_is_junk_url(url):
     except Exception:
         return False
 
+def _fb_is_video_url(url):
+    """V91: is this FB CDN URL a video? .mp4 in the path, or a video.* fbcdn host
+    (FB video URLs sometimes carry no .mp4 extension). Images come from scontent
+    hosts, never video.* hosts, so the host check is safe."""
+    try:
+        _low = (url or "").lower()
+        if ".mp4" in _low.split("?")[0]:
+            return True
+        _host = _low.split("://", 1)[-1].split("/", 1)[0]
+        return _host.split(".")[0].startswith("video")
+    except Exception:
+        return False
+
 def _fb_best_per_photo(urls):
-    """Group candidates by photo ID (or normalized base path), keep the clearest URL per photo."""
+    """Group candidates by photo ID (or normalized base path), keep the clearest URL per photo.
+    V91: a video beats its own poster frame. The video and its poster share the same
+    numeric ID, and the poster used to win on size score (_o. original bonus), so FB
+    reels delivered a still frame instead of the video. Within one ID group, video
+    always wins; images still compete on size score among themselves, so photo
+    posts are unchanged."""
     try:
         _groups = {}
         _order = []
@@ -3260,8 +3278,14 @@ def _fb_best_per_photo(urls):
             if _key not in _groups:
                 _groups[_key] = _u
                 _order.append(_key)
-            elif _fb_url_size_score(_u) > _fb_url_size_score(_groups[_key]):
-                _groups[_key] = _u
+            else:
+                _cur = _groups[_key]
+                _new_video = _fb_is_video_url(_u)
+                _cur_video = _fb_is_video_url(_cur)
+                if _new_video and not _cur_video:
+                    _groups[_key] = _u
+                elif _new_video == _cur_video and _fb_url_size_score(_u) > _fb_url_size_score(_cur):
+                    _groups[_key] = _u
         return [_groups[_k] for _k in _order]
     except Exception:
         return list(urls or [])
@@ -3317,7 +3341,7 @@ def _fb_filter_to_anchor(candidates, anchor_urls, og_video, og_image):
         except Exception:
             pass
         if og_video:
-            _vids = [u for u in (candidates or []) if ".mp4" in u.split("?")[0].lower()]
+            _vids = [u for u in (candidates or []) if _fb_is_video_url(u)]
             _matched = [u for u in _vids if (_fb_photo_ids(u) & _anchor_ids)]
             if _matched:
                 return _fb_best_per_photo(_matched)
@@ -3985,7 +4009,7 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None):
                     _comet_files = []
                     for _i, _u in enumerate(_comet_urls[:MAX_CAROUSEL_ITEMS], start=1):
                         try:
-                            _ext = ".mp4" if ".mp4" in _u.split("?")[0] else ".jpg"
+                            _ext = ".mp4" if _fb_is_video_url(_u) else ".jpg"
                             _comet_files.append(_fetch_media_url(_u, os.path.join(folder, f"{_i:03d}"), cap_bytes, _ext))
                         except Exception as _e74: _trace(f"FB Comet file {_i} failed: {type(_e74).__name__}")
                     _comet_files = _fb_dedupe_files(_comet_files)
@@ -4399,7 +4423,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                     _fb82_paths = []
                     for _i82, _u82 in enumerate(_fb82_urls[:MAX_CAROUSEL_ITEMS], start=1):
                         try:
-                            _ext82 = ".mp4" if ".mp4" in _u82.split("?")[0] else ".jpg"
+                            _ext82 = ".mp4" if _fb_is_video_url(_u82) else ".jpg"
                             _fb82_paths.append(_fetch_media_url(_u82, os.path.join(output_dir, f"img_{int(time.time())}_{_i82:02d}"), cap_bytes, _ext82))
                         except Exception:
                             continue
