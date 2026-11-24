@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V89 - FROM V84 + INSTAGRAM POLARIS CAROUSEL (V84 IG was yt-dlp -> gallery-dl -> Instaloader only; carousels failed. V85 adds V73 Polaris GraphQL FIRST: /api/graphql + /api/v1/media/info + /graphql/query, curl_cffi chrome + WARP + csrftoken/LSD, carousel_media in order. Instaloader stays as fallback. FB/TikTok/YouTube/Music untouched)
+# BOT V90 - FROM V84 + INSTAGRAM POLARIS CAROUSEL (V84 IG was yt-dlp -> gallery-dl -> Instaloader only; carousels failed. V85 adds V73 Polaris GraphQL FIRST: /api/graphql + /api/v1/media/info + /graphql/query, curl_cffi chrome + WARP + csrftoken/LSD, carousel_media in order. Instaloader stays as fallback. FB/TikTok/YouTube/Music untouched)
 # STOP PATCHING V74/V75. This file is V35 exact, except for ONE isolated change:
 #  - YouTube ONLY: V51 method (web_embedded + WARP + impersonate), with DIRECT fallback if WARP fails.
 #  - TikTok: V35 exact. No WARP, no web_embedded, no impersonate, no extractor_args. TikTok was working in V35.
@@ -1635,11 +1635,32 @@ def receive_arcade_backup():
     return jsonify({"ok": False, "error": "No data"}), 400
 
 def load_json_file(filename):
+    # Fast path: local file present and non-empty - unchanged behaviour.
+    if os.path.exists(filename):
+        try:
+            with open(filename, "r") as f:
+                _local = json.load(f)
+            if _local:
+                return _local
+        except Exception:
+            pass
+    # V90: local file missing / empty / corrupt (e.g. Render disk wiped on
+    # restart). Fall back to the Flask state store on PythonAnywhere, whose
+    # disk persists. This is what makes a restore survive a restart.
+    if filename not in RESTORE_BLOCKLIST and filename != "flask_tokens_backup.json":
+        _remote = _flask_state_get(filename)
+        if _remote:
+            try:
+                with open(filename, "w") as f:
+                    json.dump(_remote, f)
+            except Exception as e:
+                logger.error(f"Flask state restore write {filename}: {e}")
+            return _remote
     if os.path.exists(filename):
         try:
             with open(filename, "r") as f:
                 return json.load(f)
-        except:
+        except Exception:
             pass
     return {}
 
@@ -1649,6 +1670,97 @@ def save_json_file(filename, data):
             json.dump(data, f)
     except Exception as e:
         logger.error(f"Save {filename}: {e}")
+        return
+    # V90: mark for sync to Flask (durable). Blocklisted settings are never
+    # synced; tokens already have their own Flask endpoint.
+    if filename.endswith(".json") and filename not in RESTORE_BLOCKLIST and filename != "flask_tokens_backup.json":
+        _mark_state_dirty(filename)
+
+# --- V90: Flask state store (PythonAnywhere) - the durable copy of bot state ---
+_state_dirty = set()
+_state_dirty_lock = threading.Lock()
+_flask_state_down_until = 0.0
+
+def _mark_state_dirty(filename):
+    try:
+        with _state_dirty_lock:
+            _state_dirty.add(filename)
+    except Exception:
+        pass
+
+def _flask_state_get(filename):
+    """GET one state file from Flask. Returns dict/list, or None."""
+    global _flask_state_down_until
+    try:
+        if time.time() < _flask_state_down_until:
+            return None
+        r = requests.get(f"{WEB_BASE_URL}/get_state", params={"file": filename}, headers=API_HEADERS, timeout=8)
+        if r.status_code == 200:
+            data = r.json()
+            if isinstance(data, (dict, list)) and data:
+                return data
+            return None
+        if r.status_code in (403, 404):
+            return None
+    except Exception as e:
+        logger.error(f"Flask state GET {filename}: {e}")
+        _flask_state_down_until = time.time() + 60
+    return None
+
+def _flask_state_post(filename, data):
+    """POST one state file to Flask. Returns True on success."""
+    global _flask_state_down_until
+    try:
+        if time.time() < _flask_state_down_until:
+            return False
+        r = requests.post(f"{WEB_BASE_URL}/save_state", json={"file": filename, "data": data}, headers=API_HEADERS, timeout=10)
+        if r.status_code == 200:
+            return True
+        logger.error(f"Flask state POST {filename}: HTTP {r.status_code}")
+    except Exception as e:
+        logger.error(f"Flask state POST {filename}: {e}")
+        _flask_state_down_until = time.time() + 60
+    return False
+
+async def state_sync_loop():
+    """V90: every 30s, push dirty state files to Flask; pull Flask's copy when
+    local is empty. Non-empty wins on both sides, so a stray empty write can
+    never wipe the durable copy, and a wiped disk heals from Flask.
+    Also warms every state file from Flask once at startup (cold start)."""
+    try:
+        _warm = [f for f in BACKUP_FILES if f not in RESTORE_BLOCKLIST and f != "flask_tokens_backup.json"] + [PENDING_FILE]
+        for _fname in _warm:
+            try: load_json_file(_fname)
+            except Exception: pass
+    except Exception as e:
+        logger.error(f"V90 state warm-up: {e}")
+    while True:
+        await asyncio.sleep(30)
+        try:
+            with _state_dirty_lock:
+                todo = sorted(_state_dirty)
+                _state_dirty.clear()
+            for fname in todo:
+                try:
+                    try:
+                        with open(fname, "r") as f: local = json.load(f)
+                    except Exception:
+                        local = None
+                    remote = _flask_state_get(fname)
+                    if not local and remote:
+                        try:
+                            with open(fname, "w") as f: json.dump(remote, f)
+                        except Exception as e:
+                            logger.error(f"V90 state pull {fname}: {e}")
+                        continue
+                    if local and local != remote:
+                        if not _flask_state_post(fname, local):
+                            _mark_state_dirty(fname)
+                except Exception as e:
+                    logger.error(f"V90 state sync {fname}: {e}")
+                    _mark_state_dirty(fname)
+        except Exception as e:
+            logger.error(f"V90 state sync loop: {e}")
 
 # =====================================================================
 # 10-PART UPDATE — shared helpers (Parts 1,2,3,4,5,10)
@@ -6031,6 +6143,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             with open(document.file_name, 'r') as _vf: _check = json.load(_vf)
             if len(_check) != len(data):
                 raise RuntimeError(f"verify failed: wrote {len(data)} entries but file now has {len(_check)}")
+            # V90: push the restored file to Flask so the restore survives restarts.
+            _mark_state_dirty(document.file_name)
             await update.message.reply_text(t["restore_success"].format(document.file_name, len(data) if isinstance(data, dict) else len(data)), parse_mode="HTML", reply_markup=get_main_keyboard(get_lang(user_id), True))
             return
         except json.JSONDecodeError:
@@ -7354,7 +7468,7 @@ def run_telegram_bot():
         asyncio.create_task(disk_cleaner_loop())
         asyncio.create_task(auto_backup_loop(app.bot))
         asyncio.create_task(queue_processor(app.bot))
-        asyncio.create_task(restore_all_backups(app.bot))
+        asyncio.create_task(state_sync_loop())
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
         print(f"Bot started! V25 Cloud Sync Vault={VIDEO_VAULT_ID} Backup={PRIVATE_CHANNEL_ID} Free {get_free_disk_mb()}MB")
         await asyncio.Event().wait()
@@ -7490,4 +7604,4 @@ if not getattr(web_app, '_mtproto_started', False):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
-    web_app.run(host="0.0.0.0", port=port) 
+    web_app.run(host="0.0.0.0", port=port)
