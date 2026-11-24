@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V85 - FROM V84 + INSTAGRAM POLARIS CAROUSEL (V84 IG was yt-dlp -> gallery-dl -> Instaloader only; carousels failed. V85 adds V73 Polaris GraphQL FIRST: /api/graphql + /api/v1/media/info + /graphql/query, curl_cffi chrome + WARP + csrftoken/LSD, carousel_media in order. Instaloader stays as fallback. FB/TikTok/YouTube/Music untouched)
+# BOT V86 - FROM V84 + INSTAGRAM POLARIS CAROUSEL (V84 IG was yt-dlp -> gallery-dl -> Instaloader only; carousels failed. V85 adds V73 Polaris GraphQL FIRST: /api/graphql + /api/v1/media/info + /graphql/query, curl_cffi chrome + WARP + csrftoken/LSD, carousel_media in order. Instaloader stays as fallback. FB/TikTok/YouTube/Music untouched)
 # STOP PATCHING V74/V75. This file is V35 exact, except for ONE isolated change:
 #  - YouTube ONLY: V51 method (web_embedded + WARP + impersonate), with DIRECT fallback if WARP fails.
 #  - TikTok: V35 exact. No WARP, no web_embedded, no impersonate, no extractor_args. TikTok was working in V35.
@@ -271,6 +271,11 @@ RESTORE_BLOCKLIST = {"bot_settings.json", "bot_config.json"}
 # PART 7/8: credit cost of the pending single-link download (payload_key -> 1 or 3)
 PENDING_CREDIT_COST = {}
 PENDING_QUALITY_SELECT = {}
+# V86: all four pending dicts MUST exist BEFORE _load_pending_file() runs, or the
+# startup restore of pending_single.json dies with NameError (swallowed by its
+# except) and every pending link/quality button "forgets" after a restart.
+PENDING_META = {}
+pending_single_links = {}
 PENDING_FILE = "pending_single.json"
 def _load_pending_file():
     try:
@@ -288,7 +293,6 @@ def _save_pending_file():
     except Exception:
         pass
 _load_pending_file()
-PENDING_META = {}
 PREF_QUALITY = {}
 
 
@@ -297,13 +301,13 @@ BACKUP_FILES = [
     CHANNELS_FILE, LANG_FILE, CONFIG_FILE, ACTIVITY_FILE, CACHE_FILE,
     UPLOADS_FILE, UPLOAD_LIMITS_FILE, DRIP_FILE, FLOOD_FILE, BANNED_FILE,
     FILE_LINKS_FILE, FILE_LINK_STATE_FILE, "arcade_backup.json",
+    "flask_tokens_backup.json",
     BOT_SETTINGS_FILE,
 ]
 
 active_batch_sessions = {}
 pending_batch_payloads = {}
 paused_batches = {}
-pending_single_links = {}
 # FIX - batch Adsterra: track kind so pause/out claim gives +1 Batch (not +1 Downloads)
 AD_KIND_BY_USER = {}
 # V79 MUSIC SEARCH (V36-V40, alone): waiting flag, last results, retry after ad
@@ -2242,6 +2246,20 @@ async def backup_to_channel(bot):
                 logger.error(f"Failed to fetch arcade backup: HTTP {r.status_code}")
         except Exception as e:
             logger.error(f"Error fetching arcade backup: {e}")
+
+        # V86: FETCH THE FLASK TOKENS (stats/credits) - they live in Flask, not in bot
+        # files. Without this snapshot, restoring backups can never bring My Stats back.
+        try:
+            logger.info("Fetching tokens backup from PythonAnywhere...")
+            _rt = requests.get(f"{WEB_BASE_URL}/get_tokens", headers=API_HEADERS, timeout=10)
+            if _rt.status_code == 200 and isinstance(_rt.json(), dict):
+                with open("flask_tokens_backup.json", "w") as f:
+                    json.dump(_rt.json(), f)
+                logger.info("Successfully fetched flask_tokens_backup.json from PythonAnywhere")
+            else:
+                logger.error(f"Failed to fetch tokens backup: HTTP {_rt.status_code}")
+        except Exception as e:
+            logger.error(f"Error fetching tokens backup: {e}")
 
         cap = f"📦 AUTO-BACKUP {ts}\nFree: {free_mb}MB | Active: {active_downloads} | Queue: {download_queue.qsize()} | Vault: {VIDEO_VAULT_ID}"
         first = True
@@ -4769,123 +4787,101 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
     t = LANGUAGES.get(lang, LANGUAGES["en"])
     success_count = fail_count = 0
     active_batch_sessions[user_id] = True
-    stop_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop Batch", callback_data="stop_batch")]])
-    batch_notice = await bot.send_message(chat_id=chat_id, text=t["batch_start"].format(download_type.upper(), len(urls)), reply_markup=stop_markup, parse_mode="Markdown")
-    for index, url in enumerate(urls[start_index:], start=start_index+1):
-        if not active_batch_sessions.get(user_id, False): break
-        # FIX: Download Limits were only checked for single downloads, batch bypassed them.
-        # Now batch also checks duration/size limits per link before charging credit.
-        if user_id != ADMIN_ID:
-            try:
-                _b_meta = await asyncio.to_thread(get_social_metadata, url) if get_social_metadata else None
-                if _b_meta:
-                    _b_key = detect_platform_key(url, _b_meta.get("platform", ""))
-                    _b_limits = get_platform_limits(_b_key)
-                    _b_cost, _b_time_ok, _b_size_ok = calculate_cost_and_limits(_b_meta, _b_limits)
-                    if not _b_time_ok or not _b_size_ok:
-                        _why = []
-                        if not _b_time_ok: _why.append(f"⏱️ Duration exceeds {_b_limits['min']} min for {_b_key}")
-                        if not _b_size_ok: _why.append(f"📦 Est. size exceeds {_b_limits['mb']} MB for {_b_key}")
-                        await bot.send_message(chat_id=chat_id, text=f"❌ Skipping link {index}/{len(urls)} — limit:\n" + "\n".join(_why), reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-                        continue
-            except Exception as _be: logger.warning(f"Batch limit check failed for {url}: {_be}")
-        credit_charged = False
-        if user_id == ADMIN_ID:
-            res_data = {"status": "allowed", "left": 999}
-        else:
-            try:
-                response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": True}, headers=API_HEADERS, timeout=8)
-                if response.status_code != 200:
-                    raise RuntimeError(f"credit API HTTP {response.status_code}")
-                res_data = response.json()
-            except Exception as e:
-                logger.error("Batch credit check failed for %s: %s", user_id, e)
-                await bot.send_message(chat_id=chat_id, text="⚠️ I couldn't verify your batch credits right now. Please try again in a moment; I stopped safely instead of allowing a free download.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-                break
+    try:
+        stop_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop Batch", callback_data="stop_batch")]])
+        batch_notice = await bot.send_message(chat_id=chat_id, text=t["batch_start"].format(download_type.upper(), len(urls)), reply_markup=stop_markup, parse_mode="Markdown")
+        for index, url in enumerate(urls[start_index:], start=start_index+1):
+            if not active_batch_sessions.get(user_id, False): break
+            # FIX: Download Limits were only checked for single downloads, batch bypassed them.
+            # Now batch also checks duration/size limits per link before charging credit.
+            if user_id != ADMIN_ID:
+                try:
+                    _b_meta = await asyncio.to_thread(get_social_metadata, url) if get_social_metadata else None
+                    if _b_meta:
+                        _b_key = detect_platform_key(url, _b_meta.get("platform", ""))
+                        _b_limits = get_platform_limits(_b_key)
+                        _b_cost, _b_time_ok, _b_size_ok = calculate_cost_and_limits(_b_meta, _b_limits)
+                        if not _b_time_ok or not _b_size_ok:
+                            _why = []
+                            if not _b_time_ok: _why.append(f"⏱️ Duration exceeds {_b_limits['min']} min for {_b_key}")
+                            if not _b_size_ok: _why.append(f"📦 Est. size exceeds {_b_limits['mb']} MB for {_b_key}")
+                            await bot.send_message(chat_id=chat_id, text=f"❌ Skipping link {index}/{len(urls)} — limit:\n" + "\n".join(_why), reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+                            continue
+                except Exception as _be: logger.warning(f"Batch limit check failed for {url}: {_be}")
+            credit_charged = False
+            if user_id == ADMIN_ID:
+                res_data = {"status": "allowed", "left": 999}
+            else:
+                try:
+                    response = requests.post(f"{WEB_BASE_URL}/check-download", json={"user_id": user_id, "is_batch": True}, headers=API_HEADERS, timeout=8)
+                    if response.status_code != 200:
+                        raise RuntimeError(f"credit API HTTP {response.status_code}")
+                    res_data = response.json()
+                except Exception as e:
+                    logger.error("Batch credit check failed for %s: %s", user_id, e)
+                    await bot.send_message(chat_id=chat_id, text="⚠️ I couldn't verify your batch credits right now. Please try again in a moment; I stopped safely instead of allowing a free download.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+                    break
 
-        if res_data.get("status") != "allowed" and user_id != ADMIN_ID:
-            if res_data.get("status") != "blocked":
-                await bot.send_message(chat_id=chat_id, text="⚠️ The credit server returned an unexpected response. Please try again.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-                break
-            reset_batch_ad_progress(user_id)
-            if get_global_ab_network(user_id) == "monetag":
+            if res_data.get("status") != "allowed" and user_id != ADMIN_ID:
+                if res_data.get("status") != "blocked":
+                    await bot.send_message(chat_id=chat_id, text="⚠️ The credit server returned an unexpected response. Please try again.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+                    break
+                reset_batch_ad_progress(user_id)
+                if get_global_ab_network(user_id) == "monetag":
+                    paused_batches[user_id] = {"urls": urls, "next_index": index-1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
+                    kb = adsgram_keyboard(user_id, "wall", 0, 0)
+                    await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=kb, parse_mode="Markdown")
+                    break
+                bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
+                if not prepare_ad_session(user_id, 0, 0):
+                    await bot.send_message(chat_id=chat_id, text="⚠️ Ad server busy. Please try again in a moment.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+                    break
+                # FIX - Batch OUT OF CREDITS, Adsterra: same 2nd-image layout. This is the branch in your 4:54 screenshot: Item 2/7 done, link 3 blocked.
+                AD_KIND_BY_USER[user_id] = "batch"
                 paused_batches[user_id] = {"urls": urls, "next_index": index-1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
-                kb = adsgram_keyboard(user_id, "wall", 0, 0)
-                await bot.send_message(chat_id=chat_id, text=t["limit_batch"].format(index, len(urls)), reply_markup=kb, parse_mode="Markdown")
-                break
-            bridge_link = f"{BRIDGE_URL}?user={user_id}&start_msg=0&end_msg=0"
-            if not prepare_ad_session(user_id, 0, 0):
-                await bot.send_message(chat_id=chat_id, text="⚠️ Ad server busy. Please try again in a moment.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
-                break
-            # FIX - Batch OUT OF CREDITS, Adsterra: same 2nd-image layout. This is the branch in your 4:54 screenshot: Item 2/7 done, link 3 blocked.
-            AD_KIND_BY_USER[user_id] = "batch"
-            paused_batches[user_id] = {"urls": urls, "next_index": index-1, "target_destination_id": target_destination_id, "chat_id": chat_id, "dl_type": download_type}
-            try:
-                await bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-                await asyncio.sleep(0.2)
-            except Exception:
-                try: await bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
-                except Exception: pass
-            _out_header = f"⏸️ Batch out of credits at {index}/{len(urls)} — Watch ad to continue.\n\n"
-            _out_full = _out_header + "🧪 AD PLACEMENT TEST (Adsterra)\n\n1️⃣ User sends link\n2️⃣ LIMIT REACHED screen appears\n3️⃣ Stay 20s on ad page\n4️⃣ Tap Check & Get +1\n\n👇 TRY THE AD NOW:" + ADSTERRA_USER_GUIDE
-            keyboard = [
-                [InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)],
-                [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
-                [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")],
-            ]
-            await bot.send_message(chat_id=chat_id, text=_out_full, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-            break
-        credit_charged = user_id != ADMIN_ID
-        try:
-            status_msg = await bot.send_message(chat_id=chat_id, text=f"📥 [{index}/{len(urls)}] {t['dl_video']}")
-        except Exception as e:
-            logger.warning("Could not create batch status message for %s: %s", user_id, e)
-            if credit_charged:
-                refund_download_counter(user_id, is_batch=True)
-            fail_count += 1
-            continue
-        try:
-            ckey = await get_canonical_key(url, chat_id, bot)
-            cache = load_json_file(CACHE_FILE)
-            
-            if ckey in cache and "file_id" in cache[ckey] and "qualities" not in cache[ckey]:
-                cache[ckey]["qualities"] = {"720p": {"file_id": cache[ckey]["file_id"], "vault_msg_id": cache[ckey].get("vault_msg_id"), "size": cache[ckey].get("size", "unknown")}}
-                del cache[ckey]["file_id"]
-                save_json_file(CACHE_FILE, cache)
-
-            # ===== EDIT D1: batch carousel cache hit =====
-            if ckey in cache and cache[ckey].get("type") == "carousel":
                 try:
-                    ids = await send_cached_carousel(bot, target_destination_id, cache[ckey], ckey)
-                    if not ids:
-                        raise RuntimeError("Cached carousel contained no deliverable items")
-                    credit_charged = False
-                    if target_destination_id == chat_id:
-                        asyncio.create_task(schedule_deletion(bot, chat_id, ids, 540))
-                    cache[ckey]["hits"] = cache[ckey].get("hits", 0) + 1
+                    await bot.forward_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+                    await asyncio.sleep(0.2)
+                except Exception:
+                    try: await bot.copy_message(chat_id=chat_id, from_chat_id=PRIVATE_CHANNEL_ID, message_id=TUTORIAL_MESSAGE_ID)
+                    except Exception: pass
+                _out_header = f"⏸️ Batch out of credits at {index}/{len(urls)} — Watch ad to continue.\n\n"
+                _out_full = _out_header + "🧪 AD PLACEMENT TEST (Adsterra)\n\n1️⃣ User sends link\n2️⃣ LIMIT REACHED screen appears\n3️⃣ Stay 20s on ad page\n4️⃣ Tap Check & Get +1\n\n👇 TRY THE AD NOW:" + ADSTERRA_USER_GUIDE
+                keyboard = [
+                    [InlineKeyboardButton("🔓 Open Link & Watch Timer ⏰ 20s +1", url=bridge_link)],
+                    [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)],
+                    [InlineKeyboardButton("💜 Check & Get Files ✅ +1", callback_data="verify_user")],
+                ]
+                await bot.send_message(chat_id=chat_id, text=_out_full, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+                break
+            credit_charged = user_id != ADMIN_ID
+            try:
+                status_msg = await bot.send_message(chat_id=chat_id, text=f"📥 [{index}/{len(urls)}] {t['dl_video']}")
+            except Exception as e:
+                logger.warning("Could not create batch status message for %s: %s", user_id, e)
+                if credit_charged:
+                    refund_download_counter(user_id, is_batch=True)
+                fail_count += 1
+                continue
+            try:
+                ckey = await get_canonical_key(url, chat_id, bot)
+                cache = load_json_file(CACHE_FILE)
+            
+                if ckey in cache and "file_id" in cache[ckey] and "qualities" not in cache[ckey]:
+                    cache[ckey]["qualities"] = {"720p": {"file_id": cache[ckey]["file_id"], "vault_msg_id": cache[ckey].get("vault_msg_id"), "size": cache[ckey].get("size", "unknown")}}
+                    del cache[ckey]["file_id"]
                     save_json_file(CACHE_FILE, cache)
-                    await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
-                    success_count += 1
-                    credit_charged = False
-                    if user_id != ADMIN_ID and record_batch_success_for_ad(user_id):
-                        await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, can_resume=index < len(urls))
-                        break
-                    continue
-                except Exception as e: logger.error(f"Batch carousel cache fail {ckey}: {e}")
-            # =============================================
-            
-            # V16: images cache hit - for images batch, and for video batch where link is actually an image (mixed batch).
-            if ckey in cache and cache[ckey].get("type") == "images":
-                _cq = cache[ckey].get("qualities", {})
-                if "original" in _cq:
+
+                # ===== EDIT D1: batch carousel cache hit =====
+                if ckey in cache and cache[ckey].get("type") == "carousel":
                     try:
-                        _cached_img = _cq["original"]
-                        sent = await bot.send_photo(chat_id=target_destination_id, photo=_cached_img["file_id"], caption=f"Item {index}/{len(urls)} ⚡ Cached [original]")
+                        ids = await send_cached_carousel(bot, target_destination_id, cache[ckey], ckey)
+                        if not ids:
+                            raise RuntimeError("Cached carousel contained no deliverable items")
                         credit_charged = False
                         if target_destination_id == chat_id:
-                            warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
-                            asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
-                        cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
+                            asyncio.create_task(schedule_deletion(bot, chat_id, ids, 540))
+                        cache[ckey]["hits"] = cache[ckey].get("hits", 0) + 1
                         save_json_file(CACHE_FILE, cache)
                         await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
                         success_count += 1
@@ -4894,147 +4890,174 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                             await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, can_resume=index < len(urls))
                             break
                         continue
-                    except Exception as e: logger.error(f"Batch image cache fail {ckey}: {e}")
-            if ckey in cache and cache[ckey].get("type") == "video":
-                qualities_order = ["1080p", "720p", "480p", "360p", "240p", "worst"]
-                cached_qualities = cache[ckey].get("qualities", {})
-                best_cached_quality = None
-                for q in qualities_order:
-                    if q in cached_qualities:
-                        best_cached_quality = q
-                        break
-                if best_cached_quality:
-                    try:
-                        cached = cached_qualities[best_cached_quality]
-                        qual_tag = f"[{best_cached_quality}]"
-                        sent = await bot.send_video(chat_id=target_destination_id, video=cached["file_id"], caption=f"Item {index}/{len(urls)} ⚡ Cached {qual_tag}")
-                        credit_charged = False
-                        if target_destination_id == chat_id:
-                            warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
-                            asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
-                        cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
-                        save_json_file(CACHE_FILE, cache)
-                        await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
-                        success_count += 1
-                        credit_charged = False
-                        if user_id != ADMIN_ID and record_batch_success_for_ad(user_id):
-                            await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, can_resume=index < len(urls))
-                            break
-                        continue
-                    except Exception as e: logger.error(f"Batch cache fail {ckey}: {e}")
+                    except Exception as e: logger.error(f"Batch carousel cache fail {ckey}: {e}")
+                # =============================================
             
-            free_mb = shutil.disk_usage(".").free // (1024*1024)
-            min_free = get_min_free_disk_mb()
-            effective_max_mb = mtproto_limit_mb()
-            if free_mb < min_free + 150: effective_max_mb = min(effective_max_mb, 50)
+                # V16: images cache hit - for images batch, and for video batch where link is actually an image (mixed batch).
+                if ckey in cache and cache[ckey].get("type") == "images":
+                    _cq = cache[ckey].get("qualities", {})
+                    if "original" in _cq:
+                        try:
+                            _cached_img = _cq["original"]
+                            sent = await bot.send_photo(chat_id=target_destination_id, photo=_cached_img["file_id"], caption=f"Item {index}/{len(urls)} ⚡ Cached [original]")
+                            credit_charged = False
+                            if target_destination_id == chat_id:
+                                warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
+                                asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
+                            cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
+                            save_json_file(CACHE_FILE, cache)
+                            await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+                            success_count += 1
+                            credit_charged = False
+                            if user_id != ADMIN_ID and record_batch_success_for_ad(user_id):
+                                await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, can_resume=index < len(urls))
+                                break
+                            continue
+                        except Exception as e: logger.error(f"Batch image cache fail {ckey}: {e}")
+                if ckey in cache and cache[ckey].get("type") == "video":
+                    qualities_order = ["1080p", "720p", "480p", "360p", "240p", "worst"]
+                    cached_qualities = cache[ckey].get("qualities", {})
+                    best_cached_quality = None
+                    for q in qualities_order:
+                        if q in cached_qualities:
+                            best_cached_quality = q
+                            break
+                    if best_cached_quality:
+                        try:
+                            cached = cached_qualities[best_cached_quality]
+                            qual_tag = f"[{best_cached_quality}]"
+                            sent = await bot.send_video(chat_id=target_destination_id, video=cached["file_id"], caption=f"Item {index}/{len(urls)} ⚡ Cached {qual_tag}")
+                            credit_charged = False
+                            if target_destination_id == chat_id:
+                                warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
+                                asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
+                            cache[ckey]["hits"] = cache[ckey].get("hits",0)+1
+                            save_json_file(CACHE_FILE, cache)
+                            await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+                            success_count += 1
+                            credit_charged = False
+                            if user_id != ADMIN_ID and record_batch_success_for_ad(user_id):
+                                await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, can_resume=index < len(urls))
+                                break
+                            continue
+                        except Exception as e: logger.error(f"Batch cache fail {ckey}: {e}")
+            
+                free_mb = shutil.disk_usage(".").free // (1024*1024)
+                min_free = get_min_free_disk_mb()
+                effective_max_mb = mtproto_limit_mb()
+                if free_mb < min_free + 150: effective_max_mb = min(effective_max_mb, 50)
                 
-            # V16: fresh download - if video fails and link is actually an image (mixed batch), fall back to images engine.
-            _eff_dl_type = download_type
-            file_paths, res, size = None, None, None
-            try:
-                file_paths, res, size = await asyncio.to_thread(download_media_engine, url, download_type, effective_max_mb)
-            except Exception:
-                file_paths = None
-            if (not file_paths) and download_type in ("video", "audio"):
+                # V16: fresh download - if video fails and link is actually an image (mixed batch), fall back to images engine.
+                _eff_dl_type = download_type
+                file_paths, res, size = None, None, None
                 try:
-                    _fp2, _res2, _sz2 = await asyncio.to_thread(download_media_engine, url, "images", effective_max_mb)
-                    if _fp2:
-                        file_paths, res, size = _fp2, _res2, _sz2
-                        _eff_dl_type = "images"
+                    file_paths, res, size = await asyncio.to_thread(download_media_engine, url, download_type, effective_max_mb)
                 except Exception:
                     file_paths = None
+                if (not file_paths) and download_type in ("video", "audio"):
+                    try:
+                        _fp2, _res2, _sz2 = await asyncio.to_thread(download_media_engine, url, "images", effective_max_mb)
+                        if _fp2:
+                            file_paths, res, size = _fp2, _res2, _sz2
+                            _eff_dl_type = "images"
+                    except Exception:
+                        file_paths = None
 
-            # ===== EDIT D2: batch fresh carousel =====
-            if file_paths and res == "carousel":
-                try:
-                    results = await send_carousel(bot, target_destination_id, file_paths, ckey, status_msg, send_video_file)
+                # ===== EDIT D2: batch fresh carousel =====
+                if file_paths and res == "carousel":
+                    try:
+                        results = await send_carousel(bot, target_destination_id, file_paths, ckey, status_msg, send_video_file)
+                        if results:
+                            credit_charged = False
+                            await save_carousel_cache(bot, ckey, results, size)
+                            if target_destination_id == chat_id:
+                                asyncio.create_task(schedule_deletion(bot, chat_id, [r["message_id"] for r in results], 540))
+                    finally:
+                        shutil.rmtree(os.path.dirname(file_paths[0]), ignore_errors=True)
                     if results:
+                        await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+                        success_count += 1
+                        if user_id != ADMIN_ID and record_batch_success_for_ad(user_id):
+                            await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, can_resume=index < len(urls))
+                            break
+                    else:
+                        fail_count += 1
+                        await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}] {t['failed_generic']}")
+                        if credit_charged:
+                            refund_download_counter(user_id, is_batch=True)
+                            credit_charged = False
+                    await asyncio.sleep(3)
+                    continue
+                # =========================================
+
+                if file_paths and os.path.exists(file_paths[0]):
+                    # V16: images batch / image fallback sends as photo, not video. Same image engine as single download.
+                    if _eff_dl_type == "images" and res == "original":
+                        sent = await bot.send_photo(chat_id=target_destination_id, photo=open(file_paths[0], 'rb'), caption=f"Item {index}/{len(urls)} [original] Size {size}")
                         credit_charged = False
-                        await save_carousel_cache(bot, ckey, results, size)
                         if target_destination_id == chat_id:
-                            asyncio.create_task(schedule_deletion(bot, chat_id, [r["message_id"] for r in results], 540))
-                finally:
-                    shutil.rmtree(os.path.dirname(file_paths[0]), ignore_errors=True)
-                if results:
-                    await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
-                    success_count += 1
-                    if user_id != ADMIN_ID and record_batch_success_for_ad(user_id):
-                        await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, can_resume=index < len(urls))
-                        break
+                            warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
+                            asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
+                        try:
+                            vmsg = await bot.send_photo(chat_id=VIDEO_VAULT_ID, photo=sent.photo[-1].file_id, caption=ckey)
+                            cache = load_json_file(CACHE_FILE)
+                            if ckey not in cache: cache[ckey] = {"type": "images", "timestamp": time.time(), "qualities": {}, "hits": 0}
+                            cache[ckey]["type"] = "images"
+                            cache[ckey]["qualities"]["original"] = {"file_id": sent.photo[-1].file_id, "vault_msg_id": vmsg.message_id, "size": size}
+                            save_json_file(CACHE_FILE, cache)
+                        except Exception as e: logger.error(f"Vault save img: {e}")
+                        os.remove(file_paths[0])
+                        await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+                        success_count += 1
+                        credit_charged = False
+                        if user_id != ADMIN_ID and record_batch_success_for_ad(user_id):
+                            await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, can_resume=index < len(urls))
+                            break
+                    else:
+                        qual_tag = f"[{res}]"
+                        sent = await send_video_file(bot, chat_id, target_destination_id, file_paths[0], f"Item {index}/{len(urls)} {qual_tag} Size {size}", None, status_msg)
+                        credit_charged = False
+                        if target_destination_id == chat_id:
+                            warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
+                            asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
+                        try:
+                            vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent.video.file_id, caption=f"{ckey} [{res}]")
+                            cache = load_json_file(CACHE_FILE)
+                            if ckey not in cache: cache[ckey] = {"type": "video", "timestamp": time.time(), "qualities": {}, "hits": 0}
+                            cache[ckey]["qualities"][res] = {"file_id": sent.video.file_id, "vault_msg_id": vmsg.message_id, "size": size}
+                            save_json_file(CACHE_FILE, cache)
+                        except Exception as e: logger.error(f"Vault save: {e}")
+                        os.remove(file_paths[0])
+                        await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
+                        success_count += 1
+                        credit_charged = False
+                        if user_id != ADMIN_ID and record_batch_success_for_ad(user_id):
+                            await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, can_resume=index < len(urls))
+                            break
                 else:
-                    fail_count += 1
                     await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}] {t['failed_generic']}")
+                    fail_count += 1
                     if credit_charged:
                         refund_download_counter(user_id, is_batch=True)
                         credit_charged = False
-                await asyncio.sleep(3)
-                continue
-            # =========================================
-
-            if file_paths and os.path.exists(file_paths[0]):
-                # V16: images batch / image fallback sends as photo, not video. Same image engine as single download.
-                if _eff_dl_type == "images" and res == "original":
-                    sent = await bot.send_photo(chat_id=target_destination_id, photo=open(file_paths[0], 'rb'), caption=f"Item {index}/{len(urls)} [original] Size {size}")
-                    credit_charged = False
-                    if target_destination_id == chat_id:
-                        warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
-                        asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
-                    try:
-                        vmsg = await bot.send_photo(chat_id=VIDEO_VAULT_ID, photo=sent.photo[-1].file_id, caption=ckey)
-                        cache = load_json_file(CACHE_FILE)
-                        if ckey not in cache: cache[ckey] = {"type": "images", "timestamp": time.time(), "qualities": {}, "hits": 0}
-                        cache[ckey]["type"] = "images"
-                        cache[ckey]["qualities"]["original"] = {"file_id": sent.photo[-1].file_id, "vault_msg_id": vmsg.message_id, "size": size}
-                        save_json_file(CACHE_FILE, cache)
-                    except Exception as e: logger.error(f"Vault save img: {e}")
-                    os.remove(file_paths[0])
-                    await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
-                    success_count += 1
-                    credit_charged = False
-                    if user_id != ADMIN_ID and record_batch_success_for_ad(user_id):
-                        await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, can_resume=index < len(urls))
-                        break
-                else:
-                    qual_tag = f"[{res}]"
-                    sent = await send_video_file(bot, chat_id, target_destination_id, file_paths[0], f"Item {index}/{len(urls)} {qual_tag} Size {size}", None, status_msg)
-                    credit_charged = False
-                    if target_destination_id == chat_id:
-                        warn = await bot.send_message(chat_id=target_destination_id, text="⏳ Auto-deletes in 9 mins")
-                        asyncio.create_task(schedule_deletion(bot, target_destination_id, [sent.message_id, warn.message_id], 540))
-                    try:
-                        vmsg = await bot.send_video(chat_id=VIDEO_VAULT_ID, video=sent.video.file_id, caption=f"{ckey} [{res}]")
-                        cache = load_json_file(CACHE_FILE)
-                        if ckey not in cache: cache[ckey] = {"type": "video", "timestamp": time.time(), "qualities": {}, "hits": 0}
-                        cache[ckey]["qualities"][res] = {"file_id": sent.video.file_id, "vault_msg_id": vmsg.message_id, "size": size}
-                        save_json_file(CACHE_FILE, cache)
-                    except Exception as e: logger.error(f"Vault save: {e}")
-                    os.remove(file_paths[0])
-                    await bot.delete_message(chat_id=chat_id, message_id=status_msg.message_id)
-                    success_count += 1
-                    credit_charged = False
-                    if user_id != ADMIN_ID and record_batch_success_for_ad(user_id):
-                        await _pause_batch_for_ad(bot, user_id, chat_id, urls, index, target_destination_id, download_type, t, can_resume=index < len(urls))
-                        break
-            else:
-                await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}] {t['failed_generic']}")
+            except Exception as e:
+                try: await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}] {str(e)[:50]}")
+                except: pass
                 fail_count += 1
                 if credit_charged:
                     refund_download_counter(user_id, is_batch=True)
                     credit_charged = False
-        except Exception as e:
-            try: await bot.edit_message_text(chat_id=chat_id, message_id=status_msg.message_id, text=f"❌ [{index}] {str(e)[:50]}")
-            except: pass
-            fail_count += 1
-            if credit_charged:
-                refund_download_counter(user_id, is_batch=True)
-                credit_charged = False
-        await asyncio.sleep(3)
-    if user_id in active_batch_sessions: del active_batch_sessions[user_id]
-    try: await bot.delete_message(chat_id=chat_id, message_id=batch_notice.message_id)
-    except: pass
-    if user_id not in paused_batches:
-        dest = t["batch_done_chan"].format(success_count, fail_count, success_count) if target_destination_id != chat_id else t["batch_done"].format(success_count, fail_count, success_count)
-        await bot.send_message(chat_id=chat_id, text=dest, reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID), parse_mode="Markdown")
+            await asyncio.sleep(3)
+        if user_id in active_batch_sessions: del active_batch_sessions[user_id]
+        try: await bot.delete_message(chat_id=chat_id, message_id=batch_notice.message_id)
+        except: pass
+        if user_id not in paused_batches:
+            dest = t["batch_done_chan"].format(success_count, fail_count, success_count) if target_destination_id != chat_id else t["batch_done"].format(success_count, fail_count, success_count)
+            await bot.send_message(chat_id=chat_id, text=dest, reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID), parse_mode="Markdown")
+    finally:
+        # V86: flag MUST clear even if the batch crashes mid-loop, or every
+        # later link is silently swallowed by the batch-running check.
+        active_batch_sessions.pop(user_id, None)
 
 async def handle_user_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
@@ -5752,7 +5775,10 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 keyboard = [[InlineKeyboardButton(f"🔓 Open Link & Watch Timer ⏰ 20s +{_rw}", url=bridge_link)], [InlineKeyboardButton("📢 Join Public Channel 💜", url=PUBLIC_CHANNEL_URL)], [InlineKeyboardButton(f"💜 Check & Get Files ✅ +{_rw}", callback_data="verify_user")]]
                 await update.message.reply_text(t["limit_reached"] + ADSTERRA_USER_GUIDE, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
                 return
-    if active_batch_sessions.get(user_id, False): return
+    if active_batch_sessions.get(user_id, False):
+        # V86: was a silent return - the link looked "ignored" with no reply.
+        await update.message.reply_text("⏳ A batch download is still running for you. Wait for it to finish, or tap 🛑 Stop Batch on the batch message to stop it.", reply_markup=get_main_keyboard(lang, user_id == ADMIN_ID))
+        return
     if update.message.forward_origin and getattr(update.message.forward_origin, 'type', None) == 'channel':
         f_chat = update.message.forward_origin.chat
         user_channels = load_user_channels()
@@ -5848,6 +5874,27 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if await file_link_add_media(update, context): return
         
     document = update.message.document
+    # V86: tokens live in Flask, so a local write does nothing - push them back to Flask.
+    if user_id == ADMIN_ID and document.file_name == "flask_tokens_backup.json":
+        await update.message.reply_text(f"🔄 Restoring <b>flask_tokens_backup.json</b> to Flask (stats/credits)...", parse_mode="HTML")
+        try:
+            file = await context.bot.get_file(document.file_id)
+            temp_path = "temp_flask_tokens_backup.json"
+            await file.download_to_drive(temp_path)
+            with open(temp_path, 'r') as f: data = json.load(f)
+            if not isinstance(data, dict): raise ValueError("tokens backup is not a JSON object")
+            save_tokens(data)
+            await update.message.reply_text(t["restore_success"].format(document.file_name, len(data)), parse_mode="HTML", reply_markup=get_main_keyboard(get_lang(user_id), True))
+            if os.path.exists(temp_path): os.remove(temp_path)
+            return
+        except json.JSONDecodeError:
+            await update.message.reply_text(t["restore_invalid_json"].format(document.file_name), parse_mode="HTML", reply_markup=get_main_keyboard(get_lang(user_id), True))
+            if os.path.exists("temp_flask_tokens_backup.json"): os.remove("temp_flask_tokens_backup.json")
+            return
+        except Exception as e:
+            await update.message.reply_text(t["restore_failed"].format(str(e)), parse_mode="HTML", reply_markup=get_main_keyboard(get_lang(user_id), True))
+            if os.path.exists("temp_flask_tokens_backup.json"): os.remove("temp_flask_tokens_backup.json")
+            return
     if user_id == ADMIN_ID and document.file_name in BACKUP_FILES:
         await update.message.reply_text(f"🔄 Restoring <b>{document.file_name}</b>...", parse_mode="HTML")
         try:
@@ -5881,7 +5928,10 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     if not document.file_name or not document.file_name.endswith('.txt'): await handle_user_upload(update, context); return
-    if active_batch_sessions.get(user_id, False): return
+    if active_batch_sessions.get(user_id, False):
+        # V86: was a silent return - the .txt batch looked "ignored" with no reply.
+        await update.message.reply_text("⏳ A batch download is still running for you. Wait for it to finish, or tap 🛑 Stop Batch on the batch message to stop it.", reply_markup=get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID))
+        return
     try:
         file = await context.bot.get_file(document.file_id)
         file_bytes = await file.download_as_bytearray()
