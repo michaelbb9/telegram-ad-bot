@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V88 - FROM V84 + INSTAGRAM POLARIS CAROUSEL (V84 IG was yt-dlp -> gallery-dl -> Instaloader only; carousels failed. V85 adds V73 Polaris GraphQL FIRST: /api/graphql + /api/v1/media/info + /graphql/query, curl_cffi chrome + WARP + csrftoken/LSD, carousel_media in order. Instaloader stays as fallback. FB/TikTok/YouTube/Music untouched)
+# BOT V89 - FROM V84 + INSTAGRAM POLARIS CAROUSEL (V84 IG was yt-dlp -> gallery-dl -> Instaloader only; carousels failed. V85 adds V73 Polaris GraphQL FIRST: /api/graphql + /api/v1/media/info + /graphql/query, curl_cffi chrome + WARP + csrftoken/LSD, carousel_media in order. Instaloader stays as fallback. FB/TikTok/YouTube/Music untouched)
 # STOP PATCHING V74/V75. This file is V35 exact, except for ONE isolated change:
 #  - YouTube ONLY: V51 method (web_embedded + WARP + impersonate), with DIRECT fallback if WARP fails.
 #  - TikTok: V35 exact. No WARP, no web_embedded, no impersonate, no extractor_args. TikTok was working in V35.
@@ -2198,6 +2198,88 @@ async def get_canonical_key(url: str, chat_id=None, bot=None):
     h = hashlib.md5(clean.encode()).hexdigest()[:12]
     return f"url_{h}"
 
+async def restore_all_backups(bot):
+    """V89: restore EVERY backup file from the private channel at startup - but
+    ONLY files that are missing/empty locally. Render's disk is ephemeral: every
+    restart / redeploy / spin-down wipes it. Before V89, startup restored ONLY
+    arcade_backup.json, so a restart silently reverted download_cache,
+    user_activity, flood_control, languages, channels, etc. back to empty -
+    exactly the "restore keeps reverting" symptom. The channel holds the last
+    auto-backup (<=6h old), so a cold start recovers from there. A local file
+    that already has data is NEVER overwritten (no regression to an older
+    channel copy). Config/settings files are never restored (safe restore).
+    Flask tokens: restored only if Flask currently holds zero tokens."""
+    try:
+        logger.info("V89 startup restore: checking local state vs channel backups...")
+        # --- fetch the channel's newest copy of each backup file, once ---
+        newest = {}
+        try:
+            r = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates", timeout=10)
+            if r.status_code == 200 and r.json().get("ok"):
+                for update in reversed(r.json().get("result", [])):
+                    cp = update.get("channel_post") or {}
+                    doc = cp.get("document") or {}
+                    fname = doc.get("file_name")
+                    if fname in BACKUP_FILES and fname not in newest:
+                        newest[fname] = doc.get("file_id")
+        except Exception as e:
+            logger.error(f"V89 startup restore: getUpdates failed: {e}")
+            return
+        if not newest:
+            logger.info("V89 startup restore: no backup files found in channel.")
+            return
+        def _download(file_id):
+            try:
+                rf = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}", timeout=10)
+                if rf.status_code != 200: return None
+                fpath = rf.json()["result"]["file_path"]
+                rd = requests.get(f"https://api.telegram.org/file/bot{BOT_TOKEN}/{fpath}", timeout=20)
+                return rd.content if rd.status_code == 200 else None
+            except Exception:
+                return None
+        def _local_is_empty(fname):
+            # missing, zero-byte, unparseable, or parses to an empty dict/list
+            try:
+                if not os.path.exists(fname) or os.path.getsize(fname) == 0: return True
+                with open(fname, "r") as f: data = json.load(f)
+                return not data
+            except Exception:
+                return True
+        restored = []
+        for fname in BACKUP_FILES:
+            if fname in RESTORE_BLOCKLIST: continue
+            if fname == "flask_tokens_backup.json": continue  # tokens live in Flask, handled below
+            if fname not in newest: continue
+            if not _local_is_empty(fname): continue
+            content = _download(newest[fname])
+            if not content: continue
+            try: data = json.loads(content.decode("utf-8", errors="ignore"))
+            except Exception: continue
+            if not data: continue
+            try:
+                with open(fname, "w") as f: json.dump(data, f)
+                restored.append(f"{fname} ({len(data)} entries)")
+            except Exception as e:
+                logger.error(f"V89 startup restore: write {fname} failed: {e}")
+        # --- Flask tokens: only if Flask currently holds nothing ---
+        if "flask_tokens_backup.json" in newest:
+            try:
+                cur = load_tokens()
+                if not cur:
+                    content = _download(newest["flask_tokens_backup.json"])
+                    if content:
+                        data = json.loads(content.decode("utf-8", errors="ignore"))
+                        if isinstance(data, dict) and data and save_tokens(data):
+                            restored.append(f"flask_tokens_backup.json ({len(data)} tokens -> Flask)")
+            except Exception as e:
+                logger.error(f"V89 startup restore: Flask tokens failed: {e}")
+        if restored:
+            logger.info("V89 startup restore: restored " + "; ".join(restored))
+        else:
+            logger.info("V89 startup restore: local state already present, nothing to restore.")
+    except Exception as e:
+        logger.error(f"V89 startup restore error: {e}")
+
 async def restore_arcade_backup(bot):
     """Downloads the latest arcade_backup.json from the private channel to the server disk."""
     try:
@@ -2373,8 +2455,16 @@ def get_user_profile_from_flask(user_id):
     return None
 
 def save_tokens(tokens):
-    try: requests.post(f"{WEB_BASE_URL}/save_tokens", json=tokens, headers=API_HEADERS, timeout=5)
-    except Exception as e: logger.error(f"Save tokens: {e}")
+    # V89: was fire-and-forget - Flask could reject the POST and the restore
+    # still reported success. Return the real result so callers can tell.
+    try:
+        _r = requests.post(f"{WEB_BASE_URL}/save_tokens", json=tokens, headers=API_HEADERS, timeout=5)
+        if _r.status_code == 200: return True
+        logger.error(f"Save tokens: Flask HTTP {_r.status_code}: {str(_r.text)[:200]}")
+        return False
+    except Exception as e:
+        logger.error(f"Save tokens: {e}")
+        return False
 
 def adsgram_start(user_id, kind="wall", msg_start=0, msg_end=0):
     try:
@@ -4218,11 +4308,8 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                 return [path], "original", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("NO_IMAGES")
     else:
-        # V88: YouTube's bot-check is non-deterministic - one attempt fails with
-        # "Requested format is not available", the next with "Failed to extract
-        # any player response". Both mean "no usable player response / formats
-        # from that attempt". Gate EVERY fallback on the whole set, never on one
-        # string, or the fallbacks desync and the raw DownloadError escapes.
+        # V88: YouTube's bot-check is non-deterministic - gate EVERY fallback on the
+        # whole set, never on one string, or fallbacks desync and the raw error escapes.
         _NO_FMT = ("requested format", "player response", "failed to extract", "no video formats", "unable to download")
         tiers = [
             ("1080p", "bv*[height<=1080]+ba/b[height<=1080]"),
@@ -4282,9 +4369,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                     yt_blocked = True
                     break
                 if "requested format" in msg:
-                    # V87: format miss, NOT a block (not a bot-check, not 429).
-                    # Old code broke the whole tier chain on the FIRST tier, so
-                    # 720/480/360/worst were never tried. Continue to next tier.
+                    # V87: format miss, NOT a block. Continue to next tier.
                     continue
                 if "unsupported url" in msg:
                     break
@@ -4325,13 +4410,8 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                         last_err = _e2
                         continue
             except Exception: pass
-        # V87: per-client fallback. The full client list in ONE YoutubeDL call is
-        # not enough: yt-dlp can stop at the first client that returns an empty
-        # formats list (e.g. web_embedded for this video) instead of trying the
-        # rest, so EVERY format selector then fails. One client per YoutubeDL
-        # instance forces each client to be tried fully. V88: gated on the
-        # whole _NO_FMT set, so it still runs when the last error changed
-        # strings between fallbacks ("requested format" -> "player response").
+        # V87: per-client fallback - one client per YoutubeDL call forces each
+        # client to be tried fully. V88: gated on the whole _NO_FMT set.
         if _is_yt76 and not too_big and last_err is not None and any(s in str(last_err).lower() for s in _NO_FMT):
             for _client in ["web_embedded", "tv", "android_vr", "web", "mweb", "ios", "android"]:
                 for _base_c in [_yt_ydl_opts_for_youtube({'http_headers': http_headers, 'socket_timeout': 30}), {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'socket_timeout': 30}]:
@@ -4411,8 +4491,6 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
         if too_big or last_err is None:
             raise ValueError("FILE_TOO_LARGE")
         # V88 safety net: never surface a raw yt-dlp DownloadError for these.
-        # The error string changes between attempts, so a single-string check
-        # let "Failed to extract any player response" escape as a raw traceback.
         if any(s in str(last_err).lower() for s in _NO_FMT):
             raise ValueError("YOUTUBE_NO_FORMATS")
         raise last_err
@@ -5918,6 +5996,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         
     document = update.message.document
     # V86: tokens live in Flask, so a local write does nothing - push them back to Flask.
+    # V89: save_tokens now returns True/False - report a real failure instead of a fake success.
     if user_id == ADMIN_ID and document.file_name == "flask_tokens_backup.json":
         await update.message.reply_text(f"🔄 Restoring <b>flask_tokens_backup.json</b> to Flask (stats/credits)...", parse_mode="HTML")
         try:
@@ -5926,7 +6005,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await file.download_to_drive(temp_path)
             with open(temp_path, 'r') as f: data = json.load(f)
             if not isinstance(data, dict): raise ValueError("tokens backup is not a JSON object")
-            save_tokens(data)
+            if not save_tokens(data):
+                raise RuntimeError("Flask rejected the tokens (non-200 from /save_tokens)")
             await update.message.reply_text(t["restore_success"].format(document.file_name, len(data)), parse_mode="HTML", reply_markup=get_main_keyboard(get_lang(user_id), True))
             if os.path.exists(temp_path): os.remove(temp_path)
             return
@@ -5946,6 +6026,11 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await file.download_to_drive(temp_path)
             with open(temp_path, 'r') as f: data = json.load(f)
             os.replace(temp_path, document.file_name)
+            # V89: verify the file actually landed - a "success" message for a
+            # file that never persisted is how a restore looks like it "reverted".
+            with open(document.file_name, 'r') as _vf: _check = json.load(_vf)
+            if len(_check) != len(data):
+                raise RuntimeError(f"verify failed: wrote {len(data)} entries but file now has {len(_check)}")
             await update.message.reply_text(t["restore_success"].format(document.file_name, len(data) if isinstance(data, dict) else len(data)), parse_mode="HTML", reply_markup=get_main_keyboard(get_lang(user_id), True))
             return
         except json.JSONDecodeError:
@@ -7269,7 +7354,7 @@ def run_telegram_bot():
         asyncio.create_task(disk_cleaner_loop())
         asyncio.create_task(auto_backup_loop(app.bot))
         asyncio.create_task(queue_processor(app.bot))
-        asyncio.create_task(restore_arcade_backup(app.bot)) 
+        asyncio.create_task(restore_all_backups(app.bot))
         await app.updater.start_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
         print(f"Bot started! V25 Cloud Sync Vault={VIDEO_VAULT_ID} Backup={PRIVATE_CHANNEL_ID} Free {get_free_disk_mb()}MB")
         await asyncio.Event().wait()
@@ -7405,4 +7490,4 @@ if not getattr(web_app, '_mtproto_started', False):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
-    web_app.run(host="0.0.0.0", port=port)
+    web_app.run(host="0.0.0.0", port=port) 
