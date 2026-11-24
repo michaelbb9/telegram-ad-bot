@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V91 - FROM V84 + INSTAGRAM POLARIS CAROUSEL (V84 IG was yt-dlp -> gallery-dl -> Instaloader only; carousels failed. V85 adds V73 Polaris GraphQL FIRST: /api/graphql + /api/v1/media/info + /graphql/query, curl_cffi chrome + WARP + csrftoken/LSD, carousel_media in order. Instaloader stays as fallback. FB/TikTok/YouTube/Music untouched)
+# BOT V92 - FROM V84 + INSTAGRAM POLARIS CAROUSEL (V84 IG was yt-dlp -> gallery-dl -> Instaloader only; carousels failed. V85 adds V73 Polaris GraphQL FIRST: /api/graphql + /api/v1/media/info + /graphql/query, curl_cffi chrome + WARP + csrftoken/LSD, carousel_media in order. Instaloader stays as fallback. FB/TikTok/YouTube/Music untouched)
 # STOP PATCHING V74/V75. This file is V35 exact, except for ONE isolated change:
 #  - YouTube ONLY: V51 method (web_embedded + WARP + impersonate), with DIRECT fallback if WARP fails.
 #  - TikTok: V35 exact. No WARP, no web_embedded, no impersonate, no extractor_args. TikTok was working in V35.
@@ -3260,6 +3260,44 @@ def _fb_is_video_url(url):
     except Exception:
         return False
 
+def _fb_is_video_link(url):
+    """V92: is this FB link a video (reel/watch/videos), not a photo post?
+    Share links (/share/p|v|r/) are ambiguous, so resolve them first (cached 10 min)
+    to the canonical URL, whose shape tells us: /reel/, /watch, /videos/, /video.php.
+    Non-FB links are never FB videos."""
+    try:
+        _low = (url or "").lower()
+        if "facebook.com" not in _low and "fb.watch" not in _low and "fb.gg" not in _low:
+            return False
+        _canon = url
+        if "/share/" in _low or "fb.watch" in _low or "fb.gg" in _low:
+            try:
+                _canon = _resolve_share_link(url)
+            except Exception:
+                _canon = url
+        _c = (_canon or "").lower()
+        return ("/reel/" in _c or "/share/r/" in _c or "/share/v/" in _c
+                or "/watch" in _c or "fb.watch" in _c or "/videos/" in _c
+                or "/video.php" in _c)
+    except Exception:
+        return False
+
+def _fb_stale_poster_cache(entry, url, dl_type):
+    """V92: cached carousel that is photo-only for a FB video link = stale poster
+    from the old bug (video failed, poster got cached as the result). Never serve it
+    as a video - fall through to a fresh download, which overwrites the entry."""
+    try:
+        if dl_type != "video":
+            return False
+        if not _fb_is_video_link(url):
+            return False
+        _items = (entry or {}).get("items") or []
+        if not _items:
+            return False
+        return not any((it or {}).get("kind") == "video" for it in _items)
+    except Exception:
+        return False
+
 def _fb_best_per_photo(urls):
     """Group candidates by photo ID (or normalized base path), keep the clearest URL per photo.
     V91: a video beats its own poster frame. The video and its poster share the same
@@ -4014,8 +4052,15 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None):
                         except Exception as _e74: _trace(f"FB Comet file {_i} failed: {type(_e74).__name__}")
                     _comet_files = _fb_dedupe_files(_comet_files)
                     if _comet_files:
-                        _trace(f"RESULT: OK via FB Comet, {len(_comet_files)} item(s)")
-                        return _comet_files
+                        if _fb_is_video_link(url):
+                            _vids92 = [p for p in _comet_files if os.path.splitext(p)[1].lower() in VIDEO_EXT]
+                            if _vids92:
+                                _trace(f"RESULT: OK via FB Comet, {len(_vids92)} video(s) (dropped poster frame(s))")
+                                return _vids92
+                            _trace("FB Comet: images-only for a video link, falling through to yt-dlp")
+                        else:
+                            _trace(f"RESULT: OK via FB Comet, {len(_comet_files)} item(s)")
+                            return _comet_files
             except Exception as _e74: _trace(f"FB Comet failed: {type(_e74).__name__}: {str(_e74)[:120]}")
         # ---- 1) yt-dlp ----
         try:
@@ -4090,19 +4135,33 @@ def download_carousel(url, output_dir, cap_bytes, http_headers=None):
                     _trace(f"FB scrape: {len(_fb_urls)} image URL(s) found")
                     _fb_files = []
                     for _i, _u in enumerate(_fb_urls[:MAX_CAROUSEL_ITEMS], start=1):
-                        try: _fb_files.append(_fetch_media_url(_u, os.path.join(folder, f"{_i:03d}"), cap_bytes, ".jpg"))
+                        try: _fb_files.append(_fetch_media_url(_u, os.path.join(folder, f"{_i:03d}"), cap_bytes, ".mp4" if _fb_is_video_url(_u) else ".jpg"))
                         except Exception: continue
                     _fb_files = _fb_dedupe_files(_fb_files)
                     if _fb_files:
-                        _trace(f"RESULT: OK via FB scrape, {len(_fb_files)} item(s)")
-                        return _fb_files
+                        if _fb_is_video_link(url):
+                            _vids92 = [p for p in _fb_files if os.path.splitext(p)[1].lower() in VIDEO_EXT]
+                            if _vids92:
+                                _trace(f"RESULT: OK via FB scrape, {len(_vids92)} video(s) (dropped poster frame(s))")
+                                return _vids92
+                            _trace("FB scrape: images-only for a video link, falling through")
+                        else:
+                            _trace(f"RESULT: OK via FB scrape, {len(_fb_files)} item(s)")
+                            return _fb_files
             except Exception as _e55: _trace(f"FB scrape failed: {type(_e55).__name__}")
         files = [p for p in files if os.path.getsize(p) <= cap_bytes][:MAX_CAROUSEL_ITEMS]
         # 2+ files is a carousel. Exactly 1 file is accepted only when it came from the
         # photo-post fallback (gallery-dl), so normal single videos are not touched.
         if len(files) >= 2 or (len(files) == 1 and gallery_ran):
-            _trace(f"RESULT: OK, {len(files)} item(s)")
-            return files
+            if _fb_is_video_link(url):
+                _vids92 = [p for p in files if os.path.splitext(p)[1].lower() in VIDEO_EXT]
+                if _vids92:
+                    _trace(f"RESULT: OK, {len(_vids92)} video(s) (dropped poster frame(s))")
+                    return _vids92
+                _trace("carousel: images-only for a video link, not returning poster")
+            else:
+                _trace(f"RESULT: OK, {len(files)} item(s)")
+                return files
         _trace("RESULT: no carousel obtained -> old single-image code will run")
     except Exception as e:
         _trace(f"download_carousel crashed: {type(e).__name__}: {e}")
@@ -4444,6 +4503,13 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                 return [path], "original", f"{os.path.getsize(path)/(1024*1024):.1f}MB"
         raise ValueError("NO_IMAGES")
     else:
+        # V92: yt-dlp cannot read FB /share/ links ("Unsupported URL") - resolve to the
+        # canonical reel/watch URL for the download attempt. Cache saves below still use
+        # the original `url`, so cached share links keep working.
+        _dl_url = url
+        if "facebook.com/share/" in url.lower() or "fb.watch" in url.lower() or "fb.gg" in url.lower():
+            try: _dl_url = _resolve_share_link(url)
+            except Exception: _dl_url = url
         # V88: YouTube's bot-check is non-deterministic - gate EVERY fallback on the
         # whole set, never on one string, or fallbacks desync and the raw error escapes.
         _NO_FMT = ("requested format", "player response", "failed to extract", "no video formats", "unable to download")
@@ -4472,7 +4538,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                     # sort by the SHORT side so vertical videos (e.g. 720x1280) are not rejected
                     opts.update({'format': 'bv*+ba/b', 'format_sort': [f"res:{qual_name[:-1]}"]})
                 with yt_dlp.YoutubeDL(opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
+                    info = ydl.extract_info(_dl_url, download=True)
                     try:
                         vf = [f for f in (info.get('formats') or []) if f.get('vcodec') not in (None, 'none') and f.get('height')]
                         sizes = sorted({f.get('height') for f in vf})
@@ -4601,7 +4667,7 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                     if qual_name != "worst":
                         opts.update({'format': 'bv*+ba/b', 'format_sort': [f"res:{qual_name[:-1]}"]})
                     with yt_dlp.YoutubeDL(opts) as ydl:
-                        info = ydl.extract_info(url, download=True)
+                        info = ydl.extract_info(_dl_url, download=True)
                         path = ydl.prepare_filename(info)
                         if not os.path.exists(path) and os.path.exists(os.path.splitext(path)[0]+".mp4"): path = os.path.splitext(path)[0]+".mp4"
                         if os.path.exists(path):
@@ -5130,7 +5196,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     save_json_file(CACHE_FILE, cache)
 
                 # ===== EDIT D1: batch carousel cache hit =====
-                if ckey in cache and cache[ckey].get("type") == "carousel":
+                if ckey in cache and cache[ckey].get("type") == "carousel" and not _fb_stale_poster_cache(cache[ckey], url, download_type):
                     try:
                         ids = await send_cached_carousel(bot, target_destination_id, cache[ckey], ckey)
                         if not ids:
@@ -5151,7 +5217,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                 # =============================================
             
                 # V16: images cache hit - for images batch, and for video batch where link is actually an image (mixed batch).
-                if ckey in cache and cache[ckey].get("type") == "images":
+                if ckey in cache and cache[ckey].get("type") == "images" and not (download_type == "video" and _fb_is_video_link(url)):
                     _cq = cache[ckey].get("qualities", {})
                     if "original" in _cq:
                         try:
@@ -5211,7 +5277,7 @@ async def process_url_batch(bot, user_id, chat_id, target_destination_id, urls, 
                     file_paths, res, size = await asyncio.to_thread(download_media_engine, url, download_type, effective_max_mb)
                 except Exception:
                     file_paths = None
-                if (not file_paths) and download_type in ("video", "audio"):
+                if (not file_paths) and download_type in ("video", "audio") and not _fb_is_video_link(url):
                     try:
                         _fp2, _res2, _sz2 = await asyncio.to_thread(download_media_engine, url, "images", effective_max_mb)
                         if _fp2:
@@ -6394,7 +6460,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
         save_json_file(CACHE_FILE, cache)
 
     # ===== EDIT B: carousel cache hit (instant) =====
-    if ckey in cache and cache[ckey].get("type") == "carousel" and dl_type in ("video", "images"):
+    if ckey in cache and cache[ckey].get("type") == "carousel" and dl_type in ("video", "images") and not _fb_stale_poster_cache(cache[ckey], url, dl_type):
         try:
             kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
             ids = await send_cached_carousel(bot, chat_id, cache[ckey], ckey)
