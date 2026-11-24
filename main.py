@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V86 - FROM V84 + INSTAGRAM POLARIS CAROUSEL (V84 IG was yt-dlp -> gallery-dl -> Instaloader only; carousels failed. V85 adds V73 Polaris GraphQL FIRST: /api/graphql + /api/v1/media/info + /graphql/query, curl_cffi chrome + WARP + csrftoken/LSD, carousel_media in order. Instaloader stays as fallback. FB/TikTok/YouTube/Music untouched)
+# BOT V87 - FROM V84 + INSTAGRAM POLARIS CAROUSEL (V84 IG was yt-dlp -> gallery-dl -> Instaloader only; carousels failed. V85 adds V73 Polaris GraphQL FIRST: /api/graphql + /api/v1/media/info + /graphql/query, curl_cffi chrome + WARP + csrftoken/LSD, carousel_media in order. Instaloader stays as fallback. FB/TikTok/YouTube/Music untouched)
 # STOP PATCHING V74/V75. This file is V35 exact, except for ONE isolated change:
 #  - YouTube ONLY: V51 method (web_embedded + WARP + impersonate), with DIRECT fallback if WARP fails.
 #  - TikTok: V35 exact. No WARP, no web_embedded, no impersonate, no extractor_args. TikTok was working in V35.
@@ -4272,9 +4272,14 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                 last_err = e
                 # V15: block has many wordings - check lowercased. V11 only caught exact "not a bot / 429".
                 msg = str(e).lower()
-                if ("not a bot" in msg or "sign in to confirm" in msg or "429" in msg or "403" in msg or "forbidden" in msg or "failed to extract" in msg or "player response" in msg or "no video formats" in msg or "unable to download" in msg or "requested format" in msg):
+                if ("not a bot" in msg or "sign in to confirm" in msg or "429" in msg or "403" in msg or "forbidden" in msg or "failed to extract" in msg or "player response" in msg or "no video formats" in msg or "unable to download" in msg):
                     yt_blocked = True
                     break
+                if "requested format" in msg:
+                    # V87: format miss, NOT a block (not a bot-check, not 429).
+                    # Old code broke the whole tier chain on the FIRST tier, so
+                    # 720/480/360/worst were never tried. Continue to next tier.
+                    continue
                 if "unsupported url" in msg:
                     break
                 continue
@@ -4314,6 +4319,32 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                         last_err = _e2
                         continue
             except Exception: pass
+        # V87: per-client fallback. The full client list in ONE YoutubeDL call is
+        # not enough: yt-dlp can stop at the first client that returns an empty
+        # formats list (e.g. web_embedded for this video) instead of trying the
+        # rest, so EVERY format selector then fails with "Requested format is
+        # not available". One client per YoutubeDL instance forces each client
+        # to be tried fully. Only runs for this exact failure.
+        if _is_yt76 and not too_big and last_err is not None and "requested format" in str(last_err).lower():
+            for _client in ["web_embedded", "tv", "android_vr", "web", "mweb", "ios", "android"]:
+                for _base_c in [_yt_ydl_opts_for_youtube({'http_headers': http_headers, 'socket_timeout': 30}), {'quiet': True, 'no_warnings': True, 'http_headers': http_headers, 'socket_timeout': 30}]:
+                    try:
+                        _o_c = dict(_base_c)
+                        _o_c.update({"extractor_args": {"youtube": {"player_client": [_client], "po_token": ["auto"]}}})
+                        if cookiefile: _o_c['cookiefile'] = cookiefile
+                        if user_id is not None and progress_key: _o_c['progress_hooks'] = [make_progress_hook(user_id, progress_key)]
+                        _o_c.update({'format': 'best', 'outtmpl': os.path.join(output_dir, f'%(id)s_client_{_client}.%(ext)s'), 'merge_output_format': 'mp4', 'ffmpeg_location': ffmpeg_path, 'max_filesize': cap_bytes})
+                        with yt_dlp.YoutubeDL(_o_c) as _ydl_c:
+                            _info_c = _ydl_c.extract_info(url, download=True)
+                            _p_c = _ydl_c.prepare_filename(_info_c)
+                            if not os.path.exists(_p_c) and os.path.exists(os.path.splitext(_p_c)[0]+'.mp4'): _p_c = os.path.splitext(_p_c)[0]+'.mp4'
+                            if os.path.exists(_p_c) and os.path.getsize(_p_c) > 1000 and os.path.getsize(_p_c) <= cap_bytes:
+                                save_to_file_cache(url, 'video', _p_c)
+                                return [_p_c], 'client_' + _client, f"{os.path.getsize(_p_c)/(1024*1024):.1f}MB"
+                    except Exception as _e_c:
+                        last_err = _e_c
+                        continue
+                # all clients tried, none returned formats - fall through to IG/lux
         # Instagram-specific fallback for a single Reel/video after yt-dlp fails.
         if not too_big and ("instagram.com" in url.lower() or "instagr.am" in url.lower()):
             insta_files = download_instagram_post(url, output_dir, cap_bytes, min_items=1)
@@ -4372,6 +4403,10 @@ def download_media_engine(url: str, download_type: str, max_mb=None, user_id=Non
                 raise ValueError("SITE_BLOCKED")
         if too_big or last_err is None:
             raise ValueError("FILE_TOO_LARGE")
+        # V87: never surface yt-dlp's raw "Requested format is not available" -
+        # it means YouTube returned zero formats on every client we tried.
+        if "requested format" in str(last_err).lower():
+            raise ValueError("YOUTUBE_NO_FORMATS")
         raise last_err
 
 def get_main_keyboard(lang_code, is_admin):
@@ -6344,6 +6379,7 @@ async def cached_download_and_send(bot, chat_id, user_id, url, dl_type, t, credi
         elif "MTPROTO_OFF" in str(e): err = "⚠️ Big files need fast mode, which is offline right now."
         elif "MTPROTO_PEER" in str(e): err = "⚠️ Send /start to this bot once, then send the link again."
         elif "SITE_BLOCKED" in str(e): err = "⚠️ This site is blocking downloads from our server right now. Please try again later."
+        elif "YOUTUBE_NO_FORMATS" in str(e): err = "⚠️ YouTube didn't return a downloadable format for this video. It may be restricted, age-gated, or YouTube is blocking this server right now. Try again later or try a different link."
         elif isinstance(e, (asyncio.TimeoutError, TimeoutError)): err = "⚠️ This is taking too long, so I stopped. Please try again later."
         else: err = t["error_generic"]
         kb = get_main_keyboard(get_lang(user_id), user_id == ADMIN_ID)
