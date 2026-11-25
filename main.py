@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V92 - FROM V84 + INSTAGRAM POLARIS CAROUSEL (V84 IG was yt-dlp -> gallery-dl -> Instaloader only; carousels failed. V85 adds V73 Polaris GraphQL FIRST: /api/graphql + /api/v1/media/info + /graphql/query, curl_cffi chrome + WARP + csrftoken/LSD, carousel_media in order. Instaloader stays as fallback. FB/TikTok/YouTube/Music untouched)
+# BOT V93 - FROM V84 + INSTAGRAM POLARIS CAROUSEL (V84 IG was yt-dlp -> gallery-dl -> Instaloader only; carousels failed. V85 adds V73 Polaris GraphQL FIRST: /api/graphql + /api/v1/media/info + /graphql/query, curl_cffi chrome + WARP + csrftoken/LSD, carousel_media in order. Instaloader stays as fallback. FB/TikTok/YouTube/Music untouched)
 # STOP PATCHING V74/V75. This file is V35 exact, except for ONE isolated change:
 #  - YouTube ONLY: V51 method (web_embedded + WARP + impersonate), with DIRECT fallback if WARP fails.
 #  - TikTok: V35 exact. No WARP, no web_embedded, no impersonate, no extractor_args. TikTok was working in V35.
@@ -1726,7 +1726,9 @@ async def state_sync_loop():
     """V90: every 30s, push dirty state files to Flask; pull Flask's copy when
     local is empty. Non-empty wins on both sides, so a stray empty write can
     never wipe the durable copy, and a wiped disk heals from Flask.
-    Also warms every state file from Flask once at startup (cold start)."""
+    Also warms every state file from Flask once at startup (cold start).
+    V93: the Flask GET/POST run in a thread - the old sync requests blocked the
+    event loop for up to 8-10s per file, so EVERY menu button felt sluggish."""
     try:
         _warm = [f for f in BACKUP_FILES if f not in RESTORE_BLOCKLIST and f != "flask_tokens_backup.json"] + [PENDING_FILE]
         for _fname in _warm:
@@ -1746,7 +1748,7 @@ async def state_sync_loop():
                         with open(fname, "r") as f: local = json.load(f)
                     except Exception:
                         local = None
-                    remote = _flask_state_get(fname)
+                    remote = await asyncio.to_thread(_flask_state_get, fname)
                     if not local and remote:
                         try:
                             with open(fname, "w") as f: json.dump(remote, f)
@@ -1754,7 +1756,7 @@ async def state_sync_loop():
                             logger.error(f"V90 state pull {fname}: {e}")
                         continue
                     if local and local != remote:
-                        if not _flask_state_post(fname, local):
+                        if not await asyncio.to_thread(_flask_state_post, fname, local):
                             _mark_state_dirty(fname)
                 except Exception as e:
                     logger.error(f"V90 state sync {fname}: {e}")
@@ -5975,7 +5977,7 @@ async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         else:
             # FIX: use /get-profile (same refill logic as /check-download) so My Stats
             # shows the refilled balance BEFORE you try File-to-Link. No more 0->1 surprise.
-            prof = get_user_profile_from_flask(user_id)
+            prof = await asyncio.to_thread(get_user_profile_from_flask, user_id)
             if prof is not None:
                 d_left = prof.get("downloads_left", get_free_amount())
                 b_left = prof.get("batch_downloads_left", min(MAX_USER_CREDITS, get_free_amount() * 5))
@@ -6278,7 +6280,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message.from_user.id != ADMIN_ID: return
-    tokens = load_tokens()
+    tokens = await asyncio.to_thread(load_tokens)
     activity = load_json_file(ACTIVITY_FILE)
     config = load_json_file(CONFIG_FILE)
     now = time.time()
@@ -6311,13 +6313,15 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     txt = (f"📊 **ADVANCED ADMIN**\n\n• Total: **{total_users}**\n• 24h Active: **{active_24hr}**\n• Ad Mode: **{mode}**\n\n📢 **Ad Split:**\n• Monetag: **{adsgram_count}**\n• Adsterra: **{adsterra_count}**\n\n🖥️ **Render:**\n• Used: **{used_mb}MB**\n• Free: **{free_mb}MB**\n• Host: **{host_free}MB**\n• Active: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\n• Queue: **{download_queue.qsize()}**\n• Cache: **{len(cache)}** files\n• Hits: **{total_hits}** saved\n• Flood: **{len(flood_data)}**\n• Banned: **{len(banned)}**\n\n🎞️ **Video Vault:** `{VIDEO_VAULT_ID}`\n🏆 **Top 10:**\n{top_text}")
     await update.message.reply_text(txt, parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
 
+BOT_VERSION = "V93"
+
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     track_user_activity(update.message.from_user.id)
     config = load_json_file(CONFIG_FILE)
     mode = config.get("ad_mode","auto").upper().replace("ADSGRAM","MONETAG")
     free_mb = shutil.disk_usage(".").free // (1024*1024)
     cache = load_json_file(CACHE_FILE)
-    await update.message.reply_text(f"🟢 **Status V38 Monetag**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +3\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown", reply_markup=get_main_keyboard(get_lang(update.message.from_user.id), update.message.from_user.id == ADMIN_ID))
+    await update.message.reply_text(f"🟢 **Status {BOT_VERSION} Monetag**\nMode: **{mode}**\nFree: **{free_mb}MB**\nDL: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\nQueue: **{download_queue.qsize()}**\nCache: **{len(cache)}**\nVault: **{VIDEO_VAULT_ID}**\nReward: +3\nFlood: **ON**\nBackup: **6hr to {PRIVATE_CHANNEL_ID}**", parse_mode="Markdown", reply_markup=get_main_keyboard(get_lang(update.message.from_user.id), update.message.from_user.id == ADMIN_ID))
 
 async def restore_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_user.id != ADMIN_ID: return
