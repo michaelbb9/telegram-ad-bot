@@ -2121,17 +2121,25 @@ def calculate_cost_and_limits(meta_data, platform_settings):
 
 # --- PART 5: mandatory recurring channel check (every handler, every time) ---
 async def check_all_required_channels(bot, user_id, channel_list):
-    """Returns (passed, missing_list_or_None). Admin bypasses. left/kicked/exception = missing."""
+    """Returns (passed, missing_list_or_None). Admin bypasses. left/kicked/exception = missing.
+
+    Check required channels concurrently instead of waiting for each Telegram API
+    request one after another. Every interaction is still verified; no cache/bypass.
+    """
     if int(user_id) == ADMIN_ID:
         return (True, None)
-    missing_channels = []
-    for channel_id in (channel_list or []):
+
+    async def _check_one(channel_id):
         try:
             member = await bot.get_chat_member(chat_id=channel_id, user_id=user_id)
             if getattr(member, "status", None) in ("left", "kicked"):
-                missing_channels.append(str(channel_id))
+                return str(channel_id)
         except Exception:
-            missing_channels.append(str(channel_id))
+            return str(channel_id)
+        return None
+
+    results = await asyncio.gather(*(_check_one(ch) for ch in (channel_list or [])))
+    missing_channels = [ch for ch in results if ch is not None]
     return (False, missing_channels) if missing_channels else (True, None)
 
 def format_missing_channels(missing):
@@ -6759,7 +6767,8 @@ async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_id = query.from_user.id
     t = LANGUAGES.get(get_lang(user_id), LANGUAGES["en"])
     if is_banned(user_id): await query.answer(t["banned"], show_alert=True); return
-    await asyncio.to_thread(track_user_activity, user_id, query.from_user.username if query.from_user else None)
+    # Fire-and-forget activity logging: do not make every button wait for disk I/O.
+    asyncio.create_task(asyncio.to_thread(track_user_activity, user_id, query.from_user.username if query.from_user else None))
     data = query.data
     chat_id = query.message.chat_id
     lang = get_lang(user_id)
