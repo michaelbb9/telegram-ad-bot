@@ -1,5 +1,5 @@
 # ============================================================
-# BOT V93 - FROM V84 + INSTAGRAM POLARIS CAROUSEL (V84 IG was yt-dlp -> gallery-dl -> Instaloader only; carousels failed. V85 adds V73 Polaris GraphQL FIRST: /api/graphql + /api/v1/media/info + /graphql/query, curl_cffi chrome + WARP + csrftoken/LSD, carousel_media in order. Instaloader stays as fallback. FB/TikTok/YouTube/Music untouched)
+# BOT V94 - FROM V84 + INSTAGRAM POLARIS CAROUSEL (V84 IG was yt-dlp -> gallery-dl -> Instaloader only; carousels failed. V85 adds V73 Polaris GraphQL FIRST: /api/graphql + /api/v1/media/info + /graphql/query, curl_cffi chrome + WARP + csrftoken/LSD, carousel_media in order. Instaloader stays as fallback. FB/TikTok/YouTube/Music untouched)
 # STOP PATCHING V74/V75. This file is V35 exact, except for ONE isolated change:
 #  - YouTube ONLY: V51 method (web_embedded + WARP + impersonate), with DIRECT fallback if WARP fails.
 #  - TikTok: V35 exact. No WARP, no web_embedded, no impersonate, no extractor_args. TikTok was working in V35.
@@ -1635,18 +1635,23 @@ def receive_arcade_backup():
     return jsonify({"ok": False, "error": "No data"}), 400
 
 def load_json_file(filename):
-    # Fast path: local file present and non-empty - unchanged behaviour.
+    # V94: a local file that parses is authoritative EVEN IF EMPTY ({} / []).
+    # The old `if _local:` treated a legit empty state (no banned users, no
+    # linking in progress, no support tickets, no file-link in progress) as
+    # "missing" and hit Flask on EVERY load. A button press loads 6-8 such
+    # files in the preamble, so every press paid several Flask round-trips
+    # (200ms-8s each). That is why every menu button felt sluggish.
+    # The sync loop still heals a stale-empty local file from Flask (it
+    # pulls when local is empty and remote has data), so nothing is lost.
     if os.path.exists(filename):
         try:
             with open(filename, "r") as f:
-                _local = json.load(f)
-            if _local:
-                return _local
+                return json.load(f)
         except Exception:
             pass
-    # V90: local file missing / empty / corrupt (e.g. Render disk wiped on
-    # restart). Fall back to the Flask state store on PythonAnywhere, whose
-    # disk persists. This is what makes a restore survive a restart.
+    # V90: local file missing / corrupt (e.g. Render disk wiped on restart).
+    # Fall back to the Flask state store on PythonAnywhere, whose disk
+    # persists. This is what makes a restore survive a restart.
     if filename not in RESTORE_BLOCKLIST and filename != "flask_tokens_backup.json":
         _remote = _flask_state_get(filename)
         if _remote:
@@ -1742,6 +1747,14 @@ async def state_sync_loop():
             with _state_dirty_lock:
                 todo = sorted(_state_dirty)
                 _state_dirty.clear()
+            if not todo:
+                # V94: keep PythonAnywhere warm. With no dirty files the loop
+                # made NO request, so Flask could sleep - then the first
+                # user-triggered Flask call (Stats / download) paid the
+                # whole wake-up (up to the 5s timeout). One cheap GET
+                # every 30s keeps the worker alive. Result ignored.
+                try: await asyncio.to_thread(_flask_state_get, CONFIG_FILE)
+                except Exception: pass
             for fname in todo:
                 try:
                     try:
@@ -2431,7 +2444,7 @@ async def backup_to_channel(bot):
         # FETCH THE ARCADE BACKUP FROM PYTHONANYWHERE
         try:
             logger.info("Fetching arcade backup from PythonAnywhere...")
-            r = requests.get(f"{WEB_BASE_URL}/api/arcade/get-backup", headers=API_HEADERS, timeout=10)
+            r = await asyncio.to_thread(requests.get, f"{WEB_BASE_URL}/api/arcade/get-backup", headers=API_HEADERS, timeout=10)
             if r.status_code == 200:
                 data = r.json()
                 if data.get("ok"):
@@ -2447,7 +2460,7 @@ async def backup_to_channel(bot):
         # files. Without this snapshot, restoring backups can never bring My Stats back.
         try:
             logger.info("Fetching tokens backup from PythonAnywhere...")
-            _rt = requests.get(f"{WEB_BASE_URL}/get_tokens", headers=API_HEADERS, timeout=10)
+            _rt = await asyncio.to_thread(requests.get, f"{WEB_BASE_URL}/get_tokens", headers=API_HEADERS, timeout=10)
             if _rt.status_code == 200 and isinstance(_rt.json(), dict):
                 with open("flask_tokens_backup.json", "w") as f:
                     json.dump(_rt.json(), f)
@@ -6313,7 +6326,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     txt = (f"📊 **ADVANCED ADMIN**\n\n• Total: **{total_users}**\n• 24h Active: **{active_24hr}**\n• Ad Mode: **{mode}**\n\n📢 **Ad Split:**\n• Monetag: **{adsgram_count}**\n• Adsterra: **{adsterra_count}**\n\n🖥️ **Render:**\n• Used: **{used_mb}MB**\n• Free: **{free_mb}MB**\n• Host: **{host_free}MB**\n• Active: **{active_downloads}/{MAX_CONCURRENT_SHORT}**\n• Queue: **{download_queue.qsize()}**\n• Cache: **{len(cache)}** files\n• Hits: **{total_hits}** saved\n• Flood: **{len(flood_data)}**\n• Banned: **{len(banned)}**\n\n🎞️ **Video Vault:** `{VIDEO_VAULT_ID}`\n🏆 **Top 10:**\n{top_text}")
     await update.message.reply_text(txt, parse_mode="Markdown", reply_markup=get_main_keyboard("en", True))
 
-BOT_VERSION = "V93"
+BOT_VERSION = "V94"
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     track_user_activity(update.message.from_user.id)
